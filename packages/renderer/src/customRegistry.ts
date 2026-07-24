@@ -1,0 +1,197 @@
+// ============================================================================
+//  @fuaran-ui/renderer/customRegistry — the NodeKind.Custom bounded-escape
+//  registry + the host effect-substrate runtime.
+//
+//  Mirrors the F# `IFuaranRuntime.RegisterCustomRenderer` shape (Phase 12.M /
+//  Phase 70): a host wires a React component against a `moduleId`/`componentId`
+//  pair, and `Custom` nodes carrying that pair dispatch to the registered
+//  component. Registries are PER-`FuaranRenderer`-INSTANCE — never module-
+//  global — matching the F# per-scope discipline; the host threads one in via
+//  the `<FuaranRenderer runtime={...}>` prop and the default is empty.
+// ============================================================================
+
+import type { FunctionComponent } from 'react';
+
+import type {
+  ContentHash,
+  FileReadEncoding,
+  FileRef,
+  InvokeArg,
+  JsonValue,
+} from '@fuaran-ui/schema';
+
+/** Props a registered custom React component receives. */
+export interface CustomRendererProps {
+  readonly moduleId: string;
+  readonly componentId: string;
+  readonly props: Readonly<Record<string, JsonValue>>;
+}
+
+/** A host-registered React component for a `NodeKind.Custom` body. */
+export type CustomRenderer = FunctionComponent<CustomRendererProps>;
+
+interface CustomRendererEntry {
+  readonly render: CustomRenderer;
+  readonly contentHash?: ContentHash;
+}
+
+const key = (moduleId: string, componentId: string): string => `${moduleId}.${componentId}`;
+
+/**
+ * A per-instance map of `${moduleId}.${componentId}` → registered React
+ * component (+ optional content hash for Phase 70 bounded-escape verification).
+ */
+export class CustomRendererRegistry {
+  private readonly map = new Map<string, CustomRendererEntry>();
+
+  /** Register a renderer for a module/component pair. Chainable. */
+  register(
+    moduleId: string,
+    componentId: string,
+    render: CustomRenderer,
+    contentHash?: ContentHash,
+  ): this {
+    const entry: CustomRendererEntry =
+      contentHash !== undefined ? { render, contentHash } : { render };
+    this.map.set(key(moduleId, componentId), entry);
+    return this;
+  }
+
+  /** Look up a registered renderer, or `undefined` if none is registered. */
+  get(moduleId: string, componentId: string): CustomRendererEntry | undefined {
+    return this.map.get(key(moduleId, componentId));
+  }
+
+  /** True when a renderer is registered for the pair. */
+  has(moduleId: string, componentId: string): boolean {
+    return this.map.has(key(moduleId, componentId));
+  }
+}
+
+/** Construct a fresh, empty per-instance registry. */
+export const createCustomRendererRegistry = (): CustomRendererRegistry =>
+  new CustomRendererRegistry();
+
+/**
+ * Free-function form of `registry.register` — `registerCustomRenderer(registry,
+ * 'charts', 'sparkline', MySparkline)`. Returns the registry for chaining.
+ */
+export const registerCustomRenderer = (
+  registry: CustomRendererRegistry,
+  moduleId: string,
+  componentId: string,
+  render: CustomRenderer,
+  contentHash?: ContentHash,
+): CustomRendererRegistry => registry.register(moduleId, componentId, render, contentHash);
+
+/**
+ * The action shape handed to a {@link FuaranRuntime.canDispatch} policy gate —
+ * the TS mirror of the F# `Fuaran.UI.Renderer.Runtime.ActionDescriptor` (Phase
+ * 119). Only the host-effecting / navigational / tool-invoking / file-reading
+ * actions are gated; `Dispatch` / `SetState` / `Notify` / `CommitLocal` /
+ * `WriteToClipboard` / `Chain` are not (matching the F# gated set).
+ */
+export type ActionDescriptor =
+  | { readonly kind: 'Call'; readonly endpoint: string }
+  | { readonly kind: 'Navigate'; readonly route: string }
+  | { readonly kind: 'AiTool'; readonly toolName: string }
+  | { readonly kind: 'ReadFileBody'; readonly fileId: string }
+  // Phase 90 — the in-page `window.__fuaran.apply(opJson)` mutation routes
+  // through the same default-deny gate (FGP 3); `summary` is the raw op JSON.
+  // Append-only parity mirror of the F# `ActionDescriptor.ApplyTreeOp`.
+  | { readonly kind: 'ApplyTreeOp'; readonly summary: string };
+
+/** Render a descriptor for diagnostics — mirror of the F# `ActionDescriptor.describe`. */
+export const describeActionDescriptor = (descriptor: ActionDescriptor): string => {
+  switch (descriptor.kind) {
+    case 'Call':
+      return `Call(${descriptor.endpoint})`;
+    case 'Navigate':
+      return `Navigate(${descriptor.route})`;
+    case 'AiTool':
+      return `AiTool(${descriptor.toolName})`;
+    case 'ReadFileBody':
+      return `ReadFileBody(${descriptor.fileId})`;
+    case 'ApplyTreeOp':
+      return `ApplyTreeOp(${descriptor.summary})`;
+  }
+};
+
+/**
+ * The host effect substrate. `Action.Dispatch` / `Action.Chain` /
+ * `Action.CommitLocal` are renderer-native; the other action kinds route
+ * through these optional ports. An unwired port no-ops with a `warn`. The
+ * custom-renderer registry rides on this record so the host wires one object.
+ */
+export interface FuaranRuntime {
+  readonly registry?: CustomRendererRegistry;
+  readonly call?: (endpoint: string, onResult: (raw: unknown) => void) => void;
+  readonly notify?: (channel: string, payload: JsonValue) => void;
+  readonly navigate?: (route: string) => void;
+  readonly setState?: (key: string, value: JsonValue) => void;
+  /**
+   * Phase 423 — the declarative filter write seam, the Filter-channel twin of `setState`. A chip
+   * whose `FilterKind.onChange` is omitted (the AI-authored shape) writes `$filters.<name>` here on
+   * change; the host updates its filter state + re-renders (the TS renderer is host-driven, so it
+   * has no built-in reactive store — the same model as `setState`). `value === undefined` clears the
+   * key (a cleared `ChoiceFilter` choice). Unwired ⇒ the write warns and is dropped.
+   */
+  readonly setFilter?: (name: string, value: JsonValue | undefined) => void;
+  /**
+   * Phase 427 — the declarative selection write seam, the Selection-channel
+   * twin of `setFilter`. A data-bearing grid whose `onRowClick` is omitted
+   * (the AI-authored shape) writes the clicked row here under its own NodeId;
+   * the host updates its `sources.selections[nodeId]` + re-renders, and every
+   * `Binding.Selection` reader of that grid sees the row (decoded
+   * master-detail). `value === undefined` clears the selection. Unwired ⇒ the
+   * write warns and is dropped.
+   */
+  readonly setSelection?: (nodeId: string, value: JsonValue | undefined) => void;
+  /**
+   * Phase 428 — the declarative query-result write seam, the Query-channel
+   * twin of `setState`. An `Action.Call` whose `into` is `{kind:'Query',name}`
+   * writes the decoded response here on completion; the host updates its
+   * `sources.queryResults[name]` + re-renders, and every `Binding.Query name`
+   * reader sees the result (data-preserving per the Phase 421 identity
+   * accessor). Unwired ⇒ the write warns and is dropped.
+   */
+  readonly setQueryResult?: (name: string, value: JsonValue) => void;
+  readonly invokeAiTool?: (toolName: string, args: JsonValue) => void;
+  readonly writeToClipboard?: (text: string) => void;
+  /**
+   * Phase 136 — read a selected file's body. `file.handle` carries the browser
+   * `File` blob; `encoding` picks the byte→string projection; `onRead` fires
+   * with the read body (async at the host level). An unwired port falls back to
+   * a `FileReader` read in the browser (see `runAction`).
+   */
+  readonly readFileBody?: (
+    file: FileRef,
+    encoding: FileReadEncoding,
+    onRead: (body: string) => void,
+  ) => void;
+  /**
+   * Phase 159 — default-deny dispatch gate, the TS mirror of the F#
+   * `IFuaranRuntime.CanDispatch` (Phase 119). `runAction` consults this BEFORE
+   * the gated effects (`Call` / `Navigate` / `AiTool` / `ReadFileBody`) fire.
+   * Return `false` to deny — the renderer emits a diagnostic via `warn` and
+   * skips the effect. An ABSENT gate allows (so existing hosts behave exactly as
+   * before, matching the F# default runtimes returning `true`). A standalone
+   * host that hydrates a server-emitted tree it does not fully trust (e.g. the
+   * in-browser-decode hydration path, or a BYOK playground) supplies this —
+   * typically consulting a hydrated allowlist — so a decoded tree's `Navigate` /
+   * `AiTool` / `Call` cannot fire unapproved.
+   */
+  readonly canDispatch?: (descriptor: ActionDescriptor) => boolean;
+  /**
+   * Phase 283/284 — dispatch a host-registered capability as an effect
+   * (`Action.Invoke`). `runAction` gates this by shape (reusing the `AiTool`
+   * descriptor — the closest gate surface for a named host invocation), then
+   * calls this port; an ABSENT port warns rather than silently dropping,
+   * matching the F# `runAction` Invoke arm (gate, then dispatch / diagnostic).
+   * A host wires real capability dispatch + Phase-27 replay here.
+   */
+  readonly invokeCapability?: (capabilityId: string, args: readonly InvokeArg[]) => void;
+  readonly warn?: (message: string) => void;
+}
+
+export const emptyRuntime: FuaranRuntime = {};

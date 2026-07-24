@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Fuaran</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="status-bar">
+        <span id="status" class="status-detecting">Detecting Fuaran app…</span>
+        <button id="refresh" type="button" title="Re-read the live tree">Refresh</button>
+        <label id="mutation-toggle-label">
+          <input id="mutation-toggle" type="checkbox" />
+          Enable gated mutation
+        </label>
+      </header>
+      <main id="main">
+        <section id="tree-pane">
+          <h2 class="pane-title" id="tree-title">Typed tree</h2>
+          <div id="tree" role="tree"></div>
+        </section>
+        <section id="detail-pane">
+          <h2 class="pane-title">Node detail</h2>
+          <div id="detail" class="empty">Select a node to inspect it.</div>
+          <div id="apply-box" hidden>
+            <h3>Apply a TreeOp (policy-gated)</h3>
+            <p class="hint">
+              Routed through the page's <code>__fuaran.apply</code> — the default-deny policy gate
+              decides; a denied op returns its envelope and leaves the tree unchanged.
+            </p>
+            <textarea id="apply-json" rows="5" placeholder='{"$type":"UpdateProp", …}'></textarea>
+            <button id="apply-run" type="button">Apply</button>
+            <pre id="apply-result" class="empty"></pre>
+          </div>
+        </section>
+      </main>
+      <section id="timeline-pane">
+        <h2 class="pane-title">
+          Op-stream timeline
+          <select
+            id="stream-select"
+            title="Scope the timeline to the host or one mounted guest"
+          ></select>
+          <span id="timeline-status" class="hint"></span>
+        </h2>
+        <div id="timeline-body">
+          <div id="timeline-scrub-row" hidden>
+            <input id="timeline-scrub" type="range" min="0" value="0" step="1" />
+            <span id="timeline-position"></span>
+            <button id="timeline-live" type="button" hidden>Back to live</button>
+          </div>
+          <ol id="timeline-records"></ol>
+        </div>
+      </section>
+    </div>
+    <script src="panel.js"></script>
+  </body>
+</html>

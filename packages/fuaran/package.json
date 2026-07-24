@@ -1,0 +1,37 @@
+{
+  "name": "@fuaran-ui/fuaran",
+  "version": "0.0.0-placeholder.2",
+  "description": "Reserved convenience entry point for the Fuaran UI TypeScript implementation. The substantive packages ship as @fuaran-ui/ui, @fuaran-ui/ops, @fuaran-ui/renderer and friends — install @fuaran-ui/ui instead.",
+  "license": "Apache-2.0",
+  "author": "Andrew J. Willshire <andrew@fuaran.com> (Diametrical Ltd)",
+  "homepage": "https://github.com/fuaran-ui/fuaran-ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fuaran-ui/fuaran-ts.git",
+    "directory": "packages/fuaran"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "echo \"(no tests yet — placeholder package)\" && exit 0",
+    "lint": "echo \"(no lint yet — placeholder package)\" && exit 0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

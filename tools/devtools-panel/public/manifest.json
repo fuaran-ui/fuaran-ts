@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Fuaran DevTools",
+  "version": "0.1.0",
+  "description": "Debug a running Fuaran app at the typed-tree level: live Node-tree view, per-node binding + geometry detail, and a scrubable op-stream timeline.",
+  "devtools_page": "devtools.html",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["hook.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": []
+}

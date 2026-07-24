@@ -1,0 +1,21 @@
+{
+  "//": "Used only by check-drift.mjs. It extracts the compile-marked code blocks from the",
+  "//2": "docs into docs/.drift/*.ts (gitignored) and type-checks them against the CURRENT built",
+  "//3": "@fuaran-ui/client types, so a doc snippet that no longer compiles fails the drift check.",
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "target": "es2022",
+    "lib": ["es2022", "dom"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": [],
+    "baseUrl": ".",
+    "paths": {
+      "@fuaran-ui/client": ["../packages/client/dist/index.d.ts"],
+      "@fuaran-ui/client/render": ["../packages/client/dist/render.d.ts"]
+    }
+  },
+  "include": [".drift/*.ts"]
+}

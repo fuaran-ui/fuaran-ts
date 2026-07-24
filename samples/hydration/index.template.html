@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fuaran — in-browser-decode hydration (TS)</title>
+  </head>
+  <body>
+    <!--
+      The block below (the #host container + the embedded wire-tree <script>) is
+      written by ssr.mjs, replacing the SSR_OUTLET marker. It is exactly what a
+      server would ship: server-rendered HTML for first paint + SEO, plus the
+      canonical wire JSON the browser decodes to hydrate. Do not edit by hand.
+    -->
+    <!--SSR_OUTLET-->
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

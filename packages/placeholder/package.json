@@ -1,0 +1,17 @@
+{
+  "name": "fuaran",
+  "version": "0.0.0-placeholder.2",
+  "description": "Defensive placeholder for the unscoped npm name 'fuaran'. The real Fuaran packages are published under the @fuaran-ui scope. Install with: npm install @fuaran-ui/ui",
+  "private": false,
+  "license": "Apache-2.0",
+  "author": "Andrew J. Willshire <andrew@fuaran.com> (Diametrical Ltd)",
+  "homepage": "https://github.com/fuaran-ui/fuaran-ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fuaran-ui/fuaran-ts.git",
+    "directory": "packages/placeholder"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "name": "@fuaran-ui/schema",
+  "version": "0.1.0",
+  "description": "TypeScript shape of the Fuaran UI §4b typed record contract — tagged unions for every NodeKind / LayoutKind / DisplayKind / InputKind / VisKind / Spec, branded NodeId / FragmentId, bounded primitives, and declarative Defaults.* constants. One conformant host of the canonical Fuaran wire format.",
+  "keywords": [
+    "fuaran",
+    "ui",
+    "ai",
+    "typed-ui",
+    "wire-format"
+  ],
+  "license": "Apache-2.0",
+  "author": "Andrew J. Willshire <andrew@fuaran.com> (Diametrical Ltd)",
+  "homepage": "https://github.com/fuaran-ui/fuaran-ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fuaran-ui/fuaran-ts.git",
+    "directory": "packages/schema"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

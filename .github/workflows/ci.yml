@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+  # Fire the workspace wire-format cross-implementation conformance gate after a
+  # successful build on a push to main. Path filters in fuaran-ui/workspace cannot
+  # see pushes to THIS repo, so we POST a `wire-conformance` repository_dispatch to
+  # the workspace repo (whose .github/workflows/wire-conformance.yml listens on
+  # `repository_dispatch: types: [wire-conformance]`; see the workspace
+  # roadmap/TIDY-UP.md "Wire the cross-conformance gate trigger" bundle).
+  #
+  # Requires a repo/Actions secret WORKSPACE_DISPATCH_TOKEN — a fine-grained PAT or
+  # GitHub App token with `Contents: write` on fuaran-ui/workspace (the scope the
+  # repository_dispatch REST endpoint requires; classic-PAT equivalent is the `repo`
+  # scope). The default GITHUB_TOKEN is scoped to THIS repo only and cannot dispatch
+  # cross-repo. [OPERATOR-GATED — the secret must be provisioned for this to fire.]
+  notify-workspace-conformance:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger workspace wire-format conformance gate
+        env:
+          GH_TOKEN: ${{ secrets.WORKSPACE_DISPATCH_TOKEN }}
+        run: |
+          gh api repos/fuaran-ui/workspace/dispatches \
+            --method POST \
+            -f event_type=wire-conformance \
+            -f 'client_payload[source_repo]=fuaran-ts' \
+            -f 'client_payload[sha]=${{ github.sha }}'

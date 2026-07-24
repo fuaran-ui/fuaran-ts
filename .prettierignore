@@ -1,0 +1,17 @@
+node_modules
+dist
+**/dist
+pnpm-lock.yaml
+# Generated SSR artifact — server-rendered by samples/hydration/ssr.mjs (git-ignored;
+# tracked source is samples/hydration/index.template.html). Never reformat build output,
+# or a full local build turns the format gate red.
+samples/hydration/index.html
+# Bundled wire-format corpus snapshot — byte-exact payloads, never reformatted.
+packages/conformance/corpus
+# Reference CSS — a byte-copy of the canonical F# fuaran-reference.css (workspace
+# CLAUDE.md "Reference-CSS sync"). Prettier must never reformat it, or the
+# byte-copy parity invariant breaks and masks the next genuine drift.
+packages/renderer/css/fuaran.css
+# Generated recipe bank — extractor output is byte-stable; reformatting it
+# would make every regeneration a spurious diff.
+packages/mcp/src/recipeBank.generated.ts

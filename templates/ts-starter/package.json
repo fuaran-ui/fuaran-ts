@@ -1,0 +1,28 @@
+{
+  "name": "fuaran-starter-ts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Official TypeScript starter for Fuaran — Vite + React 19 wired to @fuaran-ui/*: mount the renderer, author a sample tree, run the dispatch loop. Distil-and-go.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fuaran-ui/renderer": "workspace:*",
+    "@fuaran-ui/schema": "workspace:*",
+    "@fuaran-ui/ui": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.5"
+  }
+}

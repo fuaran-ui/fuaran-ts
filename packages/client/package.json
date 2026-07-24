@@ -1,0 +1,86 @@
+{
+  "name": "@fuaran-ui/client",
+  "version": "0.1.0",
+  "description": "Typed TypeScript client for the Fuaran generation endpoint — collapses integration to call, render, remember the tree. Owns the request/response contract + access-token/BYOK-key plumbing + the turn-loop helper (hold the current tree so the next prompt is a cheap repair diff) + one-liner renderer glue over @fuaran-ui/renderer.",
+  "keywords": [
+    "fuaran",
+    "ui",
+    "ai",
+    "client",
+    "sdk",
+    "byok"
+  ],
+  "license": "Apache-2.0",
+  "author": "Andrew J. Willshire <andrew@fuaran.com> (Diametrical Ltd)",
+  "homepage": "https://github.com/fuaran-ui/fuaran-ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fuaran-ui/fuaran-ts.git",
+    "directory": "packages/client"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./render": {
+      "types": "./dist/render.d.ts",
+      "import": "./dist/render.js",
+      "require": "./dist/render.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "peerDependencies": {
+    "@fuaran-ui/ops": "workspace:^",
+    "@fuaran-ui/renderer": "workspace:^",
+    "@fuaran-ui/schema": "workspace:^",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@fuaran-ui/ops": {
+      "optional": true
+    },
+    "@fuaran-ui/renderer": {
+      "optional": true
+    },
+    "@fuaran-ui/schema": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@fuaran-ui/ops": "workspace:*",
+    "@fuaran-ui/renderer": "workspace:*",
+    "@fuaran-ui/schema": "workspace:*",
+    "@fuaran-ui/ui": "workspace:*",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^25.0.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

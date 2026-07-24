@@ -1,0 +1,28 @@
+{
+  "name": "@fuaran-ui/devtools-panel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fuaran DevTools — a Manifest V3 browser-extension DevTools panel that debugs a running Fuaran app at the typed-tree level: live Node-tree view with hover-highlighting, per-node binding/geometry detail, and a scrubable op-stream timeline. Workspace-internal tool; loaded unpacked, never published to npm.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/fuaran-ui/fuaran-ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fuaran-ui/fuaran-ts.git",
+    "directory": "tools/devtools-panel"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@fuaran-ui/ai-tools": "workspace:*",
+    "@fuaran-ui/op-stream": "workspace:*",
+    "@fuaran-ui/schema": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287"
+  }
+}

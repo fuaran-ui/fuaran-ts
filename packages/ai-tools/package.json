@@ -1,0 +1,63 @@
+{
+  "name": "@fuaran-ui/ai-tools",
+  "version": "0.1.0",
+  "description": "Runtime tree-introspection surface for the Fuaran UI typed Node tree — getNodeState / findNodes / inspectTree over the typed shape, plus a React context provider + useFuaranIntrospection hook. The TypeScript port of the read-only introspection subset of Fuaran.UI.AiTools; kind names + binding-slot expressions match the F# tier.",
+  "keywords": [
+    "fuaran",
+    "ui",
+    "ai",
+    "introspection",
+    "devtools"
+  ],
+  "license": "Apache-2.0",
+  "author": "Andrew J. Willshire <andrew@fuaran.com> (Diametrical Ltd)",
+  "homepage": "https://github.com/fuaran-ui/fuaran-ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fuaran-ui/fuaran-ts.git",
+    "directory": "packages/ai-tools"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "peerDependencies": {
+    "@fuaran-ui/schema": "workspace:^",
+    "react": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@fuaran-ui/ops": "workspace:*",
+    "@fuaran-ui/schema": "workspace:*",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^25.0.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

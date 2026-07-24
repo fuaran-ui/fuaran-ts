@@ -1,0 +1,8 @@
+{
+  "kind": "ports",
+  "app": "fuaran-ts/samples/demo",
+  "estate": "fuaran-ui",
+  "class": "website",
+  "server": [14030, 14039],
+  "client": [24030, 24039]
+}

@@ -1,0 +1,65 @@
+{
+  "name": "@fuaran-ui/layout-observer",
+  "version": "0.1.0",
+  "description": "Browser-default layout-flag observer for the Fuaran UI typed Node tree — watches a rendered tree via ResizeObserver and derives a fixed vocabulary of layout flags (overflow, zero-dimension, squeezed-to-min, clipped-by-ancestor, aspect-ratio-off) the semantic-state channel is blind to. The TypeScript port of Fuaran.UI.LayoutObserver.{Abstractions,Default}; flag JSON is byte-identical to the F# tier.",
+  "keywords": [
+    "fuaran",
+    "ui",
+    "ai",
+    "layout",
+    "observer",
+    "resizeobserver"
+  ],
+  "license": "Apache-2.0",
+  "author": "Andrew J. Willshire <andrew@fuaran.com> (Diametrical Ltd)",
+  "homepage": "https://github.com/fuaran-ui/fuaran-ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fuaran-ui/fuaran-ts.git",
+    "directory": "packages/layout-observer"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@fuaran-ui/ops": "workspace:*",
+    "@fuaran-ui/renderer": "workspace:*",
+    "@fuaran-ui/schema": "workspace:*",
+    "@fuaran-ui/ui": "workspace:*",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^25.0.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

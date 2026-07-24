@@ -1,0 +1,30 @@
+{
+  "name": "@fuaran-ui/hydration-sample",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Live-browser worked example of the in-browser-decode hydration path: a server (Node) renders the canonical tree to static HTML AND embeds the wire-format JSON; the browser decodes it via @fuaran-ui/ops and attaches React with hydrateRoot. Workspace-internal — never published to npm.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "ssr": "node ssr.mjs",
+    "dev": "node ssr.mjs && vite",
+    "build": "tsc --noEmit && node ssr.mjs && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fuaran-ui/ops": "workspace:*",
+    "@fuaran-ui/renderer": "workspace:*",
+    "@fuaran-ui/schema": "workspace:*",
+    "@fuaran-ui/ui": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.5"
+  }
+}

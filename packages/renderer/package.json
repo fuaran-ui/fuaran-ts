@@ -1,0 +1,83 @@
+{
+  "name": "@fuaran-ui/renderer",
+  "version": "0.1.0",
+  "description": "React renderer + reference CSS + per-instance custom-renderer registry for the Fuaran UI typed Node tree — a conformant TypeScript host of the language-neutral contract in fuaran/docs/WIRE_FORMAT.md. Renders any tree @fuaran-ui/ui authors or @fuaran-ui/ops decodes, with class-name + ARIA parity to the F# reference renderer.",
+  "keywords": [
+    "fuaran",
+    "ui",
+    "ai",
+    "react",
+    "renderer",
+    "tsx"
+  ],
+  "license": "Apache-2.0",
+  "author": "Andrew J. Willshire <andrew@fuaran.com> (Diametrical Ltd)",
+  "homepage": "https://github.com/fuaran-ui/fuaran-ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fuaran-ui/fuaran-ts.git",
+    "directory": "packages/renderer"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./sanitize": {
+      "types": "./dist/sanitize.d.ts",
+      "import": "./dist/sanitize.js",
+      "require": "./dist/sanitize.cjs"
+    },
+    "./enhance-math": {
+      "types": "./dist/enhanceMath.d.ts",
+      "import": "./dist/enhanceMath.js",
+      "require": "./dist/enhanceMath.cjs"
+    },
+    "./css": "./css/fuaran.css"
+  },
+  "files": [
+    "dist",
+    "css",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "katex": "^0.16.11"
+  },
+  "peerDependencies": {
+    "@fuaran-ui/ai-tools": "workspace:^",
+    "@fuaran-ui/charts": "workspace:^",
+    "@fuaran-ui/ops": "workspace:^",
+    "@fuaran-ui/schema": "workspace:^",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@fuaran-ui/ai-tools": "workspace:*",
+    "@fuaran-ui/charts": "workspace:*",
+    "@fuaran-ui/ops": "workspace:*",
+    "@fuaran-ui/schema": "workspace:*",
+    "@fuaran-ui/ui": "workspace:*",
+    "@types/katex": "^0.16.7",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "axe-core": "^4.10.2",
+    "jsdom": "^25.0.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

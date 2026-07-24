@@ -1,0 +1,2000 @@
+{
+  "version": 1,
+  "schema": "schema.json",
+  "description": "Fuaran canonical wire-format conformance corpus. node-round-trip / op-round-trip fixtures: decode inputFile, re-encode, assert byte-equal to expectedFile. reject fixtures: decode inputFile, assert DecodeError.Code = expectedErrorCode and DecodeError.Path starts with expectedPath. lenient-accept fixtures (WIRE_FORMAT 16): decode the SHORTHAND inputFile, re-encode, assert byte-equal to expectedFile (the verbose canonical form) — a conformant host MUST accept the shorthand and normalise it; rejecting it, or decoding it to different bytes, is non-conformant. envelope-round-trip / envelope-reject fixtures (WIRE_FORMAT 15): read the $profile/$payload envelope, negotiate the authored profile against the host's own core@1.0, then either re-render byte-equal to expectedFile (Current/Behind — unknown kinds preserved verbatim, must-ignore-but-preserve) or refuse a Foreign profile with expectedErrorCode FOREIGN_PROFILE at expectedPath. elicitation-round-trip / elicitation-reject fixtures (WIRE_FORMAT 18): decode with the decoder-named entry point (elicitation = the envelope codec, elicitation-outcome = the outcome codec), then either re-encode byte-equal to expectedFile or assert the structured refusal (expectedErrorCode at a path starting with expectedPath). elicitation-answer-accept / elicitation-answer-reject fixtures (WIRE_FORMAT 18.4): the inputFile pairs {answer, contract}; run the host's answer-conformance validation and assert acceptance or the expected refusal. See fuaran/docs/WIRE_FORMAT.md.",
+  "kinds": [
+    "Badge",
+    "Box",
+    "Button",
+    "Callout",
+    "Chart",
+    "CodeBlock",
+    "Custom",
+    "DataGrid",
+    "Disclosure",
+    "Drawing",
+    "ErrorBoundary",
+    "Fact",
+    "FileUpload",
+    "Filters",
+    "Form",
+    "FragmentDecl",
+    "FragmentRef",
+    "Heading",
+    "Image",
+    "LabelValueRow",
+    "Link",
+    "List",
+    "Map",
+    "Markdown",
+    "Math",
+    "Metric",
+    "Modal",
+    "Mount",
+    "Progress",
+    "ScrollArea",
+    "Select",
+    "Skeleton",
+    "Sparkline",
+    "SplitPanel",
+    "Stepper",
+    "SummaryList",
+    "Switch",
+    "Tabs",
+    "Toast"
+  ],
+  "fixtures": [
+    {
+      "id": "elc-ans-accept-full",
+      "kind": "elicitation-answer-accept",
+      "decoder": "elicitation-answer",
+      "inputFile": "elicitation/elc-ans-accept-full.json",
+      "expectedFile": "elicitation/elc-ans-accept-full.json",
+      "description": "every declared field, all in-space (WIRE_FORMAT 18.4)"
+    },
+    {
+      "id": "elc-ans-accept-int-for-float",
+      "kind": "elicitation-answer-accept",
+      "decoder": "elicitation-answer",
+      "inputFile": "elicitation/elc-ans-accept-int-for-float.json",
+      "expectedFile": "elicitation/elc-ans-accept-int-for-float.json",
+      "description": "a whole-valued number satisfies a floatRange — JSON has one number type (WIRE_FORMAT 18.4)"
+    },
+    {
+      "id": "elc-ans-accept-minimal",
+      "kind": "elicitation-answer-accept",
+      "decoder": "elicitation-answer",
+      "inputFile": "elicitation/elc-ans-accept-minimal.json",
+      "expectedFile": "elicitation/elc-ans-accept-minimal.json",
+      "description": "required fields only — optional fields may be omitted (WIRE_FORMAT 18.4)"
+    },
+    {
+      "id": "elc-ans-reject-enum",
+      "kind": "elicitation-answer-reject",
+      "decoder": "elicitation-answer",
+      "inputFile": "elicitation/elc-ans-reject-enum.json",
+      "expectedErrorCode": "ANSWER_OUT_OF_SPACE",
+      "expectedPath": "$.answer.size",
+      "description": "string outside its enum (WIRE_FORMAT 18.4)"
+    },
+    {
+      "id": "elc-ans-reject-float-range",
+      "kind": "elicitation-answer-reject",
+      "decoder": "elicitation-answer",
+      "inputFile": "elicitation/elc-ans-reject-float-range.json",
+      "expectedErrorCode": "ANSWER_OUT_OF_SPACE",
+      "expectedPath": "$.answer.score",
+      "description": "number outside its floatRange (WIRE_FORMAT 18.4)"
+    },
+    {
+      "id": "elc-ans-reject-int-range",
+      "kind": "elicitation-answer-reject",
+      "decoder": "elicitation-answer",
+      "inputFile": "elicitation/elc-ans-reject-int-range.json",
+      "expectedErrorCode": "ANSWER_OUT_OF_SPACE",
+      "expectedPath": "$.answer.rating",
+      "description": "integer outside its intRange (WIRE_FORMAT 18.4)"
+    },
+    {
+      "id": "elc-ans-reject-missing-required",
+      "kind": "elicitation-answer-reject",
+      "decoder": "elicitation-answer",
+      "inputFile": "elicitation/elc-ans-reject-missing-required.json",
+      "expectedErrorCode": "ANSWER_MISSING_FIELD",
+      "expectedPath": "$.answer.rating",
+      "description": "required answer field absent (WIRE_FORMAT 18.4)"
+    },
+    {
+      "id": "elc-ans-reject-string-len",
+      "kind": "elicitation-answer-reject",
+      "decoder": "elicitation-answer",
+      "inputFile": "elicitation/elc-ans-reject-string-len.json",
+      "expectedErrorCode": "ANSWER_OUT_OF_SPACE",
+      "expectedPath": "$.answer.bio",
+      "description": "string longer than its stringLen bound (WIRE_FORMAT 18.4)"
+    },
+    {
+      "id": "elc-ans-reject-type-mismatch",
+      "kind": "elicitation-answer-reject",
+      "decoder": "elicitation-answer",
+      "inputFile": "elicitation/elc-ans-reject-type-mismatch.json",
+      "expectedErrorCode": "ANSWER_TYPE_MISMATCH",
+      "expectedPath": "$.answer.rating",
+      "description": "string where the space demands an integer (WIRE_FORMAT 18.4)"
+    },
+    {
+      "id": "elc-ans-reject-undeclared",
+      "kind": "elicitation-answer-reject",
+      "decoder": "elicitation-answer",
+      "inputFile": "elicitation/elc-ans-reject-undeclared.json",
+      "expectedErrorCode": "ANSWER_UNDECLARED_FIELD",
+      "expectedPath": "$.answer.color",
+      "description": "undeclared answer key — default-deny by shape (WIRE_FORMAT 18.4)"
+    },
+    {
+      "id": "elc-out-reject-empty-id",
+      "kind": "elicitation-reject",
+      "decoder": "elicitation-outcome",
+      "inputFile": "elicitation/elc-out-reject-empty-id.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.elicitationId",
+      "description": "outcome with an empty elicitationId (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-out-reject-missing-answer",
+      "kind": "elicitation-reject",
+      "decoder": "elicitation-outcome",
+      "inputFile": "elicitation/elc-out-reject-missing-answer.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.answer",
+      "description": "Answered outcome without an answer object (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-out-reject-stray-key",
+      "kind": "elicitation-reject",
+      "decoder": "elicitation-outcome",
+      "inputFile": "elicitation/elc-out-reject-stray-key.json",
+      "expectedErrorCode": "UNDECLARED_FIELD",
+      "expectedPath": "$.answer",
+      "description": "Declined outcome carrying an answer — undeclared key, default-deny (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-out-reject-unknown-type",
+      "kind": "elicitation-reject",
+      "decoder": "elicitation-outcome",
+      "inputFile": "elicitation/elc-out-reject-unknown-type.json",
+      "expectedErrorCode": "UNKNOWN_DU_CASE",
+      "expectedPath": "$.$type",
+      "description": "outcome outside the closed set — the outcome DU is total (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-reject-bad-space",
+      "kind": "elicitation-reject",
+      "decoder": "elicitation",
+      "inputFile": "elicitation/elc-reject-bad-space.json",
+      "expectedErrorCode": "UNKNOWN_DU_CASE",
+      "expectedPath": "$.contract.fields[0].space.$type",
+      "description": "unknown value-space discriminator (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-reject-bad-timeout",
+      "kind": "elicitation-reject",
+      "decoder": "elicitation",
+      "inputFile": "elicitation/elc-reject-bad-timeout.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.timeoutMs",
+      "description": "timeoutMs below 1 (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-reject-bad-version",
+      "kind": "elicitation-reject",
+      "decoder": "elicitation",
+      "inputFile": "elicitation/elc-reject-bad-version.json",
+      "expectedErrorCode": "UNSUPPORTED_VERSION",
+      "expectedPath": "$.$elicitation",
+      "description": "unknown elicitation format version — hard-refuse, never mis-decode (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-reject-default-nonconformant",
+      "kind": "elicitation-reject",
+      "decoder": "elicitation",
+      "inputFile": "elicitation/elc-reject-default-nonconformant.json",
+      "expectedErrorCode": "DEFAULT_NONCONFORMANT",
+      "expectedPath": "$.default.choice",
+      "description": "default answer violating the contract (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-reject-duplicate-field",
+      "kind": "elicitation-reject",
+      "decoder": "elicitation",
+      "inputFile": "elicitation/elc-reject-duplicate-field.json",
+      "expectedErrorCode": "CONTRACT_DUPLICATE_FIELD",
+      "expectedPath": "$.contract.fields[1].name",
+      "description": "two answer fields sharing a name (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-reject-empty-contract",
+      "kind": "elicitation-reject",
+      "decoder": "elicitation",
+      "inputFile": "elicitation/elc-reject-empty-contract.json",
+      "expectedErrorCode": "CONTRACT_EMPTY",
+      "expectedPath": "$.contract.fields",
+      "description": "contract with no fields — an elicitation must declare its answer (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-reject-empty-id",
+      "kind": "elicitation-reject",
+      "decoder": "elicitation",
+      "inputFile": "elicitation/elc-reject-empty-id.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.id",
+      "description": "empty elicitation id (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-reject-missing-version",
+      "kind": "elicitation-reject",
+      "decoder": "elicitation",
+      "inputFile": "elicitation/elc-reject-missing-version.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.$elicitation",
+      "description": "envelope without the $elicitation format tag (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-reject-stray-key",
+      "kind": "elicitation-reject",
+      "decoder": "elicitation",
+      "inputFile": "elicitation/elc-reject-stray-key.json",
+      "expectedErrorCode": "UNDECLARED_FIELD",
+      "expectedPath": "$.note",
+      "description": "undeclared envelope key — default-deny by shape (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-reject-tree-decode",
+      "kind": "elicitation-reject",
+      "decoder": "elicitation",
+      "inputFile": "elicitation/elc-reject-tree-decode.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.tree",
+      "description": "embedded tree fails the standard 3.1 node decode — error re-rooted under $.tree (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-reject-unknown-node",
+      "kind": "elicitation-reject",
+      "decoder": "elicitation",
+      "inputFile": "elicitation/elc-reject-unknown-node.json",
+      "expectedErrorCode": "CONTRACT_UNKNOWN_NODE",
+      "expectedPath": "$.contract.fields[0].nodeId",
+      "description": "contract field addressing a node absent from the tree (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-full",
+      "kind": "elicitation-round-trip",
+      "decoder": "elicitation",
+      "inputFile": "elicitation/elc-full.json",
+      "expectedFile": "elicitation/elc-full.json",
+      "description": "full envelope — every value-space kind, optional fields, timeoutMs, conforming default (WIRE_FORMAT 18.2)"
+    },
+    {
+      "id": "elc-minimal",
+      "kind": "elicitation-round-trip",
+      "decoder": "elicitation",
+      "inputFile": "elicitation/elc-minimal.json",
+      "expectedFile": "elicitation/elc-minimal.json",
+      "description": "minimal envelope — one required enum field, no timeout, no default (WIRE_FORMAT 18.2)"
+    },
+    {
+      "id": "elc-out-answered",
+      "kind": "elicitation-round-trip",
+      "decoder": "elicitation-outcome",
+      "inputFile": "elicitation/elc-out-answered.json",
+      "expectedFile": "elicitation/elc-out-answered.json",
+      "description": "Answered outcome — canonical typed answer object (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-out-declined",
+      "kind": "elicitation-round-trip",
+      "decoder": "elicitation-outcome",
+      "inputFile": "elicitation/elc-out-declined.json",
+      "expectedFile": "elicitation/elc-out-declined.json",
+      "description": "Declined outcome (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-out-superseded-anon",
+      "kind": "elicitation-round-trip",
+      "decoder": "elicitation-outcome",
+      "inputFile": "elicitation/elc-out-superseded-anon.json",
+      "expectedFile": "elicitation/elc-out-superseded-anon.json",
+      "description": "Superseded outcome without a successor id — 'by' is optional (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-out-superseded-by",
+      "kind": "elicitation-round-trip",
+      "decoder": "elicitation-outcome",
+      "inputFile": "elicitation/elc-out-superseded-by.json",
+      "expectedFile": "elicitation/elc-out-superseded-by.json",
+      "description": "Superseded outcome naming its successor (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "elc-out-timedout",
+      "kind": "elicitation-round-trip",
+      "decoder": "elicitation-outcome",
+      "inputFile": "elicitation/elc-out-timedout.json",
+      "expectedFile": "elicitation/elc-out-timedout.json",
+      "description": "TimedOut outcome — dispatched by the HOST's clock; timeoutMs is data (WIRE_FORMAT 18.3)"
+    },
+    {
+      "id": "envelope-foreign-major",
+      "kind": "envelope-reject",
+      "decoder": "node",
+      "inputFile": "envelope/envelope-foreign-major.json",
+      "expectedErrorCode": "FOREIGN_PROFILE",
+      "expectedPath": "$.$profile",
+      "description": "Foreign (major-ahead core@2.0) — hard-refuse, never silently mis-decode (WIRE_FORMAT 15.2)"
+    },
+    {
+      "id": "envelope-foreign-namespace",
+      "kind": "envelope-reject",
+      "decoder": "node",
+      "inputFile": "envelope/envelope-foreign-namespace.json",
+      "expectedErrorCode": "FOREIGN_PROFILE",
+      "expectedPath": "$.$profile",
+      "description": "Foreign (different namespace music@1.0) — hard-refuse (WIRE_FORMAT 15.2)"
+    },
+    {
+      "id": "envelope-known-current",
+      "kind": "envelope-round-trip",
+      "decoder": "node",
+      "inputFile": "envelope/envelope-known-current.json",
+      "expectedFile": "envelope/envelope-known-current.json",
+      "description": "enveloped Current (core@1.0) known payload — decode + re-render byte-identical (WIRE_FORMAT 15.1)"
+    },
+    {
+      "id": "envelope-unknown-behind",
+      "kind": "envelope-round-trip",
+      "decoder": "node",
+      "inputFile": "envelope/envelope-unknown-behind.json",
+      "expectedFile": "envelope/envelope-unknown-behind.json",
+      "description": "Behind (core@1.1) unknown-kind payload — tolerant decode preserves bytes verbatim (WIRE_FORMAT 15.3)"
+    },
+    {
+      "id": "envelope-unknown-malformed-required-profile",
+      "kind": "envelope-round-trip",
+      "decoder": "node",
+      "inputFile": "envelope/envelope-unknown-malformed-required-profile.json",
+      "expectedFile": "envelope/envelope-unknown-malformed-required-profile.json",
+      "description": "Behind unknown kind with a malformed requiredProfile — no label, bytes still preserved (WIRE_FORMAT 15.3)"
+    },
+    {
+      "id": "envelope-unknown-required-profile",
+      "kind": "envelope-round-trip",
+      "decoder": "node",
+      "inputFile": "envelope/envelope-unknown-required-profile.json",
+      "expectedFile": "envelope/envelope-unknown-required-profile.json",
+      "description": "Behind unknown kind declaring requiredProfile core@1.4 — preserved + degrade label surfaced (WIRE_FORMAT 15.3)"
+    },
+    {
+      "id": "legacy-upgrade-card",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/legacy-upgrade-card.json",
+      "expectedFile": "lenient/legacy-upgrade-card.expected.json",
+      "description": "Legacy `Card` tag decode-upgrades to a Flex/Card Box preserving the heading (Phase 390)"
+    },
+    {
+      "id": "legacy-upgrade-dashboard",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/legacy-upgrade-dashboard.json",
+      "expectedFile": "lenient/legacy-upgrade-dashboard.expected.json",
+      "description": "Legacy `Dashboard` tag decode-upgrades to an Auto/Dashboard Box (Phase 390)"
+    },
+    {
+      "id": "legacy-upgrade-gridlayout",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/legacy-upgrade-gridlayout.json",
+      "expectedFile": "lenient/legacy-upgrade-gridlayout.expected.json",
+      "description": "Legacy `GridLayout` tag decode-upgrades to a Grid/Group Box (Phase 390)"
+    },
+    {
+      "id": "legacy-upgrade-stack",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/legacy-upgrade-stack.json",
+      "expectedFile": "lenient/legacy-upgrade-stack.expected.json",
+      "description": "Legacy `Stack` tag decode-upgrades to a Flex/Group Box (Phase 390)"
+    },
+    {
+      "id": "legacy-upgrade-table",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/legacy-upgrade-table.json",
+      "expectedFile": "lenient/legacy-upgrade-table.expected.json",
+      "description": "Legacy `Table` tag decode-upgrades to a static read-only DataGrid (Phase 393)"
+    },
+    {
+      "id": "lenient-022-lvr-emphasis-loud",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-022-lvr-emphasis-loud.json",
+      "expectedFile": "lenient/lenient-022-lvr-emphasis-loud.expected.json",
+      "description": "0.2.2 — the Emphasis style-enum string in LabelValueRow's bool slot coerces (Loud→true; Normal/Quiet→false)"
+    },
+    {
+      "id": "lenient-022-lvr-emphasis-normal",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-022-lvr-emphasis-normal.json",
+      "expectedFile": "lenient/lenient-022-lvr-emphasis-normal.expected.json",
+      "description": "0.2.2 — 'Normal' coerces to false, which is the omitted-when-false canonical form"
+    },
+    {
+      "id": "lenient-460-alias-emphasis-muted",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-460-alias-emphasis-muted.json",
+      "expectedFile": "lenient/lenient-460-alias-emphasis-muted.expected.json",
+      "description": "Phase 460 — lenient emphasis alias `Muted` canonicalises to `Quiet`"
+    },
+    {
+      "id": "lenient-460-alias-emphasis-strong",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-460-alias-emphasis-strong.json",
+      "expectedFile": "lenient/lenient-460-alias-emphasis-strong.expected.json",
+      "description": "Phase 460 — lenient emphasis alias `Strong` canonicalises to `Loud`"
+    },
+    {
+      "id": "lenient-460-alias-tone-danger",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-460-alias-tone-danger.json",
+      "expectedFile": "lenient/lenient-460-alias-tone-danger.expected.json",
+      "description": "Phase 460 — lenient tone alias `Danger` canonicalises to `Critical`"
+    },
+    {
+      "id": "lenient-460-alias-tone-positive",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-460-alias-tone-positive.json",
+      "expectedFile": "lenient/lenient-460-alias-tone-positive.expected.json",
+      "description": "Phase 460 — lenient tone alias `Positive` canonicalises to `Success`"
+    },
+    {
+      "id": "lenient-460-explicit-default-column",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-460-explicit-default-column.json",
+      "expectedFile": "lenient/lenient-460-explicit-default-column.expected.json",
+      "description": "Phase 460 — explicit-default column format/width decode and re-encode minimal (read-compat)"
+    },
+    {
+      "id": "lenient-460-explicit-default-metric",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-460-explicit-default-metric.json",
+      "expectedFile": "lenient/lenient-460-explicit-default-metric.expected.json",
+      "description": "Phase 460 — explicit-default Metric style fields decode and re-encode minimal (read-compat)"
+    },
+    {
+      "id": "lenient-460-explicit-default-style",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-460-explicit-default-style.json",
+      "expectedFile": "lenient/lenient-460-explicit-default-style.expected.json",
+      "description": "Phase 460 — explicit all-default SemanticStyle re-encodes as an omitted style (read-compat)"
+    },
+    {
+      "id": "lenient-596-form-explicit-auto-state",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-596-form-explicit-auto-state.json",
+      "expectedFile": "lenient/lenient-596-form-explicit-auto-state.expected.json",
+      "description": "Phase 596 — a form field's explicit auto-shape value (State(field id, placeholder)) normalises to the omitted-value canonical form"
+    },
+    {
+      "id": "lenient-alias-call-url",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-alias-call-url.json",
+      "expectedFile": "lenient/lenient-alias-call-url.expected.json",
+      "description": "Web-prior alias — Call `url`→`endpoint` (the fetch prior)"
+    },
+    {
+      "id": "lenient-alias-card-title-metric-value",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-alias-card-title-metric-value.json",
+      "expectedFile": "lenient/lenient-alias-card-title-metric-value.expected.json",
+      "description": "Web-prior aliases — Box `title`→`heading` (the universal card/modal prior), Metric scalar `value` (0.2.0 canonical; the KPI-card prior IS canon now), HeadingVariant/BadgeVariant `Default`→identity case"
+    },
+    {
+      "id": "lenient-alias-datagrid-data-column-type",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-alias-datagrid-data-column-type.json",
+      "expectedFile": "lenient/lenient-alias-datagrid-data-column-type.expected.json",
+      "description": "Web-prior aliases — DataGrid `data`→`source` (Chart.js/react-table prior), column `type`→`kind` + `header`→`label` (react-table prior)"
+    },
+    {
+      "id": "lenient-alias-form-field-name",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-alias-form-field-name.json",
+      "expectedFile": "lenient/lenient-alias-form-field-name.expected.json",
+      "description": "Web-prior alias — form field `name`→`id` (the HTML forms prior)"
+    },
+    {
+      "id": "lenient-alias-grid-columns-row",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-alias-grid-columns-row.json",
+      "expectedFile": "lenient/lenient-alias-grid-columns-row.expected.json",
+      "description": "Web-prior aliases — Grid `columns`→`cols` (CSS/Tailwind prior) + Flex direction `row`→`Horizontal` (CSS flex-direction prior)"
+    },
+    {
+      "id": "lenient-alias-navigate-href",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-alias-navigate-href.json",
+      "expectedFile": "lenient/lenient-alias-navigate-href.expected.json",
+      "description": "Web-prior aliases — Navigate `href`→`route` (the 2/2 observed Kimi guess) + ButtonVariant `Danger`→`Destructive`"
+    },
+    {
+      "id": "lenient-alias-select-options-query-deps",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-alias-select-options-query-deps.json",
+      "expectedFile": "lenient/lenient-alias-select-options-query-deps.expected.json",
+      "description": "Web-prior aliases — Select `options`→`source` (the HTML select prior), Query `deps`→`dependsOn` (React hooks prior), State `initialValue`→`defaultValue` (useState prior)"
+    },
+    {
+      "id": "lenient-bare-text-button-label",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-bare-text-button-label.json",
+      "expectedFile": "lenient/lenient-bare-text-button-label.expected.json",
+      "description": "Button.label as a bare JSON string (§16.1)"
+    },
+    {
+      "id": "lenient-bare-text-callout",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-bare-text-callout.json",
+      "expectedFile": "lenient/lenient-bare-text-callout.expected.json",
+      "description": "Callout.body (required) + Callout.heading (optional position) as bare strings (§16.1)"
+    },
+    {
+      "id": "lenient-bare-text-heading",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-bare-text-heading.json",
+      "expectedFile": "lenient/lenient-bare-text-heading.expected.json",
+      "description": "Heading.text as a bare JSON string (§16.1)"
+    },
+    {
+      "id": "lenient-bare-text-markdown",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-bare-text-markdown.json",
+      "expectedFile": "lenient/lenient-bare-text-markdown.expected.json",
+      "description": "Markdown.text as a bare JSON string (§16.1) — the highest-frequency saving"
+    },
+    {
+      "id": "lenient-binding-bound-wrapper",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-binding-bound-wrapper.json",
+      "expectedFile": "lenient/lenient-binding-bound-wrapper.expected.json",
+      "description": "pilot-5 n=3 gate — the Bound wrapper unwraps in bare-Binding slots (the TextSource.Bound convention transferred; one payload field, one-to-one); canonical stays the bare binding"
+    },
+    {
+      "id": "lenient-emphasis-cross-vocab",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-emphasis-cross-vocab.json",
+      "expectedFile": "lenient/lenient-emphasis-cross-vocab.expected.json",
+      "description": "2026-07-19 collision sweep — `emphasis` cross-vocabulary coercion, both directions: the style enum + Phase-460 aliases in the Fact/LabelValueRow BOOL slots (Loud/Strong/Bold ⇒ true, Normal/Quiet/Subtle/Muted ⇒ false) and a bool in the style-enum slot (true ⇒ Loud). One-to-one; the encoder still emits the canonical types."
+    },
+    {
+      "id": "lenient-fact-explicit-defaults",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-fact-explicit-defaults.json",
+      "expectedFile": "lenient/lenient-fact-explicit-defaults.expected.json",
+      "description": "Fact (the new labeled text-fact kind) — explicit-default `tone`/`emphasis` decode and canonicalise away (omitted-when-default on both boundaries from day one), and the bare-string TextSource shorthand applies to `label`/`value`. The canonical minimal Fact is exactly the two-field form models want to write."
+    },
+    {
+      "id": "lenient-null-static-options",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-null-static-options.json",
+      "expectedFile": "lenient/lenient-null-static-options.expected.json",
+      "description": "Pre-429 boxes-to-null empty options list decodes to the typed empty array (value None stays null)"
+    },
+    {
+      "id": "lenient-opaque-static-markers",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-opaque-static-markers.json",
+      "expectedFile": "lenient/lenient-opaque-static-markers.expected.json",
+      "description": "Pre-429 opaque Map markers decode to the typed empty array"
+    },
+    {
+      "id": "lenient-opaque-static-options",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-opaque-static-options.json",
+      "expectedFile": "lenient/lenient-opaque-static-options.expected.json",
+      "description": "Pre-429 opaque Static options + value decode to the tagged placeholder forms and re-encode typed"
+    },
+    {
+      "id": "lenient-opaque-static-series",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-opaque-static-series.json",
+      "expectedFile": "lenient/lenient-opaque-static-series.expected.json",
+      "description": "Pre-429 opaque Sparkline series decodes to the typed empty array"
+    },
+    {
+      "id": "lenient-opaque-static-values",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-opaque-static-values.json",
+      "expectedFile": "lenient/lenient-opaque-static-values.expected.json",
+      "description": "Pre-429 opaque multi-select values decode to the tagged placeholder list and re-encode typed"
+    },
+    {
+      "id": "lenient-shape-binding-scalar-fraction",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-shape-binding-scalar-fraction.json",
+      "expectedFile": "lenient/lenient-shape-binding-scalar-fraction.expected.json",
+      "description": "Envelope-confusion coercions, BOTH directions (2026-07-17 launch-eval evidence) — a bare scalar where a Binding is expected coerces to `Static` (`fraction: 0.65`), and a Static envelope where a PLAIN value is expected unwraps (`indeterminate: {\"$type\":\"Static\",\"value\":false}`). Unambiguous both ways; `null` and untyped objects stay strict."
+    },
+    {
+      "id": "lenient-shape-grid-no-cols",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-shape-grid-no-cols.json",
+      "expectedFile": "lenient/lenient-shape-grid-no-cols.expected.json",
+      "description": "Grid with NO column spec (no cols/columns/templateColumns) is the CSS auto-grid prior — accept-and-canonicalise to the language's existing `Auto` responsive auto-tile layout. 35 launch-eval cells across 8 tasks, every provider."
+    },
+    {
+      "id": "lenient-shape-grid-template-no-cols",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-shape-grid-template-no-cols.json",
+      "expectedFile": "lenient/lenient-shape-grid-template-no-cols.expected.json",
+      "description": "Grid with `templateColumns` but no `cols` — `Cols` is documented-ignored when `templateColumns` is present, so absence defaults to 1 instead of MISSING_FIELD (the 0.1.6 pilot residual). Distinct from the no-column-spec-at-all form, which canonicalises to `Auto`."
+    },
+    {
+      "id": "lenient-shape-options-bare-strings",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-shape-options-bare-strings.json",
+      "expectedFile": "lenient/lenient-shape-options-bare-strings.expected.json",
+      "description": "Web-prior SHAPE coercions — a bare array where a Binding is expected coerces to `Static` (the omitted-envelope prior, 2/2 observed eval failures), and a bare string option element coerces to `{value: s, label: Literal s}` (the HTML `<select>` prior). The value→label map form (`{\"A\":\"A\"}`) is deliberately NOT coerced: JSON key order is not contractual, so it could silently reorder visible options."
+    },
+    {
+      "id": "lenient-shape-params-map",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-shape-params-map.json",
+      "expectedFile": "lenient/lenient-shape-params-map.expected.json",
+      "description": "Query-params shape coercion — the name→binding MAP form coerces to the canonical `[{name, from}]` array (params are a name-keyed set, so key order carries no meaning — unlike the options map, which is refused), and `value` aliases `from` at the element. Every provider's first guess in the launch eval; 21/31 failures were repair-proof."
+    },
+    {
+      "id": "lenient-shape-segmented-orientation-omitted",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-shape-segmented-orientation-omitted.json",
+      "expectedFile": "lenient/lenient-shape-segmented-orientation-omitted.expected.json",
+      "description": "Omitted-when-default (the Phase 460 posture applied to `orientation`) — an absent segmented `orientation` restores the language default `Horizontal` (observed omitted in eval emission data); decode-only, the encoder still always emits it. Combined here with the bare-options shape coercion."
+    },
+    {
+      "id": "lenient-shape-static-envelope-plain-scalars",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-shape-static-envelope-plain-scalars.json",
+      "expectedFile": "lenient/lenient-shape-static-envelope-plain-scalars.expected.json",
+      "description": "Static-envelope unwrap GENERALISED to every plain-scalar position (2026-07-18 — the 0.1.6 pilot found `emphasis` wrapped after `indeterminate` was fixed site-locally; the confusion is generic). A well-formed envelope at a plain-scalar position has exactly one reading; the encoder still emits bare scalars."
+    },
+    {
+      "id": "lenient-transform-bare-columns",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-transform-bare-columns.json",
+      "expectedFile": "lenient/lenient-transform-bare-columns.expected.json",
+      "description": "fuaran-core#88 — bare-array columns are the just-the-data shorthand (all-present validity); the wrapped form stays canonical"
+    },
+    {
+      "id": "lenient-transform-epoch-timestamps",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-transform-epoch-timestamps.json",
+      "expectedFile": "lenient/lenient-transform-epoch-timestamps.expected.json",
+      "description": "fuaran-core#94 — epoch numbers in a declared-timestamp column decode to the canonical ISO instant (seconds, and milliseconds via the whole-float path; unit by magnitude)"
+    },
+    {
+      "id": "lenient-transform-expr-spellings",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-transform-expr-spellings.json",
+      "expectedFile": "lenient/lenient-transform-expr-spellings.expected.json",
+      "description": "fuaran-core#93 — predicate/contains-as-$type/call spellings (the tier-a-055 shape) coerce to the canonical nested binary"
+    },
+    {
+      "id": "lenient-transform-flat-contains",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-transform-flat-contains.json",
+      "expectedFile": "lenient/lenient-transform-flat-contains.expected.json",
+      "description": "fuaran-core#90 — the text-search prior: a flat contains step coerces to the canonical nested predicate"
+    },
+    {
+      "id": "lenient-transform-flat-filter",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-transform-flat-filter.json",
+      "expectedFile": "lenient/lenient-transform-flat-filter.expected.json",
+      "description": "fuaran-core#89 — the flat filter step {column, op, param} coerces to the canonical nested predicate"
+    },
+    {
+      "id": "lenient-transform-flat-or",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-transform-flat-or.json",
+      "expectedFile": "lenient/lenient-transform-flat-or.expected.json",
+      "description": "fuaran-core#94 — flat variadic `or` (exprs array) + flat `eq` (left/right) left-fold into the canonical nested `binary` tree"
+    },
+    {
+      "id": "lenient-transform-flat-scalar-fn",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-transform-flat-scalar-fn.json",
+      "expectedFile": "lenient/lenient-transform-flat-scalar-fn.expected.json",
+      "description": "fuaran-core#94 — flat scalar-fn spellings: `fn` aliases `apply` (same fn/args), and a bare fn-name node ({\"$type\":\"lower\",\"expr\":…}) denotes ApplyFn directly; canonical stays `apply`"
+    },
+    {
+      "id": "lenient-transform-schemaless",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-transform-schemaless.json",
+      "expectedFile": "lenient/lenient-transform-schemaless.expected.json",
+      "description": "fuaran-core#88 — an embedded Transform source may omit schema; column types infer from the cells (int/float/bool/string only)"
+    },
+    {
+      "id": "lenient-transform-step-aliases",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-transform-step-aliases.json",
+      "expectedFile": "lenient/lenient-transform-step-aliases.expected.json",
+      "description": "fuaran-core#92 — the SQL/pandas step-field spellings (by/aggregations/op/as/avg, keys/column/descending, count) coerce to the canonical fields"
+    },
+    {
+      "id": "lenient-transform-values-only-columns",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-transform-values-only-columns.json",
+      "expectedFile": "lenient/lenient-transform-values-only-columns.expected.json",
+      "description": "fuaran-core#94 — a values-only column object is the all-present shorthand (the canonical wrapped shape minus the mask); the masked form stays canonical"
+    },
+    {
+      "id": "lenient-window-cumsum-legacy",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-window-cumsum-legacy.json",
+      "expectedFile": "lenient/lenient-window-cumsum-legacy.expected.json",
+      "description": "2026-07-19 rename — the legacy cumSum window-fn tag coerces to the canonical cumulSum"
+    },
+    {
+      "id": "badge-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/badge-1.json",
+      "expectedFile": "nodes/badge-1.json",
+      "description": "Display/Badge"
+    },
+    {
+      "id": "boundary-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/boundary-1.json",
+      "expectedFile": "nodes/boundary-1.json",
+      "description": "ErrorBoundary (Markdown child + Callout fallback)"
+    },
+    {
+      "id": "btn-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/btn-1.json",
+      "expectedFile": "nodes/btn-1.json",
+      "description": "Input/Button"
+    },
+    {
+      "id": "btn-copy-link",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/btn-copy-link.json",
+      "expectedFile": "nodes/btn-copy-link.json",
+      "description": "Input/Button (Action.WriteToClipboard chained with Dispatch)"
+    },
+    {
+      "id": "btn-invoke",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/btn-invoke.json",
+      "expectedFile": "nodes/btn-invoke.json",
+      "description": "Input/Button (Phase 283 — Action.Invoke capability effect)"
+    },
+    {
+      "id": "btn-read-workbook",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/btn-read-workbook.json",
+      "expectedFile": "nodes/btn-read-workbook.json",
+      "description": "Input/Button (Action.ReadFileBody base64)"
+    },
+    {
+      "id": "call-into",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/call-into.json",
+      "expectedFile": "nodes/call-into.json",
+      "description": "Layout/Stack (Phase 428 — Action.Call result targets: closure / into State / into Query)"
+    },
+    {
+      "id": "callout-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/callout-1.json",
+      "expectedFile": "nodes/callout-1.json",
+      "description": "Display/Callout"
+    },
+    {
+      "id": "card-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/card-1.json",
+      "expectedFile": "nodes/card-1.json",
+      "description": "Layout/Card"
+    },
+    {
+      "id": "chart-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/chart-1.json",
+      "expectedFile": "nodes/chart-1.json",
+      "description": "Visualisation/Chart"
+    },
+    {
+      "id": "code-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/code-1.json",
+      "expectedFile": "nodes/code-1.json",
+      "description": "Display/CodeBlock (fsharp, line numbers + highlights)"
+    },
+    {
+      "id": "composite-root",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/composite-root.json",
+      "expectedFile": "nodes/composite-root.json",
+      "description": "Composite (Dashboard ⊃ Card ⊃ Metric + Stack)"
+    },
+    {
+      "id": "controls-closure",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/controls-closure.json",
+      "expectedFile": "nodes/controls-closure.json",
+      "description": "Layout/Stack (Phase 426 — closure-authored onSelectTag / onToggle / onChangeMulti sentinels)"
+    },
+    {
+      "id": "controls-declarative",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/controls-declarative.json",
+      "expectedFile": "nodes/controls-declarative.json",
+      "description": "Layout/Stack (Phase 426 — declarative tabs + modal + disclosure + select, handlers omitted)"
+    },
+    {
+      "id": "custom-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/custom-1.json",
+      "expectedFile": "nodes/custom-1.json",
+      "description": "Custom"
+    },
+    {
+      "id": "custom-bounded-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/custom-bounded-1.json",
+      "expectedFile": "nodes/custom-bounded-1.json",
+      "description": "Custom (bounded escape, StrictReplay hash + exposed-ids)"
+    },
+    {
+      "id": "custom-bounded-advisory",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/custom-bounded-advisory.json",
+      "expectedFile": "nodes/custom-bounded-advisory.json",
+      "description": "Custom (bounded escape, AdvisoryWarning hash + no exposed-ids)"
+    },
+    {
+      "id": "dash-empty",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/dash-empty.json",
+      "expectedFile": "nodes/dash-empty.json",
+      "description": "Layout/Dashboard (empty)"
+    },
+    {
+      "id": "discl-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/discl-1.json",
+      "expectedFile": "nodes/discl-1.json",
+      "description": "Layout/Disclosure"
+    },
+    {
+      "id": "drawing-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/drawing-1.json",
+      "expectedFile": "nodes/drawing-1.json",
+      "description": "Display/Drawing (all shapes + curve commands + styled bindings)"
+    },
+    {
+      "id": "drawing-empty",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/drawing-empty.json",
+      "expectedFile": "nodes/drawing-empty.json",
+      "description": "Display/Drawing (degenerate — empty)"
+    },
+    {
+      "id": "fact-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/fact-1.json",
+      "expectedFile": "nodes/fact-1.json",
+      "description": "Display/Fact"
+    },
+    {
+      "id": "filterable-static-dashboard",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/filterable-static-dashboard.json",
+      "expectedFile": "nodes/filterable-static-dashboard.json",
+      "description": "Layout/Box (filterable-static dashboard — Filters params wired through Transform to chart + grid)"
+    },
+    {
+      "id": "filters-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/filters-1.json",
+      "expectedFile": "nodes/filters-1.json",
+      "description": "Input/Filters (text + choice)"
+    },
+    {
+      "id": "filters-declarative",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/filters-declarative.json",
+      "expectedFile": "nodes/filters-declarative.json",
+      "description": "Input/Filters (declarative — omitted onChange + typed range bounds)"
+    },
+    {
+      "id": "filters-segmented",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/filters-segmented.json",
+      "expectedFile": "nodes/filters-segmented.json",
+      "description": "Input/Filters (SegmentedFilter horizontal)"
+    },
+    {
+      "id": "form-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/form-1.json",
+      "expectedFile": "nodes/form-1.json",
+      "description": "Input/Form (all fields)"
+    },
+    {
+      "id": "form-date",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/form-date.json",
+      "expectedFile": "nodes/form-date.json",
+      "description": "Input/Form (Date — date/time/datetime variants + bounds)"
+    },
+    {
+      "id": "form-declarative",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/form-declarative.json",
+      "expectedFile": "nodes/form-declarative.json",
+      "description": "Input/Form (Phase 426 — handler-free write-back fields, State-bound)"
+    },
+    {
+      "id": "form-declarative-minimal",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/form-declarative-minimal.json",
+      "expectedFile": "nodes/form-declarative-minimal.json",
+      "description": "Input/Form (Phase 596 — symmetric auto-bind, omitted-value fields)"
+    },
+    {
+      "id": "form-local-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/form-local-1.json",
+      "expectedFile": "nodes/form-local-1.json",
+      "description": "Input/Form (Local-bound text, OnBlur)"
+    },
+    {
+      "id": "form-local-debounce",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/form-local-debounce.json",
+      "expectedFile": "nodes/form-local-debounce.json",
+      "description": "Input/Form (Local-bound text, OnDebounce 250)"
+    },
+    {
+      "id": "form-ranged",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/form-ranged.json",
+      "expectedFile": "nodes/form-ranged.json",
+      "description": "Input/Form (RangedNumber — all/min-only/no bounds)"
+    },
+    {
+      "id": "form-segmented",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/form-segmented.json",
+      "expectedFile": "nodes/form-segmented.json",
+      "description": "Input/Form (SegmentedChoice horizontal + vertical)"
+    },
+    {
+      "id": "format-bindings",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/format-bindings.json",
+      "expectedFile": "nodes/format-bindings.json",
+      "description": "Binding.Format (number/currency/percent/date/relativeTime across locales)"
+    },
+    {
+      "id": "frag-decl-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/frag-decl-1.json",
+      "expectedFile": "nodes/frag-decl-1.json",
+      "description": "FragmentDecl (named template with Markdown body)"
+    },
+    {
+      "id": "frag-decl-param",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/frag-decl-param.json",
+      "expectedFile": "nodes/frag-decl-param.json",
+      "description": "FragmentDecl (parameterised — value/slot/repeat holes + effect class)"
+    },
+    {
+      "id": "frag-ref-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/frag-ref-1.json",
+      "expectedFile": "nodes/frag-ref-1.json",
+      "description": "FragmentRef (name-only wire shape)"
+    },
+    {
+      "id": "frag-ref-args",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/frag-ref-args.json",
+      "expectedFile": "nodes/frag-ref-args.json",
+      "description": "FragmentRef (parameterised — value + slot args)"
+    },
+    {
+      "id": "glayout-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/glayout-1.json",
+      "expectedFile": "nodes/glayout-1.json",
+      "description": "Layout/Grid"
+    },
+    {
+      "id": "glayout-tpl-autofit",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/glayout-tpl-autofit.json",
+      "expectedFile": "nodes/glayout-tpl-autofit.json",
+      "description": "Layout/Grid (TemplateColumns auto-fit minmax)"
+    },
+    {
+      "id": "glayout-tpl-fixed",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/glayout-tpl-fixed.json",
+      "expectedFile": "nodes/glayout-tpl-fixed.json",
+      "description": "Layout/Grid (TemplateColumns 100px + repeat fixed-plus-flex)"
+    },
+    {
+      "id": "glayout-tpl-ratio",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/glayout-tpl-ratio.json",
+      "expectedFile": "nodes/glayout-tpl-ratio.json",
+      "description": "Layout/Grid (TemplateColumns 1fr 2fr ratio)"
+    },
+    {
+      "id": "grid-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/grid-1.json",
+      "expectedFile": "nodes/grid-1.json",
+      "description": "Visualisation/Grid"
+    },
+    {
+      "id": "grid-field-named",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/grid-field-named.json",
+      "expectedFile": "nodes/grid-field-named.json",
+      "description": "Visualisation/Grid (Phase 425 — field-named columns + RowKeyField, closure-free)"
+    },
+    {
+      "id": "grid-transform",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/grid-transform.json",
+      "expectedFile": "nodes/grid-transform.json",
+      "description": "Visualisation/Grid (Phase 282 — Binding.Transform compute source)"
+    },
+    {
+      "id": "grid-transform-param",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/grid-transform-param.json",
+      "expectedFile": "nodes/grid-transform-param.json",
+      "description": "Visualisation/Grid (Phase 424 — parameterised Binding.Transform, filter param from a chip)"
+    },
+    {
+      "id": "heading-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/heading-1.json",
+      "expectedFile": "nodes/heading-1.json",
+      "description": "Display/Heading"
+    },
+    {
+      "id": "image-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/image-1.json",
+      "expectedFile": "nodes/image-1.json",
+      "description": "Display/Image (Avatar variant)"
+    },
+    {
+      "id": "link-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/link-1.json",
+      "expectedFile": "nodes/link-1.json",
+      "description": "Display/Link"
+    },
+    {
+      "id": "list-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/list-1.json",
+      "expectedFile": "nodes/list-1.json",
+      "description": "Display/List (ordered)"
+    },
+    {
+      "id": "lvr-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/lvr-1.json",
+      "expectedFile": "nodes/lvr-1.json",
+      "description": "Display/LabelValueRow"
+    },
+    {
+      "id": "map-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/map-1.json",
+      "expectedFile": "nodes/map-1.json",
+      "description": "Visualisation/Map"
+    },
+    {
+      "id": "markdown-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/markdown-1.json",
+      "expectedFile": "nodes/markdown-1.json",
+      "description": "Display/Markdown"
+    },
+    {
+      "id": "master-detail-preselected",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/master-detail-preselected.json",
+      "expectedFile": "nodes/master-detail-preselected.json",
+      "description": "Layout/Box (master-detail — grid + detail card State-bound with a pre-selected defaultValue)"
+    },
+    {
+      "id": "math-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/math-1.json",
+      "expectedFile": "nodes/math-1.json",
+      "description": "Display/Math (block LaTeX)"
+    },
+    {
+      "id": "metric-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/metric-1.json",
+      "expectedFile": "nodes/metric-1.json",
+      "description": "Display/Metric"
+    },
+    {
+      "id": "metric-float-17sig",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/metric-float-17sig.json",
+      "expectedFile": "nodes/metric-float-17sig.json",
+      "description": "Display/Metric (float divergence-zone — 17 significant digits)"
+    },
+    {
+      "id": "metric-float-bigint",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/metric-float-bigint.json",
+      "expectedFile": "nodes/metric-float-bigint.json",
+      "description": "Display/Metric (float divergence-zone — integer > 2^53)"
+    },
+    {
+      "id": "metric-float-exp-neg",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/metric-float-exp-neg.json",
+      "expectedFile": "nodes/metric-float-exp-neg.json",
+      "description": "Display/Metric (float divergence-zone — 1e-7 scientific)"
+    },
+    {
+      "id": "metric-float-exp-pos",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/metric-float-exp-pos.json",
+      "expectedFile": "nodes/metric-float-exp-pos.json",
+      "description": "Display/Metric (float divergence-zone — 1e21 scientific)"
+    },
+    {
+      "id": "metric-invoke",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/metric-invoke.json",
+      "expectedFile": "nodes/metric-invoke.json",
+      "description": "Display/Metric (Phase 283 — Binding.Invoke capability source)"
+    },
+    {
+      "id": "modal-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/modal-1.json",
+      "expectedFile": "nodes/modal-1.json",
+      "description": "Layout/Modal (heading + child + onDismiss)"
+    },
+    {
+      "id": "mount-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/mount-1.json",
+      "expectedFile": "nodes/mount-1.json",
+      "description": "Mount (§4o — out-only, default-deny, zero-input degenerate)"
+    },
+    {
+      "id": "mount-2",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/mount-2.json",
+      "expectedFile": "nodes/mount-2.json",
+      "description": "Mount (§4o — capabilities + TwoWay message shape + value/slot inputs)"
+    },
+    {
+      "id": "multiselect-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/multiselect-1.json",
+      "expectedFile": "nodes/multiselect-1.json",
+      "description": "Input/Select (multi-select — list value)"
+    },
+    {
+      "id": "progress-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/progress-1.json",
+      "expectedFile": "nodes/progress-1.json",
+      "description": "Display/Progress"
+    },
+    {
+      "id": "query-dependson",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/query-dependson.json",
+      "expectedFile": "nodes/query-dependson.json",
+      "description": "Display/Metric (Phase 421 — Binding.Query with a declared dependsOn filter edge)"
+    },
+    {
+      "id": "scalar-transform-composition",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/scalar-transform-composition.json",
+      "expectedFile": "nodes/scalar-transform-composition.json",
+      "description": "Layout/Box (Phase 632 — Transform in scalar slots: selected-row Callout body + Badge count)"
+    },
+    {
+      "id": "scroll-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/scroll-1.json",
+      "expectedFile": "nodes/scroll-1.json",
+      "description": "Layout/ScrollArea (vertical, maxHeight)"
+    },
+    {
+      "id": "select-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/select-1.json",
+      "expectedFile": "nodes/select-1.json",
+      "description": "Input/Select"
+    },
+    {
+      "id": "skel-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/skel-1.json",
+      "expectedFile": "nodes/skel-1.json",
+      "description": "Display/Skeleton"
+    },
+    {
+      "id": "spark-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/spark-1.json",
+      "expectedFile": "nodes/spark-1.json",
+      "description": "Display/Sparkline"
+    },
+    {
+      "id": "split-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/split-1.json",
+      "expectedFile": "nodes/split-1.json",
+      "description": "Layout/SplitPanel"
+    },
+    {
+      "id": "stack-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/stack-1.json",
+      "expectedFile": "nodes/stack-1.json",
+      "description": "Layout/Stack"
+    },
+    {
+      "id": "step-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/step-1.json",
+      "expectedFile": "nodes/step-1.json",
+      "description": "Layout/Stepper"
+    },
+    {
+      "id": "style-role-voice-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/style-role-voice-1.json",
+      "expectedFile": "nodes/style-role-voice-1.json",
+      "description": "Display/Markdown (Phase 147 Role=Data + Voice=Display)"
+    },
+    {
+      "id": "summary-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/summary-1.json",
+      "expectedFile": "nodes/summary-1.json",
+      "description": "Layout/SummaryList"
+    },
+    {
+      "id": "switch-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/switch-1.json",
+      "expectedFile": "nodes/switch-1.json",
+      "description": "Switch (view state → details/summary cases + info default)"
+    },
+    {
+      "id": "table-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/table-1.json",
+      "expectedFile": "nodes/table-1.json",
+      "description": "Visualisation/Table"
+    },
+    {
+      "id": "tabs-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/tabs-1.json",
+      "expectedFile": "nodes/tabs-1.json",
+      "description": "Layout/Tabs"
+    },
+    {
+      "id": "tabs-explicit-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/tabs-explicit-1.json",
+      "expectedFile": "nodes/tabs-explicit-1.json",
+      "description": "Layout/Tabs (explicit headers + tags + activeTag)"
+    },
+    {
+      "id": "toast-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/toast-1.json",
+      "expectedFile": "nodes/toast-1.json",
+      "description": "Display/Toast (Success tone, open)"
+    },
+    {
+      "id": "upload-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/upload-1.json",
+      "expectedFile": "nodes/upload-1.json",
+      "description": "Input/FileUpload"
+    },
+    {
+      "id": "op-batch",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-batch.json",
+      "expectedFile": "ops/op-batch.json",
+      "description": "Batch"
+    },
+    {
+      "id": "op-editnode",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-editnode.json",
+      "expectedFile": "ops/op-editnode.json",
+      "description": "EditNode"
+    },
+    {
+      "id": "op-insertchild",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-insertchild.json",
+      "expectedFile": "ops/op-insertchild.json",
+      "description": "InsertChild"
+    },
+    {
+      "id": "op-movenode",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-movenode.json",
+      "expectedFile": "ops/op-movenode.json",
+      "description": "MoveNode"
+    },
+    {
+      "id": "op-removenode",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-removenode.json",
+      "expectedFile": "ops/op-removenode.json",
+      "description": "RemoveNode"
+    },
+    {
+      "id": "op-reorderchildren",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-reorderchildren.json",
+      "expectedFile": "ops/op-reorderchildren.json",
+      "description": "ReorderChildren"
+    },
+    {
+      "id": "op-replacebinding",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-replacebinding.json",
+      "expectedFile": "ops/op-replacebinding.json",
+      "description": "ReplaceBinding"
+    },
+    {
+      "id": "op-replaceroot",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-replaceroot.json",
+      "expectedFile": "ops/op-replaceroot.json",
+      "description": "ReplaceRoot"
+    },
+    {
+      "id": "op-updateprop",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-updateprop.json",
+      "expectedFile": "ops/op-updateprop.json",
+      "description": "UpdateProp"
+    },
+    {
+      "id": "op-updateprop-nested-badfield",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-updateprop-nested-badfield.json",
+      "expectedFile": "ops/op-updateprop-nested-badfield.json",
+      "description": "UpdateProp-nested-badfield"
+    },
+    {
+      "id": "op-updateprop-nested-badindex",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-updateprop-nested-badindex.json",
+      "expectedFile": "ops/op-updateprop-nested-badindex.json",
+      "description": "UpdateProp-nested-badindex"
+    },
+    {
+      "id": "op-updateprop-nested-column0-label",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-updateprop-nested-column0-label.json",
+      "expectedFile": "ops/op-updateprop-nested-column0-label.json",
+      "description": "UpdateProp-nested-column0-label"
+    },
+    {
+      "id": "op-updateprop-nested-column1-label",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-updateprop-nested-column1-label.json",
+      "expectedFile": "ops/op-updateprop-nested-column1-label.json",
+      "description": "UpdateProp-nested-column1-label"
+    },
+    {
+      "id": "op-updateprop-nested-field0-required",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-updateprop-nested-field0-required.json",
+      "expectedFile": "ops/op-updateprop-nested-field0-required.json",
+      "description": "UpdateProp-nested-field0-required"
+    },
+    {
+      "id": "op-updateprop-nested-field1-required",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-updateprop-nested-field1-required.json",
+      "expectedFile": "ops/op-updateprop-nested-field1-required.json",
+      "description": "UpdateProp-nested-field1-required"
+    },
+    {
+      "id": "op-updateprop-nested-malformed",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-updateprop-nested-malformed.json",
+      "expectedFile": "ops/op-updateprop-nested-malformed.json",
+      "description": "UpdateProp-nested-malformed"
+    },
+    {
+      "id": "op-updateprop-nested-object-value",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-updateprop-nested-object-value.json",
+      "expectedFile": "ops/op-updateprop-nested-object-value.json",
+      "description": "UpdateProp-nested-object-value"
+    },
+    {
+      "id": "op-updateprop-nested-yfield0",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-updateprop-nested-yfield0.json",
+      "expectedFile": "ops/op-updateprop-nested-yfield0.json",
+      "description": "UpdateProp-nested-yfield0"
+    },
+    {
+      "id": "op-updateprop-nested-yfield1",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-updateprop-nested-yfield1.json",
+      "expectedFile": "ops/op-updateprop-nested-yfield1.json",
+      "description": "UpdateProp-nested-yfield1"
+    },
+    {
+      "id": "op-updatestate",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-updatestate.json",
+      "expectedFile": "ops/op-updatestate.json",
+      "description": "UpdateState"
+    },
+    {
+      "id": "op-updatestyle",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-updatestyle.json",
+      "expectedFile": "ops/op-updatestyle.json",
+      "description": "UpdateStyle"
+    },
+    {
+      "id": "op-updatestyle (phase 147 role=eyebrow + voice=structural)",
+      "kind": "op-round-trip",
+      "decoder": "op",
+      "inputFile": "ops/op-updatestyle (phase 147 role=eyebrow + voice=structural).json",
+      "expectedFile": "ops/op-updatestyle (phase 147 role=eyebrow + voice=structural).json",
+      "description": "UpdateStyle (Phase 147 Role=Eyebrow + Voice=Structural)"
+    },
+    {
+      "id": "reject-emptynodeid",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-emptynodeid.json",
+      "expectedErrorCode": "EMPTY_NODE_ID",
+      "expectedPath": "$.id",
+      "description": "Empty top-level id"
+    },
+    {
+      "id": "reject-invalid-empty",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-invalid-empty.json",
+      "expectedErrorCode": "INVALID_JSON",
+      "expectedPath": "$",
+      "description": "empty string"
+    },
+    {
+      "id": "reject-invalid-garbage",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-invalid-garbage.json",
+      "expectedErrorCode": "INVALID_JSON",
+      "expectedPath": "$",
+      "description": "garbage input"
+    },
+    {
+      "id": "reject-invalid-truncated",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-invalid-truncated.json",
+      "expectedErrorCode": "INVALID_JSON",
+      "expectedPath": "$",
+      "description": "truncated object"
+    },
+    {
+      "id": "reject-missing-binding-type",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-missing-binding-type.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.kind.value.$type",
+      "description": "Binding missing $type"
+    },
+    {
+      "id": "reject-missing-custom-moduleid",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-missing-custom-moduleid.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.kind.moduleId",
+      "description": "Custom missing moduleId"
+    },
+    {
+      "id": "reject-missing-markdown-text",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-missing-markdown-text.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.kind.text",
+      "description": "Markdown spec missing text"
+    },
+    {
+      "id": "reject-missing-metric-value",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-missing-metric-value.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.kind.value",
+      "description": "Metric spec missing value"
+    },
+    {
+      "id": "reject-missing-mount-scopeid",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-missing-mount-scopeid.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.kind.scopeId",
+      "description": "Mount missing scopeId (§4o)"
+    },
+    {
+      "id": "reject-missing-node-id",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-missing-node-id.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.id",
+      "description": "Node missing id"
+    },
+    {
+      "id": "reject-missing-node-kind",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-missing-node-kind.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.kind",
+      "description": "Node missing kind"
+    },
+    {
+      "id": "reject-missing-switch-cases",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-missing-switch-cases.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.kind.cases",
+      "description": "Switch missing cases"
+    },
+    {
+      "id": "reject-missing-switch-default",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-missing-switch-default.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.kind.default",
+      "description": "Switch missing default Node"
+    },
+    {
+      "id": "reject-missing-switch-statekey",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-missing-switch-statekey.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.kind.stateKey",
+      "description": "Switch missing stateKey"
+    },
+    {
+      "id": "reject-null-action-aitool-args",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-null-action-aitool-args.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.onClick.args",
+      "description": "null Action.AiTool args (structured JVal position)"
+    },
+    {
+      "id": "reject-null-action-notify-payload",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-null-action-notify-payload.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.onClick.payload",
+      "description": "null Action.Notify payload (structured JVal position)"
+    },
+    {
+      "id": "reject-null-action-setstate-value",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-null-action-setstate-value.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.onClick.value",
+      "description": "null Action.SetState value (structured JVal position)"
+    },
+    {
+      "id": "reject-null-custom-prop",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-null-custom-prop.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.props.k",
+      "description": "null Custom prop value (structured JVal position)"
+    },
+    {
+      "id": "reject-null-i18n-arg",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-null-i18n-arg.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.text.args.name",
+      "description": "null I18n arg value (structured JVal position)"
+    },
+    {
+      "id": "reject-null-updateprop-value",
+      "kind": "reject",
+      "decoder": "op",
+      "inputFile": "reject/reject-null-updateprop-value.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.value",
+      "description": "null UpdateProp value (structured JVal position)"
+    },
+    {
+      "id": "reject-op-insertchild-empty-childid",
+      "kind": "reject",
+      "decoder": "op",
+      "inputFile": "reject/reject-op-insertchild-empty-childid.json",
+      "expectedErrorCode": "EMPTY_NODE_ID",
+      "expectedPath": "$.child.id",
+      "description": "InsertChild child carries empty id"
+    },
+    {
+      "id": "reject-op-insertchild-missing-parentid",
+      "kind": "reject",
+      "decoder": "op",
+      "inputFile": "reject/reject-op-insertchild-missing-parentid.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.parentId",
+      "description": "InsertChild missing parentId"
+    },
+    {
+      "id": "reject-op-missing-type",
+      "kind": "reject",
+      "decoder": "op",
+      "inputFile": "reject/reject-op-missing-type.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.$type",
+      "description": "Op missing $type entirely"
+    },
+    {
+      "id": "reject-op-reorderchildren-wrongtype",
+      "kind": "reject",
+      "decoder": "op",
+      "inputFile": "reject/reject-op-reorderchildren-wrongtype.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.newOrder",
+      "description": "ReorderChildren newOrder is string not array"
+    },
+    {
+      "id": "reject-op-unknown-yeet",
+      "kind": "reject",
+      "decoder": "op",
+      "inputFile": "reject/reject-op-unknown-yeet.json",
+      "expectedErrorCode": "UNKNOWN_DU_CASE",
+      "expectedPath": "$.$type",
+      "description": "Unknown op discriminator 'Yeet'"
+    },
+    {
+      "id": "reject-op-updateprop-missing-path",
+      "kind": "reject",
+      "decoder": "op",
+      "inputFile": "reject/reject-op-updateprop-missing-path.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.path",
+      "description": "UpdateProp missing path"
+    },
+    {
+      "id": "reject-unknown-binding",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-unknown-binding.json",
+      "expectedErrorCode": "UNKNOWN_DU_CASE",
+      "expectedPath": "$.kind.value.$type",
+      "description": "Binding $type 'Bogus'"
+    },
+    {
+      "id": "reject-unknown-drawing-curve-command",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-unknown-drawing-curve-command.json",
+      "expectedErrorCode": "UNKNOWN_DU_CASE",
+      "expectedPath": "$.kind.shapes[0].commands[0].$type",
+      "description": "Drawing CurveCommand $type 'ArcTo' — typed command list default-deny (Phase 524)"
+    },
+    {
+      "id": "reject-unknown-drawing-shape",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-unknown-drawing-shape.json",
+      "expectedErrorCode": "UNKNOWN_DU_CASE",
+      "expectedPath": "$.kind.shapes[0].$type",
+      "description": "Drawing Shape $type 'Blob' — the closed-shape default-deny (Phase 524)"
+    },
+    {
+      "id": "reject-unknown-mount-direction",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-unknown-mount-direction.json",
+      "expectedErrorCode": "UNKNOWN_DU_CASE",
+      "expectedPath": "$.kind.channel.direction",
+      "description": "Mount ChannelDirection value 'Sideways' (§4o)"
+    },
+    {
+      "id": "reject-unknown-textsource",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-unknown-textsource.json",
+      "expectedErrorCode": "UNKNOWN_DU_CASE",
+      "expectedPath": "$.kind.text.$type",
+      "description": "TextSource $type 'TemplateString'"
+    },
+    {
+      "id": "reject-unknown-tone",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-unknown-tone.json",
+      "expectedErrorCode": "UNKNOWN_DU_CASE",
+      "expectedPath": "$.style.tone",
+      "description": "ToneVariant value 'Magenta'"
+    },
+    {
+      "id": "reject-wrongnodekind-sparkler",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-wrongnodekind-sparkler.json",
+      "expectedErrorCode": "WRONG_NODE_KIND",
+      "expectedPath": "$.kind.$type",
+      "description": "Plausible-but-invalid kind 'Sparkler' — on the flat wire an unknown primitive is WRONG_NODE_KIND, not a nested DisplayKind miss"
+    },
+    {
+      "id": "reject-wrongnodekind-widget",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-wrongnodekind-widget.json",
+      "expectedErrorCode": "WRONG_NODE_KIND",
+      "expectedPath": "$.kind.$type",
+      "description": "Top-level kind 'Widget' is not a recognised node kind"
+    },
+    {
+      "id": "reject-wrongtype-dashboard-children",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-wrongtype-dashboard-children.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.children",
+      "description": "Dashboard children is object not array"
+    },
+    {
+      "id": "reject-wrongtype-discriminator",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-wrongtype-discriminator.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.text.$type",
+      "description": "Discriminator under Style is number"
+    },
+    {
+      "id": "reject-wrongtype-heading-level",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-wrongtype-heading-level.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.level",
+      "description": "Heading level is string not number"
+    },
+    {
+      "id": "reject-wrongtype-id",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-wrongtype-id.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.id",
+      "description": "Node id is integer not string"
+    },
+    {
+      "id": "reject-wrongtype-kind",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-wrongtype-kind.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind",
+      "description": "Node kind is a bare string not an object"
+    },
+    {
+      "id": "reject-wrongtype-style-tone",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-wrongtype-style-tone.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.style.tone",
+      "description": "Style.tone is integer not string"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+# Line-ending normalisation.
+#
+# Store every text file as LF in the repository and check it out as LF on
+# every platform, regardless of the machine's core.autocrlf setting. Without
+# this, autocrlf=true checkouts (and `pnpm format`) flip CRLF<->LF on tracked
+# files and light up `git status` with ~80 phantom "modified" entries, forcing
+# fragile stage-by-name discipline and risking accidental mass-normalisation
+# commits. See workspace memory `fuaran-live-crlf-working-tree-trap`.
+* text=auto eol=lf
+
+# Binary assets — never normalise (defensive; none tracked today, but sample
+# apps may grow images/fonts later).
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+*.pdf   binary

@@ -1,0 +1,52 @@
+# Fuaran (TypeScript)
+
+> Fuaran turns a natural-language prompt into a canonical wire-format UI tree that your
+> app renders. The `@fuaran-ui/client` SDK collapses integration to three things: call
+> the generation endpoint, render the produced tree, and keep the tree so the next prompt
+> is a cheap repair diff. This file indexes everything an agent needs to wire a working
+> integration from the docs alone — no MCP server or plugin required.
+
+You are integrating an AI-driven UI. The model emits **canonical JSON** (the wire format);
+a conformant host renders it. You never parse or validate raw model output yourself — the
+SDK decodes through the same codec the renderer trusts. To run generation you need an
+**endpoint URL + a paid access token** (the commercial gate) and a **BYOK provider key**
+(your own LLM key). Read the quickstart first, then the recipe.
+
+## Start here
+
+- [Quickstart](quickstart.md): the shortest path — install → `generate` → render →
+  turn-loop, copy-paste complete. Read this first.
+- [Integration recipe](integration.md): the end-to-end story — access token, BYOK key,
+  the cheap-diff editing loop, reading the three-way result, corpus opt-in.
+- [Token & key setup](token-setup.md): where the access token and BYOK key live —
+  server-proxy (ship-safe) vs browser-BYOK (user's own key). The one rule: never bundle a
+  key into shipped code.
+
+## SDK reference
+
+- [@fuaran-ui/client README](../packages/client/README.md): the full client surface —
+  `FuaranClient.generate`, the `FuaranSession` turn loop, `mountProduced` render glue, and
+  the `TurnResult` (`Produced` | `AccessDenied` | `TurnFailed`) contract with the
+  surface-version echo.
+
+## Wire format
+
+- [Wire-format spec](../../fuaran/docs/WIRE_FORMAT.md): the canonical, language-neutral
+  JSON serialisation of a `Node` tree and a `TreeOp` — what the model emits and what a
+  conformant host decodes. The authority; every host implements this contract.
+- [Conformance](../CONFORMANCE.md): how an implementation certifies against the shared
+  fixture corpus as a conformant host.
+
+## Recipe bank & the richer path
+
+- [@fuaran-ui/mcp README](../packages/mcp/README.md): the richer, agent-native path — the
+  same endpoint plus a canonical **recipe bank** (query → the reference target tree, prompts,
+  variant points, anti-patterns), wire-format validation, and integration scaffolding,
+  exposed as MCP tools. If you can install an MCP server, prefer this; these docs are the
+  no-install floor that works without it.
+
+## Optional
+
+- [docs/README.md](README.md): a human-facing index of these same docs.
+- [check-drift.mjs](check-drift.mjs): the freshness check — the code in the quickstart and
+  recipe is compiled against the current SDK, so these docs cannot silently rot.

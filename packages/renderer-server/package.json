@@ -1,0 +1,68 @@
+{
+  "name": "@fuaran-ui/renderer-server",
+  "version": "0.1.0",
+  "description": "Server-HTML renderer for the Fuaran UI typed Node tree — a pure-string renderer (no React, no DOM) that walks a tree and emits the reference fuaran-* class vocabulary for a first paint + crawlable, no-JavaScript page. The TypeScript twin of Fuaran.UI.Renderer.Server; class-name vocabulary is parity-locked to the F# reference renderer and the React client renderer. Interactivity renders inert (a button is dead until hydration; a link is a real crawlable <a href>).",
+  "keywords": [
+    "fuaran",
+    "ui",
+    "ai",
+    "ssr",
+    "server-rendering",
+    "html",
+    "hydration"
+  ],
+  "license": "Apache-2.0",
+  "author": "Andrew J. Willshire <andrew@fuaran.com> (Diametrical Ltd)",
+  "homepage": "https://github.com/fuaran-ui/fuaran-ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fuaran-ui/fuaran-ts.git",
+    "directory": "packages/renderer-server"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "peerDependencies": {
+    "@fuaran-ui/charts": "workspace:^",
+    "@fuaran-ui/ops": "workspace:^",
+    "@fuaran-ui/renderer": "workspace:^",
+    "@fuaran-ui/schema": "workspace:^"
+  },
+  "dependencies": {
+    "marked": "^15.0.0"
+  },
+  "devDependencies": {
+    "@fuaran-ui/charts": "workspace:*",
+    "@fuaran-ui/ops": "workspace:*",
+    "@fuaran-ui/renderer": "workspace:*",
+    "@fuaran-ui/schema": "workspace:*",
+    "@fuaran-ui/ui": "workspace:*",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^25.0.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
