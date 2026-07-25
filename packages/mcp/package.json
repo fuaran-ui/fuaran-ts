@@ -1,7 +1,7 @@
 {
   "name": "@fuaran-ui/mcp",
   "version": "0.1.0",
-  "description": "MCP server exposing Fuaran to coding agents — generate a canonical UI tree from a prompt, validate wire JSON against the canonical schema, and scaffold a working integration. The endpoint URL and paid access token are the commercial gate; this server is a thin, open-source tool layer over public surfaces.",
+  "description": "MCP server exposing Fuaran to coding agents â€” generate a canonical UI tree from a prompt, validate wire JSON against the canonical schema, and scaffold a working integration. The endpoint URL and paid access token are the commercial gate; this server is a thin, open-source tool layer over public surfaces.",
   "keywords": [
     "fuaran",
     "ui",
@@ -59,7 +59,8 @@
     "@types/react-dom": "^19.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "@fuaran-ui/mock": "workspace:*"
   },
   "publishConfig": {
     "access": "public"

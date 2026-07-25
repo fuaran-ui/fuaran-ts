@@ -200,6 +200,9 @@ importers:
         specifier: ^3.25.76
         version: 3.25.76
     devDependencies:
+      '@fuaran-ui/mock':
+        specifier: workspace:*
+        version: link:../mock
       '@fuaran-ui/renderer':
         specifier: workspace:*
         version: link:../renderer
