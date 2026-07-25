@@ -1,0 +1,57 @@
+{
+  "name": "@fuaran-ui/cli",
+  "version": "0.1.0",
+  "description": "The Fuaran generative-UI CLI — fuaran generate / validate / recipe / scaffold over the public surfaces, with zero MCP config. Works against the real endpoint or the local mock.",
+  "keywords": [
+    "fuaran",
+    "ui",
+    "ai",
+    "cli",
+    "sdk",
+    "byok"
+  ],
+  "license": "Apache-2.0",
+  "author": "Andrew J. Willshire <andrew@fuaran.com> (Diametrical Ltd)",
+  "homepage": "https://github.com/fuaran-ui/fuaran-ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fuaran-ui/fuaran-ts.git",
+    "directory": "packages/cli"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "bin": {
+    "fuaran": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@fuaran-ui/client": "workspace:^",
+    "@fuaran-ui/mcp": "workspace:^"
+  },
+  "devDependencies": {
+    "@fuaran-ui/mock": "workspace:*",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.6.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
