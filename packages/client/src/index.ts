@@ -27,6 +27,16 @@ export { FuaranClient, type FuaranClientConfig, type FetchLike } from './client.
 
 export { FuaranSession, type FuaranSessionOptions, type SessionTurnOptions } from './session.js';
 
+// The typed repair loop — thread a recoverable failure's hint into the next turn
+// so an apply-rejected emission self-corrects, bounded by a caller-set retry cap.
+export {
+  HINT_MARKER,
+  isRepairable,
+  threadHint,
+  generateWithRepair,
+  type RepairOptions,
+} from './repair.js';
+
 // The wire mapping is exported for advanced hosts that drive their own
 // transport (e.g. a custom proxy that re-serialises the body); most callers use
 // `FuaranClient` and never touch it.
