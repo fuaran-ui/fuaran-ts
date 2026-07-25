@@ -26,6 +26,13 @@ describe('scaffold structural parity', () => {
     expect(report.missingRefs).toEqual([]);
     expect(report.hasSecretLiteral).toBe(false);
   });
+
+  it.each(TARGETS)('%s references nothing its host tier cannot compile', (target) => {
+    // The F#/Fable panel must not name the .NET-only Fuaran.UI.Client (it opens
+    // System.Net.Http and is not source-packed for Fable) — that emission would
+    // be broken on arrival.
+    expect(checkScaffold(target).forbiddenRefs).toEqual([]);
+  });
 });
 
 describe('scaffold behavioral parity — both SDK legs vs the mock', () => {
