@@ -1,0 +1,66 @@
+{
+  "name": "@fuaran-ui/react",
+  "version": "0.1.0",
+  "description": "React adapter for the Fuaran generation endpoint — the useFuaranGenerate hook owns the current tree as state, so the turn-loop (generate, then cheap repair diffs) is automatic, with the closed hint-threading repair loop and rendering through @fuaran-ui/renderer.",
+  "keywords": [
+    "fuaran",
+    "ui",
+    "ai",
+    "react",
+    "hook",
+    "sdk",
+    "byok"
+  ],
+  "license": "Apache-2.0",
+  "author": "Andrew J. Willshire <andrew@fuaran.com> (Diametrical Ltd)",
+  "homepage": "https://github.com/fuaran-ui/fuaran-ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fuaran-ui/fuaran-ts.git",
+    "directory": "packages/react"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "peerDependencies": {
+    "@fuaran-ui/client": "workspace:^",
+    "@fuaran-ui/renderer": "workspace:^",
+    "@fuaran-ui/schema": "workspace:^",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@fuaran-ui/client": "workspace:*",
+    "@fuaran-ui/mock": "workspace:*",
+    "@fuaran-ui/ops": "workspace:*",
+    "@fuaran-ui/renderer": "workspace:*",
+    "@fuaran-ui/schema": "workspace:*",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^25.0.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.6.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

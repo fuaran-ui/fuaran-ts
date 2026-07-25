@@ -269,6 +269,42 @@ importers:
 
   packages/placeholder: {}
 
+  packages/react:
+    devDependencies:
+      '@fuaran-ui/client':
+        specifier: workspace:*
+        version: link:../client
+      '@fuaran-ui/mock':
+        specifier: workspace:*
+        version: link:../mock
+      '@fuaran-ui/ops':
+        specifier: workspace:*
+        version: link:../ops
+      '@fuaran-ui/renderer':
+        specifier: workspace:*
+        version: link:../renderer
+      '@fuaran-ui/schema':
+        specifier: workspace:*
+        version: link:../schema
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.15
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.15)
+      jsdom:
+        specifier: ^25.0.1
+        version: 25.0.1
+      react:
+        specifier: ^19.0.0
+        version: 19.2.6
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.6(react@19.2.6)
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
   packages/renderer:
     dependencies:
       katex:
