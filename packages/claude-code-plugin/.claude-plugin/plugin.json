@@ -1,0 +1,45 @@
+{
+  "name": "fuaran",
+  "version": "0.1.0",
+  "displayName": "Fuaran — generative UI",
+  "description": "Add Fuaran to your app in one prompt: let users describe UI in natural language and have it render. Bundles the Fuaran MCP server (generate / validate / recipe / scaffold) and a skill that teaches the call → render → remember-the-tree integration playbook.",
+  "author": {
+    "name": "Andrew J. Willshire",
+    "email": "andrew@fuaran.com"
+  },
+  "homepage": "https://github.com/fuaran-ui/fuaran-ts",
+  "repository": "https://github.com/fuaran-ui/fuaran-ts",
+  "license": "Apache-2.0",
+  "keywords": ["fuaran", "ui", "ai", "generative-ui", "mcp", "byok"],
+  "mcpServers": {
+    "fuaran": {
+      "command": "npx",
+      "args": ["-y", "@fuaran-ui/mcp"],
+      "env": {
+        "FUARAN_ENDPOINT": "${user_config.endpoint}",
+        "FUARAN_ACCESS_TOKEN": "${user_config.access_token}",
+        "FUARAN_PROVIDER_KEY": "${user_config.provider_key}"
+      }
+    }
+  },
+  "userConfig": {
+    "endpoint": {
+      "type": "string",
+      "title": "Generation endpoint URL",
+      "description": "The Fuaran generation endpoint (or your same-origin proxy path). Leave blank to develop offline against the local mock (npx @fuaran-ui/mock).",
+      "sensitive": false
+    },
+    "access_token": {
+      "type": "string",
+      "title": "Access token",
+      "description": "Your paid access token for the endpoint. Stored in the OS keychain / credentials store, never in the repo.",
+      "sensitive": true
+    },
+    "provider_key": {
+      "type": "string",
+      "title": "BYOK provider key",
+      "description": "Your bring-your-own-key provider key. Memory-only; stored securely, never committed.",
+      "sensitive": true
+    }
+  }
+}

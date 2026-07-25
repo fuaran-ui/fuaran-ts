@@ -1,0 +1,19 @@
+{
+  "name": "@fuaran-ui/claude-code-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claude Code plugin bundling the Fuaran MCP server + the integration-playbook skill. Distributed as a Claude Code plugin (not published to npm).",
+  "license": "Apache-2.0",
+  "author": "Andrew J. Willshire <andrew@fuaran.com> (Diametrical Ltd)",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "devDependencies": {
+    "@fuaran-ui/mcp": "workspace:*",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.6.3"
+  }
+}
