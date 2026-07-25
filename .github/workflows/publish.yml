@@ -59,8 +59,16 @@ jobs:
       - name: Publish (OIDC; skips already-published versions)
         run: |
           set -o pipefail
+          shopt -s nullglob
           fail=0
-          for t in tarballs/*.tgz; do
+          tarballs=(./tarballs/*.tgz)
+          if [ ${#tarballs[@]} -eq 0 ]; then
+            echo "No tarballs produced — Pack step emitted nothing." >&2
+            exit 1
+          fi
+          # The ./ prefix is load-bearing: npm parses a bare `dir/file.tgz`
+          # as a GitHub owner/repo shorthand, not a local path.
+          for t in "${tarballs[@]}"; do
             if out=$(npm publish "$t" --access public --tag "${{ inputs.tag || 'latest' }}" 2>&1); then
               echo "published: $(basename "$t")"
             elif echo "$out" | grep -qiE 'previously published|cannot publish over|EPUBLISHCONFLICT|E409'; then
