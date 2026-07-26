@@ -150,3 +150,6 @@ packages/mcp/test/tmp/
 
 # docs/check-drift.mjs extraction scratch dir (written + cleaned by the drift check)
 docs/.drift/
+
+# Local + CI `pnpm pack` output (see .github/workflows/publish.yml).
+tarballs/
