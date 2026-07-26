@@ -1748,9 +1748,12 @@ const decodeBinding = (
   if (!d.ok) return d;
   switch (d.value) {
     case 'Static': {
-      const v = requireField(path, f, 'value', "Binding.Static value of the slot's expected type");
-      if (!v.ok) return v;
-      const parsed = parseStatic(`${path}.value`, v.value);
+      // Phase 677 — absence is structural: a MISSING `value` means the binding
+      // carries none. The legacy `"value": null` form still decodes (§16
+      // shorthand) by routing to the very same per-slot absent handling, so the
+      // two spellings cannot disagree.
+      const raw = f.get('value') ?? ({ kind: 'JNull' } as const);
+      const parsed = parseStatic(`${path}.value`, raw);
       return parsed.ok ? ok({ kind: 'Static', value: parsed.value }) : parsed;
     }
     case 'Query': {
@@ -1850,7 +1853,12 @@ const decodeBinding = (
       // Decode the carried `defaultValue` through the slot's static parser
       // when it parses (Phase 426/429); an absent / unparseable default falls
       // back to the typed placeholder — byte-for-byte with the F# decoder.
-      const dv = fieldAliased(f, 'defaultValue', ['initialValue', 'default']);
+      // Phase 677 — an ABSENT default decodes exactly as the legacy
+      // `"defaultValue": null` did, or the encoder re-emits a placeholder and
+      // the round-trip breaks.
+      const dv =
+        fieldAliased(f, 'defaultValue', ['initialValue', 'default']) ??
+        ({ kind: 'JNull' } as const);
       let defaultValue: unknown = placeholder;
       if (dv !== undefined) {
         const parsed = parseStatic(`${path}.defaultValue`, dv);

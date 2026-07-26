@@ -635,8 +635,13 @@ const flushTrigger = (t: LocalFlushTrigger): string => {
  */
 const binding = <T>(b: Binding<T>, staticEnc: (v: T) => string = objValue): string => {
   switch (b.kind) {
-    case 'Static':
-      return caseObj('Static', [['value', staticEnc(b.value)]]);
+    case 'Static': {
+      // Phase 677 — absence is structural: a binding carrying no value omits the
+      // key rather than emitting JSON null, for which the wire model has no case.
+      const valueFields: readonly Field[] =
+        b.value === null || b.value === undefined ? [] : [['value', staticEnc(b.value)]];
+      return caseObj('Static', valueFields);
+    }
     case 'Query': {
       // Phase 421 — `dependsOn` rides as a string array, omitted-when-empty.
       // 0.2.0 — the `accessor` closure sentinel is OFF the wire (decoders
@@ -668,11 +673,14 @@ const binding = <T>(b: Binding<T>, staticEnc: (v: T) => string = objValue): stri
       const fieldField: readonly Field[] = b.field !== undefined ? [['field', str(b.field)]] : [];
       return caseObj('Selection', [...defaultField, ...fieldField, ['nodeId', str(b.nodeId)]]);
     }
-    case 'State':
-      return caseObj('State', [
-        ['defaultValue', staticEnc(b.defaultValue)],
-        ['key', str(b.key)],
-      ]);
+    case 'State': {
+      // Phase 677 — same rule as `Static`: absence omits, never null.
+      const defaultFields: readonly Field[] =
+        b.defaultValue === null || b.defaultValue === undefined
+          ? []
+          : [['defaultValue', staticEnc(b.defaultValue)]];
+      return caseObj('State', [...defaultFields, ['key', str(b.key)]]);
+    }
     case 'Computed':
       return caseObj('Computed', [['fn', CLOSURE]]);
     case 'I18n': {
