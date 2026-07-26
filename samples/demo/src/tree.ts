@@ -1,5 +1,5 @@
 // The canonical authored tree — a parallel of the F# tier's
-// `fuaran/samples/demo/Main.fs` shape, so paper readers can compare the two
+// `fuaran-dotnet/samples/demo/Main.fs` shape, so paper readers can compare the two
 // implementations side by side.
 //
 // Authored entirely through the `@fuaran-ui/ui` smart-constructor surface

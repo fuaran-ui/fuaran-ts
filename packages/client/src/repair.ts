@@ -8,7 +8,7 @@
 // first-class, one-call SDK affordance instead of manual plumbing, with a
 // caller-set bound so it never loops forever.
 //
-// Parity: `fuaran/src/Fuaran.UI.Client/Repair.fs` mirrors `isRepairable`, the
+// Parity: `fuaran-dotnet/src/Fuaran.UI.Client/Repair.fs` mirrors `isRepairable`, the
 // `threadHint` prompt augmentation (byte-identical marker text), and the bounded
 // `generateWithRepair` loop.
 

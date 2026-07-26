@@ -8,7 +8,7 @@
 //  Pure, dependency-free, testable in isolation — the XSS-payload corpus
 //  lives in test/sanitize.test.ts.
 //
-//  Threat model (see fuaran/SANITIZATION.md for the full doc):
+//  Threat model (see fuaran-dotnet/SANITIZATION.md for the full doc):
 //    1. extraAttributes — drop `on*` event handlers, `style`, anything
 //       outside data-* / aria-*. Reject keys/values containing `<`, `>`,
 //       or C0 control bytes (defence in depth — React's encoder already

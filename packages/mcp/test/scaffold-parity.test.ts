@@ -55,7 +55,7 @@ describe('scaffold behavioral parity — both SDK legs vs the mock', () => {
 
   const fsCliDll = fileURLToPath(
     new URL(
-      '../../../../fuaran/src/Fuaran.UI.Cli/bin/Debug/net10.0/Fuaran.UI.Cli.dll',
+      '../../../../fuaran-dotnet/src/Fuaran.UI.Cli/bin/Debug/net10.0/Fuaran.UI.Cli.dll',
       import.meta.url,
     ),
   );

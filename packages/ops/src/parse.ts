@@ -4,7 +4,7 @@
 //  Port of the local-private `Json` DU + recursive-descent parser inside the
 //  F# decoder (Fuaran.UI.Ops.JsonDecode). The F# tier hand-rolls its parser
 //  because Fable.SimpleJson / Newtonsoft / System.Text.Json are each pipeline-
-//  incompatible (see fuaran/docs/migrations/12-E-0-json-decoder.md). TypeScript
+//  incompatible (see fuaran-dotnet/docs/migrations/12-E-0-json-decoder.md). TypeScript
 //  has `JSON.parse`, but the decoder hand-rolls its own for the same reason the
 //  F# tier does: bit-identical handling of the number-edge string sentinels
 //  ("NaN" / "Infinity" / "-Infinity"), key-order tolerance, and structural

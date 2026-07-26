@@ -4,7 +4,7 @@
 // module. It is shared by BOTH TypeScript renderers — the React client renderer
 // (`@fuaran-ui/renderer`) and the string server renderer (`@fuaran-ui/renderer-server`,
 // which imports `mathMl` from here, mirroring how it imports `drawingSvg`). The
-// shared byte oracle is the fixture table in `fuaran/docs/MATH-DEGRADATION.md`,
+// shared byte oracle is the fixture table in `fuaran-dotnet/docs/MATH-DEGRADATION.md`,
 // pinned in `test/mathMl.test.ts` against the SAME strings the F# tests pin.
 //
 // It implements a small, CLOSED expression subset (superscript / subscript / the
@@ -217,7 +217,7 @@ const parseSequence = (p: P, stop: string): string => {
 
 /**
  * Translate a LaTeX `source` in the closed subset (see
- * `fuaran/docs/MATH-DEGRADATION.md`) to a native MathML fragment string, or `null`
+ * `fuaran-dotnet/docs/MATH-DEGRADATION.md`) to a native MathML fragment string, or `null`
  * when the input is outside the subset (the renderer then falls back to the
  * raw-source span). Total — never throws on any input.
  */

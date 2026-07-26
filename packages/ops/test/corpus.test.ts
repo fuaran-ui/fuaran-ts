@@ -2,7 +2,7 @@
 //  Wire-format conformance harness.
 //
 //  Loads the workspace-level wire-format-fixtures corpus (the shared executable
-//  conformance suite — fuaran/docs/WIRE_FORMAT.md §12) and runs every fixture
+//  conformance suite — fuaran-dotnet/docs/WIRE_FORMAT.md §12) and runs every fixture
 //  through the TS codec:
 //
 //   - node-round-trip / op-round-trip : decode(input) deep-decodes without

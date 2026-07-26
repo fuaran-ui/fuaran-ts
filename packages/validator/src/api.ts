@@ -88,7 +88,7 @@ export function validateSources(
           'warning',
           'FUARAN900',
           { file: options.manifestProbePath ?? '<sources>', line: 1, column: 1 },
-          'No fuaran-validator.manifest.json found — schema-coupled checks (binding.query name resolution, action.dispatch case names) are silenced. See fuaran/docs/VALIDATOR-MANIFEST.md.',
+          'No fuaran-validator.manifest.json found — schema-coupled checks (binding.query name resolution, action.dispatch case names) are silenced. See fuaran-dotnet/docs/VALIDATOR-MANIFEST.md.',
         ),
       ];
 
@@ -131,7 +131,7 @@ export function validateProject(options: ValidateProjectOptions): RunResult {
             'warning',
             'FUARAN900',
             { file: projectDir, line: 1, column: 1 },
-            'No fuaran-validator.manifest.json found in the project directory — schema-coupled checks (binding.query name resolution, action.dispatch case names) are silenced. See fuaran/docs/VALIDATOR-MANIFEST.md.',
+            'No fuaran-validator.manifest.json found in the project directory — schema-coupled checks (binding.query name resolution, action.dispatch case names) are silenced. See fuaran-dotnet/docs/VALIDATOR-MANIFEST.md.',
           ),
         ];
 

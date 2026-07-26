@@ -31,8 +31,22 @@ export const WIRE_PROFILE = '1';
 
 /** Options for {@link mount}. Every field is optional. */
 export interface MountOptions<TMsg = unknown> {
-  /** Called when the rendered UI dispatches a message. */
+  /** Called when the rendered UI dispatches a message.
+   *
+   *  NOTE: a wire-decoded `Dispatch` carries the `"<closure>"` sentinel, because
+   *  `Dispatch` holds a host closure that cannot be serialised. Treat this as a
+   *  diagnostic signal. For a real message from a wire tree, use
+   *  {@link MountOptions.onNotify}. */
   readonly dispatch?: (msg: TMsg) => void;
+  /** Called when the rendered UI raises a `Notify(channel, payload)` — the
+   *  wire-representable message action.
+   *
+   *  This is the cross-host interaction path. A typed host (F#) authors a typed
+   *  message that lowers onto a channel + JSON payload; this callback is where it
+   *  arrives. An untyped host handles the pair directly: same functionality,
+   *  without the typing its language cannot express. Post it back to your server
+   *  and the typed host lifts it to its own message type again. */
+  readonly onNotify?: (channel: string, payload: unknown) => void;
   /** Binding sources (query results, state, filters) the tree resolves against. */
   readonly sources?: BindingSources;
   /** Host runtime — the default-deny dispatch gate, custom renderers, warnings. */
@@ -123,6 +137,21 @@ export function mount<TMsg = unknown>(
     el.textContent = `Fuaran: ${message}`;
   };
 
+  // `Notify` is routed through the runtime seam, so `onNotify` is folded into
+  // whatever runtime the host supplied rather than replacing it. A host that
+  // wires its own `runtime.notify` keeps it; `onNotify` is the convenience for a
+  // consumer who should not need to know the runtime's shape at all.
+  const runtime: FuaranRuntime | undefined =
+    options?.onNotify !== undefined
+      ? {
+          ...options.runtime,
+          notify: (channel: string, payload: unknown) => {
+            options.runtime?.notify?.(channel, payload as never);
+            options.onNotify?.(channel, payload);
+          },
+        }
+      : options?.runtime;
+
   const render = (tree: Node<TMsg>): void => {
     currentTree = tree;
     root.render(
@@ -130,7 +159,7 @@ export function mount<TMsg = unknown>(
         tree,
         ...(options?.dispatch !== undefined ? { dispatch: options.dispatch } : {}),
         ...(options?.sources !== undefined ? { sources: options.sources } : {}),
-        ...(options?.runtime !== undefined ? { runtime: options.runtime } : {}),
+        ...(runtime !== undefined ? { runtime } : {}),
       }),
     );
   };

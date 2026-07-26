@@ -6,7 +6,7 @@
 //   import type { TreeOp, DecodeError } from '@fuaran-ui/ops';
 //
 // A conformant TypeScript host of the language-neutral wire-format contract in
-// fuaran/docs/WIRE_FORMAT.md, verified byte-for-byte against the workspace
+// fuaran-dotnet/docs/WIRE_FORMAT.md, verified byte-for-byte against the workspace
 // ../wire-format-fixtures/ corpus. Operates on the typed shapes from
 // @fuaran-ui/schema (a peer dependency).
 

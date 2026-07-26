@@ -1,7 +1,7 @@
 // ============================================================================
 //  @fuaran-ui/conformance — the implementation-adapter seam.
 //
-//  A candidate host of the Fuaran UI wire format (fuaran/docs/WIRE_FORMAT.md)
+//  A candidate host of the Fuaran UI wire format (fuaran-dotnet/docs/WIRE_FORMAT.md)
 //  plugs its codec into the runner through this interface. Every hook is
 //  optional: the runner derives which conformance legs are exercisable from
 //  which hooks are present, and the report marks the rest `skipped` — so a

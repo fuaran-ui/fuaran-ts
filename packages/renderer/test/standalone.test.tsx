@@ -113,6 +113,62 @@ describe('mount — the embedded bundle entry point', () => {
   });
 });
 
+describe('onNotify — the untyped half of typed cross-host messaging', () => {
+  it('delivers the channel and the data payload a typed host lowered onto', () => {
+    // The F# side authors `dispatchTyped contract (SetYear 2024)`, which lowers
+    // to this exact Notify. An untyped host receives the pair and routes it:
+    // same functionality, without the typing TypeScript cannot express here.
+    const received: Array<{ channel: string; payload: unknown }> = [];
+
+    const withNotify = JSON.stringify({
+      id: 'set-year',
+      kind: {
+        $type: 'Button',
+        label: 'Set year',
+        variant: 'Primary',
+        onClick: { $type: 'Notify', channel: 'app.setYear', payload: { year: 2024 } },
+      },
+    });
+
+    const container = mountInto(withNotify, {
+      onNotify: (channel, payload) => received.push({ channel, payload }),
+    });
+
+    act(() => container.querySelector('button')!.click());
+
+    expect(received).toHaveLength(1);
+    expect(received[0]!.channel).toBe('app.setYear');
+    // The payload is real data — this is what a typed host lifts back to
+    // `SetYear 2024`, and what the closure sentinel could never carry.
+    expect(received[0]!.payload).toEqual({ year: 2024 });
+  });
+
+  it('does not displace a host that wired its own runtime.notify', () => {
+    const viaRuntime: string[] = [];
+    const viaOption: string[] = [];
+
+    const withNotify = JSON.stringify({
+      id: 'b',
+      kind: {
+        $type: 'Button',
+        label: 'Go',
+        variant: 'Primary',
+        onClick: { $type: 'Notify', channel: 'c', payload: {} },
+      },
+    });
+
+    const container = mountInto(withNotify, {
+      runtime: { notify: (channel: string) => viaRuntime.push(channel) },
+      onNotify: (channel) => viaOption.push(channel),
+    });
+
+    act(() => container.querySelector('button')!.click());
+
+    expect(viaRuntime).toEqual(['c']);
+    expect(viaOption).toEqual(['c']);
+  });
+});
+
 describe('the wire boundary on Dispatch (a constraint, not a bug)', () => {
   it('a wire-decoded Dispatch carries the closure sentinel, not a typed message', () => {
     // `Dispatch of 'Msg` holds a HOST CLOSURE, which cannot cross the wire — the

@@ -4,7 +4,7 @@
 //  The server renderer emits HTML *strings* — no DOM, no React, no template
 //  engine. This module is the single seam where a string becomes HTML, so the
 //  escaping floor lives here (mirroring the React-escaping floor the client
-//  renderer leans on; see fuaran/SANITIZATION.md "React's escaping floor"). It
+//  renderer leans on; see fuaran-dotnet/SANITIZATION.md "React's escaping floor"). It
 //  is the TypeScript analogue of the Python host's `html.py`.
 //
 //  Attribute *values* are escaped here; attribute *keys* the caller passes are

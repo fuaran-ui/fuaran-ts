@@ -1,7 +1,7 @@
 // ============================================================================
 //  Phase 101 — fast-check arbitraries for the wire-format fuzzer (TS side).
 //
-//  Mirrors the F# FsCheck generators (fuaran/src/Fuaran.UI.JsonDecode.Tests/
+//  Mirrors the F# FsCheck generators (fuaran-dotnet/src/Fuaran.UI.JsonDecode.Tests/
 //  Generators.fs) so both conformant hosts fuzz the same generated tree-space.
 //  Feeds the within-host idempotence property (idempotence.test.ts):
 //

@@ -3,7 +3,7 @@
 //
 //  This is a shape-for-shape port of the F# reference type contract
 //  (Fuaran.UI/Types.fs). It is one conformant host of the canonical wire
-//  format declared language-neutrally in fuaran/docs/WIRE_FORMAT.md; the F#
+//  format declared language-neutrally in fuaran-dotnet/docs/WIRE_FORMAT.md; the F#
 //  tier is the other. Phase 76 (@fuaran-ui/ops) verifies the JSON codec built
 //  on these types against the workspace ../wire-format-fixtures/ corpus
 //  byte-for-byte. This file owns only the typed contract — smart constructors

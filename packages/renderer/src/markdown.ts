@@ -9,7 +9,7 @@
 //  renderer, so SSR'd markdown matches client markdown byte-for-byte.
 //
 //  Targets the GFM spec (github.github.com/gfm) at the common-case bar. Buckets
-//  (see ../../../fuaran/docs/MARKDOWN.md):
+//  (see ../../../fuaran-dotnet/docs/MARKDOWN.md):
 //   IN  — CommonMark core + GFM tables / strikethrough / task lists / bare URLs.
 //   OUT — raw/inline HTML escaped (no passthrough); math + Mermaid live as a
 //         Custom node / client-only pass (they would break byte-parity).

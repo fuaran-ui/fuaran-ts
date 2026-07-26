@@ -3,7 +3,7 @@
 //
 //  Symmetric port of Fuaran.UI.OpStream.Abstractions.CanonicalJson
 //  (encodeNode / encodeOp). Produces the deterministic, byte-stable wire form
-//  pinned by fuaran/docs/WIRE_FORMAT.md §2:
+//  pinned by fuaran-dotnet/docs/WIRE_FORMAT.md §2:
 //
 //   - object keys sorted by Ordinal (UTF-16 code-unit) comparison;
 //   - `None` / `undefined` option fields omitted entirely (never `"k":null`);

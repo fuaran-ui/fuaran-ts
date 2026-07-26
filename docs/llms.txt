@@ -31,7 +31,7 @@ SDK decodes through the same codec the renderer trusts. To run generation you ne
 
 ## Wire format
 
-- [Wire-format spec](../../fuaran/docs/WIRE_FORMAT.md): the canonical, language-neutral
+- [Wire-format spec](../../fuaran-dotnet/docs/WIRE_FORMAT.md): the canonical, language-neutral
   JSON serialisation of a `Node` tree and a `TreeOp` — what the model emits and what a
   conformant host decodes. The authority; every host implements this contract.
 - [Conformance](../CONFORMANCE.md): how an implementation certifies against the shared

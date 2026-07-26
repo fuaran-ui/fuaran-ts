@@ -73,12 +73,12 @@ The hand-rolled `parse` surface and the `coerce` UpdateProp helpers are internal
 
 ### `@fuaran-ui/renderer`
 
-The **`<FuaranRenderer>` prop shape and the emitted class-name + ARIA vocabulary are stable**, subject to the wire-format forward-coupling rule – renderer dispatch must accept any tree the wire spec admits, and the per-`NodeKind` / `LayoutKind` / `DisplayKind` class names are byte-for-byte parity with the F# reference renderer ([`fuaran/src/Fuaran.UI.Renderer/Render.fs`](../fuaran/src/Fuaran.UI.Renderer/)). This covers:
+The **`<FuaranRenderer>` prop shape and the emitted class-name + ARIA vocabulary are stable**, subject to the wire-format forward-coupling rule – renderer dispatch must accept any tree the wire spec admits, and the per-`NodeKind` / `LayoutKind` / `DisplayKind` class names are byte-for-byte parity with the F# reference renderer ([`fuaran-dotnet/src/Fuaran.UI.Renderer/Render.fs`](../fuaran-dotnet/src/Fuaran.UI.Renderer/)). This covers:
 
 - The `<FuaranRenderer tree dispatch sources runtime theme>` prop record ([`packages/renderer/src/Renderer.tsx`](packages/renderer/src/Renderer.tsx)).
 - The class-name contract (`fuaran-kind-*`, `fuaran-layout-*`, `fuaran-tone-*`, `fuaran-button-*`, `fuaran-badge-*`, `fuaran-motion-*`, …) and the ARIA attribute set ([`packages/renderer/src/classNames.ts`](packages/renderer/src/classNames.ts) + the per-family renderers under `packages/renderer/src/render/`) – renaming a class is a **major-version event**, because the packaged reference CSS and any consumer CSS key off them.
 - The packaged **reference CSS** (`@fuaran-ui/renderer/css`, the `./css` export) – declared stable + versioned alongside the package; a breaking class-name change is a major-version event. It is sync-packaged from the F# tier's reference CSS (a maintainers' byte-copy sync discipline).
-- The `@fuaran-ui/renderer/sanitize` seam (`sanitizeUrl`, `sanitizeUrlOrBlank`, `sanitizeExtraAttributes`, `sanitizeMarkdownHtml`) – the render-time injection-safety contract mirroring [`fuaran/SANITIZATION.md`](../fuaran/SANITIZATION.md) (Phase 56). The behaviour (which schemes/keys/elements are blocked) is stable; exact diagnostic strings are not.
+- The `@fuaran-ui/renderer/sanitize` seam (`sanitizeUrl`, `sanitizeUrlOrBlank`, `sanitizeExtraAttributes`, `sanitizeMarkdownHtml`) – the render-time injection-safety contract mirroring [`fuaran-dotnet/SANITIZATION.md`](../fuaran-dotnet/SANITIZATION.md) (Phase 56). The behaviour (which schemes/keys/elements are blocked) is stable; exact diagnostic strings are not.
 
 The **custom-renderer registry** (`createCustomRendererRegistry`, `registerCustomRenderer`, `CustomRendererRegistry`, `FuaranRuntime`) and the **typed `Theme` + `themeToCss` bridge** are **stable** as of Phase 78, validated by the `samples/demo` app (it registers a `Custom` React component through the registry + `FuaranRuntime`, and applies a sample theme via the `theme` prop). React 19+ is a peer dependency.
 
@@ -173,11 +173,11 @@ The BYOK provider key and the paid access token are **memory-only, never bundled
 
 ## Wire format
 
-The canonical JSON wire format is specified language-neutrally in [`fuaran/docs/WIRE_FORMAT.md`](../fuaran/docs/WIRE_FORMAT.md), with the workspace [`wire-format-fixtures/`](../wire-format-fixtures/) corpus as the executable conformance suite. `@fuaran-ui/schema` is the TypeScript shape the codec is built on; `@fuaran-ui/ops` (Phase 76) ships the encoder/decoder verified against the corpus byte-for-byte (all 84 fixtures: 56 round-trips byte-identical to the F# encoder – 46 Node + 10 TreeOp – + 28 reject cases surfacing the same `DecodeErrorCode` at the same path).
+The canonical JSON wire format is specified language-neutrally in [`fuaran-dotnet/docs/WIRE_FORMAT.md`](../fuaran-dotnet/docs/WIRE_FORMAT.md), with the workspace [`wire-format-fixtures/`](../wire-format-fixtures/) corpus as the executable conformance suite. `@fuaran-ui/schema` is the TypeScript shape the codec is built on; `@fuaran-ui/ops` (Phase 76) ships the encoder/decoder verified against the corpus byte-for-byte (all 84 fixtures: 56 round-trips byte-identical to the F# encoder – 46 Node + 10 TreeOp – + 28 reject cases surfacing the same `DecodeErrorCode` at the same path).
 
 The wire format is **stable**. Breaking changes (major-version events): changing a discriminant string, removing or retyping an emitted field, changing a sentinel string, or changing a `DecodeError` code. **Non-breaking** (additive): a new tagged-union case or a new optional field omitted when absent.
 
-**Forward-coupling rule (load-bearing).** Per [`WIRE_FORMAT.md` §11](../fuaran/docs/WIRE_FORMAT.md), adding a new `NodeKind` / `Spec` / `TreeOp` / `Binding` / `Action` case in any future phase MUST, in the same commit, update the F# encoder + decoder + the `wire-format-fixtures/` corpus **and** bump the `@fuaran-ui/schema` shape + the `@fuaran-ui/ui` smart-ctor (when applicable) + the TS encoder/decoder (Phase 76 onward). The TypeScript and F# implementations move in lockstep against the shared spec + corpus.
+**Forward-coupling rule (load-bearing).** Per [`WIRE_FORMAT.md` §11](../fuaran-dotnet/docs/WIRE_FORMAT.md), adding a new `NodeKind` / `Spec` / `TreeOp` / `Binding` / `Action` case in any future phase MUST, in the same commit, update the F# encoder + decoder + the `wire-format-fixtures/` corpus **and** bump the `@fuaran-ui/schema` shape + the `@fuaran-ui/ui` smart-ctor (when applicable) + the TS encoder/decoder (Phase 76 onward). The TypeScript and F# implementations move in lockstep against the shared spec + corpus.
 
 ## Unstable surfaces
 
@@ -201,5 +201,5 @@ Before this repo flips public (public GitHub repository, published-to-npm packag
 - [`LICENSE`](LICENSE)
 - [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - [`CLAUDE.md`](CLAUDE.md)
-- [`fuaran/STABILITY.md`](../fuaran/STABILITY.md) – the F# language-tier counterpart.
-- [`fuaran/docs/WIRE_FORMAT.md`](../fuaran/docs/WIRE_FORMAT.md) – the shared wire-format authority.
+- [`fuaran-dotnet/STABILITY.md`](../fuaran-dotnet/STABILITY.md) – the F# language-tier counterpart.
+- [`fuaran-dotnet/docs/WIRE_FORMAT.md`](../fuaran-dotnet/docs/WIRE_FORMAT.md) – the shared wire-format authority.

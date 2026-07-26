@@ -6,7 +6,7 @@
 //   import type { ConformanceAdapter, ConformanceReport } from '@fuaran-ui/conformance';
 //
 // Plug a candidate implementation's codec into the `ConformanceAdapter` seam,
-// run it over the bundled canonical corpus (fuaran/docs/WIRE_FORMAT.md), and
+// run it over the bundled canonical corpus (fuaran-dotnet/docs/WIRE_FORMAT.md), and
 // get a per-leg pass/fail report naming the corpus version it certified
 // against. See CONFORMANCE.md (repo root) for the certification procedure.
 

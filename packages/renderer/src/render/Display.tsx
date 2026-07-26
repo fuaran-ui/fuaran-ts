@@ -248,7 +248,7 @@ export const renderDisplay = <TMsg,>(
       // the server renderer imports the same builder). KaTeX upgrades either
       // shape client-only post-hydration (targets the `.fuaran-math` container,
       // reads `data-fuaran-math-src`), OUTSIDE the parity output. See
-      // fuaran/docs/MATH-DEGRADATION.md.
+      // fuaran-dotnet/docs/MATH-DEGRADATION.md.
       const spec = display.spec;
       const markup = mathMl(spec.source, spec.display);
       const isBlock = spec.display === 'Block';

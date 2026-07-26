@@ -3,7 +3,7 @@
 This document is the certification procedure for implementations of the
 **Fuaran UI wire format** — the canonical JSON serialisation of a `Node` tree
 and a `TreeOp`, specified language-neutrally in the Fuaran language repo's
-[`docs/WIRE_FORMAT.md`](../fuaran/docs/WIRE_FORMAT.md).
+[`docs/WIRE_FORMAT.md`](../fuaran-dotnet/docs/WIRE_FORMAT.md).
 
 The spec + fixture corpus + JSON Schema — not any single implementation — are
 the canonical artefact. Any implementation, in any language, that certifies
@@ -15,7 +15,7 @@ test suite is required.
 ## The conformant-host roster
 
 The authoritative list of hosts and their roles lives in the spec's
-[`WIRE_FORMAT.md` §11.0](../fuaran/docs/WIRE_FORMAT.md) (the single source of
+[`WIRE_FORMAT.md` §11.0](../fuaran-dotnet/docs/WIRE_FORMAT.md) (the single source of
 truth every forward-coupling obligation references). The **codec hosts** — held
 to the full byte-identity certification below — are:
 
@@ -283,7 +283,7 @@ corpus version + digest is not verifiable and should not be relied on.
 
 ## See also
 
-- [`fuaran/docs/WIRE_FORMAT.md`](../fuaran/docs/WIRE_FORMAT.md) — the
+- [`fuaran-dotnet/docs/WIRE_FORMAT.md`](../fuaran-dotnet/docs/WIRE_FORMAT.md) — the
   canonical spec (§6 error envelope, §11 forward-coupling, §12 corpus
   consumption, §13 JSON Schema).
 - [`packages/conformance/README.md`](packages/conformance/README.md) — the

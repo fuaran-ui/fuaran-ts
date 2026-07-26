@@ -10,7 +10,7 @@
 //
 //  This file owns only the typed contract; the canonical-JSON codec lives in
 //  @fuaran-ui/ops and the native-JS columnar evaluator alongside it. The wire
-//  shape is declared language-neutrally in fuaran/docs/WIRE_FORMAT.md §3.3; the
+//  shape is declared language-neutrally in fuaran-dotnet/docs/WIRE_FORMAT.md §3.3; the
 //  codec is verified byte-for-byte against the workspace wire-format-fixtures
 //  corpus (`nodes/grid-transform.json` is the worked Transform reference).
 //

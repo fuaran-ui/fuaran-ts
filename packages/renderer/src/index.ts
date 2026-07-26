@@ -6,7 +6,7 @@
 //   import '@fuaran-ui/renderer/css';
 //
 // A conformant TypeScript host of the language-neutral wire-format contract in
-// fuaran/docs/WIRE_FORMAT.md — renders any tree @fuaran-ui/ui authors or
+// fuaran-dotnet/docs/WIRE_FORMAT.md — renders any tree @fuaran-ui/ui authors or
 // @fuaran-ui/ops decodes, with class-name + ARIA parity to the F# renderer.
 // The sanitisation seam is also published as the @fuaran-ui/renderer/sanitize
 // subpath.

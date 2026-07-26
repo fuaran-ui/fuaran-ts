@@ -1,7 +1,7 @@
 {
   "name": "@fuaran-ui/renderer",
   "version": "0.1.0",
-  "description": "React renderer + reference CSS + per-instance custom-renderer registry for the Fuaran UI typed Node tree — a conformant TypeScript host of the language-neutral contract in fuaran/docs/WIRE_FORMAT.md. Renders any tree @fuaran-ui/ui authors or @fuaran-ui/ops decodes, with class-name + ARIA parity to the F# reference renderer.",
+  "description": "React renderer + reference CSS + per-instance custom-renderer registry for the Fuaran UI typed Node tree — a conformant TypeScript host of the language-neutral contract in fuaran-dotnet/docs/WIRE_FORMAT.md. Renders any tree @fuaran-ui/ui authors or @fuaran-ui/ops decodes, with class-name + ARIA parity to the F# reference renderer.",
   "keywords": [
     "fuaran",
     "ui",

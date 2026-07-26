@@ -2,7 +2,7 @@
 
 The React renderer for the Fuaran UI typed `Node` tree — the user-visible
 surface of the TypeScript reference implementation. A conformant host of the
-language-neutral wire-format contract (`fuaran/docs/WIRE_FORMAT.md`): it renders
+language-neutral wire-format contract (`fuaran-dotnet/docs/WIRE_FORMAT.md`): it renders
 any tree `@fuaran-ui/ui` authors or `@fuaran-ui/ops` decodes, with **class-name
 and ARIA parity** to the F# reference renderer (the packaged reference CSS keys
 off those exact class names).

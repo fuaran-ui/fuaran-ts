@@ -81,7 +81,7 @@ tier (one file serves both):
 
 Without a manifest, the schema-coupled checks (`FUARAN010` / `FUARAN020`) are
 silenced and a single `FUARAN900` warning surfaces the silenced state. See
-[`fuaran/docs/VALIDATOR-MANIFEST.md`](../../../fuaran/docs/VALIDATOR-MANIFEST.md)
+[`fuaran-dotnet/docs/VALIDATOR-MANIFEST.md`](../../../fuaran-dotnet/docs/VALIDATOR-MANIFEST.md)
 for the full format.
 
 ## Defect codes

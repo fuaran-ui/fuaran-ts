@@ -840,7 +840,7 @@ const renderDisplay = (
       // superscripts, no JS), else the raw escaped-source span. Byte-identical
       // to the client renderer via the shared `mathMl` builder. KaTeX upgrades
       // either shape client-only (targets the `.fuaran-math` container), outside
-      // parity. See fuaran/docs/MATH-DEGRADATION.md.
+      // parity. See fuaran-dotnet/docs/MATH-DEGRADATION.md.
       const spec = display.spec;
       const markup = mathMl(spec.source, spec.display);
       const isBlock = spec.display === 'Block';

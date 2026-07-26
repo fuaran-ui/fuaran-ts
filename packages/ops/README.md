@@ -3,7 +3,7 @@
 Canonical-JSON codec (encoder + structural decoder) and tree-op apply engine for
 the Fuaran UI wire format — a conformant **TypeScript host** of the
 language-neutral contract specified in
-[`fuaran/docs/WIRE_FORMAT.md`](../../../fuaran/docs/WIRE_FORMAT.md), sibling to the
+[`fuaran-dotnet/docs/WIRE_FORMAT.md`](../../../fuaran-dotnet/docs/WIRE_FORMAT.md), sibling to the
 F# host. Built on the typed shapes from
 [`@fuaran-ui/schema`](../schema/) (a peer dependency).
 
@@ -73,7 +73,7 @@ of the erased payloads is the host's responsibility.
 ## Conformance is the stability contract
 
 Per the wire-format **forward-coupling rule**
-([`WIRE_FORMAT.md` §11](../../../fuaran/docs/WIRE_FORMAT.md)), adding a `NodeKind` / `Spec`
+([`WIRE_FORMAT.md` §11](../../../fuaran-dotnet/docs/WIRE_FORMAT.md)), adding a `NodeKind` / `Spec`
 / `TreeOp` / `Binding` / `Action` case updates the F# encoder + decoder + the corpus
 **and** this TS codec + `@fuaran-ui/schema` in the same commit. Byte-equality against the
 corpus — not just API non-breakage — is the contract.

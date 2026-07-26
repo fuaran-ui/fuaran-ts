@@ -1,7 +1,7 @@
 // Phase 658 — byte-for-byte cover for `mathMl`, the deterministic LaTeX→MathML
 // translator for the closed `Math` subset. This is the TypeScript half of the
-// shared fixture-table oracle in `fuaran/docs/MATH-DEGRADATION.md`; the F# port
-// (`fuaran/src/Fuaran.UI.Tests/MathMlTests.fs`) pins the SAME strings, so the two
+// shared fixture-table oracle in `fuaran-dotnet/docs/MATH-DEGRADATION.md`; the F# port
+// (`fuaran-dotnet/src/Fuaran.UI.Tests/MathMlTests.fs`) pins the SAME strings, so the two
 // implementations cannot silently diverge.
 import { describe, expect, it } from 'vitest';
 

@@ -8,7 +8,7 @@ This repo sits in the Fuaran workspace alongside the F# `fuaran` language tier (
 
 - **Apache 2.0 from day one.** Distinct from the F# `fuaran` tier's current "private and proprietary, planning Apache 2.0" posture — the TS sibling is OSS-licensed from the first commit to make the canonical-implementation claim unambiguous ahead of paper publication.
 - **Apache-2.0 from day one, public by design** (see [`LICENSE`](LICENSE)); the packages publish to npm under the `@fuaran-ui` scope.
-- **Wire-format conformance is the stability contract.** The canonical wire format is owned by the F# `fuaran` tier ([`../fuaran/docs/WIRE_FORMAT.md`](../fuaran/docs/) as of Phase 73 (shipped 2026-05-30)); this repo's `@fuaran-ui/schema` + `@fuaran-ui/ops` packages must encode/decode byte-identically against the workspace-level `../wire-format-fixtures/` corpus.
+- **Wire-format conformance is the stability contract.** The canonical wire format is owned by the F# `fuaran` tier ([`../fuaran-dotnet/docs/WIRE_FORMAT.md`](../fuaran-dotnet/docs/) as of Phase 73 (shipped 2026-05-30)); this repo's `@fuaran-ui/schema` + `@fuaran-ui/ops` packages must encode/decode byte-identically against the workspace-level `../wire-format-fixtures/` corpus.
 
 ## Shipped packages
 
@@ -42,7 +42,7 @@ This repo sits in the Fuaran workspace alongside the F# `fuaran` language tier (
 fuaran-ts/
 ├── packages/           # @fuaran-ui/* package shells (+ unscoped `fuaran` defensive placeholder)
 │   ├── ui/             # Phase 74 placeholder for @fuaran-ui/ui; Phase 75 ships the smart-ctor surface
-│   ├── fuaran/         # Phase 74 placeholder for @fuaran-ui/fuaran; convenience entry-point shell
+│   ├── fuaran-dotnet/         # Phase 74 placeholder for @fuaran-ui/fuaran; convenience entry-point shell
 │   └── placeholder/    # Phase 74 unscoped-name defensive placeholder (the bare `fuaran` npm name); never gains substance
 ├── samples/            # Workspace-internal samples (not published to npm)
 │   └── demo/           # Phase 78 — Vite + React canonical sample
@@ -96,18 +96,18 @@ Separately from formatting, `@fuaran-ui/validator`'s `pnpm fuaran-validate <glob
 
 This repo has **no upstream dependencies on the other Fuaran siblings** as published artefacts — it consumes them only as workspace-relative path references at test time:
 
-- `../fuaran/docs/WIRE_FORMAT.md` — the canonical wire-format spec (shipped in Phase 73).
-- `../wire-format-fixtures/` — the workspace-level fixture corpus the codec parity tests consume (relocated from `fuaran/` in Phase 73).
-- `../fuaran/src/Fuaran.UI.Renderer/css/` — the reference CSS bundle Phase 77 sync-packages.
+- `../fuaran-dotnet/docs/WIRE_FORMAT.md` — the canonical wire-format spec (shipped in Phase 73).
+- `../wire-format-fixtures/` — the workspace-level fixture corpus the codec parity tests consume (relocated from `fuaran-dotnet/` in Phase 73).
+- `../fuaran-dotnet/src/Fuaran.UI.Renderer/css/` — the reference CSS bundle Phase 77 sync-packages.
 
 This repo produces npm packages, not NuGet packs — the workspace [`../pack-all.ps1`](../pack-all.ps1) treats this sibling as a no-op by default. The `-PublishFuaranTsCanary` flag is the opt-in for inner-loop testing of the npm publish workflow without cutting a real release tag.
 
 ## Render-time sanitization contract
 
-`@fuaran-ui/renderer` (Phase 77) inherits the string→DOM seam discipline from the F# tier's [`SANITIZATION.md`](../fuaran/SANITIZATION.md) (Phase 56). Every code path that touches `href` / `src` / `dangerouslySetInnerHTML` / custom attributes routes through `@fuaran-ui/renderer/sanitize`. Custom renderers registered via the `<FuaranRenderer runtime={...}>` registry are a host trust boundary — same posture as the F# `IFuaranRuntime.RegisterCustomRenderer` seam.
+`@fuaran-ui/renderer` (Phase 77) inherits the string→DOM seam discipline from the F# tier's [`SANITIZATION.md`](../fuaran-dotnet/SANITIZATION.md) (Phase 56). Every code path that touches `href` / `src` / `dangerouslySetInnerHTML` / custom attributes routes through `@fuaran-ui/renderer/sanitize`. Custom renderers registered via the `<FuaranRenderer runtime={...}>` registry are a host trust boundary — same posture as the F# `IFuaranRuntime.RegisterCustomRenderer` seam.
 
 ## Public vocabulary discipline
 
 When the repo flips public, anything shipped here will be visible to OSS consumers. **Do not reference private, unpublished projects by name in shipped artefacts** — no mentions of private repositories, private package families, or internal planning references in code comments, READMEs, or sample files that ship to npm or get rendered into public docs. Cross-references stay one-way: private consumers may reference this repo; this repo never references them.
 
-This matches the same public vocabulary discipline the F# `fuaran` tier carries ([`../fuaran/CLAUDE.md`](../fuaran/CLAUDE.md) "Public vocabulary discipline" section).
+This matches the same public vocabulary discipline the F# `fuaran` tier carries ([`../fuaran-dotnet/CLAUDE.md`](../fuaran-dotnet/CLAUDE.md) "Public vocabulary discipline" section).
