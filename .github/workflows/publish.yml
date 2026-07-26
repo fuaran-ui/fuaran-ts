@@ -87,13 +87,18 @@ jobs:
               # (npm/cli#8544). So ENEEDAUTH here almost always means "never
               # bootstrapped", not "credentials broken" — the raw npm message
               # says `npm adduser`, which sends you down the wrong path.
-              echo "FAILED (not yet bootstrapped on the registry): $(basename "$t")" >&2
-              echo "  A package's first version cannot be published via OIDC." >&2
-              echo "  One-time fix, by an operator with npm access:" >&2
-              echo "    1. npm publish <tarball> --access public   (local, authenticated)" >&2
-              echo "    2. npmjs.com -> the package -> Settings -> add a trusted publisher" >&2
-              echo "       naming this repo and this workflow file (publish.yml)." >&2
-              echo "  Afterwards this job publishes it via OIDC like every other package." >&2
+              echo "FAILED (OIDC has no publish rights for this package): $(basename "$t")" >&2
+              echo "  Two distinct causes, both needing an operator with npm access:" >&2
+              echo "  (a) The package does not exist yet. A first version CANNOT be" >&2
+              echo "      published via OIDC — npmjs.com will not let a trusted publisher" >&2
+              echo "      be configured until the package exists (npm/cli#8544). Publish" >&2
+              echo "      it once locally: npm publish ./<tarball> --access public" >&2
+              echo "  (b) It exists but has no trusted publisher attached — the common" >&2
+              echo "      case right after (a). npmjs.com -> the package -> Settings ->" >&2
+              echo "      Trusted publisher -> this repo + this workflow filename," >&2
+              echo "      exactly, INCLUDING the .yml extension (a mismatched filename" >&2
+              echo "      surfaces as this same ENEEDAUTH)." >&2
+              echo "  Check which by looking the package up on the registry." >&2
               fail=1
             else
               echo "FAILED: $(basename "$t")" >&2
