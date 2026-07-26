@@ -4816,14 +4816,19 @@ const decodeTreeOpAst = (path: string, j: JsonAst): R<TreeOp<unknown>> => {
     case 'InsertChild': {
       const parentJ = reqField(path, f, 'parentId', 'parent NodeId', requireString);
       if (!parentJ.ok) return parentJ;
-      const position = reqField(path, f, 'position', 'position integer', requireInt);
-      if (!position.ok) return position;
+      // A legacy `position` is ACCEPTED AND IGNORED for the migration window
+      // (phase 683, mirroring 681 on the F# side): the hosts adopt
+      // independently, and a stored v1 emission must still apply — as an
+      // append, since order is now ReorderChildren's. Simply not reading the
+      // field is the tolerance; this decoder takes named fields and ignores
+      // the rest. It is a migration mechanism, not a form offered to an
+      // author: nothing that teaches the wire mentions it. Phase 687 closes
+      // the window and makes it a decode error.
       const child = reqField(path, f, 'child', 'child Node object', decodeNodeAst);
       return child.ok
         ? ok({
             kind: 'InsertChild',
             parentId: parentJ.value as NodeId,
-            position: position.value,
             child: child.value,
           })
         : child;
@@ -4835,17 +4840,15 @@ const decodeTreeOpAst = (path: string, j: JsonAst): R<TreeOp<unknown>> => {
     case 'MoveNode': {
       const t = target();
       if (!t.ok) return t;
+      // Legacy `newPosition` accepted and ignored — see InsertChild above.
       const newParent = reqField(path, f, 'newParentId', 'new parent NodeId', requireString);
-      if (!newParent.ok) return newParent;
-      const newPosition = reqField(path, f, 'newPosition', 'new position integer', requireInt);
-      return newPosition.ok
+      return newParent.ok
         ? ok({
             kind: 'MoveNode',
             target: t.value,
             newParentId: newParent.value as NodeId,
-            newPosition: newPosition.value,
           })
-        : newPosition;
+        : newParent;
     }
     case 'ReorderChildren': {
       const parentJ = reqField(path, f, 'parentId', 'parent NodeId', requireString);

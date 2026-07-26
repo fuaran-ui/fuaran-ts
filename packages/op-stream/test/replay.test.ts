@@ -46,7 +46,7 @@ const dashboard = (id: string, children: readonly Node<unknown>[]): Node<unknown
 });
 
 const ops: TreeOp<unknown>[] = [
-  { kind: 'InsertChild', parentId: nid('root'), position: 1, child: leaf('c') },
+  { kind: 'InsertChild', parentId: nid('root'), child: leaf('c') },
   { kind: 'RemoveNode', target: nid('a') },
   {
     kind: 'UpdateStyle',

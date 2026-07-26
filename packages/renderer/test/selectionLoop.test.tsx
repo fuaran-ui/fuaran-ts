@@ -31,7 +31,14 @@ import { tryResolve } from '../src/bindings.js';
 const masterDetailWire = JSON.stringify({
   id: 'root',
   kind: {
-    $type: 'Stack',
+    // Phase 673 unified the four container near-synonyms (Stack / GridLayout /
+    // Dashboard / Card) into Box and retired the superseded-kind-name
+    // leniency, so `$type: 'Stack'` has not decoded since that commit and
+    // every test in this file failed at "unknown NodeKind discriminator".
+    // Canonical form per wire-format-fixtures/nodes/stack-1.json.
+    $type: 'Box',
+    layout: { $type: 'Flex', direction: 'Vertical', wrap: false },
+    role: 'Group',
     children: [
       {
         id: 'orders-grid',

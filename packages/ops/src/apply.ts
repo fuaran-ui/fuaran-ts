@@ -1063,11 +1063,6 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
           'ChildlessKind',
           `Node '${op.parentId}' (kind=${parent.kind.kind}) has no children field — only Layout kinds accept structural child ops.`,
         );
-      if (op.position < 0 || op.position > children.length)
-        return fail(
-          'PositionOutOfRange',
-          `Position ${op.position} is out of range for parent '${op.parentId}' (valid: 0..${children.length}).`,
-        );
       const existing = new Set(allNodeIds(root));
       const duplicate = allNodeIds(op.child).find((id) => existing.has(id));
       if (duplicate !== undefined)
@@ -1075,11 +1070,9 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
           'DuplicateNodeId',
           `NodeId '${duplicate}' is already present in the tree; ids must be unique.`,
         );
-      const newChildren = [
-        ...children.slice(0, op.position),
-        op.child,
-        ...children.slice(op.position),
-      ];
+      // 0.4.0: InsertChild APPENDS. Placing a node anywhere else is
+      // Batch [InsertChild, ReorderChildren] — order is stated by naming ids.
+      const newChildren = [...children, op.child];
       const newTree = mapNode(op.parentId, (n) => withLayoutChildren(n, newChildren), root);
       if (newTree === undefined)
         return fail('ParentNotFound', `Parent node '${op.parentId}' not found in tree.`);
@@ -1128,7 +1121,7 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
       const afterRemove = applyOne({ kind: 'RemoveNode', target: op.target }, root, []);
       if (!afterRemove.ok) return afterRemove;
       const inserted = applyOne(
-        { kind: 'InsertChild', parentId: op.newParentId, position: op.newPosition, child: moving },
+        { kind: 'InsertChild', parentId: op.newParentId, child: moving },
         afterRemove.value,
         [],
       );

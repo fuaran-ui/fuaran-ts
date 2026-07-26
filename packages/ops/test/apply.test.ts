@@ -42,33 +42,50 @@ const childIds = (n: Node<unknown>): string[] =>
   n.kind.kind === 'Layout' ? n.kind.layout.spec.children.map((c) => c.id as string) : [];
 
 describe('apply engine — structural ops', () => {
-  it('InsertChild inserts at position', () => {
+  it('InsertChild appends', () => {
     const r = apply(tree(), {
       kind: 'InsertChild',
       parentId: nid('root'),
-      position: 1,
       child: leaf('c', 'C'),
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(childIds(r.value.newTree)).toEqual(['a', 'b', 'c']);
+  });
+
+  // 0.4.0 removed the ordinal, so there is no out-of-range rejection left to
+  // pin. What replaces it is the pair: append, then state the order by naming
+  // ids. Both legs are covered here — the placement, and the loud failure when
+  // the stated order is not an exact permutation.
+  it('Batch [InsertChild, ReorderChildren] places a node anywhere but last', () => {
+    const r = apply(tree(), {
+      kind: 'Batch',
+      ops: [
+        { kind: 'InsertChild', parentId: nid('root'), child: leaf('c', 'C') },
+        {
+          kind: 'ReorderChildren',
+          parentId: nid('root'),
+          newOrder: [nid('a'), nid('c'), nid('b')],
+        },
+      ],
     });
     expect(r.ok).toBe(true);
     if (r.ok) expect(childIds(r.value.newTree)).toEqual(['a', 'c', 'b']);
   });
 
-  it('InsertChild rejects an out-of-range position', () => {
+  it('ReorderChildren rejects an order that is not an exact permutation', () => {
     const r = apply(tree(), {
-      kind: 'InsertChild',
+      kind: 'ReorderChildren',
       parentId: nid('root'),
-      position: 9,
-      child: leaf('c', 'C'),
+      newOrder: [nid('a')],
     });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.code).toBe('PositionOutOfRange');
+    if (!r.ok) expect(r.error.code).toBe('OrderingMismatch');
   });
 
   it('InsertChild rejects a duplicate NodeId', () => {
     const r = apply(tree(), {
       kind: 'InsertChild',
       parentId: nid('root'),
-      position: 0,
       child: leaf('a', 'dup'),
     });
     expect(r.ok).toBe(false);
@@ -113,7 +130,6 @@ describe('apply engine — structural ops', () => {
       kind: 'MoveNode',
       target: nid('a'),
       newParentId: nid('box'),
-      newPosition: 0,
     });
     expect(r.ok).toBe(true);
     if (r.ok) {
@@ -130,7 +146,6 @@ describe('apply engine — structural ops', () => {
       kind: 'MoveNode',
       target: nid('box'),
       newParentId: nid('a'),
-      newPosition: 0,
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.code).toBe('KindMismatch');
@@ -264,7 +279,7 @@ describe('apply engine — Batch atomicity', () => {
     const op: TreeOp<unknown> = {
       kind: 'Batch',
       ops: [
-        { kind: 'InsertChild', parentId: nid('root'), position: 2, child: leaf('c', 'C') },
+        { kind: 'InsertChild', parentId: nid('root'), child: leaf('c', 'C') },
         { kind: 'RemoveNode', target: nid('a') },
       ],
     };

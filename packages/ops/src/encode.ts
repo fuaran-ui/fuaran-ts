@@ -2080,14 +2080,12 @@ const treeOp = (op: TreeOp<unknown>): string => {
       return caseObj('InsertChild', [
         ['child', node(op.child)],
         ['parentId', str(op.parentId)],
-        ['position', num(op.position)],
       ]);
     case 'RemoveNode':
       return caseObj('RemoveNode', [['target', str(op.target)]]);
     case 'MoveNode':
       return caseObj('MoveNode', [
         ['newParentId', str(op.newParentId)],
-        ['newPosition', num(op.newPosition)],
         ['target', str(op.target)],
       ]);
     case 'ReorderChildren':

@@ -41,7 +41,6 @@ export type TreeOp<TMsg> =
   | {
       readonly kind: 'InsertChild';
       readonly parentId: NodeId;
-      readonly position: number;
       readonly child: Node<TMsg>;
     }
   | { readonly kind: 'RemoveNode'; readonly target: NodeId }
@@ -49,7 +48,6 @@ export type TreeOp<TMsg> =
       readonly kind: 'MoveNode';
       readonly target: NodeId;
       readonly newParentId: NodeId;
-      readonly newPosition: number;
     }
   | {
       readonly kind: 'ReorderChildren';
