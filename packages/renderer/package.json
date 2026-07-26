@@ -46,10 +46,11 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsup --config tsup.standalone.config.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
-    "lint": "tsc --noEmit -p tsconfig.test.json"
+    "lint": "tsc --noEmit -p tsconfig.test.json",
+    "build:standalone": "tsup --config tsup.standalone.config.ts"
   },
   "dependencies": {
     "katex": "^0.16.11"
