@@ -3800,25 +3800,6 @@ const decodeVisKind = (path: string, j: JsonAst): R<VisKind<unknown>> => {
       const r = decodeChartSpec(path, j);
       return r.ok ? ok({ kind: 'Chart', spec: r.value }) : r;
     }
-    // Phase 393 — legacy decode-upgrade: a `Table` tag folds into a read-only `Grid`
-    // (the `staticRows` mode). Accepted on read but NEVER re-encodes as `Table` (the
-    // encoder has no `Table` arm), riding the Phase 390 retired-kind seam.
-    case 'Table': {
-      const r = decodeStaticRows(path, j);
-      return r.ok
-        ? ok({
-            kind: 'Grid',
-            spec: {
-              // An opaque Static source re-encodes to {"$type":"Static","value":"<opaque>"} —
-              // byte-identical to the F# static grid's `Binding.Static Seq.empty`.
-              source: { kind: 'Static', value: OPAQUE } as unknown as Binding<readonly unknown[]>,
-              columns: [],
-              editable: false,
-              staticRows: r.value,
-            },
-          })
-        : r;
-    }
     case 'Map': {
       const r = decodeMapSpec(path, j);
       return r.ok ? ok({ kind: 'Map', spec: r.value }) : r;
@@ -3928,73 +3909,6 @@ const decodeBox = (path: string, j: JsonAst): R<BoxSpec<unknown>> => {
     ...(heading.value !== undefined ? { heading: heading.value } : {}),
     layout: layout.value,
     role: role.value,
-  });
-};
-
-// ── Legacy decode-upgrade (Phase 390) — the four retired container tags
-//    decode-upgrade to the equivalent `Box` on read, so pre-merge op-streams /
-//    permalinks replay. A legacy tag never re-encodes to its old form (it
-//    round-trips as `Box`). Mirrors the F# `decodeLayoutKind` legacy arms.
-
-const decodeLegacyDashboard = (path: string, j: JsonAst): R<BoxSpec<unknown>> => {
-  const fo = requireObject(path, j);
-  if (!fo.ok) return fo;
-  const children = decodeChildren(path, fo.value);
-  if (!children.ok) return children;
-  return ok({ children: children.value, layout: { kind: 'Auto' }, role: 'Dashboard' });
-};
-
-const decodeLegacyStack = (path: string, j: JsonAst): R<BoxSpec<unknown>> => {
-  const fo = requireObject(path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const children = decodeChildren(path, f);
-  if (!children.ok) return children;
-  const orientation = reqField(path, f, 'orientation', 'Orientation', decodeOrientation);
-  if (!orientation.ok) return orientation;
-  const wrap = reqField(path, f, 'wrap', 'wrap bool', requireBool);
-  if (!wrap.ok) return wrap;
-  return ok({
-    children: children.value,
-    layout: { kind: 'Flex', direction: orientation.value, wrap: wrap.value },
-    role: 'Group',
-  });
-};
-
-const decodeLegacyGridLayout = (path: string, j: JsonAst): R<BoxSpec<unknown>> => {
-  const fo = requireObject(path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const children = decodeChildren(path, f);
-  if (!children.ok) return children;
-  const cols = reqFieldAliased(path, f, 'cols', ['columns'], 'cols integer', requireInt);
-  if (!cols.ok) return cols;
-  const templateColumns = optField(path, f, 'templateColumns', requireString);
-  if (!templateColumns.ok) return templateColumns;
-  return ok({
-    children: children.value,
-    layout: {
-      kind: 'Grid',
-      cols: cols.value,
-      ...(templateColumns.value !== undefined ? { templateColumns: templateColumns.value } : {}),
-    },
-    role: 'Group',
-  });
-};
-
-const decodeLegacyCard = (path: string, j: JsonAst): R<BoxSpec<unknown>> => {
-  const fo = requireObject(path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const children = decodeChildren(path, f);
-  if (!children.ok) return children;
-  const heading = optFieldAliased(path, f, 'heading', ['title'], decodeTextSource);
-  if (!heading.ok) return heading;
-  return ok({
-    children: children.value,
-    ...(heading.value !== undefined ? { heading: heading.value } : {}),
-    layout: { kind: 'Flex', direction: 'Vertical', wrap: false },
-    role: 'Card',
   });
 };
 
@@ -4207,22 +4121,6 @@ const decodeLayoutKind = (path: string, j: JsonAst): R<LayoutKind<unknown>> => {
       const r = decodeBox(path, j);
       return r.ok ? ok({ kind: 'Box', spec: r.value }) : r;
     }
-    case 'Dashboard': {
-      const r = decodeLegacyDashboard(path, j);
-      return r.ok ? ok({ kind: 'Box', spec: r.value }) : r;
-    }
-    case 'Stack': {
-      const r = decodeLegacyStack(path, j);
-      return r.ok ? ok({ kind: 'Box', spec: r.value }) : r;
-    }
-    case 'GridLayout': {
-      const r = decodeLegacyGridLayout(path, j);
-      return r.ok ? ok({ kind: 'Box', spec: r.value }) : r;
-    }
-    case 'Card': {
-      const r = decodeLegacyCard(path, j);
-      return r.ok ? ok({ kind: 'Box', spec: r.value }) : r;
-    }
     case 'SplitPanel': {
       const r = decodeSplitPanelSpec(path, j);
       return r.ok ? ok({ kind: 'SplitPanel', spec: r.value }) : r;
@@ -4255,7 +4153,7 @@ const decodeLayoutKind = (path: string, j: JsonAst): R<LayoutKind<unknown>> => {
       return unknownDuCase(
         path,
         d.value,
-        'Box | Dashboard | Stack | GridLayout | SplitPanel | Tabs | Card | Stepper | SummaryList | Disclosure | Modal | ScrollArea',
+        'Box | SplitPanel | Tabs | Stepper | SummaryList | Disclosure | Modal | ScrollArea',
       );
   }
 };
@@ -4445,12 +4343,8 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
     // each primitive to its inner decoder and recover the category here. These
     // name-sets MUST stay in sync with the four inner decoders + the encoder.
     case 'Box':
-    case 'Dashboard':
-    case 'Stack':
-    case 'GridLayout':
     case 'SplitPanel':
     case 'Tabs':
-    case 'Card':
     case 'Stepper':
     case 'SummaryList':
     case 'Disclosure':
@@ -4489,7 +4383,6 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
     }
     case 'DataGrid':
     case 'Chart':
-    case 'Table':
     case 'Map': {
       const k = decodeVisKind(path, j);
       return k.ok ? ok({ kind: 'Visualisation', visualisation: k.value }) : k;
@@ -4712,7 +4605,7 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
         'WRONG_NODE_KIND',
         `${path}.$type`,
         `unknown NodeKind discriminator '${d.value}'`,
-        'a Layout primitive (Dashboard | Stack | GridLayout | SplitPanel | Tabs | Card | Stepper | SummaryList | Disclosure | Modal | ScrollArea), a Display primitive (Heading | Markdown | Metric | Badge | Sparkline | Callout | Progress | Skeleton | LabelValueRow | Link | Image | List | Toast), an Input primitive (Form | Filters | Button | FileUpload | Select), a Visualisation primitive (DataGrid | Chart | Table | Map), or Custom | ErrorBoundary | FragmentDecl | FragmentRef | Mount',
+        'a Layout primitive (Box | SplitPanel | Tabs | Stepper | SummaryList | Disclosure | Modal | ScrollArea), a Display primitive (Heading | Markdown | Metric | Badge | Sparkline | Callout | Progress | Skeleton | LabelValueRow | Link | Image | List | Toast), an Input primitive (Form | Filters | Button | FileUpload | Select), a Visualisation primitive (DataGrid | Chart | Map), or Custom | ErrorBoundary | FragmentDecl | FragmentRef | Mount',
       );
   }
 };
