@@ -47,10 +47,18 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Pack (pnpm rewrites workspace:* specifiers)
+      # `pnpm pack` happily packs a private package; `npm publish` then refuses
+      # it, so a private package in the loop fails the whole run. Filter here.
+      - name: Pack (pnpm rewrites workspace:* specifiers; private packages skipped)
         run: |
           mkdir -p "$GITHUB_WORKSPACE/tarballs"
-          pnpm -r --filter "./packages/*" exec pnpm pack --pack-destination "$GITHUB_WORKSPACE/tarballs"
+          for d in packages/*/; do
+            if [ "$(node -p "require('./$d/package.json').private === true")" = "true" ]; then
+              echo "skipped (private, not for the registry): $d"
+              continue
+            fi
+            ( cd "$d" && pnpm pack --pack-destination "$GITHUB_WORKSPACE/tarballs" )
+          done
 
       # npm's OIDC trusted-publishing support needs npm >= 11.5; Node 22 ships 10.x.
       - name: Update npm
@@ -73,6 +81,20 @@ jobs:
               echo "published: $(basename "$t")"
             elif echo "$out" | grep -qiE 'previously published|cannot publish over|EPUBLISHCONFLICT|E409'; then
               echo "skipped (version already on the registry): $(basename "$t")"
+            elif echo "$out" | grep -qiE 'ENEEDAUTH|need auth'; then
+              # OIDC cannot publish a package's FIRST version: npmjs.com will not
+              # let a trusted publisher be configured until the package exists
+              # (npm/cli#8544). So ENEEDAUTH here almost always means "never
+              # bootstrapped", not "credentials broken" — the raw npm message
+              # says `npm adduser`, which sends you down the wrong path.
+              echo "FAILED (not yet bootstrapped on the registry): $(basename "$t")" >&2
+              echo "  A package's first version cannot be published via OIDC." >&2
+              echo "  One-time fix, by an operator with npm access:" >&2
+              echo "    1. npm publish <tarball> --access public   (local, authenticated)" >&2
+              echo "    2. npmjs.com -> the package -> Settings -> add a trusted publisher" >&2
+              echo "       naming this repo and this workflow file (publish.yml)." >&2
+              echo "  Afterwards this job publishes it via OIDC like every other package." >&2
+              fail=1
             else
               echo "FAILED: $(basename "$t")" >&2
               echo "$out" >&2
