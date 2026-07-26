@@ -60,7 +60,8 @@
     "@fuaran-ui/ops": "workspace:^",
     "@fuaran-ui/schema": "workspace:^",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "@fuaran-ui/telemetry": "workspace:^"
   },
   "devDependencies": {
     "@fuaran-ui/ai-tools": "workspace:*",
@@ -75,9 +76,15 @@
     "axe-core": "^4.10.2",
     "jsdom": "^25.0.1",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "@fuaran-ui/telemetry": "workspace:*"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "peerDependenciesMeta": {
+    "@fuaran-ui/telemetry": {
+      "optional": true
+    }
   }
 }

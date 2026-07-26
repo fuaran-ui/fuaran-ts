@@ -23,6 +23,7 @@
 
 import { apply, decodeOp, type TreeOp } from '@fuaran-ui/ops';
 import type { Node, NodeKind } from '@fuaran-ui/schema';
+import type { DenyTelemetry, FuaranTelemetrySink } from '@fuaran-ui/telemetry';
 import {
   bindingForSlot,
   findNode,
@@ -77,6 +78,47 @@ export type ApplyEnvelope =
 export interface DebugGlobalOptions<TMsg> {
   readonly runtime?: FuaranRuntime;
   readonly applyHandler?: (newTree: Node<TMsg>) => void;
+  /** Durable-sink wiring for the in-page apply path (Phase 193). Optional and
+   *  off by default, so omitting it reproduces the historical warn-only
+   *  behaviour exactly. */
+  readonly sinks?: DebugSinks;
+}
+
+/** Where a console-driven apply's outcomes go.
+ *
+ *  `window.__fuaran.apply` is a THIRD dispatch path (it joins AI-tool dispatch
+ *  and the fast path). For the op stream to stay the source of truth, a
+ *  console-driven mutation must be as answerable as any other: every permitted
+ *  op journals, every denial records. Otherwise the console is an unrecorded
+ *  side channel — "what did that session do?" has no answer.
+ *
+ *  Parity-locked with the F# `DebugGlobal.DebugSinks`. */
+export interface DebugSinks {
+  /** Where a DENIED apply is recorded. The deny envelope returned to the caller
+   *  and this record are the same event on two surfaces. */
+  readonly telemetrySink?: FuaranTelemetrySink;
+  /** Where a PERMITTED apply's op JSON is handed for journalling. The host
+   *  wires this to its op-stream sink — see `@fuaran-ui/op-stream`. The debug
+   *  global does not journal directly, so hash-chaining stays in the one place
+   *  that owns it. */
+  readonly onApplied?: (opJson: string) => void;
+  /** Audit subject recorded on the deny record. A console-driven mutation is
+   *  operator-initiated, so hosts that do not model a user can omit it. */
+  readonly userId?: string;
+}
+
+/** The stable tool name the in-page apply path records denials under — a
+ *  dedicated name (not a real AI tool) so a console-driven denial is
+ *  distinguishable from a model-driven one. Parity-locked with F#
+ *  `DebugGlobal.ApplyToolName`. */
+export const APPLY_TOOL_NAME = '__fuaran.apply';
+
+/** Build the deny record for a rejected in-page apply. Pure, so the emitted
+ *  shape is pinned by a test and stays parity-locked with the F# mirror.
+ *  `activeModule` / `activePage` / `promptId` are omitted: an operator-initiated
+ *  mutation belongs to no module, page, or prompt. */
+export function denyTelemetry(userId: string, occurredAt: string, reason: string): DenyTelemetry {
+  return { toolName: APPLY_TOOL_NAME, reason, userId, timestamp: occurredAt };
 }
 
 /** Resolved geometry for a node, read from its live `[data-fuaran-node-id]` element. */
@@ -179,13 +221,32 @@ const buildApplyEnvelope = <TMsg>(
     };
   }
 
+  const sinks = options.sinks;
+
   const descriptor: ActionDescriptor = { kind: 'ApplyTreeOp', summary: opJson };
   if (runtime?.canDispatch !== undefined && !runtime.canDispatch(descriptor)) {
     const reason = `apply denied by policy gate: ${describeActionDescriptor(descriptor)}`;
     runtime.warn?.(reason);
+
+    // The deny envelope and the telemetry record are the SAME event on two
+    // surfaces. Fire-and-forget: a failing sink must never gate dispatch, so it
+    // cannot change what the caller sees.
+    if (sinks?.telemetrySink !== undefined) {
+      try {
+        sinks.telemetrySink.recordDeny(
+          denyTelemetry(sinks.userId ?? 'operator', new Date().toISOString(), reason),
+        );
+      } catch {
+        /* a telemetry failure is never the caller's problem */
+      }
+    }
+
     return { ok: false, status: 'denied', denied: true, error: reason };
   }
 
+  // Only a genuinely applied op is durable: a decode failure never produced a
+  // TreeOp and a rejected one changed no tree, so journalling either would put
+  // an op in the stream that never happened.
   const decoded = decodeOp(opJson);
   if (!decoded.ok) return { ok: false, status: 'decodeFailed', error: decoded.error.message };
 
@@ -193,6 +254,15 @@ const buildApplyEnvelope = <TMsg>(
   if (!result.ok) return { ok: false, status: 'rejected', error: result.error.message };
 
   applyHandler(result.value.newTree);
+
+  if (sinks?.onApplied !== undefined) {
+    try {
+      sinks.onApplied(opJson);
+    } catch {
+      /* journalling is best-effort, like the F# sink contract */
+    }
+  }
+
   return { ok: true, status: 'applied' };
 };
 
