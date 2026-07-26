@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/devtools-panel",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Fuaran DevTools — a Manifest V3 browser-extension DevTools panel that debugs a running Fuaran app at the typed-tree level: live Node-tree view with hover-highlighting, per-node binding/geometry detail, and a scrubable op-stream timeline. Workspace-internal tool; loaded unpacked, never published to npm.",
   "license": "Apache-2.0",

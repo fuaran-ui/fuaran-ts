@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/renderer-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Server-HTML renderer for the Fuaran UI typed Node tree — a pure-string renderer (no React, no DOM) that walks a tree and emits the reference fuaran-* class vocabulary for a first paint + crawlable, no-JavaScript page. The TypeScript twin of Fuaran.UI.Renderer.Server; class-name vocabulary is parity-locked to the F# reference renderer and the React client renderer. Interactivity renders inert (a button is dead until hydration; a link is a real crawlable <a href>).",
   "keywords": [
     "fuaran",
