@@ -20,13 +20,50 @@ export {
   DEBUG_GLOBAL_KEY,
   DEBUG_GLOBAL_VERSION,
   buildDebugGlobal,
+  readRegisteredDebugGlobal,
   registerDebugGlobal,
   type FuaranDebugGlobal,
   type DebugError,
   type NodeGeometry,
   type ApplyEnvelope,
   type DebugGlobalOptions,
+  type BindingState,
+  type BindingStateError,
+  type BindingStatus,
+  type TreeOpJson,
 } from './debugGlobal.js';
+
+// Committed-tree-change signal — what `__fuaran.subscribe(cb)` is built on, and
+// what a non-renderer host commits its own tree changes to.
+export {
+  createChangeHub,
+  pageChangeHub,
+  type ChangeCause,
+  type ChangeHub,
+  type ChangeListener,
+  type TreeChange,
+} from './changeHub.js';
+
+export { declaredSlots, isDeclaredSlot } from './declaredSlots.js';
+
+// The DevTools relay page peer — OFF by default; installing it is a deliberate
+// host act (see `relay.ts` and the relay contract's opt-in section).
+export {
+  RELAY_KEY,
+  RELAY_PROFILE,
+  acceptsRelayMessage,
+  createRelayPeer,
+  installRelayPeer,
+  parseRelayProfile,
+  type InstallRelayPeerOptions,
+  type RelayCapability,
+  type RelayDirection,
+  type RelayEnvelope,
+  type RelayPeer,
+  type RelayPeerOptions,
+  type RelayRefusalClass,
+  type RelaySurfaceSource,
+} from './relay.js';
 
 export {
   CustomRendererRegistry,

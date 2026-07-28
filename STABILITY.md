@@ -82,6 +82,18 @@ The **`<FuaranRenderer>` prop shape and the emitted class-name + ARIA vocabulary
 
 The **custom-renderer registry** (`createCustomRendererRegistry`, `registerCustomRenderer`, `CustomRendererRegistry`, `FuaranRuntime`) and the **typed `Theme` + `themeToCss` bridge** are **stable** as of Phase 78, validated by the `samples/demo` app (it registers a `Custom` React component through the registry + `FuaranRuntime`, and applies a sample theme via the `theme` prop). React 19+ is a peer dependency.
 
+The **in-page introspection surface** (`window.__fuaran`, `buildDebugGlobal`, `registerDebugGlobal`) remains explicitly **DEBUG-only and unstable**, excluded from semver. It is `undefined` unless the host sets `debug`.
+
+#### Additive surface — extension affordances (Phase 735)
+
+Three additions, all **additive**; no existing entry point changed shape, so a consumer on the previous version keeps compiling and behaving identically.
+
+- **Change subscription.** `__fuaran.subscribe(cb)` (returning an unsubscribe handle) and `__fuaran.treeRevision()`, over the exported page-wide hub (`pageChangeHub`, `createChangeHub`, `ChangeHub` / `TreeChange` / `ChangeCause`). The revision token is **opaque** — compare for equality; parsing or ordering it is not a supported use, and its format is not part of any contract.
+- **Gated apply, widened.** `__fuaran.apply` now accepts a `TreeOp` as a **structured object** as well as the original **JSON string**; the string form is unchanged, including the bytes handed to an op-stream sink. The `ApplyEnvelope` gains optional fields (`treeRevision` on `applied`, `decodeError` on `decodeFailed`, `code` on `rejected`) — additions to a union member, not a change to one. `FuaranDebugGlobal` gains `canApply` and `getBindingState` (the tagged resolution envelope; `getBindingValue`'s bare `Resolution` is unchanged). `<FuaranRenderer>` gains an optional `validate` prop.
+- **DevTools relay page peer.** `<FuaranRenderer relay>` plus `createRelayPeer` / `installRelayPeer` / `acceptsRelayMessage` / `parseRelayProfile` and the `Relay*` types. **Off by default**: without the prop no listener is installed, and a peer built with no options is not opted in.
+
+The relay's **stability contract is the `relay@1.0` profile**, not this package's semver: the wire shapes are pinned by the contract's own fixture family (`wire-format-fixtures/devtools-relay/`, run in `packages/renderer/test/relayCorpus.test.tsx`), and they version independently of the wire profile `core@1.0`. Adding a request type, capability, optional payload field, or refusal class is a **minor** relay bump; removing or renaming any of them is a **major** one. A relay change is therefore governed the way a wire-format change is — by the specification and its corpus — and a change to the profile id is a breaking change to every peer, regardless of what this package's version does.
+
 ### `@fuaran-ui/renderer-server`
 
 The **`renderToHtml` body-fragment output is stable**, subject to the same class-name + ARIA forward-coupling rule as `@fuaran-ui/renderer` – the server renderer is a pure-string twin of the F# `Fuaran.UI.Renderer.Server` that emits the same `fuaran-*` class vocabulary the React client renderer does, with no React and no DOM. This covers:

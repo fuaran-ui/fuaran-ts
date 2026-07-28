@@ -21,7 +21,14 @@ import type { BindingSources } from './bindings.js';
 import type { RenderContext } from './context.js';
 import { collectFragments } from './context.js';
 import type { FuaranRuntime } from './customRegistry.js';
-import { buildDebugGlobal, type DebugGlobalOptions, registerDebugGlobal } from './debugGlobal.js';
+import { pageChangeHub } from './changeHub.js';
+import {
+  buildDebugGlobal,
+  type DebugGlobalOptions,
+  readRegisteredDebugGlobal,
+  registerDebugGlobal,
+} from './debugGlobal.js';
+import { installRelayPeer } from './relay.js';
 import { renderNode } from './render/core.js';
 import { type Theme, themeToStyle } from './theme.js';
 
@@ -52,6 +59,25 @@ export interface FuaranRendererProps<TMsg = unknown> {
    * is consulted against `runtime.canDispatch` first (default-deny, FGP 3).
    */
   readonly onApply?: (newTree: Node<TMsg>) => void;
+  /**
+   * The host's tree validator, consulted on the candidate tree of an in-page /
+   * relayed `apply` before the edit is folded. See
+   * {@link DebugGlobalOptions.validate}.
+   */
+  readonly validate?: (candidate: Node<TMsg>) => readonly { readonly code: string }[];
+  /**
+   * When `true` (alongside `debug`), installs the **DevTools relay page peer**:
+   * a same-origin `postMessage` endpoint that carries the in-page introspection
+   * surface — and, where `onApply` is wired, its gated mutation entry — across
+   * the page/extension boundary.
+   *
+   * **Off by default, and default-off is the point** (relay contract §11.1): a
+   * page with no explicit opt-in installs no listener at all, so a probe gets
+   * no answer whatsoever. Gate it the way `debug` is gated (`import.meta.env.DEV`)
+   * so a production bundle cannot expose it. A dev/debug affordance — never a
+   * production feature flag.
+   */
+  readonly relay?: boolean;
 }
 
 const noopDispatch = (): void => {};
@@ -68,9 +94,24 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
     const options: DebugGlobalOptions<TMsg> = {
       ...(props.runtime !== undefined ? { runtime: props.runtime } : {}),
       ...(props.onApply !== undefined ? { applyHandler: props.onApply } : {}),
+      ...(props.validate !== undefined ? { validate: props.validate } : {}),
     };
-    return registerDebugGlobal(buildDebugGlobal(props.tree, props.sources ?? {}, options));
-  }, [props.debug, props.tree, props.sources, props.runtime, props.onApply]);
+    const surface = buildDebugGlobal(props.tree, props.sources ?? {}, options);
+    // Announce the committed tree. Idempotent on tree identity, so a
+    // re-registration caused by `sources` / `runtime` alone is not a change.
+    pageChangeHub.commit(props.tree, 'host');
+    return registerDebugGlobal(surface);
+  }, [props.debug, props.tree, props.sources, props.runtime, props.onApply, props.validate]);
+
+  // The relay peer is installed separately and NOT torn down on every tree
+  // change: it holds client subscriptions, and it reads the live surface from
+  // the window key each request, so it needs no rebuild when the tree moves.
+  useEffect(() => {
+    if (props.debug !== true || props.relay !== true) return undefined;
+    // The `relay` prop IS the host's opt-in — there is no message in the
+    // contract that turns the relay on (§11.1).
+    return installRelayPeer(readRegisteredDebugGlobal, { optedIn: true });
+  }, [props.debug, props.relay]);
 
   const ctx: RenderContext<TMsg> = {
     sources: props.sources ?? {},

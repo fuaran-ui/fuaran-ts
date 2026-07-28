@@ -21,10 +21,11 @@
 //  `__fuaran.*` call; nothing here writes to `console.*`.
 // ============================================================================
 
-import { apply, decodeOp, type TreeOp } from '@fuaran-ui/ops';
+import { apply, type DecodeError, decodeOp, encodeOp, type TreeOp } from '@fuaran-ui/ops';
 import type { Node, NodeKind } from '@fuaran-ui/schema';
 import type { DenyTelemetry, FuaranTelemetrySink } from '@fuaran-ui/telemetry';
 import {
+  bindingExpression,
   bindingForSlot,
   findNode,
   findNodes,
@@ -36,6 +37,8 @@ import {
 } from '@fuaran-ui/ai-tools';
 
 import { type BindingSources, resolve, type Resolution } from './bindings.js';
+import { type ChangeHub, type ChangeListener, pageChangeHub } from './changeHub.js';
+import { isDeclaredSlot } from './declaredSlots.js';
 import {
   type ActionDescriptor,
   describeActionDescriptor,
@@ -60,11 +63,78 @@ export interface DebugError {
  * envelope (the tree is unchanged), never a silent no-op (FGP 3).
  */
 export type ApplyEnvelope =
-  | { readonly ok: true; readonly status: 'applied' }
+  | { readonly ok: true; readonly status: 'applied'; readonly treeRevision?: string }
   | { readonly ok: false; readonly status: 'unwired'; readonly error: string }
   | { readonly ok: false; readonly status: 'denied'; readonly denied: true; readonly error: string }
-  | { readonly ok: false; readonly status: 'decodeFailed'; readonly error: string }
-  | { readonly ok: false; readonly status: 'rejected'; readonly error: string };
+  | {
+      readonly ok: false;
+      readonly status: 'decodeFailed';
+      readonly error: string;
+      /** The codec's structured decode error, for a caller that reports it typed. */
+      readonly decodeError?: DecodeError;
+    }
+  | {
+      readonly ok: false;
+      readonly status: 'rejected';
+      readonly error: string;
+      /** The apply-engine / validator diagnostic code behind the rejection. */
+      readonly code?: string;
+    };
+
+/**
+ * A `TreeOp` in canonical wire JSON, carried as a structured object rather than
+ * a pre-serialised string. Accepted by {@link FuaranDebugGlobal.apply} alongside
+ * the original string form: a structured-clone channel (a page/extension relay)
+ * has no text layer, and canonicalising is the HOST's obligation, not its
+ * caller's — so the caller hands over the object and the host serialises it.
+ */
+export type TreeOpJson = Readonly<Record<string, unknown>>;
+
+/** The closed status set of a binding-slot resolution. */
+export type BindingStatus =
+  | 'resolved'
+  | 'notResolved'
+  | 'errored'
+  | 'i18nUnresolved'
+  | 'noOverride';
+
+/**
+ * A slot resolution WITH the binding's identity — the tagged envelope form.
+ *
+ * {@link FuaranDebugGlobal.getBindingValue} returns the bare `Resolution`, which
+ * says what a slot resolved TO but not what the binding IS. A slot inspector
+ * needs both (and the bare form cannot be recovered into the tagged one), so
+ * `expression` + `source` are present on EVERY status, including the ones that
+ * carry no value.
+ *
+ * `noOverride` is the deliberate fifth status: the slot is declared on this
+ * node's kind and currently holds nothing — distinct from asking for a slot the
+ * kind does not declare, which is a caller error ({@link BindingStateError}).
+ */
+export interface BindingState {
+  readonly status: BindingStatus;
+  /** The binding's wire-form expression (`$state.<key>`, `$queries.<name>`, …; `$none` when unset). */
+  readonly expression: string;
+  /** The binding case token (`Static` / `Query` / `Filter` / `Selection` / `State` / `I18n` / `Computed`). */
+  readonly source: string;
+  /** Present on `resolved`. */
+  readonly value?: unknown;
+  /** Present on `errored`. */
+  readonly message?: string;
+  /** Present on `i18nUnresolved`. */
+  readonly key?: string;
+}
+
+/** Why {@link FuaranDebugGlobal.getBindingState} could not answer. */
+export type BindingStateError =
+  | { readonly error: string; readonly reason: 'nodeNotFound'; readonly nodeId: string }
+  | {
+      readonly error: string;
+      readonly reason: 'slotNotDeclared';
+      readonly nodeId: string;
+      readonly slot: string;
+      readonly kind: string;
+    };
 
 /**
  * Host wiring for the policy-gated `apply` entry. The renderer owns neither the
@@ -82,6 +152,25 @@ export interface DebugGlobalOptions<TMsg> {
    *  off by default, so omitting it reproduces the historical warn-only
    *  behaviour exactly. */
   readonly sinks?: DebugSinks;
+  /**
+   * The host's tree validator, consulted on the CANDIDATE tree between apply
+   * and fold: the op is applied to a copy, the validator runs over the result,
+   * and the new tree is handed to `applyHandler` only when the edit introduced
+   * no defect that was not already there. Defects the tree already carried are
+   * not the edit's fault and must not block it.
+   *
+   * Optional — a host that wires none gets the apply engine's own legality
+   * check and nothing more. A typical wiring is `@fuaran-ui/ui`'s
+   * `preEmitValidate`: `(t) => { const r = preEmitValidate(t); return r.ok ? [] : r.error; }`.
+   */
+  readonly validate?: (candidate: Node<TMsg>) => readonly { readonly code: string }[];
+  /**
+   * The committed-tree-change hub backing `treeRevision()` + `subscribe()`.
+   * Defaults to the page-wide hub, which is what makes a subscription outlive
+   * the surface rebuild every tree change causes. Supply your own to isolate a
+   * host (or a test) from the page-wide signal.
+   */
+  readonly hub?: ChangeHub;
 }
 
 /** Where a console-driven apply's outcomes go.
@@ -142,10 +231,23 @@ export interface NodeGeometry {
  */
 export interface FuaranDebugGlobal {
   readonly version: string;
+  /**
+   * Whether this host wired a real apply path. `false` means every `apply` call
+   * returns the `unwired` envelope — a read-only surface. Exposed so a peer can
+   * advertise the mutation entry point honestly instead of discovering its
+   * absence by attempting a mutation.
+   */
+  readonly canApply: boolean;
   /** The typed snapshot (kind + binding slots + child ids) for a node by id. */
   getNodeState(nodeId: string): NodeIntrospection | DebugError;
   /** The resolved value of a single binding-typed slot against the live sources. */
   getBindingValue(nodeId: string, slot: string): Resolution<unknown> | DebugError;
+  /**
+   * The resolution of a single binding slot WITH the binding's identity — the
+   * tagged envelope ({@link BindingState}) a slot inspector needs. The richer
+   * companion to {@link getBindingValue}, which stays as it is for console use.
+   */
+  getBindingState(nodeId: string, slot: string): BindingState | BindingStateError;
   /** The live DOM geometry for a node, read from its rendered element. */
   getRenderedDom(nodeId: string): NodeGeometry | DebugError;
   /** A recursive structural snapshot of the whole rendered tree. */
@@ -154,11 +256,29 @@ export interface FuaranDebugGlobal {
   findNodes(kind: string): readonly string[];
   /**
    * Decode a canonical-JSON `TreeOp` and apply it to the live tree — but ONLY
-   * when the policy gate permits (FGP 3). A denied op returns the deny envelope
-   * and leaves the tree unchanged; a host that wired no `applyHandler` returns
-   * the `unwired` envelope.
+   * when the policy gate permits (FGP 3), and only when the edit introduces no
+   * new validator defect. A denied op returns the deny envelope and leaves the
+   * tree unchanged; a host that wired no `applyHandler` returns the `unwired`
+   * envelope.
+   *
+   * Accepts the op as a JSON **string** (the original console form — paste the
+   * JSON) or as a structured **object** ({@link TreeOpJson} — the form a
+   * structured-clone channel carries, canonicalised here rather than by the
+   * caller).
    */
-  apply(opJson: string): ApplyEnvelope;
+  apply(op: string | TreeOpJson): ApplyEnvelope;
+  /**
+   * The current tree-revision token — opaque; compare for equality to detect
+   * that a cached read has gone stale, never parse or order it.
+   */
+  treeRevision(): string;
+  /**
+   * Subscribe to committed tree changes. Returns an unsubscribe handle. Push,
+   * never poll; rapid changes coalesce into one notification carrying the
+   * latest revision, because a change is a staleness signal rather than a
+   * change log — re-read what you need.
+   */
+  subscribe(listener: ChangeListener): () => void;
   /** A one-screen reference of the available methods (print the return value). */
   help(): string;
 }
@@ -166,10 +286,14 @@ export interface FuaranDebugGlobal {
 const HELP_TEXT = `window.__fuaran — Fuaran in-page introspection (DEBUG-only, unstable)
   .getNodeState(id)         typed snapshot: kind, bound binding slots, child ids
   .getBindingValue(id,slot) resolve one binding slot's current value
+  .getBindingState(id,slot) as above, tagged with the binding's identity + status
   .getRenderedDom(id)       live DOM geometry (x/y/size + overflow/hidden flags)
   .inspectTree()            recursive structural snapshot of the whole tree
   .findNodes(kind)          ids of every node whose kind === <kind>
-  .apply(opJson)            policy-gated TreeOp mutation (default-deny; deny → envelope)
+  .apply(op)                policy-gated TreeOp mutation, JSON string or object
+                            (default-deny; deny → envelope, tree untouched)
+  .treeRevision()           opaque token identifying the current tree state
+  .subscribe(cb)            committed-tree-change signal; returns an unsubscribe fn
   .help()                   this text
 Tip: __fuaran.inspectTree() lists every node id you can query.`;
 
@@ -199,18 +323,27 @@ const readGeometry = (nodeId: string): NodeGeometry | DebugError => {
   };
 };
 
+/** A stable key for a validator defect, so "was this defect already there?" is a set test. */
+const defectKey = (defect: { readonly code: string }): string => JSON.stringify(defect);
+
 /**
- * The policy-gated `apply(opJson)` pipeline, mirroring the F#
+ * The policy-gated `apply(op)` pipeline, mirroring the F#
  * `DebugGlobal.applyEnvelope` ordering: read-only host → `unwired`; gate denies
  * (FGP 3) → `denied` (a diagnostic routes through `runtime.warn`, FGP 4, never
- * raw `console.*`); decode failure → `decodeFailed`; apply rejection → `rejected`;
- * otherwise apply, hand the new tree to the host's `applyHandler` (re-render),
- * and return `applied`. The gate is consulted BEFORE the op is decoded.
+ * raw `console.*`); decode failure → `decodeFailed`; apply rejection or a
+ * newly-introduced validator defect → `rejected`; otherwise fold, hand the new
+ * tree to the host's `applyHandler` (re-render), commit the change to the hub,
+ * and return `applied`. The gate is consulted BEFORE the op is decoded — a
+ * default-deny posture should not parse what it will refuse anyway.
+ *
+ * `op` may be a JSON string or a structured object; an object is serialised
+ * here (the host owns canonicalisation) and journalled through the codec's own
+ * canonical encoder, never through the caller's key order.
  */
 const buildApplyEnvelope = <TMsg>(
   tree: Node<TMsg>,
   options: DebugGlobalOptions<TMsg>,
-  opJson: string,
+  op: string | TreeOpJson,
 ): ApplyEnvelope => {
   const { runtime, applyHandler } = options;
   if (applyHandler === undefined) {
@@ -222,6 +355,7 @@ const buildApplyEnvelope = <TMsg>(
   }
 
   const sinks = options.sinks;
+  const opJson = typeof op === 'string' ? op : JSON.stringify(op);
 
   const descriptor: ActionDescriptor = { kind: 'ApplyTreeOp', summary: opJson };
   if (runtime?.canDispatch !== undefined && !runtime.canDispatch(descriptor)) {
@@ -248,22 +382,98 @@ const buildApplyEnvelope = <TMsg>(
   // TreeOp and a rejected one changed no tree, so journalling either would put
   // an op in the stream that never happened.
   const decoded = decodeOp(opJson);
-  if (!decoded.ok) return { ok: false, status: 'decodeFailed', error: decoded.error.message };
+  if (!decoded.ok)
+    return {
+      ok: false,
+      status: 'decodeFailed',
+      error: decoded.error.message,
+      decodeError: decoded.error,
+    };
 
-  const result = apply(tree, decoded.value as TreeOp<TMsg>);
-  if (!result.ok) return { ok: false, status: 'rejected', error: result.error.message };
+  const op2 = decoded.value as TreeOp<TMsg>;
+  const result = apply(tree, op2);
+  if (!result.ok)
+    return { ok: false, status: 'rejected', error: result.error.message, code: result.error.code };
+
+  // Candidate-apply → validate → fold only on no NEW defect. A defect the tree
+  // already carried is not this edit's fault, so it must not block the edit.
+  const { validate } = options;
+  if (validate !== undefined) {
+    const before = new Set(validate(tree).map(defectKey));
+    const introduced = validate(result.value.newTree).filter((d) => !before.has(defectKey(d)));
+    const first = introduced[0];
+    if (first !== undefined)
+      return {
+        ok: false,
+        status: 'rejected',
+        error: `The edit introduces a validator defect: ${first.code}.`,
+        code: first.code,
+      };
+  }
 
   applyHandler(result.value.newTree);
+  const treeRevision = (options.hub ?? pageChangeHub).commit(result.value.newTree, 'apply');
 
   if (sinks?.onApplied !== undefined) {
     try {
-      sinks.onApplied(opJson);
+      // A string caller's own bytes are journalled verbatim (unchanged
+      // behaviour); an object is journalled through the canonical encoder,
+      // since a structured-clone caller never had canonical bytes to give.
+      sinks.onApplied(typeof op === 'string' ? op : encodeOp(op2));
     } catch {
       /* journalling is best-effort, like the F# sink contract */
     }
   }
 
-  return { ok: true, status: 'applied' };
+  return { ok: true, status: 'applied', treeRevision };
+};
+
+/**
+ * Resolve one slot into the tagged {@link BindingState} envelope: the
+ * resolution PLUS the binding's identity, with `noOverride` for a declared slot
+ * that currently holds nothing and a `slotNotDeclared` error for a slot the
+ * kind does not declare at all. The two are deliberately different answers —
+ * the first is a state of the tree, the second is a mistake in the question.
+ */
+const bindingState = <TMsg>(
+  tree: Node<TMsg>,
+  sources: BindingSources,
+  nodeId: string,
+  slotName: string,
+): BindingState | BindingStateError => {
+  const node = findNode(tree, nodeId);
+  if (node === undefined)
+    return { error: `Node '${nodeId}' not found in tree.`, reason: 'nodeNotFound', nodeId };
+
+  const kind = node.kind as NodeKind<unknown>;
+  const binding = bindingForSlot(kind, slotName);
+  if (binding === undefined) {
+    if (isDeclaredSlot(kind, slotName)) {
+      // Declared on this kind, currently absent — a state, not an error. There
+      // is no binding case to report, so the inert default stands in.
+      return { status: 'noOverride', expression: '$none', source: 'Static' };
+    }
+    return {
+      error: `Slot '${slotName}' is not a binding slot on node '${nodeId}' (kind=${kindName(kind)}).`,
+      reason: 'slotNotDeclared',
+      nodeId,
+      slot: slotName,
+      kind: kindName(kind),
+    };
+  }
+
+  const { expression, source } = bindingExpression(binding);
+  const resolution = resolve(sources, binding);
+  switch (resolution.kind) {
+    case 'Resolved':
+      return { status: 'resolved', value: resolution.value, expression, source };
+    case 'NotResolved':
+      return { status: 'notResolved', expression, source };
+    case 'Errored':
+      return { status: 'errored', message: resolution.message, expression, source };
+    case 'I18nUnresolved':
+      return { status: 'i18nUnresolved', key: resolution.key, expression, source };
+  }
 };
 
 /**
@@ -279,6 +489,10 @@ export const buildDebugGlobal = <TMsg>(
   options: DebugGlobalOptions<TMsg> = {},
 ): FuaranDebugGlobal => ({
   version: DEBUG_GLOBAL_VERSION,
+  canApply: options.applyHandler !== undefined,
+  treeRevision: () => (options.hub ?? pageChangeHub).revision(),
+  subscribe: (listener) => (options.hub ?? pageChangeHub).subscribe(listener),
+  getBindingState: (nodeId, slotName) => bindingState(tree, sources, nodeId, slotName),
   getNodeState: (nodeId) =>
     introspectNodeState(tree, nodeId) ?? { error: `Node '${nodeId}' not found in tree.` },
   getBindingValue: (nodeId, slot) => {
@@ -310,6 +524,18 @@ export const buildDebugGlobal = <TMsg>(
  * global only if it still points at this instance — safe to call from a React
  * effect cleanup.
  */
+/**
+ * The surface currently registered on `window.__fuaran`, or `undefined`. The
+ * live lookup a relay peer uses: the surface object is REPLACED on every tree
+ * change, so a peer that captured one instance would answer from a stale tree.
+ */
+export const readRegisteredDebugGlobal = (): FuaranDebugGlobal | undefined => {
+  if (typeof window === 'undefined') return undefined;
+  return (window as unknown as Record<string, unknown>)[DEBUG_GLOBAL_KEY] as
+    | FuaranDebugGlobal
+    | undefined;
+};
+
 export const registerDebugGlobal = (global: FuaranDebugGlobal): (() => void) => {
   if (typeof window === 'undefined') return () => {};
   const w = window as unknown as Record<string, unknown>;

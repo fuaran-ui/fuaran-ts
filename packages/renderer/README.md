@@ -70,7 +70,10 @@ __fuaran.getNodeState('submit-btn'); // kind + bound binding slots + child ids
 __fuaran.getBindingValue('counter-kpi', 'Source'); // resolved value vs the live sources
 __fuaran.getRenderedDom('counter-kpi'); // live geometry (x/y/size + overflow/hidden)
 __fuaran.findNodes('Button'); // ids of every node of a kind
-__fuaran.apply(opJson); // policy-gated TreeOp mutation (default-deny)
+__fuaran.apply(op); // policy-gated TreeOp mutation (default-deny)
+__fuaran.getBindingState('counter-kpi', 'Source'); // as getBindingValue, tagged with the binding's identity
+__fuaran.treeRevision(); // opaque token identifying the current tree state
+__fuaran.subscribe((c) => console.log(c)); // committed-tree-change signal → unsubscribe fn
 ```
 
 The global tracks the live tree + sources (it re-registers on each render), so
@@ -81,24 +84,94 @@ registers it. `buildDebugGlobal(tree, sources, options?)` /
 `registerDebugGlobal(global)` are exported for hosts that want to wire the
 global on their own terms.
 
-### Policy-gated `apply(opJson)`
+### Policy-gated `apply(op)`
 
-`apply` decodes a canonical-JSON `TreeOp` and applies it to the live tree — but
-only when the host's policy gate permits, so an in-page mutation obeys the same
+`apply` decodes a canonical `TreeOp` and applies it to the live tree — but only
+when the host's policy gate permits, so an in-page mutation obeys the same
 default-deny contract as every other dispatch path. Wire it by passing
 `onApply` (the host's "re-render with this tree" callback, typically a
 `setState`) alongside `debug`; the apply consults `runtime.canDispatch` first:
 
 ```tsx
-<FuaranRenderer tree={tree} runtime={runtime} debug={import.meta.env.DEV} onApply={setTree} />
+<FuaranRenderer
+  tree={tree}
+  runtime={runtime}
+  debug={import.meta.env.DEV}
+  onApply={setTree}
+  validate={(candidate) => {
+    const r = preEmitValidate(candidate); // @fuaran-ui/ui — optional
+    return r.ok ? [] : r.error;
+  }}
+/>
 ```
 
+The op may be a **JSON string** (paste it into the console) or a **structured
+object** — the same edit, and the host serialises the object canonically rather
+than asking the caller to.
+
 `apply` returns a structured envelope, never a silent no-op: `{ ok: true,
-status: 'applied' }` on success; `{ ok: false, status: 'denied', denied: true,
-error }` when the gate refuses (the tree is unchanged); `'decodeFailed'` /
-`'rejected'` for a malformed or inapplicable op; and `'unwired'` when no
-`onApply` was supplied (a read-only surface). A host that omits `runtime` (or
+status: 'applied', treeRevision }` on success; `{ ok: false, status: 'denied',
+denied: true, error }` when the gate refuses (the tree is unchanged);
+`'decodeFailed'` (carrying the codec's `DecodeError`) / `'rejected'` (carrying
+the diagnostic `code`) for a malformed or inapplicable op; and `'unwired'` when
+no `onApply` was supplied (a read-only surface). A host that omits `runtime` (or
 its `canDispatch`) allows by default, matching every other dispatch path.
+
+The optional `validate` prop runs the host's tree validator on the **candidate**
+tree and folds the edit only when it introduces no defect the tree did not
+already carry — a pre-existing defect is not the edit's fault and does not block
+it.
+
+### Change subscription
+
+`__fuaran.subscribe(cb)` reports **committed tree changes** and returns an
+unsubscribe handle. It pushes — there is nothing to poll — and rapid changes
+coalesce into one notification carrying the latest `treeRevision`, because a
+change is a staleness signal rather than a change log: re-read what you need.
+The subscription lives on a page-wide hub, so it survives the surface rebuild
+that every tree change causes.
+
+```js
+const off = __fuaran.subscribe(({ treeRevision, cause }) => refresh(treeRevision, cause));
+off(); // stop
+```
+
+`treeRevision` is **opaque**: compare it for equality to notice a cached read
+has gone stale; never parse or order it.
+
+### DevTools relay (`relay`) — off by default
+
+`relay` installs a same-origin `postMessage` endpoint that carries the surface
+above across the page/extension boundary, so a browser extension (or any other
+same-page script) can inspect — and, where `onApply` is wired, edit — the live
+tree. It implements the `relay@1.0` contract (`DEVTOOLS_RELAY.md` in the
+specification repository) and is pinned against that contract's fixture family.
+
+```tsx
+<FuaranRenderer
+  tree={tree}
+  debug={import.meta.env.DEV}
+  relay={import.meta.env.DEV}
+  onApply={setTree}
+/>
+```
+
+Three properties are deliberate and worth knowing before you enable it:
+
+- **Off by default, and absent rather than inert.** Without `relay`, no listener
+  is installed at all, so a probe gets no answer whatsoever. Gate it on the same
+  dev flag as `debug`; it is a debugging affordance, not a feature flag.
+- **No side door.** Every relayed mutation crosses this host's own decode →
+  validate → policy path, in the page. The relay contributes no apply engine, no
+  validator, and no policy — a relay client's reach is exactly the set of legal,
+  permitted ops, and no message can widen it.
+- **Origin discipline.** Messages are accepted only from this same window at this
+  same origin, replies are posted at `window.origin` (never `"*"`), and anything
+  failing those checks is ignored in silence — a refusal would itself disclose
+  that a Fuaran host is present.
+
+`createRelayPeer` / `installRelayPeer` are exported for hosts wiring the peer on
+their own terms; both are **not opted in unless told to be**.
 
 ## Sanitisation
 

@@ -155,7 +155,11 @@ describe('apply — policy-gated TreeOp mutation (Phase 190)', () => {
     let applied: Node<unknown> | undefined;
     const dbg = buildDebugGlobal(tree, {}, { applyHandler: (t) => (applied = t) });
     const r = dbg.apply(updateLabelOp);
-    expect(r).toEqual({ ok: true, status: 'applied' });
+    expect(r.ok).toBe(true);
+    expect(r.status).toBe('applied');
+    // The applied envelope also names the revision the edit produced, so a
+    // caller can tell a cached read has gone stale (Phase 735).
+    expect(r.ok && typeof r.treeRevision).toBe('string');
     expect(applied).toBeDefined();
     // The mutation took effect: the new tree carries the updated label.
     expect(JSON.stringify(applied)).toContain('Updated revenue');
@@ -227,7 +231,10 @@ describe('apply — policy-gated TreeOp mutation (Phase 190)', () => {
     expect(r.status).toBe('applied');
   });
 
-  it('help() advertises apply', () => {
-    expect(buildDebugGlobal(tree, {}).help()).toMatch(/apply\(opJson\)/);
+  it('help() advertises apply, and the affordances layered on it', () => {
+    const help = buildDebugGlobal(tree, {}).help();
+    expect(help).toMatch(/apply\(op\)/);
+    expect(help).toMatch(/subscribe\(cb\)/);
+    expect(help).toMatch(/treeRevision\(\)/);
   });
 });
