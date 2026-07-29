@@ -2,11 +2,12 @@
 //  @fuaran-ui/conformance — corpus loading + versioning.
 //
 //  The package bundles a snapshot of the canonical wire-format conformance
-//  corpus (`corpus/` — manifest.json + schema.json + nodes/ + ops/ + reject/),
-//  so a third party needs nothing beyond `npm install` to certify. The
-//  snapshot is synced from the authoritative workspace `wire-format-fixtures/`
-//  corpus by `scripts/sync-corpus.mjs` and guarded byte-for-byte by the
-//  package's own test suite, so it cannot silently drift from the authority.
+//  corpus under `corpus/` — manifest.json + schema.json + every fixture family
+//  the manifest enumerates — so a third party needs nothing beyond
+//  `npm install` to certify. The snapshot is synced from the authoritative
+//  `wire-format-fixtures/` corpus by `scripts/sync-corpus.mjs`, and the same
+//  script's `--check` mode guards it byte-for-byte from the package's own test
+//  suite, so it cannot silently drift from the authority.
 //
 //  Every report names the corpus it certified against: the manifest `version`
 //  plus a SHA-256 digest over the manifest, the schema, and every fixture
