@@ -34,8 +34,8 @@ import {
   negotiateEnvelope,
   validateAnswerDocument,
 } from '../src/index.js';
-import { NODE_KIND_NAMES } from '@fuaran-ui/schema';
-import { WRONG_NODE_KIND_HINT } from '../src/decode.js';
+import { FORM_FIELD_KIND_NAMES, NODE_KIND_NAMES } from '@fuaran-ui/schema';
+import { WRONG_FORM_FIELD_KIND_HINT, WRONG_NODE_KIND_HINT } from '../src/decode.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // packages/ops/test → workspace-root/wire-format-fixtures
@@ -66,6 +66,8 @@ interface Manifest {
   readonly version: number;
   readonly description: string;
   readonly kinds: readonly string[];
+  /** Phase 746 — the generated FormFieldKind enumeration (WIRE_FORMAT.md §11.2). */
+  readonly formFieldKinds: readonly string[];
   readonly fixtures: readonly ManifestFixture[];
 }
 
@@ -314,6 +316,88 @@ describe('kind-set attestation (WIRE_FORMAT.md §11 / Phase 548)', () => {
     const missing = [...manifestKinds].filter((k) => !hostKinds.has(k)).sort();
     const extra = [...hostKinds].filter((k) => !manifestKinds.has(k)).sort();
     expect({ missing, extra }).toEqual({ missing: [], extra: [] });
+  });
+});
+
+// Phase 746 — cross-host CONTROL-vocabulary attestation, the second discriminator
+// family to gain one. `NodeKind` has had a pin since Phase 548; `FormFieldKind` had
+// none in ANY host, which is how `DateRange` landed in the corpus and sat unadopted
+// in four hosts while every gate stayed green.
+describe('FormFieldKind attestation (WIRE_FORMAT.md §11.2 / Phase 746)', () => {
+  /**
+   * Every `FormFieldKind` discriminator a payload carries, in its two wire
+   * carriers. Carriers are matched by their PARENT discriminator, never by
+   * property name: `DataGrid.columns[].kind.$type` is a `CellKindErased` and
+   * shares the token `Text` with this family, so a property-name sweep silently
+   * attests the wrong family and reports green.
+   */
+  const controlKindsIn = (value: unknown): string[] => {
+    const acc: string[] = [];
+    const walk = (v: unknown): void => {
+      if (Array.isArray(v)) {
+        for (const e of v) walk(e);
+        return;
+      }
+      if (v === null || typeof v !== 'object') return;
+      const o = v as Record<string, unknown>;
+      const carrier =
+        o['$type'] === 'Form' ? 'fields' : o['$type'] === 'Filters' ? 'items' : undefined;
+      if (carrier !== undefined && Array.isArray(o[carrier])) {
+        for (const entry of o[carrier] as unknown[]) {
+          const k = (entry as Record<string, unknown> | null)?.['kind'];
+          const t = (k as Record<string, unknown> | null)?.['$type'];
+          if (typeof t === 'string') acc.push(t);
+        }
+      }
+      for (const child of Object.values(o)) walk(child);
+    };
+    walk(value);
+    return acc;
+  };
+
+  const corpusControlKinds = new Set(
+    manifest.fixtures
+      .filter((f) => f.kind === 'node-round-trip')
+      .flatMap((f) => controlKindsIn(JSON.parse(readFixture(f.inputFile)))),
+  );
+
+  it('the TS control vocabulary equals manifest.formFieldKinds', () => {
+    expect(manifest.formFieldKinds?.length ?? 0).toBeGreaterThan(0);
+    const manifestKinds = new Set(manifest.formFieldKinds);
+    const hostKinds = new Set(FORM_FIELD_KIND_NAMES);
+    const missing = [...manifestKinds].filter((k) => !hostKinds.has(k)).sort();
+    const extra = [...hostKinds].filter((k) => !manifestKinds.has(k)).sort();
+    expect({ missing, extra }).toEqual({ missing: [], extra: [] });
+  });
+
+  it('every control discriminator in the corpus is one the TS host declares', () => {
+    expect(corpusControlKinds.size).toBeGreaterThan(0);
+    const hostKinds = new Set(FORM_FIELD_KIND_NAMES);
+    const manifestKinds = new Set(manifest.formFieldKinds);
+    const undeclared = [...corpusControlKinds].filter((k) => !hostKinds.has(k)).sort();
+    const unlisted = [...corpusControlKinds].filter((k) => !manifestKinds.has(k)).sort();
+    expect({ undeclared, unlisted }).toEqual({ undeclared: [], unlisted: [] });
+  });
+
+  it('every declared control kind is actually accepted by the decoder', () => {
+    // A kind named in the vocabulary but absent from `decodeFormFieldKind`'s
+    // dispatch would send a model to a discriminator that rejects again. A
+    // declared kind must at minimum get PAST the dispatch (it may then fail on
+    // its own missing fields — anything but UNKNOWN_DU_CASE at the control's
+    // own $type).
+    const stillUnknown = FORM_FIELD_KIND_NAMES.filter((k) => {
+      const r = decodeNode(
+        `{"id":"f","kind":{"$type":"Form","fields":[{"id":"a","kind":{"$type":"${k}"},"label":"L","required":false}],"onSubmit":"<closure>"},"state":{},"style":{"emphasis":"Normal","tone":"Default","weight":"Standard"}}`,
+      );
+      return !r.ok && r.error.code === 'UNKNOWN_DU_CASE' && r.error.path.endsWith('.kind.$type');
+    });
+    expect(stillUnknown).toEqual([]);
+  });
+
+  it('the control hint names every kind in the vocabulary', () => {
+    const tokens = new Set(WRONG_FORM_FIELD_KIND_HINT.split(/[^A-Za-z]+/).filter(Boolean));
+    const missing = (manifest.formFieldKinds ?? []).filter((k) => !tokens.has(k)).sort();
+    expect(missing).toEqual([]);
   });
 });
 

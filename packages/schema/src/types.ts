@@ -1415,6 +1415,36 @@ export type FormFieldKind<TMsg> =
       readonly constraints: DateFieldConstraints;
     };
 
+/**
+ * The emittable `FormFieldKind` vocabulary — one entry per wire `kind.$type` a
+ * conformant host encodes/decodes in a control position. ONE vocabulary, two
+ * carriers: a `Form` spec's `fields[]` and a `Filters` spec's `items[]`
+ * (WIRE_FORMAT.md §11.2).
+ *
+ * This is the SINGLE enumeration, on the `NODE_KIND_NAMES` pattern: `@fuaran-ui/ops`
+ * projects the control decoder's `UNKNOWN_DU_CASE` hint from it, and the corpus
+ * suite pins it against the generated manifest `formFieldKinds` array — so a case
+ * added here reaches both, and neither can fall behind the other. Before this
+ * existed the vocabulary was a hand-typed hint string per host, which is how
+ * `DateRange` shipped into the corpus and sat unadopted in four hosts with every
+ * gate green.
+ *
+ * The order is the cross-host contract (it is the hint's order); keep it in step
+ * with the sibling hosts rather than sorting it.
+ */
+export const FORM_FIELD_KIND_NAMES: readonly string[] = [
+  'Text',
+  'Number',
+  'Checkbox',
+  'Choice',
+  'Range',
+  'RangedNumber',
+  'SegmentedChoice',
+  'TextArea',
+  'Date',
+  'DateRange',
+];
+
 export interface NumberFieldConstraints {
   readonly min?: number;
   readonly max?: number;

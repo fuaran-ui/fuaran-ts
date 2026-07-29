@@ -17,7 +17,12 @@
 //  byte-stable. Typed re-attachment of the erased payloads is the host's job.
 // ============================================================================
 
-import { NODE_KIND_GROUPS, controlValueDefaults, projectSelectionField } from '@fuaran-ui/schema';
+import {
+  FORM_FIELD_KIND_NAMES,
+  NODE_KIND_GROUPS,
+  controlValueDefaults,
+  projectSelectionField,
+} from '@fuaran-ui/schema';
 import type {
   Accessibility,
   Action,
@@ -3166,6 +3171,16 @@ type ControlAutoBind =
   | { readonly kind: 'form'; readonly id: string }
   | undefined;
 
+/**
+ * The `expectedShape` hint on every `UNKNOWN_DU_CASE` a control discriminator
+ * raises, projected from the single `FORM_FIELD_KIND_NAMES` vocabulary in
+ * `@fuaran-ui/schema` rather than hand-maintained — the same discipline
+ * `WRONG_NODE_KIND_HINT` follows, and for the same reason. Pinned against the
+ * generated manifest `formFieldKinds` by the corpus test suite
+ * (WIRE_FORMAT.md §11.2).
+ */
+export const WRONG_FORM_FIELD_KIND_HINT: string = FORM_FIELD_KIND_NAMES.join(' | ');
+
 const decodeFormFieldKind = (
   autoBind: ControlAutoBind,
   path: string,
@@ -3373,11 +3388,7 @@ const decodeFormFieldKind = (
       });
     }
     default:
-      return unknownDuCase(
-        path,
-        d.value,
-        'Text | Number | Checkbox | Choice | Range | RangedNumber | SegmentedChoice | TextArea | Date | DateRange',
-      );
+      return unknownDuCase(path, d.value, WRONG_FORM_FIELD_KIND_HINT);
   }
 };
 
