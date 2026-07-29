@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/ai-tools",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Runtime tree-introspection surface for the Fuaran UI typed Node tree — getNodeState / findNodes / inspectTree over the typed shape, plus a React context provider + useFuaranIntrospection hook. The TypeScript port of the read-only introspection subset of Fuaran.UI.AiTools; kind names + binding-slot expressions match the F# tier.",
   "keywords": [
     "fuaran",

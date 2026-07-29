@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/validator",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Build-time validator for TypeScript-authored Fuaran UI trees — a TypeScript-compiler-API source walker over the @fuaran-ui/ui smart-constructor surface. Surfaces the same FUARAN### defect codes as the F# tier's Fuaran.UI.Validator for the portable rule subset (NodeId uniqueness, manifest-gated query/dispatch resolution, Tabs shape, blank href, no-op disabled binding, blank currency code, dangerous extra-attribute keys, out-of-range progress, redundant grid template-columns). Runs as a CLI (fuaran-validate) and a programmatic API.",
   "keywords": [
     "fuaran",
