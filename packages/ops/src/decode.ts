@@ -2146,6 +2146,66 @@ const decodeBindingFloatPair = (p: string, j: JsonAst): R<Binding<readonly [numb
   >;
 };
 
+const parseStaticStringPair = (p: string, v: JsonAst): R<unknown> => {
+  // Phase 725 — the DateRange control's (from, to) ISO-8601 pair. Mirrors
+  // `parseStaticFloatPair`: the bare `{from, to}` object is canonical, a
+  // two-element `[from, to]` array is the §3.6 lenient coercion.
+  //
+  // Didactic domain rule: a LITERAL pair must be ordered. Same-variant ISO-8601
+  // strings sort lexicographically in chronological order, so an ordinal
+  // compare is total here — no date parsing, no locale. Only a literal pair is
+  // checked; a bound pair's ordering is a runtime concern.
+  const ordered = (a: string, b: string): R<readonly [string, string]> =>
+    a > b
+      ? makeError(
+          'WRONG_TYPE',
+          p,
+          `date-range start '${a}' is after end '${b}' — a DateRange pair is ordered (from <= to); ISO-8601 strings of one variant compare lexicographically, so swap the two values`,
+          'ordered ISO-8601 pair ({"from": <iso>, "to": <iso>} with from <= to)',
+        )
+      : ok([a, b] as const);
+  if (v.kind === 'JObject') {
+    const from = v.fields.get('from');
+    const to = v.fields.get('to');
+    if (from !== undefined && to !== undefined) {
+      const a = requireString(`${p}.from`, from);
+      if (!a.ok) return a;
+      const b = requireString(`${p}.to`, to);
+      if (!b.ok) return b;
+      return ordered(a.value, b.value);
+    }
+    return wrongType(p, 'object with from and to ISO-8601 strings');
+  }
+  if (v.kind === 'JArray' && v.items.length === 2) {
+    const a = requireString(`${p}[0]`, v.items[0] as JsonAst);
+    if (!a.ok) return a;
+    const b = requireString(`${p}[1]`, v.items[1] as JsonAst);
+    if (!b.ok) return b;
+    return ordered(a.value, b.value);
+  }
+  return wrongType(p, 'date-range pair ({from, to} object or [from, to] array)');
+};
+
+const decodeBindingStringPair = (p: string, j: JsonAst): R<Binding<readonly [string, string]>> => {
+  // The canonical Static pair rides as the BARE `{from, to}` object (the
+  // `Range` posture, no envelope) — accept it before the generic binding
+  // dispatch, which would otherwise demand a `$type`.
+  if (
+    j.kind === 'JObject' &&
+    j.fields.get('$type') === undefined &&
+    j.fields.get('from') !== undefined &&
+    j.fields.get('to') !== undefined
+  ) {
+    const parsed = parseStaticStringPair(p, j);
+    return parsed.ok
+      ? ok({ kind: 'Static', value: parsed.value as readonly [string, string] })
+      : parsed;
+  }
+  return decodeBinding(p, j, parseStaticStringPair, ['', ''] as const) as R<
+    Binding<readonly [string, string]>
+  >;
+};
+
 const parseStaticStringList = (p: string, v: JsonAst): R<unknown> => {
   if (v.kind === 'JNull') return ok([]);
   if (v.kind === 'JString' && v.value === OPAQUE) return ok([OPAQUE]);
@@ -3282,11 +3342,41 @@ const decodeFormFieldKind = (
         },
       });
     }
+    case 'DateRange': {
+      // Phase 725 — single-control date range: `Range`'s pair mechanics with
+      // `Date`'s value conventions. `min` / `max` / `step` are flat (they bound
+      // BOTH ends), same omit-when-absent discipline as `Date`.
+      const value = valueOr(
+        decodeBindingStringPair as (p: string, v: JsonAst) => R<Binding<unknown>>,
+        controlValueDefaults.dateRange,
+        'Binding<[from, to]> ISO-8601 pair value',
+      ) as R<Binding<readonly [string, string]>>;
+      if (!value.ok) return value;
+      const variant = reqField(path, f, 'variant', 'DateVariant', decodeDateVariant);
+      if (!variant.ok) return variant;
+      const min = optField(path, f, 'min', requireString);
+      if (!min.ok) return min;
+      const max = optField(path, f, 'max', requireString);
+      if (!max.ok) return max;
+      const step = optField(path, f, 'step', requireFloat);
+      if (!step.ok) return step;
+      return ok({
+        kind: 'DateRange',
+        value: value.value,
+        ...onChangeField,
+        variant: variant.value,
+        constraints: {
+          ...(min.value !== undefined ? { min: min.value } : {}),
+          ...(max.value !== undefined ? { max: max.value } : {}),
+          ...(step.value !== undefined ? { step: step.value } : {}),
+        },
+      });
+    }
     default:
       return unknownDuCase(
         path,
         d.value,
-        'Text | Number | Checkbox | Choice | Range | RangedNumber | SegmentedChoice | TextArea | Date',
+        'Text | Number | Checkbox | Choice | Range | RangedNumber | SegmentedChoice | TextArea | Date | DateRange',
       );
   }
 };

@@ -463,6 +463,51 @@ const renderFormControl = <TMsg,>(ctx: RenderContext<TMsg>, field: FormField<TMs
         />
       );
     }
+    case 'DateRange': {
+      // Phase 725 — single-control date range: `Range`'s two-input shape with
+      // `Date`'s native control per variant. Both ends share the min/max/step
+      // attributes (they bound the whole range), and either change emits the
+      // WHOLE pair through the standard write-back — one value, not two. Class
+      // vocabulary is reused, not extended (the reference-CSS parity lock with
+      // the F# renderer, which emits the same `fuaran-field-range*` wrapper).
+      const inputType =
+        k.variant === 'Time' ? 'time' : k.variant === 'DateTime' ? 'datetime-local' : 'date';
+      const constraintAttrs: Record<string, string | number> = {};
+      if (k.constraints.min !== undefined) constraintAttrs['min'] = k.constraints.min;
+      if (k.constraints.max !== undefined) constraintAttrs['max'] = k.constraints.max;
+      if (k.constraints.step !== undefined) constraintAttrs['step'] = k.constraints.step;
+      const resolved = tryResolve(ctx.sources, k.value);
+      const current: readonly [string, string] =
+        Array.isArray(resolved) && resolved.length === 2
+          ? (resolved as [string, string])
+          : ['', ''];
+      const [fromV, toV] = current;
+      const onChange = k.onChange;
+      const emit = (pair: readonly [string, string]): void =>
+        handle(onChange, k.value, [pair[0], pair[1]], pair);
+      return (
+        <span className="fuaran-field-range">
+          <input
+            className="fuaran-form-input fuaran-form-date fuaran-field-range-min"
+            type={inputType}
+            id={field.id}
+            required={field.required}
+            value={fromV}
+            {...constraintAttrs}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => emit([e.target.value, toV])}
+          />
+          <span className="fuaran-field-range-sep">–</span>
+          <input
+            className="fuaran-form-input fuaran-form-date fuaran-field-range-max"
+            type={inputType}
+            required={field.required}
+            value={toV}
+            {...constraintAttrs}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => emit([fromV, e.target.value])}
+          />
+        </span>
+      );
+    }
   }
 };
 

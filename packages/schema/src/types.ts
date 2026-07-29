@@ -1373,6 +1373,23 @@ export type FormFieldKind<TMsg> =
       readonly onChange?: (value: string) => Action<TMsg>;
       readonly variant: DateVariant;
       readonly constraints: DateFieldConstraints;
+    }
+  | {
+      // Phase 725 — single-control date range: `Range`'s pair mechanics with
+      // `Date`'s value conventions. The bound value is the ordered `(from, to)`
+      // pair, each end an ISO-8601 string in the `variant`'s shape; it rides
+      // the wire as the bare `{from, to}` object (no `Static` envelope — the
+      // `Range` posture) and is held in memory as a two-element tuple (also the
+      // `Range` precedent). A LITERAL pair must satisfy `from <= to` by ordinal
+      // compare — the decoder rejects an inverted one (`WRONG_TYPE`); a bound
+      // pair's ordering is a runtime concern. `variant` chooses the native
+      // input; the optional `min` / `max` (ISO strings) + `step` (seconds)
+      // bound BOTH ends, mirroring `Date`'s omit-when-undefined discipline.
+      readonly kind: 'DateRange';
+      readonly value: Binding<readonly [string, string]>;
+      readonly onChange?: (value: readonly [string, string]) => Action<TMsg>;
+      readonly variant: DateVariant;
+      readonly constraints: DateFieldConstraints;
     };
 
 export interface NumberFieldConstraints {

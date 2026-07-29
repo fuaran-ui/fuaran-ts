@@ -101,6 +101,11 @@ export const controlValueDefaults = {
   range: [0, 0] as readonly [number, number],
   /** ISO-empty — the Date control's value is an ISO-8601 string. */
   date: '' as string,
+  /**
+   * ISO-empty both ends — the DateRange control's value is an ordered
+   * `(from, to)` pair of ISO-8601 strings (Phase 725, the `range` precedent).
+   */
+  dateRange: ['', ''] as readonly [string, string],
 };
 
 const noBinding = <T>(): Binding<T> => ({

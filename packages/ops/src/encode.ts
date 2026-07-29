@@ -1350,6 +1350,27 @@ const formFieldKind = (autoBind: ControlAutoBind, k: FormFieldKind<unknown>): st
       if (k.constraints.step !== undefined) fields.push(['step', num(k.constraints.step)]);
       return caseObj('Date', fields);
     }
+    case 'DateRange': {
+      // Phase 725 — single-control date range. The Static pair rides as the
+      // BARE {from, to} object (the Range posture, no envelope); min/max (ISO
+      // strings) + step (seconds) are flat and bound both ends.
+      const staticPair = (p: readonly [string, string]): string =>
+        jObject([
+          ['from', str(p[0])],
+          ['to', str(p[1])],
+        ]);
+      const fields: Field[] = [
+        ...handlerField('onChange', k.onChange),
+        ...valueField(k.value, controlValueDefaults.dateRange, (v) =>
+          v.kind === 'Static' ? staticPair(v.value) : binding(v, staticPair),
+        ),
+        ['variant', str(k.variant)],
+      ];
+      if (k.constraints.min !== undefined) fields.push(['min', str(k.constraints.min)]);
+      if (k.constraints.max !== undefined) fields.push(['max', str(k.constraints.max)]);
+      if (k.constraints.step !== undefined) fields.push(['step', num(k.constraints.step)]);
+      return caseObj('DateRange', fields);
+    }
     default:
       return assertNever(k);
   }

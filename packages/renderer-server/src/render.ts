@@ -1297,6 +1297,42 @@ const renderFormControl = (ctx: ServerContext, field: FormField<unknown>): strin
       if (k.constraints.step !== undefined) attrs.push(['step', k.constraints.step]);
       return voidEl('input', attrs);
     }
+    case 'DateRange': {
+      // Phase 725 — single-control date range: `Range`'s two-input shape with
+      // `Date`'s native control per variant. Both ends share the min/max/step
+      // attributes; the class vocabulary is the F# renderer's (parity lock).
+      const inputType =
+        k.variant === 'Time' ? 'time' : k.variant === 'DateTime' ? 'datetime-local' : 'date';
+      const resolved = tryResolve(ctx.sources, k.value);
+      const [fromV, toV]: readonly [string, string] =
+        Array.isArray(resolved) && resolved.length === 2
+          ? (resolved as [string, string])
+          : ['', ''];
+      const boundAttrs: Attr[] = [];
+      if (k.constraints.min !== undefined) boundAttrs.push(['min', k.constraints.min]);
+      if (k.constraints.max !== undefined) boundAttrs.push(['max', k.constraints.max]);
+      if (k.constraints.step !== undefined) boundAttrs.push(['step', k.constraints.step]);
+      return el(
+        'span',
+        [['class', 'fuaran-field-range']],
+        voidEl('input', [
+          ['class', 'fuaran-form-input fuaran-form-date fuaran-field-range-min'],
+          ['type', inputType],
+          ['id', field.id],
+          ['required', field.required],
+          ['value', fromV],
+          ...boundAttrs,
+        ]) +
+          textEl('span', [['class', 'fuaran-field-range-sep']], '–') +
+          voidEl('input', [
+            ['class', 'fuaran-form-input fuaran-form-date fuaran-field-range-max'],
+            ['type', inputType],
+            ['required', field.required],
+            ['value', toV],
+            ...boundAttrs,
+          ]),
+      );
+    }
   }
 };
 

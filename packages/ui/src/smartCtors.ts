@@ -640,6 +640,18 @@ export const formFieldKind = {
   ): FormFieldKind<TMsg> {
     return { kind: 'Date', value, onChange, variant, constraints: constraints ?? {} };
   },
+  /**
+   * Phase 725 — single-control date range. `value` is the ordered `(from, to)`
+   * ISO-8601 pair; `constraints` bound BOTH ends.
+   */
+  dateRange<TMsg>(
+    value: Binding<readonly [string, string]>,
+    onChange: (value: readonly [string, string]) => Action<TMsg>,
+    variant: DateVariant = 'Date',
+    constraints?: DateFieldConstraints,
+  ): FormFieldKind<TMsg> {
+    return { kind: 'DateRange', value, onChange, variant, constraints: constraints ?? {} };
+  },
 
   // ── Handler-free (declarative) ctors — Phase 426, the control write-back
   //    default. Each omits the handler, the shape an AI author uses: the
@@ -694,6 +706,14 @@ export const formFieldKind = {
   ): FormFieldKind<TMsg> {
     return { kind: 'Date', value, variant, constraints: constraints ?? {} };
   },
+  /** Handler-free `DateRange` — writes the changed (from, to) pair back to the value slot. */
+  dateRangeDeclarative<TMsg>(
+    value: Binding<readonly [string, string]>,
+    variant: DateVariant = 'Date',
+    constraints?: DateFieldConstraints,
+  ): FormFieldKind<TMsg> {
+    return { kind: 'DateRange', value, variant, constraints: constraints ?? {} };
+  },
 };
 
 // 0.2.0 filters-unification: a chip's control is an ordinary `FormFieldKind`
@@ -718,6 +738,10 @@ export const filterField = {
   /** Dual-thumb range chip bound to its own filter key. */
   range<TMsg>(name: string): FormFieldKind<TMsg> {
     return { kind: 'Range', value: { kind: 'Filter', name } };
+  },
+  /** Date-range chip bound to its own filter key (Phase 725). */
+  dateRange<TMsg>(name: string, variant: DateVariant = 'Date'): FormFieldKind<TMsg> {
+    return { kind: 'DateRange', value: { kind: 'Filter', name }, variant, constraints: {} };
   },
 };
 
