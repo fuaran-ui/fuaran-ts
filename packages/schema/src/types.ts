@@ -547,60 +547,83 @@ export type NodeKind<TMsg> =
   | { readonly kind: 'Mount'; readonly spec: MountSpec<TMsg> };
 
 /**
- * The emittable NodeKind vocabulary — one entry per wire `kind.$type` name a
- * conformant host encodes/decodes. Pinned against the generated
- * `wire-format-fixtures` manifest `kinds` enumeration by the corpus test suite
- * (Phase 548 cross-host kind-set attestation): a new kind added without an entry
- * here fails that pin with the kind named. Maintained in lockstep with the
- * codec under the §11 forward-coupling discipline (`DataGrid` is the wire name of
- * the grid kind — the `Grid` discriminator is a `BoxLayout` case, not a NodeKind).
+ * The emittable NodeKind vocabulary, grouped by the four behavioural categories
+ * (WIRE_FORMAT.md §3.2) plus the structural kinds. This is the SINGLE
+ * enumeration: `NODE_KIND_NAMES` flattens it, and `@fuaran-ui/ops` projects the
+ * `WRONG_NODE_KIND` decoder hint from it — so a kind added here reaches both,
+ * and the hint cannot fall behind the kind set the way three hand-maintained
+ * hint strings did across the hosts.
+ *
+ * The group names and their order are a cross-host contract: the F# and Rust
+ * hosts emit the same grouped hint, so a model repairing against any host sees
+ * the same vocabulary in the same shape.
  */
-export const NODE_KIND_NAMES: readonly string[] = [
-  // Layout
-  'Box',
-  'SplitPanel',
-  'Tabs',
-  'Stepper',
-  'SummaryList',
-  'Disclosure',
-  'Modal',
-  'ScrollArea',
-  // Display
-  'Heading',
-  'Markdown',
-  'Metric',
-  'Badge',
-  'Sparkline',
-  'Callout',
-  'Progress',
-  'Skeleton',
-  'LabelValueRow',
-  'Fact',
-  'Link',
-  'Image',
-  'List',
-  'Toast',
-  'CodeBlock',
-  'Math',
-  'Drawing',
-  // Input
-  'Form',
-  'Filters',
-  'Button',
-  'FileUpload',
-  'Select',
-  // Visualisation
-  'DataGrid',
-  'Chart',
-  'Map',
-  // Structural
-  'Custom',
-  'ErrorBoundary',
-  'Switch',
-  'FragmentDecl',
-  'FragmentRef',
-  'Mount',
+export const NODE_KIND_GROUPS: readonly {
+  readonly label: string;
+  readonly kinds: readonly string[];
+}[] = [
+  {
+    label: 'Layout',
+    kinds: [
+      'Box',
+      'SplitPanel',
+      'Tabs',
+      'Stepper',
+      'SummaryList',
+      'Disclosure',
+      'Modal',
+      'ScrollArea',
+    ],
+  },
+  {
+    label: 'Display',
+    kinds: [
+      'Heading',
+      'Markdown',
+      'Metric',
+      'Badge',
+      'Sparkline',
+      'Callout',
+      'Progress',
+      'Skeleton',
+      'LabelValueRow',
+      'Fact',
+      'Link',
+      'Image',
+      'List',
+      'Toast',
+      'CodeBlock',
+      'Math',
+      'Drawing',
+    ],
+  },
+  {
+    label: 'Input',
+    kinds: ['Form', 'Filters', 'Button', 'FileUpload', 'Select'],
+  },
+  {
+    label: 'Visualisation',
+    kinds: ['DataGrid', 'Chart', 'Map'],
+  },
+  {
+    // The structural kinds carry no category prose in the hint — they are
+    // listed bare after the four primitive families.
+    label: 'Structural',
+    kinds: ['Custom', 'ErrorBoundary', 'Switch', 'FragmentDecl', 'FragmentRef', 'Mount'],
+  },
 ];
+
+/**
+ * The emittable NodeKind vocabulary — one entry per wire `kind.$type` name a
+ * conformant host encodes/decodes, flattened from `NODE_KIND_GROUPS`. Pinned
+ * against the generated `wire-format-fixtures` manifest `kinds` enumeration by
+ * the corpus test suite (Phase 548 cross-host kind-set attestation): a new kind
+ * added without an entry in the groups above fails that pin with the kind named.
+ * Maintained in lockstep with the codec under the §11 forward-coupling
+ * discipline (`DataGrid` is the wire name of the grid kind — the `Grid`
+ * discriminator is a `BoxLayout` case, not a NodeKind).
+ */
+export const NODE_KIND_NAMES: readonly string[] = NODE_KIND_GROUPS.flatMap((g) => g.kinds);
 
 export interface ErrorBoundarySpec<TMsg> {
   readonly child: Node<TMsg>;

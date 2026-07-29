@@ -17,7 +17,7 @@
 //  byte-stable. Typed re-attachment of the erased payloads is the host's job.
 // ============================================================================
 
-import { controlValueDefaults, projectSelectionField } from '@fuaran-ui/schema';
+import { NODE_KIND_GROUPS, controlValueDefaults, projectSelectionField } from '@fuaran-ui/schema';
 import type {
   Accessibility,
   Action,
@@ -4429,6 +4429,32 @@ const decodeEffectClass = (path: string, j: JsonAst): R<EffectClass> => {
   return ok({ hostEffect: host.value as HostEffect, determinism: det.value as DeterminismSource });
 };
 
+/**
+ * The `expectedShape` hint carried by every `WRONG_NODE_KIND` error, PROJECTED
+ * from the single `NODE_KIND_GROUPS` vocabulary in `@fuaran-ui/schema` rather
+ * than hand-maintained — a kind added to that enumeration reaches this hint for
+ * free, which is the drift class three separately-maintained hint strings had
+ * already accumulated across the hosts.
+ *
+ * Byte-identical to the F# and Rust hosts' hint (the group order is the shared
+ * contract), so a model repairing against one host sees the same vocabulary it
+ * would see from any other. Pinned against the generated manifest `kinds` by the
+ * corpus test suite.
+ */
+export const WRONG_NODE_KIND_HINT: string = (() => {
+  // Every group but `Structural` is a named primitive family; the structural
+  // kinds are listed bare at the tail. Written as a fold over the groups rather
+  // than four hardcoded lookups so a NEW family also reaches the hint for free.
+  const primitives = NODE_KIND_GROUPS.filter((g) => g.label !== 'Structural')
+    .map(
+      (g) =>
+        `${'AEIOU'.includes(g.label[0]!) ? 'an' : 'a'} ${g.label} primitive (${g.kinds.join(' | ')})`,
+    )
+    .join(', ');
+  const structural = NODE_KIND_GROUPS.find((g) => g.label === 'Structural')?.kinds ?? [];
+  return `${primitives}, or ${structural.join(' | ')}`;
+})();
+
 const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
@@ -4703,7 +4729,7 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
         'WRONG_NODE_KIND',
         `${path}.$type`,
         `unknown NodeKind discriminator '${d.value}'`,
-        'a Layout primitive (Box | SplitPanel | Tabs | Stepper | SummaryList | Disclosure | Modal | ScrollArea), a Display primitive (Heading | Markdown | Metric | Badge | Sparkline | Callout | Progress | Skeleton | LabelValueRow | Link | Image | List | Toast), an Input primitive (Form | Filters | Button | FileUpload | Select), a Visualisation primitive (DataGrid | Chart | Map), or Custom | ErrorBoundary | FragmentDecl | FragmentRef | Mount',
+        WRONG_NODE_KIND_HINT,
       );
   }
 };

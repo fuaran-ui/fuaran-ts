@@ -35,6 +35,7 @@ import {
   validateAnswerDocument,
 } from '../src/index.js';
 import { NODE_KIND_NAMES } from '@fuaran-ui/schema';
+import { WRONG_NODE_KIND_HINT } from '../src/decode.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // packages/ops/test → workspace-root/wire-format-fixtures
@@ -313,5 +314,35 @@ describe('kind-set attestation (WIRE_FORMAT.md §11 / Phase 548)', () => {
     const missing = [...manifestKinds].filter((k) => !hostKinds.has(k)).sort();
     const extra = [...hostKinds].filter((k) => !manifestKinds.has(k)).sort();
     expect({ missing, extra }).toEqual({ missing: [], extra: [] });
+  });
+});
+
+// The kind-set attestation above pins what the decoder ACCEPTS. This pins what it
+// TELLS a model when it rejects: the `expectedShape` hint on a WRONG_NODE_KIND
+// error must enumerate the whole vocabulary. Both halves matter — a hint that has
+// silently fallen behind the kind set degrades every repair turn that reads it,
+// and no corpus fixture catches it (fixtures certify codes and paths, not prose).
+describe('WRONG_NODE_KIND hint (the model-facing half of the kind-set contract)', () => {
+  // Tokenise on non-letters so `List` is not satisfied by `SummaryList`, nor
+  // `Map` by `Markdown`. Only the forward direction is asserted — the hint's
+  // prose ('Layout', 'Display', …) is legitimately present and is not
+  // vocabulary; the reverse direction is covered by the attestation above,
+  // since the hint is a pure projection of NODE_KIND_GROUPS.
+  const tokens = new Set(WRONG_NODE_KIND_HINT.split(/[^A-Za-z]+/).filter(Boolean));
+
+  it('names every manifest kind as its own token', () => {
+    const missing = manifest.kinds.filter((k) => !tokens.has(k)).sort();
+    expect(missing).toEqual([]);
+  });
+
+  it('is the hint a rejected node actually carries', () => {
+    const r = decodeNode(
+      '{"id":"x","kind":{"$type":"Widget"},"state":{},"style":{"emphasis":"Normal","tone":"Default","weight":"Standard"}}',
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.code).toBe('WRONG_NODE_KIND');
+      expect(r.error.expectedShape).toBe(WRONG_NODE_KIND_HINT);
+    }
   });
 });
