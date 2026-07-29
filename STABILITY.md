@@ -4,21 +4,21 @@ This document declares which `@fuaran-ui/*` surfaces are stable, what counts as 
 
 ## Scope
 
-| Package                      | Licence    | Version status    |
-| ---------------------------- | ---------- | ----------------- |
-| `@fuaran-ui/schema`          | Apache 2.0 | pre-1.0           |
-| `@fuaran-ui/ui`              | Apache 2.0 | pre-1.0           |
-| `@fuaran-ui/ops`             | Apache 2.0 | pre-1.0           |
-| `@fuaran-ui/renderer`        | Apache 2.0 | pre-1.0           |
-| `@fuaran-ui/renderer-server` | Apache 2.0 | pre-1.0           |
-| `@fuaran-ui/op-stream`       | Apache 2.0 | pre-1.0           |
-| `@fuaran-ui/layout-observer` | Apache 2.0 | pre-1.0           |
-| `@fuaran-ui/style-observer`  | Apache 2.0 | pre-1.0           |
-| `@fuaran-ui/theme-manifest`  | Apache 2.0 | pre-1.0           |
-| `@fuaran-ui/ai-tools`        | Apache 2.0 | pre-1.0           |
-| `@fuaran-ui/conformance`     | Apache 2.0 | pre-1.0           |
-| `@fuaran-ui/validator`       | Apache 2.0 | pre-1.0           |
-| `@fuaran-ui/client`          | Apache 2.0 | pre-1.0           |
+| Package                      | Licence    | Version status |
+| ---------------------------- | ---------- | -------------- |
+| `@fuaran-ui/schema`          | Apache 2.0 | pre-1.0        |
+| `@fuaran-ui/ui`              | Apache 2.0 | pre-1.0        |
+| `@fuaran-ui/ops`             | Apache 2.0 | pre-1.0        |
+| `@fuaran-ui/renderer`        | Apache 2.0 | pre-1.0        |
+| `@fuaran-ui/renderer-server` | Apache 2.0 | pre-1.0        |
+| `@fuaran-ui/op-stream`       | Apache 2.0 | pre-1.0        |
+| `@fuaran-ui/layout-observer` | Apache 2.0 | pre-1.0        |
+| `@fuaran-ui/style-observer`  | Apache 2.0 | pre-1.0        |
+| `@fuaran-ui/theme-manifest`  | Apache 2.0 | pre-1.0        |
+| `@fuaran-ui/ai-tools`        | Apache 2.0 | pre-1.0        |
+| `@fuaran-ui/conformance`     | Apache 2.0 | pre-1.0        |
+| `@fuaran-ui/validator`       | Apache 2.0 | pre-1.0        |
+| `@fuaran-ui/client`          | Apache 2.0 | pre-1.0        |
 
 The first published line is `0.1.0` across the package set, with no prerelease suffix. The core authoring surface (`schema` / `ui` / `ops` / `renderer`) was validated against a real authoring workload (the `samples/demo` app) before the version was cut; the follow-up packages hold the same version for coherence, with per-surface maturity annotated in the sections below. The core packages bump in lockstep for peer-dependency coherence.
 
