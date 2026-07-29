@@ -94,11 +94,28 @@ const actual = new Set(certificationFiles(snapshot, dirs));
 
 const missing = expected.filter((f) => !actual.has(f));
 const extra = [...actual].filter((f) => !expected.includes(f)).sort();
-const drifted = expected
-  .filter((f) => actual.has(f))
-  .filter((f) => !readFileSync(join(authority, f)).equals(readFileSync(join(snapshot, f))));
 
-if (missing.length === 0 && extra.length === 0 && drifted.length === 0) {
+// Content drift and line-ending drift are reported separately. Both repos pin
+// `* text=auto eol=lf`, so a COMMITTED file is LF on both sides and this split
+// never fires from a clean checkout — but the corpus generator writes the
+// platform newline, so a freshly regenerated authority working tree can be CRLF
+// while the snapshot is still the LF a checkout produced. Lumping that in with
+// content drift would report all ~300 files as changed when nothing was, which
+// is how a guard gets ignored. The fix is the same sync either way.
+const stripCr = (buf) => Buffer.from(buf.toString('binary').replace(/\r\n/g, '\n'), 'binary');
+const differing = expected
+  .filter((f) => actual.has(f))
+  .map((f) => ({
+    f,
+    a: readFileSync(join(authority, f)),
+    s: readFileSync(join(snapshot, f)),
+  }))
+  .filter(({ a, s }) => !a.equals(s));
+
+const eolOnly = differing.filter(({ a, s }) => stripCr(a).equals(stripCr(s))).map(({ f }) => f);
+const drifted = differing.filter(({ a, s }) => !stripCr(a).equals(stripCr(s))).map(({ f }) => f);
+
+if (missing.length === 0 && extra.length === 0 && drifted.length === 0 && eolOnly.length === 0) {
   console.log(
     `Corpus snapshot is in sync with the authority (${expected.length} files; ` +
       `families: ${dirs.join(', ')}).`,
@@ -116,6 +133,7 @@ console.error(
     report('missing from the snapshot', missing) +
     report('present in the snapshot but not the authority', extra) +
     report('present in both but not byte-identical', drifted) +
+    report('identical content, different line endings', eolOnly) +
     `\n\nFix: re-run the sync from this package —\n` +
     `  pnpm --filter @fuaran-ui/conformance sync-corpus\n` +
     `then commit the snapshot alongside the corpus regeneration that caused it.`,
