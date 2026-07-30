@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/op-stream",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Op-stream persistence + replay for the Fuaran UI wire format — a hash-chained, append-only record of every applied TreeOp, with an in-memory sink and a replay engine. The TypeScript port of Fuaran.UI.OpStream.{Abstractions,InMemory,Replay}; OpRecord hash chains are bit-identical to the F# tier over the same op sequence.",
   "keywords": [
     "fuaran",

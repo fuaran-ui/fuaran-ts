@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/react",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "React adapter for the Fuaran generation endpoint — the useFuaranGenerate hook owns the current tree as state, so the turn-loop (generate, then cheap repair diffs) is automatic, with the closed hint-threading repair loop and rendering through @fuaran-ui/renderer.",
   "keywords": [
     "fuaran",
