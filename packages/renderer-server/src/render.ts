@@ -45,6 +45,7 @@ import type {
   SelectOption,
   StateBehaviour,
   TabHeader,
+  ToneVariant,
   VisKind,
 } from '@fuaran-ui/schema';
 
@@ -1512,6 +1513,36 @@ const projectRowFieldValue = (row: unknown, field: string): CellValue => {
   return { kind: 'Empty' };
 };
 
+// Phase 427 — the row-key floor (parity-locked with the client renderers).
+const projectRowFieldString = (row: unknown, field: string): string => {
+  const v = projectRowFieldValue(row, field);
+  switch (v.kind) {
+    case 'Text':
+      return v.value;
+    case 'Numeric':
+      return String(v.value);
+    case 'Bool':
+      return v.value ? 'true' : 'false';
+    case 'Date':
+      return v.value.toISOString();
+    case 'Empty':
+      return '';
+  }
+};
+
+// Phase 750 — lower a `TonedPill` for one row (parity-locked with the client renderer's
+// `tonedPillOf` and F# `BindingResolver.tonedPillOf`): the named field's text IS the
+// label, and its tone is the map's entry for that text, or `defaultTone` otherwise.
+const tonedPillOf = (
+  row: unknown,
+  field: string,
+  map: Readonly<Record<string, ToneVariant>>,
+  defaultTone: ToneVariant,
+): readonly [string, ToneVariant] => {
+  const label = projectRowFieldString(row, field);
+  return [label, map[label] ?? defaultTone];
+};
+
 const renderGridCell = (ctx: ServerContext, col: ColumnErased<unknown>, row: unknown): string => {
   // Phase 425 — the closure wins; else the declarative `field` projects the
   // row property; else the cell is empty (a decoded grid renders from `field`).
@@ -1583,6 +1614,16 @@ const renderGridCell = (ctx: ServerContext, col: ColumnErased<unknown>, row: unk
         [['class', `fuaran-grid-cell-pill fuaran-pill-${toneVar(kind.tone(row))}`]],
         renderText(ctx.sources, kind.label(row)),
       );
+    // Phase 750 — the declarative twin: same element, class vocabulary and text as the
+    // hosted `Pill` arm above.
+    case 'TonedPill': {
+      const [label, tone] = tonedPillOf(row, kind.field, kind.map, kind.defaultTone);
+      return textEl(
+        'span',
+        [['class', `fuaran-grid-cell-pill fuaran-pill-${toneVar(tone)}`]],
+        label,
+      );
+    }
     case 'Progress': {
       const f = kind.fraction(row);
       const labelHtml =

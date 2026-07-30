@@ -20,6 +20,7 @@ import type {
   MapSpec,
   StateBehaviour,
   TableSpec,
+  ToneVariant,
   VisKind,
 } from '@fuaran-ui/schema';
 import type { ChartRow } from '@fuaran-ui/charts';
@@ -193,6 +194,21 @@ const projectRowFieldString = (row: unknown, field: string): string => {
   }
 };
 
+// Phase 750 — lower a `TonedPill` for one row: the named field's text IS the pill's
+// label, and its tone is the map's entry for that text, or `defaultTone` for a value the
+// map does not mention. One helper because both this renderer and the SSR twin need it
+// (parity-locked with F# `BindingResolver.tonedPillOf`) — a per-surface lookup-with-
+// fallback is exactly how two hosts come to disagree about an unmapped value.
+const tonedPillOf = (
+  row: unknown,
+  field: string,
+  map: Readonly<Record<string, ToneVariant>>,
+  defaultTone: ToneVariant,
+): readonly [string, ToneVariant] => {
+  const label = projectRowFieldString(row, field);
+  return [label, map[label] ?? defaultTone];
+};
+
 const renderGridCell = <TMsg,>(
   ctx: RenderContext<TMsg>,
   col: ColumnErased<TMsg>,
@@ -290,6 +306,13 @@ const renderGridCell = <TMsg,>(
           {renderText(ctx.sources, kind.label(row))}
         </span>
       );
+    // Phase 750 — the declarative twin. Deliberately the SAME element, class vocabulary
+    // and text as the hosted `Pill` arm above: the wire variant exists to make the tone
+    // rule expressible, not to render differently.
+    case 'TonedPill': {
+      const [label, tone] = tonedPillOf(row, kind.field, kind.map, kind.defaultTone);
+      return <span className={`fuaran-grid-cell-pill fuaran-pill-${toneVar(tone)}`}>{label}</span>;
+    }
     case 'Progress': {
       const f = kind.fraction(row);
       const label = kind.label;

@@ -508,14 +508,25 @@ const EMPHASIS_ALIASES: Readonly<Record<string, Emphasis>> = {
   Muted: 'Quiet',
 };
 
+/**
+ * The legal `ToneVariant` names, in one place because two positions now teach them — a
+ * `tone` field and (Phase 750) a `TonedPill` tone-map value. A second inline copy is
+ * exactly how one of them comes to name six tones. Parity-locked with the F#
+ * `toneVariantNames`.
+ */
+const TONE_NAMES = [
+  'Default',
+  'Subdued',
+  'Brand',
+  'Success',
+  'Warning',
+  'Critical',
+  'Info',
+] as const;
+
 const decodeTone = (p: string, j: JsonAst): R<ToneVariant> => {
   if (j.kind === 'JString' && j.value in TONE_ALIASES) return ok(TONE_ALIASES[j.value]!);
-  return bareEnum(
-    p,
-    j,
-    ['Default', 'Subdued', 'Brand', 'Success', 'Warning', 'Critical', 'Info'] as const,
-    'ToneVariant',
-  );
+  return bareEnum(p, j, TONE_NAMES, 'ToneVariant');
 };
 
 const decodeWeight = (p: string, j: JsonAst): R<StyleWeight> =>
@@ -3604,6 +3615,75 @@ const decodeInputKind = (path: string, j: JsonAst): R<InputKind<unknown>> => {
 
 // ─── Visualisation specs ─────────────────────────────────────────────────────
 
+/**
+ * Phase 750 — a `TonedPill`'s `map`: a string-keyed object whose VALUES are
+ * `ToneVariant`s. Routed through `decodeTone` per entry, so the §3.6 tone aliases work
+ * inside the map exactly as at a `tone` field. The refusal is RE-ISSUED rather than
+ * passed through: `decodeTone` reports at `<path>.$type` with "unknown discriminator",
+ * and a map value is neither, so the raw error names a path the document does not
+ * contain. Parity-locked with the F# `decodeToneMap`.
+ */
+const decodeToneMap = (path: string, j: JsonAst): R<Record<string, ToneVariant>> => {
+  const fo = requireObject(path, j);
+  if (!fo.ok) return fo;
+  const out: Record<string, ToneVariant> = {};
+  for (const [k, v] of fo.value) {
+    const entryPath = `${path}.${k}`;
+    const t = decodeTone(entryPath, v);
+    if (!t.ok) {
+      if (t.error.code !== 'UNKNOWN_DU_CASE') return t;
+      const got = v.kind === 'JString' ? v.value : '';
+      return makeError(
+        'UNKNOWN_DU_CASE',
+        entryPath,
+        `tone-map value '${got}' for '${k}' is not a ToneVariant`,
+        TONE_NAMES.join(' | '),
+      );
+    }
+    out[k] = t.value;
+  }
+  return ok(out);
+};
+
+/** The tone-map field names a `TonedPill` cell accepts (canonical first). */
+const TONE_MAP_KEYS = ['map', 'toneMap', 'tones'] as const;
+
+/**
+ * The shared body of the canonical `TonedPill` case and the `Pill`-tagged §16 shorthand
+ * — one reader, so the two spellings cannot drift apart in what they accept.
+ */
+const decodeTonedPill = (path: string, f: Fields): R<CellKindErased<unknown>> => {
+  const field = reqField(
+    path,
+    f,
+    'field',
+    'TonedPill row-field name (drives the label and the map key)',
+    requireString,
+  );
+  if (!field.ok) return field;
+  // Field aliases: `toneMap` / `tones` — `map` is the shortest honest name for a
+  // value→tone dictionary and the least descriptive one.
+  const map = reqFieldAliased(
+    path,
+    f,
+    'map',
+    ['toneMap', 'tones'],
+    'TonedPill value→ToneVariant map',
+    decodeToneMap,
+  );
+  if (!map.ok) return map;
+  // `default` is omitted-when-`Default` (Phase 460); restore the identity on absence.
+  const defaultTone = optField(path, f, 'default', decodeTone);
+  if (!defaultTone.ok) return defaultTone;
+  const k: CellKindErased<unknown> = {
+    kind: 'TonedPill',
+    field: field.value,
+    map: map.value,
+    defaultTone: defaultTone.value ?? 'Default',
+  };
+  return ok(k);
+};
+
 const decodeCellKindErased = (path: string, j: JsonAst): R<CellKindErased<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
@@ -3659,6 +3739,13 @@ const decodeCellKindErased = (path: string, j: JsonAst): R<CellKindErased<unknow
       return ok(k);
     }
     case 'Pill': {
+      // Lenient-ingest (WIRE_FORMAT.md §16, Phase 750): `Pill` is the WORD for the
+      // thing, so a declarative tone rule arrives tagged `Pill` more often than tagged
+      // `TonedPill`. Before this phase those keys were accepted and DISCARDED — the
+      // author's whole intent gone, silently, with no error to notice. Presence of a
+      // tone map is the unambiguous tell (a closure `Pill` has no such key).
+      if (TONE_MAP_KEYS.some((key) => tryField(f, key) !== undefined))
+        return decodeTonedPill(path, f);
       const k: CellKindErased<unknown> = {
         kind: 'Pill',
         label: () => ({ kind: 'Literal', value: CLOSURE }),
@@ -3666,6 +3753,8 @@ const decodeCellKindErased = (path: string, j: JsonAst): R<CellKindErased<unknow
       };
       return ok(k);
     }
+    case 'TonedPill':
+      return decodeTonedPill(path, f);
     case 'Progress': {
       const k: CellKindErased<unknown> = { kind: 'Progress', fraction: () => 0 };
       return ok(k);
@@ -3681,7 +3770,7 @@ const decodeCellKindErased = (path: string, j: JsonAst): R<CellKindErased<unknow
       return unknownDuCase(
         path,
         d.value,
-        'Text | Numeric | Date | Editable | Checkbox | Button | ButtonGroup | Link | Pill | Progress | Custom',
+        'Text | Numeric | Date | Editable | Checkbox | Button | ButtonGroup | Link | Pill | TonedPill | Progress | Custom',
       );
   }
 };

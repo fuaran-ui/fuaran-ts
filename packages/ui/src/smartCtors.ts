@@ -528,6 +528,26 @@ export const column = {
       kind: { kind: 'Pill', label: (r) => cellValueToText(col.value(r)), tone },
     };
   },
+  /**
+   * Postfix helper: render a column's value as a tone-bearing pill whose tone comes from
+   * a DECLARED value→tone map rather than a host closure (Phase 750). Unlike
+   * {@link withPill} this survives the wire intact — the pill's label and tone key are
+   * both the named row property, so a decoded grid renders the distinction with zero host
+   * code, and an AI author can emit it.
+   *
+   * `defaultTone` covers a value the map does not mention; `'Default'` means "leave the
+   * rest plain" (it is then omitted on the wire).
+   *
+   * Mirrors the F# `Column.withTonedPill`.
+   */
+  withTonedPill<TRow, TMsg>(
+    field: string,
+    map: Readonly<Record<string, ToneVariant>>,
+    defaultTone: ToneVariant,
+    col: Column<TRow, TMsg>,
+  ): Column<TRow, TMsg> {
+    return { ...col, kind: { kind: 'TonedPill', field, map, defaultTone } };
+  },
   withFormat<TRow, TMsg>(fmt: CellFormat, col: Column<TRow, TMsg>): Column<TRow, TMsg> {
     return { ...col, format: fmt };
   },
@@ -580,6 +600,11 @@ export const column = {
           label: (o) => k.label(o as TRow),
           tone: (o) => k.tone(o as TRow),
         };
+        break;
+      // Phase 750 — nothing to erase: the declarative pill holds no row accessor, so the
+      // typed and erased forms are the same three values.
+      case 'TonedPill':
+        erased = { kind: 'TonedPill', field: k.field, map: k.map, defaultTone: k.defaultTone };
         break;
       case 'Progress': {
         const labelFn = k.label;

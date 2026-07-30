@@ -100,6 +100,7 @@ const requiredNodeTokens: string[] = [
   'ButtonGroup',
   'Link',
   'Pill',
+  'TonedPill',
   // CellFormat
   'Currency',
   'Percent',

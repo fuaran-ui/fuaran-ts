@@ -1547,6 +1547,16 @@ const cellKindErased = (k: CellKindErased<unknown>): string => {
         ['labelFn', CLOSURE],
         ['toneFn', CLOSURE],
       ]);
+    // Phase 750 — the declarative pill. `default` is omitted-when-`Default` (the Phase
+    // 460 discipline); `jObject` Ordinal-sorts, so push order is irrelevant.
+    case 'TonedPill': {
+      const fields: Field[] = [
+        ['field', str(k.field)],
+        ['map', jObject(Object.entries(k.map).map(([v, t]) => [v, str(t)] as const))],
+      ];
+      if (k.defaultTone !== 'Default') fields.push(['default', str(k.defaultTone)]);
+      return caseObj('TonedPill', fields);
+    }
     case 'Progress':
       return caseObj('Progress', [
         ['fractionFn', CLOSURE],

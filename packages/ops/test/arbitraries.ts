@@ -554,6 +554,10 @@ const gridColumnsArb: fc.Arbitrary<readonly ColumnErased<unknown>[]> = textSourc
       { kind: 'ButtonGroup', buttons: [[btnLabel, noopAction]] },
       { kind: 'Link', href: () => '/href', label: () => ({ kind: 'Literal', value: 'link' }) },
       { kind: 'Pill', label: () => ({ kind: 'Literal', value: 'pill' }), tone: () => 'Brand' },
+      // Phase 750 — the declarative pill. `defaultTone: 'Subdued'` is deliberately
+      // NON-identity so the fuzz exercises the emitted `default` key; the identity case
+      // (omitted) is covered by the corpus fixture's second TonedPill column.
+      { kind: 'TonedPill', field: 'status', map: { Delayed: 'Warning' }, defaultTone: 'Subdued' },
       { kind: 'Progress', fraction: () => 0.5, label: () => ({ kind: 'Literal', value: 'p' }) },
       {
         kind: 'Custom',

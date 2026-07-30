@@ -1615,6 +1615,20 @@ export type CellKind<TRow, TMsg> =
       readonly label: (row: TRow) => TextSource;
       readonly tone: (row: TRow) => ToneVariant;
     }
+  /**
+   * Phase 750 — the declarative twin of `Pill`, and the only cell kind carrying no
+   * closure: `field` names the row property that supplies both the pill's label and
+   * the tone-map key, `map` gives the tone for each value it mentions, and
+   * `defaultTone` tones a value it does not (omitted on the wire at `Default`).
+   * Row-type-free by construction, which is why it survives the wire where `Pill`
+   * erases to two sentinels.
+   */
+  | {
+      readonly kind: 'TonedPill';
+      readonly field: string;
+      readonly map: Readonly<Record<string, ToneVariant>>;
+      readonly defaultTone: ToneVariant;
+    }
   | {
       readonly kind: 'Progress';
       readonly fraction: (row: TRow) => number;
@@ -1650,6 +1664,20 @@ export type CellKindErased<TMsg> =
       readonly kind: 'Pill';
       readonly label: (row: unknown) => TextSource;
       readonly tone: (row: unknown) => ToneVariant;
+    }
+  /**
+   * Phase 750 — the declarative twin of `Pill`, and the only cell kind carrying no
+   * closure: `field` names the row property that supplies both the pill's label and
+   * the tone-map key, `map` gives the tone for each value it mentions, and
+   * `defaultTone` tones a value it does not (omitted on the wire at `Default`).
+   * Row-type-free by construction, which is why it survives the wire where `Pill`
+   * erases to two sentinels.
+   */
+  | {
+      readonly kind: 'TonedPill';
+      readonly field: string;
+      readonly map: Readonly<Record<string, ToneVariant>>;
+      readonly defaultTone: ToneVariant;
     }
   | {
       readonly kind: 'Progress';
