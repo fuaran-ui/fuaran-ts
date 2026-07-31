@@ -271,9 +271,10 @@ const OPAQUE = str('<opaque>');
  * the `"<opaque>"` sentinel (§5). No reflection. `Date` → Unix seconds (§2
  * rule 11). Since Phase 429 the enumerated slot-typed payloads (options /
  * values / series / markers) bypass this via `binding`'s `staticEnc`
- * parameter; this catch-all is the residual-opaque boundary for genuinely
- * host-typed payloads, whose decoded "<opaque>" placeholder re-encodes here
- * as `"<opaque>"`, keeping the round-trip byte-stable.
+ * parameter, and fuaran#665 moved grid/chart rows onto `staticRowSeq`; this
+ * catch-all is the residual-opaque boundary for the remaining genuinely
+ * host-typed payloads — and the best-effort CELL encoder inside a typed row,
+ * where a nested array/object cell re-encodes as `"<opaque>"`.
  */
 const objValue = (v: unknown): string => {
   if (v === null || v === undefined) return 'null';
@@ -1481,9 +1482,9 @@ const inputKind = (i: InputKind<unknown>): string => {
 // `"<opaque>"`. For the shapes the language itself enumerates — options,
 // values, series, markers — the encoder emits the typed forms the decoders
 // parse, passed per slot through `binding`'s `staticEnc` parameter (the mirror
-// of F# `encodeBindingWith`). A `Static` of a host domain type (grid/table
-// rows) still falls through to the catch-all — the residual-opaque boundary is
-// by design (WIRE_FORMAT.md §"Typed Static payloads").
+// of F# `encodeBindingWith`). fuaran#665 retired the last residual payload:
+// grid/chart ROWS now ride as typed row objects too (`staticRowSeq`), leaving
+// `"<opaque>"` only at the CELL seam (WIRE_FORMAT.md §"Typed Static payloads").
 
 const selectOption = (o: SelectOption): string =>
   jObject([
@@ -1500,6 +1501,29 @@ const staticStringList = (v: readonly string[]): string => jArray(v.map(str));
 const staticFloatSeq = (v: readonly number[]): string => jArray(v.map(num));
 
 const staticMarkerSeq = (v: readonly MapMarker[]): string => jArray(v.map(mapMarker));
+
+// fuaran#665 — the typed row-source encoding. A grid/chart rows payload rides
+// the wire as a JSON array of row objects (Ordinal-sorted keys via `jObject`)
+// with best-effort scalar cells: the §2 rule-11 recognised set encodes natively
+// through `objValue` (string / bool / number; `Date` → Unix seconds), a
+// null/undefined cell is OMITTED (rule 4: absence is structural, never
+// `"k":null`), and a nested array/object cell is the residual `"<opaque>"`
+// sentinel — the opaque boundary narrowed from the whole payload to the cell
+// seam. Mirror of F# `Fuaran.Core.RowCodec.encodeRows`.
+const rowValue = (row: unknown): string => {
+  // A non-record element is unrepresentable from the typed authoring surface
+  // (the F# slot is statically `Row seq`) and rejected by the decoder, so this
+  // guard only keeps the encoder total.
+  if (row === null || typeof row !== 'object') return '{}';
+  const fields: Field[] = [];
+  for (const [k, v] of Object.entries(row)) {
+    if (v === null || v === undefined) continue;
+    fields.push([k, objValue(v)]);
+  }
+  return jObject(fields);
+};
+
+const staticRowSeq = (v: readonly unknown[]): string => jArray(v.map(rowValue));
 
 // ─── Visualisation specs ─────────────────────────────────────────────────────
 
@@ -1588,7 +1612,8 @@ const gridSpec = (s: GridSpec<unknown>): string => {
     ['columns', jArray(s.columns.map(columnErased))],
     // 0.2.0 omitted-when-false.
     ...(s.editable ? ([['editable', bool(true)]] as const) : []),
-    ['source', binding(s.source)],
+    // fuaran#665 — rows are a typed Static payload now, not the opaque residual.
+    ['source', binding(s.source, staticRowSeq)],
   ];
   if (s.onRowClick !== undefined) fields.push(['onRowClick', CLOSURE]);
   // Phase 425 — `rowKey` (closure) + `rowKeyField` (declarative) are sibling optional slots.
@@ -1612,7 +1637,8 @@ const chartSpec = (s: ChartSpec<unknown>): string => {
   // losing a chart's stacked-vs-grouped intent on every round-trip.
   const fields: Field[] = [
     ['kind', str(s.kind)],
-    ['source', binding(s.source)],
+    // fuaran#665 — rows are a typed Static payload now, not the opaque residual.
+    ['source', binding(s.source, staticRowSeq)],
     ['stacked', bool(s.stacked)],
     ['xField', str(s.xField)],
     ['yFields', jArray(s.yFields.map(str))],

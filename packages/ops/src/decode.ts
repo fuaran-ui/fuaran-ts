@@ -2070,8 +2070,8 @@ const decodeBindingBool = (p: string, j: JsonAst): R<Binding<boolean>> =>
 // (the encoder emits it since 429), the legacy `"<opaque>"` sentinel decodes
 // to a tagged placeholder (whose typed re-encode is byte-stable across both
 // hosts), and JSON `null` — the pre-429 F# boxes-to-null empty-collection
-// form — decodes to the typed empty. Only genuinely host-typed payloads
-// (grid/table row seqs) stay on the generic `decodeAstValue` path by design.
+// form — decodes to the typed empty. fuaran#665 retired the last generic slot:
+// grid/chart row seqs decode through `decodeBindingRows` below.
 
 const OPTIONS_PLACEHOLDER: readonly SelectOption[] = [
   { value: OPAQUE, label: { kind: 'Literal', value: OPAQUE } },
@@ -2243,6 +2243,24 @@ const parseStaticFloatSeq = (p: string, v: JsonAst): R<unknown> => {
 
 const decodeBindingFloatSeq = (p: string, j: JsonAst): R<Binding<readonly number[]>> =>
   decodeBinding(p, j, parseStaticFloatSeq, []) as R<Binding<readonly number[]>>;
+
+// fuaran#665 — the typed rows decoder: a grid/chart rows payload is an array
+// of row objects (faithful record cells via `decodeAstValue`, the F# `decodeObj`
+// mirror), with the legacy `"<opaque>"` sentinel accepted indefinitely
+// (read-compat → the empty feed, exactly the pre-typed behaviour). A non-object
+// row element is a named decode error. Mirror of F# `decodeRowSeq`.
+const parseStaticRows = (p: string, v: JsonAst): R<unknown> => {
+  if (v.kind === 'JNull') return ok([]); // lenient shorthand for absence (rule 4 decode-accept)
+  if (v.kind === 'JString' && v.value === OPAQUE) return ok([]);
+  const arr = requireArray(p, v);
+  if (!arr.ok) return arr;
+  return traverseIndexed(arr.value, (i, el) =>
+    el.kind === 'JObject' ? ok(decodeAstValue(el)) : wrongType(`${p}[${i}]`, 'row object'),
+  );
+};
+
+const decodeBindingRows = (p: string, j: JsonAst): R<Binding<readonly unknown[]>> =>
+  decodeBinding(p, j, parseStaticRows, []) as R<Binding<readonly unknown[]>>;
 
 const decodeMapMarker = (path: string, j: JsonAst): R<MapMarker> => {
   const fo = requireObject(path, j);
@@ -3869,7 +3887,7 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
     'source',
     ['data', 'rows'],
     'Grid source binding',
-    decodeBinding,
+    decodeBindingRows,
   );
   if (!source.ok) return source;
   const hasRowClick = tryField(f, 'onRowClick') !== undefined;
@@ -3914,7 +3932,7 @@ const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
     'source',
     ['data'],
     'Chart source binding',
-    decodeBinding,
+    decodeBindingRows,
   );
   if (!source.ok) return source;
   const xField = reqField(path, f, 'xField', 'xField string', requireString);

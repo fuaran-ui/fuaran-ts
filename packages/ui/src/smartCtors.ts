@@ -1650,8 +1650,9 @@ export const fuaran = {
     // Phase 393 — a static read-only table lowers into the `staticRows` mode of `Grid`
     // (one tabular kind); the renderer emits semantic <table> markup. `onRowClick` on the
     // retired TableSpec was host-only and is not carried (the mode is non-interactive). The
-    // opaque Static source encodes to {"$type":"Static","value":"<opaque>"} — byte-identical
-    // to the F# static grid's `Binding.Static Seq.empty`.
+    // empty Static source encodes to {"$type":"Static","value":[]} under the fuaran#665
+    // typed row-source encoding — byte-identical to the F# static grid's
+    // `Binding.Static Seq.empty`.
     return buildNode(
       o.id,
       {
@@ -1659,7 +1660,7 @@ export const fuaran = {
         visualisation: {
           kind: 'Grid',
           spec: {
-            source: { kind: 'Static', value: '<opaque>' } as unknown as Binding<readonly unknown[]>,
+            source: { kind: 'Static', value: [] },
             columns: [],
             editable: false,
             staticRows: {
