@@ -79,6 +79,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.WORKSPACE_DISPATCH_TOKEN }}
         run: |
+          # Operator-gated: until the secret is provisioned, skip rather than
+          # fail — a red dispatch job on every main push would mask real
+          # build/test failures.
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice::WORKSPACE_DISPATCH_TOKEN is not provisioned — skipping the workspace conformance dispatch (operator-gated)."
+            exit 0
+          fi
           gh api repos/fuaran-ui/workspace/dispatches \
             --method POST \
             -f event_type=wire-conformance \
