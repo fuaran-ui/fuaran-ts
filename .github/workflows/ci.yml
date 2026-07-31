@@ -9,14 +9,42 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fuaran-ts
     steps:
+      # The corpus-parity tests resolve the conformance corpus as a SIBLING of
+      # the repo root (../wire-format-fixtures — see CONTRIBUTING.md), so this
+      # repo is checked out into a subdirectory and the corpus beside it, the
+      # same layout fuaran-live's workflows use. The corpus stays UNPINNED on
+      # purpose: it is the shared conformance gate every host certifies
+      # against, and one current spec for all hosts is the point of giving it
+      # a single home.
       - uses: actions/checkout@v4
+        with:
+          path: fuaran-ts
+
+      - name: Checkout the wire-format corpus (fuaran-ui-specification)
+        uses: actions/checkout@v4
+        with:
+          repository: fuaran-ui/fuaran-ui-specification
+          path: wire-format-fixtures
+
+      # The corpus checkout is AUTHORITATIVE: corpus-dependent suites must run,
+      # not skip. Several tests skip-if-absent to tolerate a standalone clone;
+      # this guard fails the job if a layout drift would silently re-enable
+      # those skips.
+      - name: Assert the corpus is where the tests resolve it
+        run: test -f ../wire-format-fixtures/manifest.json
 
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: fuaran-ts/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
+          cache-dependency-path: fuaran-ts/pnpm-lock.yaml
 
       - name: Install
         run: pnpm install --frozen-lockfile
