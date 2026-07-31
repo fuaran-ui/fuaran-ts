@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/cli",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "The Fuaran generative-UI CLI — fuaran generate / validate / recipe / scaffold over the public surfaces, with zero MCP config. Works against the real endpoint or the local mock.",
   "keywords": [
     "fuaran",
