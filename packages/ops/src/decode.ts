@@ -1884,6 +1884,10 @@ const decodeBinding = (
     }
     case 'Computed':
       return ok({ kind: 'Computed', compute: () => undefined });
+    // Mirrors `Computed`: the projection decodes to a placeholder, since the
+    // instant arrives from the host at resolve time, not from the wire.
+    case 'Now':
+      return ok({ kind: 'Now', project: () => undefined });
     case 'I18n': {
       const key = reqField(path, f, 'key', 'i18n key string', requireString);
       if (!key.ok) return key;

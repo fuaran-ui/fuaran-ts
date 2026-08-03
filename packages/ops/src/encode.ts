@@ -684,6 +684,9 @@ const binding = <T>(b: Binding<T>, staticEnc: (v: T) => string = objValue): stri
     }
     case 'Computed':
       return caseObj('Computed', [['fn', CLOSURE]]);
+    // No wire fields: the instant is host-furnished at resolve time.
+    case 'Now':
+      return caseObj('Now', []);
     case 'I18n': {
       const fields: Field[] = [];
       if (b.args !== undefined) {

@@ -283,6 +283,18 @@ export type Binding<T> =
     }
   | { readonly kind: 'State'; readonly key: string; readonly defaultValue: T }
   | { readonly kind: 'Computed'; readonly compute: (ctx: BindingContext) => T }
+  /**
+   * The host-furnished current instant, as an ISO-8601 UTC string
+   * (`2026-08-02T06:59:24Z`).
+   *
+   * The wire form is `{"$type":"Now"}` — no fields. The clock lives in the
+   * HOST, resolved once per render pass, never on the wire and never read
+   * during resolution: that is what keeps a tree a pure value and lets a
+   * replayed op-stream reproduce its original render rather than drift to
+   * replay-time "now". The ISO-8601 form composes with the core
+   * `dateDiffDays`, which reads the leading `YYYY-MM-DD`.
+   */
+  | { readonly kind: 'Now'; readonly project: (iso: string) => T }
   | {
       readonly kind: 'I18n';
       readonly key: string;
