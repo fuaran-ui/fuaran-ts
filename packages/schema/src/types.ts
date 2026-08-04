@@ -1366,6 +1366,17 @@ export type FormFieldKind<TMsg> =
       readonly value: Binding<boolean>;
       readonly onToggle?: (value: boolean) => Action<TMsg>;
     }
+  /**
+   * The on/off SWITCH affordance. Identical data to `Checkbox` — a boolean with
+   * the same write-back — but a different control and, the part that matters, a
+   * different a11y contract: `role="switch"` + `aria-checked`, announced as
+   * on/off rather than checked.
+   */
+  | {
+      readonly kind: 'Toggle';
+      readonly value: Binding<boolean>;
+      readonly onToggle?: (value: boolean) => Action<TMsg>;
+    }
   | {
       readonly kind: 'Choice';
       readonly options: Binding<readonly SelectOption[]>;
@@ -1448,6 +1459,7 @@ export const FORM_FIELD_KIND_NAMES: readonly string[] = [
   'Text',
   'Number',
   'Checkbox',
+  'Toggle',
   'Choice',
   'Range',
   'RangedNumber',

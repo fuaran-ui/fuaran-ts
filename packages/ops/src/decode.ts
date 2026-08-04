@@ -3266,6 +3266,16 @@ const decodeFormFieldKind = (
           })
         : v;
     }
+    case 'Toggle': {
+      const v = valueOr(decodeBinding, controlValueDefaults.checkbox, 'Toggle value binding');
+      return v.ok
+        ? ok({
+            kind: 'Toggle',
+            value: v.value as Binding<boolean>,
+            ...onToggleField,
+          })
+        : v;
+    }
     case 'Choice': {
       const options = reqField(
         path,
