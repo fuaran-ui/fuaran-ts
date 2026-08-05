@@ -1742,7 +1742,10 @@ export const fuaran = {
     return buildNode(o.id, {
       kind: 'Switch',
       spec: {
-        stateKey: o.stateKey,
+        // Phase 768 — the spec selector is any Binding; the authoring surface
+        // keeps the compact stateKey string and wraps it in the State form,
+        // which the encoder collapses back to the `stateKey` wire spelling.
+        on: { kind: 'State', key: o.stateKey, defaultValue: undefined as unknown as string },
         cases: o.cases.map((c) => ({ match: c.match, child: c.child })),
         default: o.default,
       },

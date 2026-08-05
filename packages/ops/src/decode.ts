@@ -1884,10 +1884,13 @@ const decodeBinding = (
     }
     case 'Computed':
       return ok({ kind: 'Computed', compute: () => undefined });
-    // Mirrors `Computed`: the projection decodes to a placeholder, since the
-    // instant arrives from the host at resolve time, not from the wire.
+    // The projection decodes to the IDENTITY (the Phase 427 Selection fix
+    // replayed): the host-furnished instant is already the wire-shaped string,
+    // so a decoded reader receives it as-is. A value-discarding placeholder
+    // here would make every decoded `Now` resolve to nothing even when the
+    // host furnishes the instant.
     case 'Now':
-      return ok({ kind: 'Now', project: () => undefined });
+      return ok({ kind: 'Now', project: (iso) => iso });
     case 'I18n': {
       const key = reqField(path, f, 'key', 'i18n key string', requireString);
       if (!key.ok) return key;
@@ -4692,8 +4695,24 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
       // (array of `{child,match}` objects), `default` (Node) — all required.
       // Duplicate `match` values are NOT a decode error (first-match-wins keeps
       // decode structural; the pre-emit validator flags them, FUARAN082).
-      const stateKey = reqField(path, f, 'stateKey', 'Switch stateKey string', requireString);
-      if (!stateKey.ok) return stateKey;
+      // Phase 768 — `on` (any Binding) or the compact `stateKey` (the State
+      // form's canonical spelling). Both absent keeps the stateKey
+      // MISSING_FIELD, so the reject fixture's error is unchanged.
+      const onJ = tryField(f, 'on');
+      const on =
+        onJ !== undefined
+          ? decodeBinding(`${path}.on`, onJ)
+          : (() => {
+              const stateKey = reqField(path, f, 'stateKey', 'Switch stateKey string', requireString);
+              return stateKey.ok
+                ? ok({
+                    kind: 'State',
+                    key: stateKey.value,
+                    defaultValue: undefined as unknown as string,
+                  } as Binding<string>)
+                : stateKey;
+            })();
+      if (!on.ok) return on;
       const casesArr = reqField(path, f, 'cases', 'Switch cases array', requireArray);
       if (!casesArr.ok) return casesArr;
       const cases = traverseIndexed(casesArr.value, (i, item) => {
@@ -4711,7 +4730,7 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
       if (!def.ok) return def;
       return ok({
         kind: 'Switch',
-        spec: { stateKey: stateKey.value, cases: cases.value, default: def.value },
+        spec: { on: on.value as Binding<string>, cases: cases.value, default: def.value },
       });
     }
     case 'FragmentDecl': {

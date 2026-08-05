@@ -54,6 +54,13 @@ export interface BindingSources {
   readonly filters?: Readonly<Record<string, unknown>>;
   readonly selections?: Readonly<Record<string, unknown>>;
   /**
+   * The current instant the host furnishes for `Binding.Now` (Phase 765), as an
+   * ISO-8601 UTC string. Resolve it ONCE per render pass; absent/empty resolves
+   * NotResolved — deliberately loud, so a host that forgets to supply the clock
+   * shows a placeholder rather than a plausible wrong date.
+   */
+  readonly now?: string;
+  /**
    * Phase 137: a seed `BindingContext` for `Binding.Computed`. The resolver
    * always projects the live `state` bag (above) into the context it hands the
    * closure, so a `Computed` closure reads state via `ctx.tryGetState(key)` with
@@ -164,6 +171,12 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       const raw = sources.state?.[binding.key];
       if (raw === undefined) return { kind: 'Resolved', value: binding.defaultValue };
       return { kind: 'Resolved', value: raw as T };
+    }
+    case 'Now': {
+      // Phase 765 — the clock is never read here: `sources.now` was resolved
+      // host-side once for the whole pass, which is what keeps replay exact.
+      if (sources.now === undefined || sources.now === '') return { kind: 'NotResolved' };
+      return { kind: 'Resolved', value: binding.project(sources.now) };
     }
     case 'Computed': {
       // Phase 137: hand the closure a context with typed read access to the

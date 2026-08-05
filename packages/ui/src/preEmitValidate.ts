@@ -186,7 +186,9 @@ export function preEmitValidate<TMsg>(
         if (input.kind === 'Form') {
           for (const field of input.spec.fields) {
             const fk = field.kind;
-            const handler = fk.kind === 'Checkbox' ? fk.onToggle : fk.onChange;
+            // Toggle (Phase 766) shares Checkbox's onToggle handler shape.
+            const handler =
+              fk.kind === 'Checkbox' || fk.kind === 'Toggle' ? fk.onToggle : fk.onChange;
             if (handler === undefined && !isWriteBackTarget(fk.value)) {
               defects.push({
                 code: 'INERT_CONTROL',
@@ -222,8 +224,10 @@ export function preEmitValidate<TMsg>(
         walk(k.spec.fallback);
         break;
       case 'Switch': {
-        // FUARAN083 (Phase 392): an empty state key is ungrounded.
-        if (k.spec.stateKey === '') {
+        // FUARAN083 (Phase 392, widened by 768): an empty-key State selector is
+        // ungrounded; any other Binding names its source and is grounded by
+        // construction.
+        if (k.spec.on.kind === 'State' && k.spec.on.key === '') {
           defects.push({ code: 'UNGROUNDED_SWITCH_STATE_KEY', nodeId: n.id });
         }
         // FUARAN082 (Phase 392): duplicate match values make the later case

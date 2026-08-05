@@ -654,7 +654,14 @@ export interface ErrorBoundarySpec<TMsg> {
  *    "default":<Node>, "stateKey":<string> }`.
  */
 export interface SwitchSpec<TMsg> {
-  readonly stateKey: string;
+  /**
+   * The branch selector — any Binding (Phase 768): a `State` selector keeps the
+   * Phase 392 behaviour; a `Selection` selector lets the branch follow the
+   * clicked row with no writer. The State form keeps its compact `stateKey`
+   * spelling on the wire (the encoder collapses `State(key)` back to it); any
+   * other binding encodes as `on`.
+   */
+  readonly on: Binding<string>;
   readonly cases: readonly SwitchCase<TMsg>[];
   readonly default: Node<TMsg>;
 }

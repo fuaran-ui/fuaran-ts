@@ -16,6 +16,7 @@ import type { ReactElement, ReactNode } from 'react';
 
 import type { Node, NodeKind, StateBehaviour } from '@fuaran-ui/schema';
 
+import { resolve } from '../bindings.js';
 import { accessibilityAttributes } from '../accessibility.js';
 import { motionVar, nodeClassName } from '../classNames.js';
 import type { RenderContext } from '../context.js';
@@ -87,7 +88,20 @@ export const renderKind = <TMsg,>(
       // and the switch re-selects — no bespoke dispatch path (FGP 3). SSR reads
       // the same initial state, so server + client first render match (hydration
       // parity, docs/SSR.md).
-      const raw = ctx.sources.state?.[kind.spec.stateKey];
+      // Phase 768 — the selector is any Binding. The State form keeps the
+      // direct state-bag read (hydration-parity path, unchanged) with the
+      // 768-form defaultValue seeding the un-written key; other bindings
+      // resolve through the standard resolver (decoded Selection accessors
+      // already project their field, the Phase 427/632 fix).
+      const on = kind.spec.on;
+      let raw: unknown;
+      if (on.kind === 'State') {
+        raw = ctx.sources.state?.[on.key];
+        if (raw === undefined) raw = on.defaultValue;
+      } else {
+        const r = resolve(ctx.sources, on);
+        raw = r.kind === 'Resolved' ? r.value : undefined;
+      }
       const valueStr = raw === undefined || raw === null ? '' : String(raw);
       const matched = kind.spec.cases.find((c) => c.match === valueStr);
       return renderNode(ctx, matched ? matched.child : kind.spec.default);

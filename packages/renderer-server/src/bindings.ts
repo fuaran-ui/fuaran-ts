@@ -48,6 +48,11 @@ export interface BindingSources {
   readonly state?: Readonly<Record<string, unknown>>;
   readonly filters?: Readonly<Record<string, unknown>>;
   readonly selections?: Readonly<Record<string, unknown>>;
+  /**
+   * The current instant the host furnishes for `Binding.Now` (Phase 765), as an
+   * ISO-8601 UTC string. Absent/empty resolves NotResolved — loud by design.
+   */
+  readonly now?: string;
   readonly computedContext?: BindingContext;
   readonly i18n?: Readonly<Record<string, string>>;
   readonly i18nResolver?: (key: string, args?: Readonly<Record<string, unknown>>) => string;
@@ -132,6 +137,12 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       const raw = sources.state?.[binding.key];
       if (raw === undefined) return { kind: 'Resolved', value: binding.defaultValue };
       return { kind: 'Resolved', value: raw as T };
+    }
+    case 'Now': {
+      // Phase 765 — host-furnished, resolved once per render pass; never a
+      // clock read here, so SSR output is reproducible for a pinned instant.
+      if (sources.now === undefined || sources.now === '') return { kind: 'NotResolved' };
+      return { kind: 'Resolved', value: binding.project(sources.now) };
     }
     case 'Computed': {
       const merged = { ...(sources.computedContext?.state ?? {}), ...(sources.state ?? {}) };

@@ -265,7 +265,18 @@ const renderKind = (ctx: ServerContext, node: Node<unknown>): string => {
       // else the default. The client's first render reads the same initial
       // state, so server + client first render match (hydration parity,
       // docs/SSR.md); a post-hydration SetState re-selects a case.
-      const raw = ctx.sources.state?.[kind.spec.stateKey];
+      // Phase 768 — the selector is any Binding. State keeps the direct
+      // state-bag read (hydration parity) with the 768-form defaultValue
+      // seeding; other bindings resolve through the resolver, so an SSR switch
+      // on a pre-seeded Selection renders the branch the client will.
+      const on = kind.spec.on;
+      let raw: unknown;
+      if (on.kind === 'State') {
+        raw = ctx.sources.state?.[on.key];
+        if (raw === undefined) raw = on.defaultValue;
+      } else {
+        raw = tryResolve(ctx.sources, on);
+      }
       const valueStr = raw === undefined || raw === null ? '' : String(raw);
       const matched = kind.spec.cases.find((c) => c.match === valueStr);
       return renderNode(ctx, matched ? matched.child : kind.spec.default);
@@ -1246,6 +1257,20 @@ const renderFormControl = (ctx: ServerContext, field: FormField<unknown>): strin
       return voidEl('input', [
         ['class', 'fuaran-form-checkbox'],
         ['type', 'checkbox'],
+        ['id', field.id],
+        ['checked', current === true],
+      ]);
+    }
+    // Phase 766 — the switch affordance. role/aria-checked must be in the
+    // SERVER HTML: a switch that only becomes one after hydration is announced
+    // wrongly on first paint, and never at all in a static render.
+    case 'Toggle': {
+      const current = tryResolve(ctx.sources, k.value) ?? false;
+      return voidEl('input', [
+        ['class', 'fuaran-form-toggle'],
+        ['type', 'checkbox'],
+        ['role', 'switch'],
+        ['aria-checked', current === true ? 'true' : 'false'],
         ['id', field.id],
         ['checked', current === true],
       ]);

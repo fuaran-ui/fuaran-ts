@@ -325,7 +325,11 @@ const errorBoundary = <TMsg>(): ErrorBoundarySpec<TMsg> => ({
 });
 
 const switchSpec = <TMsg>(): SwitchSpec<TMsg> => ({
-  stateKey: '',
+  // Phase 768 — the empty-key State form keeps FUARAN083's ungrounded-switch
+  // semantics on an unedited default.
+  // `defaultValue` mirrors F# None: absent at runtime (the encoder's collapse
+  // rule depends on it), cast because the State variant types it as T.
+  on: { kind: 'State', key: '', defaultValue: undefined as unknown as string },
   cases: [],
   default: placeholderNode<TMsg>('fuaran-switch-placeholder'),
 });

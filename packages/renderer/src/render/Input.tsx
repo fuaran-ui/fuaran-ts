@@ -387,6 +387,26 @@ const renderFormControl = <TMsg,>(ctx: RenderContext<TMsg>, field: FormField<TMs
         />
       );
     }
+    // Phase 766 — the switch affordance: same boolean data and write-back as
+    // Checkbox on a native checkbox input (keyboard + focus for free), with the
+    // switch a11y contract a screen reader announces as on/off.
+    case 'Toggle': {
+      const current = tryResolve(ctx.sources, k.value) ?? false;
+      const onToggle = k.onToggle;
+      return (
+        <input
+          className="fuaran-form-toggle"
+          type="checkbox"
+          role="switch"
+          aria-checked={current === true}
+          id={field.id}
+          {...checkedProps(k.value, current)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) =>
+            handle(onToggle, k.value, e.target.checked, e.target.checked)
+          }
+        />
+      );
+    }
     case 'Choice': {
       const opts = asArray<SelectOption>(tryResolve(ctx.sources, k.options));
       const current = tryResolve(ctx.sources, k.value) ?? '';

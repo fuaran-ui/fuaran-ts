@@ -112,6 +112,10 @@ export const bindingExpression = <T>(
       return { source: 'State', expression: `$state.${binding.key}` };
     case 'Computed':
       return { source: 'Computed', expression: '$computed' };
+    case 'Now':
+      // Phase 765 — mirrors the F# probe: reuses Computed rather than widening
+      // the source union; the expression carries the distinction.
+      return { source: 'Computed', expression: '$now' };
     case 'I18n':
       return { source: 'I18n', expression: `$i18n.${binding.key}` };
     case 'Local':

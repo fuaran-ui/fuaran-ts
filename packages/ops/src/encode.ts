@@ -1993,7 +1993,12 @@ const nodeKind = (k: NodeKind<unknown>): string => {
           ),
         ],
         ['default', node(k.spec.default)],
-        ['stateKey', str(k.spec.stateKey)],
+        // Phase 768 collapse rule — State(key, no default) keeps the compact
+        // canonical `stateKey` spelling (existing fixtures stay byte-identical);
+        // any other selector encodes as `on`.
+        k.spec.on.kind === 'State' && k.spec.on.defaultValue === undefined
+          ? ['stateKey', str(k.spec.on.key)]
+          : ['on', binding(k.spec.on, str)],
       ]);
     case 'FragmentDecl': {
       // Phase 180 — `holes` / `effect` additive; omitted at the degenerate
