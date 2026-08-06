@@ -4703,7 +4703,13 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
         onJ !== undefined
           ? decodeBinding(`${path}.on`, onJ)
           : (() => {
-              const stateKey = reqField(path, f, 'stateKey', 'Switch stateKey string', requireString);
+              const stateKey = reqField(
+                path,
+                f,
+                'stateKey',
+                'Switch stateKey string',
+                requireString,
+              );
               return stateKey.ok
                 ? ok({
                     kind: 'State',
