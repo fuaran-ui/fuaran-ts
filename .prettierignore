@@ -15,3 +15,8 @@ packages/renderer/css/fuaran.css
 # Generated recipe bank — extractor output is byte-stable; reformatting it
 # would make every regeneration a spurious diff.
 packages/mcp/src/recipeBank.generated.ts
+# Cross-host minting vectors — emitted by an independent implementation of
+# canonical-json-sha256-v1, one vector per line so a regeneration is a readable
+# diff. Reformatting it would make every regeneration a whole-file diff and hide
+# the one line that actually moved.
+packages/spec-hash/test/vectors/cross-host-vectors.json
