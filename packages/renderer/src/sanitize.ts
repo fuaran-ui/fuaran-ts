@@ -82,6 +82,38 @@ const allowedUrlSchemes = new Set(['http', 'https', 'mailto', 'tel', 'ftp', 'sft
 const rejectedUrlSchemes = new Set(['javascript', 'vbscript', 'file']);
 
 /**
+ * ASCII-only lowercase — length-preserving by construction, which
+ * `String.prototype.toLowerCase` is NOT (U+0130 LATIN CAPITAL LETTER I WITH DOT
+ * ABOVE folds to a two-code-unit sequence). Every place below that searches a
+ * case-folded COPY and then splices indices back into the ORIGINAL depends on
+ * the two strings staying index-aligned; a locale-aware fold silently shifts
+ * the removal window and leaves a fragment of the element it meant to remove.
+ * The scheme/tag/protocol vocabulary this module matches is ASCII, so an
+ * ASCII-only fold loses no matches.
+ */
+const asciiLower = (s: string): string =>
+  s.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
+
+/**
+ * A protocol-relative URL: `//host/path`, plus the backslash forms browsers
+ * normalise to it. WHATWG URL parsing treats `\` as `/` for special schemes,
+ * so `\\host`, `/\host` and `\/host` all resolve exactly as `//host` does.
+ *
+ * These carry no scheme, so the schemeless branch of `sanitizeUrl` would
+ * otherwise admit them — but the browser resolves them against the CURRENT
+ * page's scheme and lands on an OFF-ORIGIN host, defeating the same-origin
+ * intent that makes a schemeless URL safe in the first place. On an `href`
+ * that is off-origin navigation; on an `img src` it is an off-origin request
+ * that leaks the Referer.
+ */
+const isProtocolRelative = (url: string): boolean => {
+  if (url.length < 2) return false;
+  const c0 = url[0];
+  const c1 = url[1];
+  return (c0 === '/' || c0 === '\\') && (c1 === '/' || c1 === '\\');
+};
+
+/**
  * Split a URL into `[scheme | undefined, rest]`. A URL without a `:` before
  * any `/`, `?`, or `#` returns `[undefined, url]` (relative / fragment).
  * ASCII whitespace + C0 controls are stripped from the scheme candidate so
@@ -109,14 +141,19 @@ const extractScheme = (url: string): [string | undefined, string] => {
  * Returns the sanitized URL, or `undefined` if the scheme is rejected.
  * Empty string passes through (a valid same-page href). `data:` is rejected
  * by default (SVG data-URL XSS vector); unknown schemes are rejected
- * conservatively.
+ * conservatively. Protocol-relative URLs (`//host`, and the `\\` / `/\` / `\/`
+ * forms browsers normalise to it) are rejected despite carrying no scheme —
+ * see `isProtocolRelative`.
  */
 export const sanitizeUrl = (url: string): string | undefined => {
   if (url == null) return undefined;
   const trimmed = url.trim();
   if (trimmed === '') return trimmed;
   const [scheme] = extractScheme(trimmed);
-  if (scheme === undefined) return trimmed; // relative / fragment / same-origin
+  if (scheme === undefined) {
+    if (isProtocolRelative(trimmed)) return undefined; // off-origin despite having no scheme
+    return trimmed; // relative / fragment / same-origin
+  }
   if (rejectedUrlSchemes.has(scheme)) return undefined;
   if (allowedUrlSchemes.has(scheme)) return trimmed;
   return undefined; // unknown scheme — reject by default
@@ -177,7 +214,7 @@ export const sanitizeMarkdownHtml = (html: string): string => {
   for (const proto of dangerousProtocols) {
     let keepGoing = true;
     while (keepGoing) {
-      const i = result.toLowerCase().indexOf(proto);
+      const i = asciiLower(result).indexOf(proto);
       if (i < 0) {
         keepGoing = false;
       } else {
@@ -190,7 +227,7 @@ export const sanitizeMarkdownHtml = (html: string): string => {
 };
 
 const indexOfCI = (haystack: string, needle: string, from: number): number =>
-  haystack.toLowerCase().indexOf(needle.toLowerCase(), from);
+  asciiLower(haystack).indexOf(asciiLower(needle), from);
 
 /**
  * Strip inline `on*="..."` event-handler attributes (tag-interior anchored).
@@ -208,7 +245,7 @@ const stripEventHandlers = (input: string): string => {
   let s = input;
   let keepGoing = true;
   while (keepGoing) {
-    const lower = s.toLowerCase();
+    const lower = asciiLower(s);
     let found = -1;
     let insideTag = false;
     for (let i = 0; i < lower.length - 3 && found < 0; i++) {
