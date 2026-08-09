@@ -146,11 +146,13 @@ const tierLegendFragment = (): Node<AppMsg> =>
 // ─── Showcase: every other shipped NodeKind the demo exercises ───────────────
 
 const showcaseSection = (model: Model): Node<AppMsg> => {
+  // The FilterKind family is retired — a filter carries a FormFieldKind in its
+  // `field` slot, same control vocabulary as forms.
   const textFilter: FilterSpec<AppMsg> = {
     name: 'text-filter',
     label: lit('Search channels'),
-    kind: {
-      kind: 'TextFilter',
+    field: {
+      kind: 'Text',
       value: binding.state('textFilter', ''),
       onChange: (v) => dispatch({ t: 'SetTextFilter', value: v }),
     },
