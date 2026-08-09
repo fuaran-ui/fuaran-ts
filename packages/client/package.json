@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/client",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Typed TypeScript client for the Fuaran generation endpoint — collapses integration to call, render, remember the tree. Owns the request/response contract + access-token/BYOK-key plumbing + the turn-loop helper (hold the current tree so the next prompt is a cheap repair diff) + one-liner renderer glue over @fuaran-ui/renderer.",
   "keywords": [
     "fuaran",
