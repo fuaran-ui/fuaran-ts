@@ -26,10 +26,14 @@ AI-emitted — and renders the typed tree into the DOM.
   sanitization layer (URL scheme filtering on `href`/`src`, no raw HTML injection outside the
   documented Custom-renderer seam). A render path that lets tree content execute script is a
   vulnerability we want to hear about.
-- **Wire decoding:** a decode path that admits malformed wire as valid, or parser resource
-  exhaustion (unbounded depth or size), is in scope.
-- **Dispatch gating:** interactive dispatch is default-deny — a tree cannot invoke a host action
-  the host did not register. A bypass of that gate is in scope.
+- **Wire decoding:** a decode path that admits malformed wire as valid is in scope. Parser resource
+  exhaustion is a known position rather than a finding: this host does not yet enforce the wire
+  format's §21 resource limits, and §21.5 of the specification records where each host stands.
+- **Dispatch gating:** the gated action set (`Call`, `Navigate`, `AiTool`, `ReadFileBody`,
+  `ApplyTreeOp`) is routed through the host's `canDispatch` policy hook before the effect runs. A
+  path that performs one of those actions without consulting a hook the host supplied, or that
+  reaches a host effect outside that set, is in scope. An absent hook allows: unlike the F#
+  reference host, this tier does not yet refuse by default.
 
 Custom renderers registered by a **host** run with the host's trust — issues in host-supplied
 custom-renderer code belong with the host application, not this repo.
