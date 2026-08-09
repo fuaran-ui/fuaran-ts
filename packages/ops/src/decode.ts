@@ -3719,7 +3719,11 @@ const decodeTonedPill = (path: string, f: Fields): R<CellKindErased<unknown>> =>
   return ok(k);
 };
 
-const decodeCellKindErased = (path: string, j: JsonAst): R<CellKindErased<unknown>> => {
+const decodeCellKindErased = (
+  path: string,
+  j: JsonAst,
+  columnField?: string,
+): R<CellKindErased<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -3791,7 +3795,27 @@ const decodeCellKindErased = (path: string, j: JsonAst): R<CellKindErased<unknow
     case 'TonedPill':
       return decodeTonedPill(path, f);
     case 'Progress': {
-      const k: CellKindErased<unknown> = { kind: 'Progress', fraction: () => 0 };
+      // Phase 425 / cat:Fuaran.UI.ProgressFieldCell (2026-08-10) — the field-driven
+      // fraction, parity with the .NET decoder. A decoded `Progress` cell in a
+      // `field`-carrying column derives its per-row fill from that row property
+      // (clamped to 0..1; missing / non-numeric → 0, never a throw), ending the
+      // silent zero-fill class. No new wire key — the driver is the column-level
+      // `field`; a columnless or fieldless `Progress` keeps the inert placeholder.
+      const field = columnField;
+      const k: CellKindErased<unknown> = {
+        kind: 'Progress',
+        fraction:
+          field === undefined
+            ? () => 0
+            : (row) => {
+                const v =
+                  row !== null && typeof row === 'object'
+                    ? (row as Record<string, unknown>)[field]
+                    : undefined;
+                const n = typeof v === 'number' && Number.isFinite(v) ? v : 0;
+                return Math.max(0, Math.min(1, n));
+              },
+      };
       return ok(k);
     }
     case 'Custom': {
@@ -3817,7 +3841,19 @@ const decodeColumnErased = (path: string, j: JsonAst): R<ColumnErased<unknown>> 
   // Phase 460 — `format`/`width` omitted-when-default (`CellFormat.None`/`ColumnWidth.Auto`).
   const format = optField(path, f, 'format', decodeCellFormat);
   if (!format.ok) return format;
-  const kind = reqFieldAliased(path, f, 'kind', ['type'], 'CellKindErased', decodeCellKindErased);
+  // The column-level `field` rides into the kind decode so field-driven cell kinds
+  // (Phase 425 / cat:Fuaran.UI.ProgressFieldCell — `Progress` first) can synthesize
+  // their row projection at decode time.
+  const fieldJ = tryField(f, 'field');
+  let field: string | undefined;
+  if (fieldJ !== undefined) {
+    const fr = requireString(`${path}.field`, fieldJ);
+    if (!fr.ok) return fr;
+    field = fr.value;
+  }
+  const kind = reqFieldAliased(path, f, 'kind', ['type'], 'CellKindErased', (p, v) =>
+    decodeCellKindErased(p, v, field),
+  );
   if (!kind.ok) return kind;
   const label = reqFieldAliased(
     path,
@@ -3831,15 +3867,9 @@ const decodeColumnErased = (path: string, j: JsonAst): R<ColumnErased<unknown>> 
   const width = optField(path, f, 'width', decodeColumnWidth);
   if (!width.ok) return width;
   // Phase 425 — `value` (closure) present → placeholder (the closure wins, renders Empty); absent →
-  // omitted, and `field` (if present) drives the row-field projection with zero host code.
+  // omitted, and `field` (if present, extracted above) drives the row-field projection
+  // with zero host code.
   const hasValue = tryField(f, 'value') !== undefined;
-  const fieldJ = tryField(f, 'field');
-  let field: string | undefined;
-  if (fieldJ !== undefined) {
-    const fr = requireString(`${path}.field`, fieldJ);
-    if (!fr.ok) return fr;
-    field = fr.value;
-  }
   return ok({
     format: format.value ?? { kind: 'None' },
     kind: kind.value,
