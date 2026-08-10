@@ -55,7 +55,17 @@ export const renderVis = <TMsg,>(
       // Phase 393 — a static read-only grid renders the semantic <table> leg (byte-identical
       // to the retired Table); a data-bound grid takes the ordinary grid path.
       return vis.spec.staticRows !== undefined
-        ? renderTable(ctx, { headers: vis.spec.staticRows.headers, rows: vis.spec.staticRows.rows })
+        ? renderTable(ctx, {
+            headers: vis.spec.staticRows.headers,
+            rows: vis.spec.staticRows.rows,
+            // Phase 801 — the declared sort intent rides through to the rendered <table>.
+            ...(vis.spec.staticRows.sortable !== undefined
+              ? { sortable: vis.spec.staticRows.sortable }
+              : {}),
+            ...(vis.spec.staticRows.defaultSort !== undefined
+              ? { defaultSort: vis.spec.staticRows.defaultSort }
+              : {}),
+          })
         : renderGrid(ctx, parentNodeId, state, vis.spec);
     case 'Chart':
       return renderChart(ctx, state, vis.spec);
@@ -388,7 +398,21 @@ const renderChart = <TMsg,>(
 };
 
 const renderTable = <TMsg,>(ctx: RenderContext<TMsg>, spec: TableSpec<TMsg>): ReactElement => (
-  <table className="fuaran-table">
+  <table
+    className="fuaran-table"
+    // Phase 801 — the declared sort intent as data attributes, so a progressive-enhancement
+    // script honours it without re-parsing the wire. Emitted ONLY when declared, so an
+    // undeclared table's DOM is unchanged and SSR hydration still finds what it expects.
+    {...(spec.sortable !== undefined
+      ? { 'data-fuaran-sortable': spec.sortable ? 'true' : 'false' }
+      : {})}
+    {...(spec.defaultSort !== undefined
+      ? {
+          'data-fuaran-sort-column': String(spec.defaultSort.column),
+          'data-fuaran-sort-direction': spec.defaultSort.direction,
+        }
+      : {})}
+  >
     <thead>
       <tr>
         {spec.headers.map((h, i) => (

@@ -1629,14 +1629,25 @@ const gridSpec = (s: GridSpec<unknown>): string => {
   if (s.rowKeyField !== undefined) fields.push(['rowKeyField', str(s.rowKeyField)]);
   // Phase 393 — the static read-only mode; omitted for a data-bound grid so every existing
   // grid fixture stays byte-identical.
-  if (s.staticRows !== undefined)
-    fields.push([
-      'staticRows',
-      jObject([
-        ['headers', jArray(s.staticRows.headers.map(textSource))],
-        ['rows', jArray(s.staticRows.rows.map((row) => jArray(row.map(textSource))))],
-      ]),
-    ]);
+  if (s.staticRows !== undefined) {
+    const sr = s.staticRows;
+    const srFields: Field[] = [
+      ['headers', jArray(sr.headers.map(textSource))],
+      ['rows', jArray(sr.rows.map((row) => jArray(row.map(textSource))))],
+    ];
+    // Phase 801 — the declarative sort intent, each emitted only when declared, so a
+    // table saying nothing encodes exactly as it did before the fields existed.
+    if (sr.sortable !== undefined) srFields.push(['sortable', bool(sr.sortable)]);
+    if (sr.defaultSort !== undefined)
+      srFields.push([
+        'defaultSort',
+        jObject([
+          ['column', intLit(sr.defaultSort.column)],
+          ['direction', str(sr.defaultSort.direction)],
+        ]),
+      ]);
+    fields.push(['staticRows', jObject(srFields)]);
+  }
   return jObject(fields);
 };
 

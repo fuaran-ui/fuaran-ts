@@ -2985,6 +2985,26 @@
         "staticRows": {
           "type": "object",
           "properties": {
+            "defaultSort": {
+              "type": "object",
+              "properties": {
+                "column": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "asc",
+                    "desc"
+                  ]
+                }
+              },
+              "required": [
+                "column",
+                "direction"
+              ]
+            },
             "headers": {
               "type": "array",
               "items": {
@@ -2999,6 +3019,9 @@
                   "$ref": "#/$defs/TextSource"
                 }
               }
+            },
+            "sortable": {
+              "type": "boolean"
             }
           },
           "required": [

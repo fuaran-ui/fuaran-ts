@@ -1746,7 +1746,18 @@ const renderTable = (
     })
     .join('');
   const body = el('tbody', [], bodyRows);
-  return el('table', [['class', 'fuaran-table']], head + body);
+  // Phase 801 — the declared sort intent as data attributes, so a progressive-enhancement
+  // script honours it without re-parsing the wire. Emitted ONLY when declared (an
+  // undeclared table's bytes are unchanged), and in the same order as the F# SSR twin so
+  // the two hosts' markup stays parity-locked.
+  const attrs: [string, string][] = [['class', 'fuaran-table']];
+  if (spec.sortable !== undefined)
+    attrs.push(['data-fuaran-sortable', spec.sortable ? 'true' : 'false']);
+  if (spec.defaultSort !== undefined) {
+    attrs.push(['data-fuaran-sort-column', String(spec.defaultSort.column)]);
+    attrs.push(['data-fuaran-sort-direction', spec.defaultSort.direction]);
+  }
+  return el('table', attrs, head + body);
 };
 
 const renderMap = (

@@ -1582,11 +1582,31 @@ export interface GridSpec<TMsg> {
   // these `TextSource` cells and ignores `source` / `columns`. Absent for a data-bound grid,
   // so every existing grid fixture stays byte-identical. A legacy `Table` document
   // decode-upgrades into a grid with this field set.
+  // Phase 801 — `sortable` / `defaultSort` are the declarative sort intent. Both optional;
+  // both absent is the pre-801 wire byte-for-byte. `sortable` declares what the table
+  // INVITES, not what a host guarantees; `defaultSort` is an initial presentation order,
+  // distinct from the transform pipeline's data `sort`.
   readonly staticRows?: {
     readonly headers: readonly TextSource[];
     readonly rows: readonly (readonly TextSource[])[];
+    readonly sortable?: boolean;
+    readonly defaultSort?: DefaultSort;
   };
 }
+
+/**
+ * A static table's declared initial order (Phase 801). `column` is a NON-NEGATIVE index
+ * into `staticRows.headers`; `direction` is the closed two-value wire enum. An index past
+ * the end of `headers` is deliberately not a decode error — it is a relation between two
+ * sibling values, which a per-object codec does not judge.
+ */
+export interface DefaultSort {
+  readonly column: number;
+  readonly direction: SortDirection;
+}
+
+/** Sort direction on a `DefaultSort` (Phase 801) — lower-case on the wire. */
+export type SortDirection = 'asc' | 'desc';
 
 /** Typed author-facing facade for `GridSpec`. `fuaran.grid` erases it. */
 export interface GridSpecOf<TRow, TMsg> {
@@ -1734,6 +1754,10 @@ export interface TableSpec<TMsg> {
   readonly headers: readonly TextSource[];
   readonly rows: readonly (readonly TextSource[])[];
   readonly onRowClick?: (index: number) => Action<TMsg>;
+  // Phase 801 — the declared sort intent, carried through from `GridSpec.staticRows` so the
+  // renderer can surface it as data attributes. Both optional; both absent renders as before.
+  readonly sortable?: boolean;
+  readonly defaultSort?: DefaultSort;
 }
 
 export interface MapSpec<TMsg> {

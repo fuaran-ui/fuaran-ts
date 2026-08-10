@@ -132,6 +132,8 @@ import type {
   SummaryListSpec,
   StepperSpec,
   StyleWeight,
+  DefaultSort,
+  SortDirection,
   TabHeader,
   TableSpec,
   TabsSpec,
@@ -3885,6 +3887,35 @@ const decodeColumnErased = (path: string, j: JsonAst): R<ColumnErased<unknown>> 
 type StaticRows = {
   readonly headers: readonly TextSource[];
   readonly rows: readonly (readonly TextSource[])[];
+  readonly sortable?: boolean;
+  readonly defaultSort?: DefaultSort;
+};
+
+// Phase 801 — `"asc"` / `"desc"`, closed. Anything else is UNKNOWN_DU_CASE naming both
+// legal values, never a silent fallback to ascending: an unrecognised direction is an
+// emitter defect the author can fix, and quietly picking one hides it.
+const decodeSortDirection = (p: string, j: JsonAst): R<SortDirection> =>
+  bareEnum(p, j, ['asc', 'desc'] as const, 'SortDirection');
+
+// Phase 801 — the `{ column, direction }` initial-order declaration. `column` is a
+// NON-NEGATIVE integer index into `headers`; a negative (or non-integral) value is a
+// WRONG_TYPE, which is also what schema.json's `minimum: 0` says. An index PAST the end
+// of `headers` is deliberately accepted — a relation between sibling values is not
+// something a per-object codec judges.
+const decodeDefaultSort = (path: string, j: JsonAst): R<DefaultSort> => {
+  const fo = requireObject(path, j);
+  if (!fo.ok) return fo;
+  const f = fo.value;
+  const columnJ = requireField(path, f, 'column', 'non-negative header index');
+  if (!columnJ.ok) return columnJ;
+  const cv = columnJ.value;
+  if (cv.kind !== 'JNumber' || cv.value < 0 || !Number.isInteger(cv.value))
+    return wrongType(`${path}.column`, 'JSON number (non-negative integer header index)');
+  const directionJ = requireField(path, f, 'direction', 'asc | desc');
+  if (!directionJ.ok) return directionJ;
+  const direction = decodeSortDirection(`${path}.direction`, directionJ.value);
+  if (!direction.ok) return direction;
+  return ok({ column: cv.value, direction: direction.value });
 };
 const decodeStaticRows = (path: string, j: JsonAst): R<StaticRows> => {
   const fo = requireObject(path, j);
@@ -3910,7 +3941,16 @@ const decodeStaticRows = (path: string, j: JsonAst): R<StaticRows> => {
     );
   });
   if (!rows.ok) return rows;
-  return ok({ headers: headers.value, rows: rows.value });
+  const sortable = optField(path, f, 'sortable', requireBool);
+  if (!sortable.ok) return sortable;
+  const defaultSort = optField(path, f, 'defaultSort', decodeDefaultSort);
+  if (!defaultSort.ok) return defaultSort;
+  return ok({
+    headers: headers.value,
+    rows: rows.value,
+    ...(sortable.value !== undefined ? { sortable: sortable.value } : {}),
+    ...(defaultSort.value !== undefined ? { defaultSort: defaultSort.value } : {}),
+  });
 };
 
 const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
