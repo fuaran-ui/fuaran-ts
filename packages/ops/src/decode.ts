@@ -45,6 +45,7 @@ import type {
   Transform,
   TransformParam,
   WindowFn,
+  LinkProtection,
   LinkSpec,
   BadgeVariant,
   Binding,
@@ -2667,14 +2668,22 @@ const decodeLinkSpec = (path: string, j: JsonAst): R<LinkSpec> => {
   if (!rel.ok) return rel;
   const target = optField(path, f, 'target', requireString);
   if (!target.ok) return target;
+  // Phase 812 — optional anti-scraper render strategy; the closed enumeration
+  // default-denies (UNKNOWN_DU_CASE at `$.kind.protection`).
+  const protection = optField(path, f, 'protection', decodeLinkProtection);
+  if (!protection.ok) return protection;
   return ok({
     href: href.value,
     label: label.value,
     download: download.value,
     ...(rel.value !== undefined ? { rel: rel.value } : {}),
     ...(target.value !== undefined ? { target: target.value } : {}),
+    ...(protection.value !== undefined ? { protection: protection.value } : {}),
   });
 };
+
+const decodeLinkProtection = (p: string, j: JsonAst): R<LinkProtection> =>
+  bareEnum(p, j, ['email'] as const, 'LinkProtection');
 
 const decodeImageSpec = (path: string, j: JsonAst): R<ImageSpec> => {
   const fo = requireObject(path, j);

@@ -100,6 +100,25 @@ const referenceVocabulary = (): { exact: Set<string>; prefixes: string[] } => {
   return { exact, prefixes: [...prefixes] };
 };
 
+// ─── Protected email link (Phase 812) — the plaintext-absence lock ──────────
+
+describe('protected email link — no plaintext address in server output', () => {
+  it('link-protected-1 emits the entity-encoded anchor and no scrapeable address', () => {
+    const html = renderToHtml(decode('link-protected-1.json'));
+    // The wrapper + protected classes, with every href/label character a
+    // decimal entity (&#109;… = 'mailto:'). Byte-locked to the F# server
+    // renderer's emission.
+    expect(html).toContain('<span class="fuaran-link-protected-wrap">');
+    expect(html).toContain(
+      '<a class="fuaran-link fuaran-link-protected" href="&#109;&#97;&#105;&#108;&#116;&#111;&#58;',
+    );
+    // The raw source carries no plaintext address, local part, or scheme.
+    expect(html).not.toContain('mailto:');
+    expect(html).not.toContain('contact@example.com');
+    expect(html).not.toContain('@example');
+  });
+});
+
 describe.skipIf(!referenceAvailable)(
   'Lock B — server classes are in the F# reference vocabulary',
   () => {

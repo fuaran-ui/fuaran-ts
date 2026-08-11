@@ -145,6 +145,20 @@ export const renderDisplay = <TMsg,>(
       // binding then passes through sanitizeUrlOrBlank (rejected URLs collapse
       // to about:blank). rel/target emit when set; download emits a bare attr.
       const href = sanitizeUrlOrBlank(tryResolve(ctx.sources, display.spec.href) ?? '');
+      if (display.spec.protection === 'email' && href.startsWith('mailto:')) {
+        // Phase 812 — protected email link, client side. The client DOM is
+        // assembled at runtime (nothing scrapes a hydrated DOM that the server
+        // document did not already reveal), so the real href is set directly;
+        // the wrapper span + protected class mirror the server structure so
+        // the post-entity-decode DOMs are identical.
+        return (
+          <span className="fuaran-link-protected-wrap">
+            <a className="fuaran-link fuaran-link-protected" href={href}>
+              {renderText(ctx.sources, display.spec.label)}
+            </a>
+          </span>
+        );
+      }
       return (
         <a
           className="fuaran-link"

@@ -985,6 +985,8 @@ const linkSpec = (s: LinkSpec): string => {
   ];
   if (s.rel !== undefined) fields.push(['rel', str(s.rel)]);
   if (s.target !== undefined) fields.push(['target', str(s.target)]);
+  // Phase 812 — omitted when absent (byte parity with the F# encoder).
+  if (s.protection !== undefined) fields.push(['protection', str(s.protection)]);
   return jObject(fields);
 };
 

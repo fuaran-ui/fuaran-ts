@@ -1029,7 +1029,16 @@ export interface LinkSpec {
   readonly rel?: string;
   readonly target?: string;
   readonly download: boolean;
+  readonly protection?: LinkProtection;
 }
+
+// Anti-scraper render strategy for a `Link` (Phase 812). `email` marks a
+// `mailto:` link whose address must not appear in plaintext in emitted HTML —
+// the renderers own the emission strategy (the server renderer emits href +
+// label entity-encoded per character; the client sets the decoded href).
+// Omitted on the wire when absent, so every pre-existing tree is
+// byte-identical.
+export type LinkProtection = 'email';
 
 // A crawlable `<img>` primitive (Phase 287). `src` is a `Binding<string>`
 // routed through the URL sanitizer at render time (like `Link.href`); `alt` is

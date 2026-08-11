@@ -87,6 +87,18 @@ const iconHook = (kindClass: string, name: string): string =>
     ['aria-hidden', 'true'],
   ]);
 
+/**
+ * Phase 812 — protected-link emission: every UTF-16 code unit as a decimal
+ * HTML entity (`&#78;`). Code-unit iteration (not code points) matches the F#
+ * server renderer's per-`char` encode exactly, keeping the two emissions
+ * byte-identical.
+ */
+const entityEncode = (value: string): string => {
+  let out = '';
+  for (let i = 0; i < value.length; i++) out += `&#${value.charCodeAt(i)};`;
+  return out;
+};
+
 /** Per-render context: the host binding sources + the fragment registry + cycle guard. */
 interface ServerContext {
   readonly sources: BindingSources;
@@ -751,6 +763,25 @@ const renderDisplay = (
 
     case 'Link': {
       const href = sanitizeUrlOrBlank(tryResolve(ctx.sources, display.spec.href) ?? '');
+      if (display.spec.protection === 'email' && href.startsWith('mailto:')) {
+        // Phase 812 — protected email link. Every character of the sanitised
+        // href AND the label is emitted as a decimal HTML entity: the browser
+        // decodes entities in both positions, so the anchor is a working
+        // `mailto:` with no JavaScript while the raw source carries no
+        // scrapeable address. Encoding every character (not just specials)
+        // makes the fragment injection-proof by construction, which is why the
+        // anchor is built as a raw string below `el`'s escaping floor —
+        // `escapeAttr` would re-escape the entities. Byte-identical to the F#
+        // server renderer's emission; the client renderer emits the same
+        // structure with the decoded href (DOMs identical post entity-decode).
+        const anchor =
+          '<a class="fuaran-link fuaran-link-protected" href="' +
+          entityEncode(href) +
+          '">' +
+          entityEncode(renderText(ctx.sources, display.spec.label)) +
+          '</a>';
+        return el('span', [['class', 'fuaran-link-protected-wrap']], anchor);
+      }
       const attrs: Attr[] = [
         ['class', 'fuaran-link'],
         ['href', href],

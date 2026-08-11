@@ -52,6 +52,7 @@ import type {
   DateVariant,
   EffectClass,
   ImageVariant,
+  LinkProtection,
   MathDisplay,
   ScrollOrientation,
   InvokeArg,
@@ -910,6 +911,8 @@ export interface LinkOptions {
   readonly rel?: string;
   readonly target?: string;
   readonly download?: boolean;
+  /** Phase 812 — anti-scraper render strategy (`'email'` for a protected `mailto:`). */
+  readonly protection?: LinkProtection;
 }
 
 export interface ImageOptions {
@@ -1407,6 +1410,7 @@ export const fuaran = {
           download: o.download ?? false,
           ...(o.rel !== undefined ? { rel: o.rel } : {}),
           ...(o.target !== undefined ? { target: o.target } : {}),
+          ...(o.protection !== undefined ? { protection: o.protection } : {}),
         },
       },
     });
