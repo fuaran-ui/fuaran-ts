@@ -49,15 +49,19 @@ describe('grid-transform corpus pipeline (decode → evaluate → encode)', () =
     const kind = decoded.value.kind;
     expect(kind.kind).toBe('Visualisation');
     if (kind.kind !== 'Visualisation' || kind.visualisation.kind !== 'Grid') return;
+    // Phase 818 — a columnar source rides the `Data` arm of the widened
+    // `TransformSource` slot.
     const source = kind.visualisation.spec.source as unknown as {
       kind: string;
-      source: DataSource;
+      source: { kind: string; source: DataSource };
       pipeline: Transform[];
     };
     expect(source.kind).toBe('Transform');
-    expect(source.source.kind).toBe('Embedded');
-    if (source.source.kind !== 'Embedded') return;
-    const out = run(source.pipeline, source.source.table);
+    expect(source.source.kind).toBe('Data');
+    if (source.source.kind !== 'Data') return;
+    expect(source.source.source.kind).toBe('Embedded');
+    if (source.source.source.kind !== 'Embedded') return;
+    const out = run(source.pipeline, source.source.source.table);
     expect(out).toBe(
       '{"columns":{"dept":{"validity":[true],"values":["eng"]},"total":{"validity":[true],"values":[220]}},"schema":[{"name":"dept","type":"string"},{"name":"total","type":"int"}]}',
     );

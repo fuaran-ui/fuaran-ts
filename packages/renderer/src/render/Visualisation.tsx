@@ -18,6 +18,7 @@ import type {
   GridSpec,
   JsonValue,
   MapSpec,
+  SortDirection,
   StateBehaviour,
   TableSpec,
   ToneVariant,
@@ -26,7 +27,14 @@ import type {
 import type { ChartRow } from '@fuaran-ui/charts';
 import { isLowered, lower } from '@fuaran-ui/charts';
 
-import { asArray, renderCellValue, renderText, resolve, tryResolve } from '../bindings.js';
+import {
+  asArray,
+  renderCellValue,
+  renderText,
+  resolve,
+  tryResolve,
+  type BindingSources,
+} from '../bindings.js';
 import { toneVar } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { runAction } from '../context.js';
@@ -100,10 +108,18 @@ const renderGrid = <TMsg,>(
       }),
     );
   }
-  const rows = resolution.kind === 'Resolved' ? asArray<unknown>(resolution.value) : [];
-  if (rows.length === 0 && state.onEmpty !== undefined) {
+  const resolvedRows = resolution.kind === 'Resolved' ? asArray<unknown>(resolution.value) : [];
+  if (resolvedRows.length === 0 && state.onEmpty !== undefined) {
     return renderNode(ctx, state.onEmpty);
   }
+  // Phase 818 — `sortStateKey`: the grid sorts its RESOLVED rows by the
+  // state-carried descriptor before rendering (runtime-side sort — the author
+  // wires no Transform). No descriptor written yet ⇒ natural source order.
+  const sortDescriptor =
+    spec.sortStateKey !== undefined
+      ? readSortDescriptor(ctx.sources, spec.sortStateKey)
+      : undefined;
+  const rows = sortRowsByDescriptor(spec.columns, sortDescriptor, resolvedRows);
   // Phase 427 — the default row-click write (the 423/426 archetype for the
   // Selection channel): a data-bearing grid whose `onRowClick` is omitted
   // writes the clicked row to the host selection seam (`runtime.setSelection`)
@@ -136,16 +152,61 @@ const renderGrid = <TMsg,>(
       ? rawSelectedKey
       : undefined;
 
+  // Phase 818 — the sortable-header affordance for a `sortStateKey` grid. A
+  // header whose column declares a `field` renders as a sortable affordance
+  // (the Phase-801 static-table presentation vocabulary: `data-sortable` +
+  // live `aria-sort`, keyboard-activatable); clicking header N dispatches the
+  // equivalent of `SetState(sortStateKey, {"column": N, "direction": …})` —
+  // routed through `runAction` so it lands exactly as any tree write. A
+  // field-less closure column is not sortable and renders without the
+  // affordance.
+  const sortableHeader = (colIndex: number, col: ColumnErased<TMsg>): ReactElement => {
+    if (spec.sortStateKey === undefined || col.field === undefined) {
+      return (
+        <th key={colIndex} className="fuaran-grid-header">
+          {col.label}
+        </th>
+      );
+    }
+    const sortKey = spec.sortStateKey;
+    const active =
+      sortDescriptor !== undefined && sortDescriptor[0] === colIndex
+        ? sortDescriptor[1]
+        : undefined;
+    const dispatchToggle = (): void => {
+      const nextDirection = active === 'asc' ? 'desc' : 'asc';
+      runAction(ctx, {
+        kind: 'SetState',
+        key: sortKey,
+        value: { column: colIndex, direction: nextDirection },
+      });
+    };
+    return (
+      <th
+        key={colIndex}
+        className="fuaran-grid-header"
+        data-sortable=""
+        tabIndex={0}
+        {...(active !== undefined
+          ? { 'aria-sort': active === 'asc' ? ('ascending' as const) : ('descending' as const) }
+          : {})}
+        onClick={dispatchToggle}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            dispatchToggle();
+          }
+        }}
+      >
+        {col.label}
+      </th>
+    );
+  };
+
   return (
     <table className="fuaran-grid">
       <thead>
-        <tr>
-          {spec.columns.map((col, i) => (
-            <th key={i} className="fuaran-grid-header">
-              {col.label}
-            </th>
-          ))}
-        </tr>
+        <tr>{spec.columns.map((col, i) => sortableHeader(i, col))}</tr>
       </thead>
       <tbody>
         {rows.map((row, ri) => {
@@ -172,6 +233,77 @@ const renderGrid = <TMsg,>(
       </tbody>
     </table>
   );
+};
+
+// ─── Data-bound grid sort (Phase 818 — `sortStateKey`) ───────────────────────
+//
+// Parity-locked with F# `BindingResolver.readSortDescriptor` /
+// `sortRowsByDescriptor`: the descriptor is validated rather than trusted (a
+// malformed descriptor reads as "no sort" so the authored order stands); empty
+// cells sort LAST in both directions (unmeasured is not zero); ties keep their
+// authored relative order (Array.prototype.sort is stable); string comparison
+// is ordinal over the lower-cased forms.
+
+const readSortDescriptor = (
+  sources: BindingSources,
+  key: string,
+): readonly [number, SortDirection] | undefined => {
+  const raw = sources.state?.[key];
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const rec = raw as Record<string, unknown>;
+  const col = rec['column'];
+  const dir = rec['direction'];
+  if (typeof col !== 'number' || !Number.isInteger(col) || col < 0) return undefined;
+  if (dir !== 'asc' && dir !== 'desc') return undefined;
+  return [col, dir];
+};
+
+const cellSortRank = (v: CellValue): number => {
+  switch (v.kind) {
+    case 'Numeric':
+      return 0;
+    case 'Bool':
+      return 1;
+    case 'Date':
+      return 2;
+    case 'Text':
+      return 3;
+    case 'Empty':
+      return 4;
+  }
+};
+
+const compareCells = (a: CellValue, b: CellValue): number => {
+  if (a.kind === 'Numeric' && b.kind === 'Numeric')
+    return a.value < b.value ? -1 : a.value > b.value ? 1 : 0;
+  if (a.kind === 'Bool' && b.kind === 'Bool') return Number(a.value) - Number(b.value);
+  if (a.kind === 'Date' && b.kind === 'Date') return a.value.getTime() - b.value.getTime();
+  if (a.kind === 'Text' && b.kind === 'Text') {
+    const x = a.value.toLowerCase();
+    const y = b.value.toLowerCase();
+    return x < y ? -1 : x > y ? 1 : 0;
+  }
+  return cellSortRank(a) - cellSortRank(b);
+};
+
+const sortRowsByDescriptor = <TMsg,>(
+  columns: readonly ColumnErased<TMsg>[],
+  descriptor: readonly [number, SortDirection] | undefined,
+  rows: readonly unknown[],
+): readonly unknown[] => {
+  if (descriptor === undefined) return rows;
+  const [colIndex, direction] = descriptor;
+  const field = columns[colIndex]?.field;
+  if (field === undefined) return rows;
+  const keyed = rows.map((r) => [projectRowFieldValue(r, field), r] as const);
+  keyed.sort(([ka], [kb]) => {
+    if (ka.kind === 'Empty' && kb.kind === 'Empty') return 0;
+    if (ka.kind === 'Empty') return 1;
+    if (kb.kind === 'Empty') return -1;
+    const c = compareCells(ka, kb);
+    return direction === 'asc' ? c : -c;
+  });
+  return keyed.map(([, r]) => r);
 };
 
 // Phase 425 — the row-field projection contract (parity-locked with F# `projectRowFieldValue`):

@@ -737,10 +737,21 @@ const binding = <T>(b: Binding<T>, staticEnc: (v: T) => string = objValue): stri
               ],
             ]
           : [];
+      // Phase 818 — a `Data` source keeps the columnar encoding byte-identical;
+      // a `Live` source re-encodes the preserved binding itself (one wire
+      // dialect — the State/Selection/Query-shaped source round-trips
+      // byte-for-byte; the derived `initial` snapshot is never encoded). The
+      // carried default encodes through the FAITHFUL structured encoder, the
+      // shape it was decoded with.
       return caseObj('Transform', [
         ...paramFields,
         ['pipeline', jArray(b.pipeline.map(transformStep))],
-        ['source', dataSource(b.source)],
+        [
+          'source',
+          b.source.kind === 'Data'
+            ? dataSource(b.source.source)
+            : binding(b.source.binding, jsonValue),
+        ],
       ]);
     }
     case 'Invoke':
@@ -782,11 +793,14 @@ const action = <T>(a: Action<T>): string => {
       ]);
     case 'Navigate':
       return caseObj('Navigate', [['route', str(a.route)]]);
-    case 'SetState':
-      return caseObj('SetState', [
-        ['key', str(a.key)],
-        ['value', jsonValue(a.value)],
-      ]);
+    case 'SetState': {
+      // Phase 818 — `value` / `valueFrom` are XOR siblings; each is emitted
+      // only when present (key < value < valueFrom stays alphabetical).
+      const fields: Field[] = [['key', str(a.key)]];
+      if (a.value !== undefined) fields.push(['value', jsonValue(a.value)]);
+      if (a.valueFrom !== undefined) fields.push(['valueFrom', binding(a.valueFrom, jsonValue)]);
+      return caseObj('SetState', fields);
+    }
     case 'AiTool':
       return caseObj('AiTool', [
         ['args', jsonValue(a.args)],
@@ -1657,6 +1671,8 @@ const gridSpec = (s: GridSpec<unknown>): string => {
   // Phase 425 — `rowKey` (closure) + `rowKeyField` (declarative) are sibling optional slots.
   if (s.rowKey !== undefined) fields.push(['rowKey', CLOSURE]);
   if (s.rowKeyField !== undefined) fields.push(['rowKeyField', str(s.rowKeyField)]);
+  // Phase 818 — omitted when absent, so every pre-818 grid stays byte-identical.
+  if (s.sortStateKey !== undefined) fields.push(['sortStateKey', str(s.sortStateKey)]);
   // Phase 393 — the static read-only mode; omitted for a data-bound grid so every existing
   // grid fixture stays byte-identical.
   if (s.staticRows !== undefined) {

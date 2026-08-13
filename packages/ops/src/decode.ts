@@ -44,6 +44,7 @@ import type {
   SortKey,
   Transform,
   TransformParam,
+  TransformSource,
   WindowFn,
   LinkProtection,
   LinkSpec,
@@ -141,6 +142,7 @@ import type {
   DefaultSort,
   SortDirection,
   TabHeader,
+  Table,
   TableSpec,
   TabsSpec,
   TextAnchor,
@@ -1997,12 +1999,69 @@ const decodeBinding = (
       // Transform list) decode through the Core-style structural decoders; a Core
       // decode failure wraps to WRONG_TYPE at `.source` / `.pipeline`, byte-
       // identical to the F# UI host's `coreError` wrapping.
+      // Phase 818 — a binding-shaped source (State / Selection / Query `$type`)
+      // is PRESERVED as `TransformSource.Live`: the decoded binding re-encodes
+      // verbatim (one wire dialect) and the runtime re-evaluates the pipeline
+      // against it, with the decode-time `initial` snapshot derived from the
+      // binding's carried default data through the same 815 normalisation. A
+      // State wrapper carrying NO data still errors didactically through the
+      // columnar codec (the 815 posture).
       const srcJ = requireField(path, f, 'source', 'Transform DataSource object');
       if (!srcJ.ok) return srcJ;
       const pipeJ = requireField(path, f, 'pipeline', 'Transform pipeline array');
       if (!pipeJ.ok) return pipeJ;
-      const src = decodeDataSource(normaliseTransformSource(srcJ.value));
-      if (!src.ok) return makeError('WRONG_TYPE', `${path}.source`, src.error);
+      const liveTagAst = srcJ.value.kind === 'JObject' ? srcJ.value.fields.get('$type') : undefined;
+      const liveTag =
+        liveTagAst !== undefined &&
+        liveTagAst.kind === 'JString' &&
+        (liveTagAst.value === 'State' ||
+          liveTagAst.value === 'Selection' ||
+          liveTagAst.value === 'Query')
+          ? liveTagAst.value
+          : undefined;
+      const hasCarried = srcJ.value.kind === 'JObject' && srcJ.value.fields.has('defaultValue');
+      let source: TransformSource;
+      if (liveTag === undefined || (liveTag === 'State' && !hasCarried)) {
+        // The pre-818 path: canonical columnar / `ref`, the 815 leniencies
+        // (Static/Bound wrapper unwrap; row-major transpose), and the
+        // no-data State wrapper's didactic.
+        const src = decodeDataSource(normaliseTransformSource(srcJ.value));
+        if (!src.ok) return makeError('WRONG_TYPE', `${path}.source`, src.error);
+        source = { kind: 'Data', source: src.value };
+      } else {
+        // The carried default decodes FAITHFULLY (the structured decodeJVal),
+        // so the preserved binding round-trips byte-for-byte.
+        const b = decodeBinding(`${path}.source`, srcJ.value, decodeJVal, undefined);
+        if (!b.ok) return b;
+        if (liveTag === 'State') {
+          // The carried data IS the initial snapshot; a decode failure
+          // (ragged / mixed-type rows) surfaces the same didactic the 815
+          // snapshot decode raised.
+          const snap = decodeDataSource(normaliseTransformSource(srcJ.value));
+          if (!snap.ok) return makeError('WRONG_TYPE', `${path}.source`, snap.error);
+          source = {
+            kind: 'Live',
+            binding: b.value as Binding<JsonValue>,
+            initial: snap.value,
+          };
+        } else {
+          // Selection / Query — a tabular carried default seeds the initial
+          // snapshot; anything else starts from the empty table (runtime
+          // evaluation stays loud on a non-tabular live value, never here).
+          const dv =
+            srcJ.value.kind === 'JObject' ? srcJ.value.fields.get('defaultValue') : undefined;
+          const snap =
+            dv !== undefined ? decodeDataSource(normaliseTransformSource(dv)) : undefined;
+          source = {
+            kind: 'Live',
+            binding: b.value as Binding<JsonValue>,
+            initial:
+              snap !== undefined && snap.ok
+                ? snap.value
+                : { kind: 'Embedded', table: { schema: [], columns: [] } },
+          };
+        }
+      }
       const pipe = decodePipelineCore(pipeJ.value);
       if (!pipe.ok) return makeError('WRONG_TYPE', `${path}.pipeline`, pipe.error);
       // Phase 424 — optional `params`: [{ from: <Binding>, name: <string> }, …] binding each
@@ -2060,7 +2119,7 @@ const decodeBinding = (
       }
       const b: Binding<unknown> = {
         kind: 'Transform',
-        source: src.value,
+        source,
         pipeline: pipe.value,
         ...(params !== undefined ? { params } : {}),
       };
@@ -2148,6 +2207,48 @@ const normaliseTransformSource = (j: JsonAst): JsonAst => {
     };
   }
   return unwrapped;
+};
+
+/**
+ * Phase 818 — materialise a LIVE Transform source's resolved store value as the
+ * evaluation input table: row-major rows transpose through the same 815
+ * normalisation the decode-time snapshot used, then decode through the
+ * columnar codec (schema inference included). `ok: false` for any value that
+ * cannot be read as data — callers surface that loudly, never silently
+ * (the Phase-427 mismatch posture). Exported for the renderers' shared
+ * `evalTransformFrame` live leg.
+ */
+export const liveValueToTable = (
+  v: unknown,
+):
+  | { readonly ok: true; readonly value: Table }
+  | { readonly ok: false; readonly error: string } => {
+  if (v === undefined) return { ok: false, error: 'Transform live source resolved to no value' };
+  let text: string;
+  try {
+    text = JSON.stringify(v);
+  } catch {
+    return {
+      ok: false,
+      error: 'Transform live source resolved to a value with no JSON representation',
+    };
+  }
+  if (text === undefined) {
+    return { ok: false, error: 'Transform live source resolved to no value' };
+  }
+  const parsed = parse(text);
+  if (!parsed.ok) {
+    return { ok: false, error: 'Transform live source resolved to unreadable data' };
+  }
+  const src = decodeDataSource(normaliseTransformSource(parsed.value));
+  if (!src.ok) return { ok: false, error: src.error };
+  if (src.value.kind !== 'Embedded') {
+    return {
+      ok: false,
+      error: `Transform live source resolved to a 'ref' source ('${src.value.name}'), which is not host-resolved`,
+    };
+  }
+  return { ok: true, value: src.value.table };
 };
 
 const decodeBindingArgs = (path: string, j: JsonAst): R<Record<string, Binding<JsonValue>>> => {
@@ -2513,11 +2614,38 @@ const decodeAction = (path: string, j: JsonAst): R<Action<unknown>> => {
       return r.ok ? ok({ kind: 'Navigate', route: r.value }) : r;
     }
     case 'SetState': {
+      // Phase 818 — `value` (a literal JSON value, written verbatim) XOR
+      // `valueFrom` (a Binding evaluated at dispatch time inside the existing
+      // gate). Exactly one must be present; both / neither error didactically
+      // naming both fields.
       const key = reqField(path, f, 'key', 'state key string', requireString);
       if (!key.ok) return key;
-      const valueJ = requireField(path, f, 'value', 'JsonValue value');
-      if (!valueJ.ok) return valueJ;
-      const value = decodeJVal(`${path}.value`, valueJ.value);
+      const valueJ = tryField(f, 'value');
+      const fromJ = tryField(f, 'valueFrom');
+      if (valueJ !== undefined && fromJ !== undefined) {
+        return makeError(
+          'WRONG_TYPE',
+          `${path}.valueFrom`,
+          "SetState carries both 'value' and 'valueFrom' — exactly one is allowed: 'value' is a literal JSON value written verbatim; 'valueFrom' derives the written value from a Binding at dispatch time; remove one",
+        );
+      }
+      if (valueJ === undefined && fromJ === undefined) {
+        return makeError(
+          'MISSING_FIELD',
+          `${path}.value`,
+          "missing required field 'value' — provide 'value' (a literal JSON value) or 'valueFrom' (a Binding evaluated at dispatch time)",
+        );
+      }
+      if (fromJ !== undefined) {
+        const from = decodeBinding(`${path}.valueFrom`, fromJ, decodeJVal, undefined);
+        if (!from.ok) return from;
+        return ok({
+          kind: 'SetState',
+          key: key.value,
+          valueFrom: from.value as Binding<JsonValue>,
+        });
+      }
+      const value = decodeJVal(`${path}.value`, valueJ as JsonAst);
       return value.ok ? ok({ kind: 'SetState', key: key.value, value: value.value }) : value;
     }
     case 'AiTool': {
@@ -4121,6 +4249,17 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
     if (!rk.ok) return rk;
     rowKeyField = rk.value;
   }
+  // Phase 818 — the grid-sort header affordance: `sortStateKey` names the State
+  // key carrying the `{column, direction}` sort descriptor a data-bound grid's
+  // runtime sorts by (and whose headers write it). Optional string,
+  // encode-omitted when absent.
+  const sortStateKeyJ = tryField(f, 'sortStateKey');
+  let sortStateKey: string | undefined;
+  if (sortStateKeyJ !== undefined) {
+    const sk = requireString(`${path}.sortStateKey`, sortStateKeyJ);
+    if (!sk.ok) return sk;
+    sortStateKey = sk.value;
+  }
   // Phase 393 — the static read-only mode (omitted for a data-bound grid, so existing fixtures
   // stay byte-identical).
   const staticRowsJ = tryField(f, 'staticRows');
@@ -4137,6 +4276,7 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
     ...(hasRowClick ? { onRowClick: () => placeholderAction } : {}),
     ...(hasRowKey ? { rowKey: () => CLOSURE } : {}),
     ...(rowKeyField !== undefined ? { rowKeyField } : {}),
+    ...(sortStateKey !== undefined ? { sortStateKey } : {}),
     ...(staticRows !== undefined ? { staticRows } : {}),
   });
 };

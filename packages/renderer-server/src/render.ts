@@ -43,6 +43,7 @@ import type {
   Node,
   Orientation,
   SelectOption,
+  SortDirection,
   StateBehaviour,
   TabHeader,
   ToneVariant,
@@ -1559,10 +1560,22 @@ const renderGrid = (
   if (resolution.kind === 'Errored' && state.onError !== undefined) {
     return renderNode(ctx, state.onError(bindingResolutionError(resolution.message)));
   }
-  const rows = resolution.kind === 'Resolved' ? asArray<unknown>(resolution.value) : [];
-  if (rows.length === 0 && state.onEmpty !== undefined) {
+  const resolvedRows = resolution.kind === 'Resolved' ? asArray<unknown>(resolution.value) : [];
+  if (resolvedRows.length === 0 && state.onEmpty !== undefined) {
     return renderNode(ctx, state.onEmpty);
   }
+  // Phase 818 — `sortStateKey`: a host that seeds the named State key with a
+  // `{column, direction}` descriptor gets its resolved rows sorted by the
+  // addressed column's `field` before rendering (runtime-side sort). No seeded
+  // descriptor (the SSR default) ⇒ natural source order. The interactive
+  // affordance (`data-sortable` / live `aria-sort`) is a client-runtime
+  // surface this inert renderer deliberately does not emit — a table never
+  // advertises an interaction it cannot perform.
+  const sortDescriptor =
+    spec.sortStateKey !== undefined
+      ? readSortDescriptor(ctx.sources, spec.sortStateKey)
+      : undefined;
+  const rows = sortRowsByDescriptor(spec.columns, sortDescriptor, resolvedRows);
   const headerCells = spec.columns
     .map((col) => textEl('th', [['class', 'fuaran-grid-header']], col.label))
     .join('');
@@ -1577,6 +1590,71 @@ const renderGrid = (
     .join('');
   const body = el('tbody', [], bodyRows);
   return el('table', [['class', 'fuaran-grid']], head + body);
+};
+
+// ─── Data-bound grid sort (Phase 818 — `sortStateKey`; parity-locked with the
+// client renderer's `readSortDescriptor` / `sortRowsByDescriptor`) ───────────
+
+const readSortDescriptor = (
+  sources: BindingSources,
+  key: string,
+): readonly [number, SortDirection] | undefined => {
+  const raw = sources.state?.[key];
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const rec = raw as Record<string, unknown>;
+  const col = rec['column'];
+  const dir = rec['direction'];
+  if (typeof col !== 'number' || !Number.isInteger(col) || col < 0) return undefined;
+  if (dir !== 'asc' && dir !== 'desc') return undefined;
+  return [col, dir];
+};
+
+const cellSortRank = (v: CellValue): number => {
+  switch (v.kind) {
+    case 'Numeric':
+      return 0;
+    case 'Bool':
+      return 1;
+    case 'Date':
+      return 2;
+    case 'Text':
+      return 3;
+    case 'Empty':
+      return 4;
+  }
+};
+
+const compareCells = (a: CellValue, b: CellValue): number => {
+  if (a.kind === 'Numeric' && b.kind === 'Numeric')
+    return a.value < b.value ? -1 : a.value > b.value ? 1 : 0;
+  if (a.kind === 'Bool' && b.kind === 'Bool') return Number(a.value) - Number(b.value);
+  if (a.kind === 'Date' && b.kind === 'Date') return a.value.getTime() - b.value.getTime();
+  if (a.kind === 'Text' && b.kind === 'Text') {
+    const x = a.value.toLowerCase();
+    const y = b.value.toLowerCase();
+    return x < y ? -1 : x > y ? 1 : 0;
+  }
+  return cellSortRank(a) - cellSortRank(b);
+};
+
+const sortRowsByDescriptor = (
+  columns: readonly ColumnErased<unknown>[],
+  descriptor: readonly [number, SortDirection] | undefined,
+  rows: readonly unknown[],
+): readonly unknown[] => {
+  if (descriptor === undefined) return rows;
+  const [colIndex, direction] = descriptor;
+  const field = columns[colIndex]?.field;
+  if (field === undefined) return rows;
+  const keyed = rows.map((r) => [projectRowFieldValue(r, field), r] as const);
+  keyed.sort(([ka], [kb]) => {
+    if (ka.kind === 'Empty' && kb.kind === 'Empty') return 0;
+    if (ka.kind === 'Empty') return 1;
+    if (kb.kind === 'Empty') return -1;
+    const c = compareCells(ka, kb);
+    return direction === 'asc' ? c : -c;
+  });
+  return keyed.map(([, r]) => r);
 };
 
 // Phase 425 — the row-field projection contract (parity-locked with the client

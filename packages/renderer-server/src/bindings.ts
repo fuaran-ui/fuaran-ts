@@ -29,6 +29,7 @@ import {
   evalPipelineWith,
   evalPipelineWithInEnv,
   stepParams,
+  liveValueToTable,
   type SourceResolver,
 } from '@fuaran-ui/ops';
 
@@ -220,11 +221,40 @@ const evalTransformFrame = (
       ? { ok: true, value: t }
       : { ok: false, error: { kind: 'UnresolvedSource', ref: name } };
   };
-  const inputTable =
-    binding.source.kind === 'Embedded' ? binding.source.table : refs[binding.source.name];
-  if (inputTable === undefined) {
-    const refName = binding.source.kind === 'Ref' ? binding.source.name : '';
-    return { ok: false, error: `Transform source ref '${refName}' not provided` };
+  // Phase 818 — a LIVE source resolves its preserved binding against the
+  // stores and evaluates over the CURRENT data (row-major store values
+  // transpose through the same 815 normalisation the decode-time snapshot
+  // used); an unwritten store falls back to the decode-time `initial`, which
+  // is what keeps SSR byte-identical to the snapshot era. Non-tabular live
+  // values error loudly, never silently.
+  let inputTable: Table | undefined;
+  if (binding.source.kind === 'Live') {
+    const live = binding.source;
+    const r = resolve<JsonValue>(sources, live.binding);
+    if (r.kind === 'Resolved') {
+      const t = liveValueToTable(r.value);
+      if (!t.ok) return { ok: false, error: `Transform live source: ${t.error}` };
+      inputTable = t.value;
+    } else if (r.kind === 'NotResolved') {
+      if (live.initial.kind !== 'Embedded') {
+        return {
+          ok: false,
+          error: `Transform live source initial snapshot is a non-host-resolved 'ref' ('${live.initial.name}')`,
+        };
+      }
+      inputTable = live.initial.table;
+    } else if (r.kind === 'Errored') {
+      return { ok: false, error: `Transform live source errored: ${r.message}` };
+    } else {
+      return { ok: false, error: `Transform live source is an unresolved i18n key '${r.key}'` };
+    }
+  } else {
+    const ds = binding.source.source;
+    inputTable = ds.kind === 'Embedded' ? ds.table : refs[ds.name];
+    if (inputTable === undefined) {
+      const refName = ds.kind === 'Ref' ? ds.name : '';
+      return { ok: false, error: `Transform source ref '${refName}' not provided` };
+    }
   }
   const params = binding.params ?? [];
   const env: Record<string, Cell> = {};

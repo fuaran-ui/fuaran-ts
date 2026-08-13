@@ -58,7 +58,7 @@ describe('compute codec — full verb / expr / cell coverage (round-trip stable)
     const pipeline: Transform[] = exprs.map((e, i) => ({ kind: 'derive', name: `c${i}`, expr: e }));
     roundTripStable({
       kind: 'Transform',
-      source: { kind: 'Embedded', table: { schema: [], columns: [] } },
+      source: { kind: 'Data', source: { kind: 'Embedded', table: { schema: [], columns: [] } } },
       pipeline,
     });
   });
@@ -112,7 +112,7 @@ describe('compute codec — full verb / expr / cell coverage (round-trip stable)
     ];
     roundTripStable({
       kind: 'Transform',
-      source: { kind: 'Embedded', table: { schema: [], columns: [] } },
+      source: { kind: 'Data', source: { kind: 'Embedded', table: { schema: [], columns: [] } } },
       pipeline,
     });
   });
@@ -185,39 +185,46 @@ describe('compute codec — full verb / expr / cell coverage (round-trip stable)
     roundTripStable({
       kind: 'Transform',
       source: {
-        kind: 'Embedded',
-        table: {
-          schema: [
-            { name: 'n', type: 'int' },
-            { name: 'f', type: 'float' },
-            { name: 'b', type: 'bool' },
-            { name: 'k', type: 'string' },
-            { name: 'd', type: 'date' },
-            { name: 't', type: 'timestamp' },
-          ],
-          columns: [
-            { name: 'n', type: 'int', cells: [{ kind: 'Int', value: 1 }, { kind: 'Null' }] },
-            { name: 'f', type: 'float', cells: [{ kind: 'Float', value: 1.5 }, { kind: 'Null' }] },
-            { name: 'b', type: 'bool', cells: [{ kind: 'Bool', value: true }, { kind: 'Null' }] },
-            {
-              name: 'k',
-              type: 'string',
-              cells: [
-                { kind: 'Str', value: 'a' },
-                { kind: 'Str', value: 'b' },
-              ],
-            },
-            {
-              name: 'd',
-              type: 'date',
-              cells: [{ kind: 'Date', value: '2026-01-01' }, { kind: 'Null' }],
-            },
-            {
-              name: 't',
-              type: 'timestamp',
-              cells: [{ kind: 'Timestamp', value: '2026-01-01T00:00:00Z' }, { kind: 'Null' }],
-            },
-          ],
+        kind: 'Data',
+        source: {
+          kind: 'Embedded',
+          table: {
+            schema: [
+              { name: 'n', type: 'int' },
+              { name: 'f', type: 'float' },
+              { name: 'b', type: 'bool' },
+              { name: 'k', type: 'string' },
+              { name: 'd', type: 'date' },
+              { name: 't', type: 'timestamp' },
+            ],
+            columns: [
+              { name: 'n', type: 'int', cells: [{ kind: 'Int', value: 1 }, { kind: 'Null' }] },
+              {
+                name: 'f',
+                type: 'float',
+                cells: [{ kind: 'Float', value: 1.5 }, { kind: 'Null' }],
+              },
+              { name: 'b', type: 'bool', cells: [{ kind: 'Bool', value: true }, { kind: 'Null' }] },
+              {
+                name: 'k',
+                type: 'string',
+                cells: [
+                  { kind: 'Str', value: 'a' },
+                  { kind: 'Str', value: 'b' },
+                ],
+              },
+              {
+                name: 'd',
+                type: 'date',
+                cells: [{ kind: 'Date', value: '2026-01-01' }, { kind: 'Null' }],
+              },
+              {
+                name: 't',
+                type: 'timestamp',
+                cells: [{ kind: 'Timestamp', value: '2026-01-01T00:00:00Z' }, { kind: 'Null' }],
+              },
+            ],
+          },
         },
       },
       pipeline,
@@ -227,7 +234,7 @@ describe('compute codec — full verb / expr / cell coverage (round-trip stable)
   it('a Ref source pipeline', () => {
     roundTripStable({
       kind: 'Transform',
-      source: { kind: 'Ref', name: 'sales' },
+      source: { kind: 'Data', source: { kind: 'Ref', name: 'sales' } },
       pipeline: [{ kind: 'limit', n: 5, offset: 0 }],
     });
   });

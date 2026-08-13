@@ -26,7 +26,14 @@ export {
   type SourceResolver,
   type EvalEnv,
 } from './dataframe.js';
-export { decodeNode, decodeOp, coerce, type DecodeError, type DecodeErrorCode } from './decode.js';
+export {
+  decodeNode,
+  decodeOp,
+  coerce,
+  liveValueToTable,
+  type DecodeError,
+  type DecodeErrorCode,
+} from './decode.js';
 export {
   apply,
   type ApplyError,

@@ -256,7 +256,13 @@ export class TransformBuilder {
 
   /** Project to a `Binding.Transform` — drop it into a data-bearing node's source slot. */
   toBinding<T>(): Binding<T> {
-    return { kind: 'Transform', source: this.source, pipeline: this.steps };
+    // Phase 818 — the builder's columnar source rides the `Data` arm of the
+    // widened `TransformSource` slot (byte-identical on the wire).
+    return {
+      kind: 'Transform',
+      source: { kind: 'Data', source: this.source },
+      pipeline: this.steps,
+    };
   }
 }
 

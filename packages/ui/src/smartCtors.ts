@@ -316,7 +316,28 @@ export const binding = {
    * Resolves to the transformed rows at a data-bearing node's source slot.
    */
   transform<T>(source: DataSource, pipeline: readonly Transform[]): Binding<T> {
-    return { kind: 'Transform', source, pipeline };
+    return { kind: 'Transform', source: { kind: 'Data', source }, pipeline };
+  },
+  /**
+   * Phase 818 — a LIVE declarative dataframe transform (the reactive-derivation
+   * first cut). `source` is a binding (typically `binding.state` carrying
+   * initial rows in its default; a selection / query binding also works) the
+   * runtime re-evaluates the pipeline against with subscription semantics — a
+   * `SetState` on the key re-derives every reader. The resolver derives the
+   * evaluation table from the binding's resolved value (its carried default
+   * until the store is written), so the authoring-side `initial` snapshot
+   * starts empty — the renderer never reads it for a resolvable source.
+   */
+  transformLive<T>(source: Binding<JsonValue>, pipeline: readonly Transform[]): Binding<T> {
+    return {
+      kind: 'Transform',
+      source: {
+        kind: 'Live',
+        binding: source,
+        initial: { kind: 'Embedded', table: { schema: [], columns: [] } },
+      },
+      pipeline,
+    };
   },
   /**
    * Phase 283 — invoke a host-registered compute capability for a value.
@@ -376,6 +397,16 @@ export const action = {
   },
   setState<TMsg>(key: string, value: JsonValue): Action<TMsg> {
     return { kind: 'SetState', key, value };
+  },
+  /**
+   * Phase 818 — write a DERIVED value to the State channel: `source` is a
+   * Binding evaluated at dispatch time inside the existing gate (value XOR
+   * valueFrom on the wire). Closes "set state from what the user
+   * clicked/typed" without closures — e.g.
+   * `action.setStateFrom('chosen-id', binding.selectionField('grid', 'id'))`.
+   */
+  setStateFrom<TMsg>(key: string, source: Binding<JsonValue>): Action<TMsg> {
+    return { kind: 'SetState', key, valueFrom: source };
   },
   aiTool<TMsg>(toolName: string, args: JsonValue): Action<TMsg> {
     return { kind: 'AiTool', toolName, args };

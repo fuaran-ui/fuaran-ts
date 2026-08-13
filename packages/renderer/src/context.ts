@@ -16,7 +16,7 @@ import type {
   NodeKind,
 } from '@fuaran-ui/schema';
 
-import type { BindingSources } from './bindings.js';
+import { type BindingSources, resolve } from './bindings.js';
 import {
   type ActionDescriptor,
   describeActionDescriptor,
@@ -159,14 +159,39 @@ export const runAction = <TMsg>(ctx: RenderContext<TMsg>, action: Action<TMsg>):
           );
       });
       return;
-    case 'SetState':
-      if (ctx.runtime.setState) ctx.runtime.setState(action.key, action.value);
+    case 'SetState': {
+      // Phase 818 — `valueFrom` (value XOR valueFrom, decode-enforced)
+      // evaluates AT DISPATCH TIME against the render pass's sources. An
+      // unresolved / errored source performs NO write and warns — a derived
+      // write must never silently write a wrong value.
+      let payload: JsonValue | undefined = action.value;
+      if (action.valueFrom !== undefined) {
+        const r = resolve<JsonValue>(ctx.sources, action.valueFrom);
+        if (r.kind === 'Resolved') {
+          payload = r.value;
+        } else {
+          const why =
+            r.kind === 'NotResolved'
+              ? 'did not resolve'
+              : r.kind === 'Errored'
+                ? `errored: ${r.message}`
+                : `is an unresolved i18n key '${r.key}'`;
+          warn(
+            ctx as RenderContext<unknown>,
+            `Action.SetState '${action.key}' valueFrom ${why} — no write performed.`,
+          );
+          return;
+        }
+      }
+      if (payload === undefined) return;
+      if (ctx.runtime.setState) ctx.runtime.setState(action.key, payload);
       else
         warn(
           ctx as RenderContext<unknown>,
           `Action.SetState '${action.key}' — no runtime.setState wired.`,
         );
       return;
+    }
     case 'AiTool':
       applyDispatchGate(ctx, { kind: 'AiTool', toolName: action.toolName }, () => {
         if (ctx.runtime.invokeAiTool) ctx.runtime.invokeAiTool(action.toolName, action.args);

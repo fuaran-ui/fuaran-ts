@@ -320,8 +320,13 @@ export type Binding<T> =
       // @fuaran-ui/ops evaluator runs the pipeline and the result rows resolve as
       // the node's data source. Structurally independent of `T` (the case carries
       // no typed payload), mirroring the F# `Binding.Transform` case.
+      // Phase 818 — the source slot widened from `DataSource` to the host
+      // `TransformSource` union so a binding-shaped wire source (State /
+      // Selection / Query) is PRESERVED for live re-evaluation instead of
+      // being snapshotted at decode (the Phase-815 leniency's semantics
+      // upgrade).
       readonly kind: 'Transform';
-      readonly source: DataSource;
+      readonly source: TransformSource;
       readonly pipeline: readonly Transform[];
       // Phase 424 — bind each `ColExpr.Param` name the pipeline references to a scalar `Binding`
       // source (`Filter` / `State` / `Static` / `Selection`). Optional (omitted-when-empty), so a
@@ -339,6 +344,25 @@ export type Binding<T> =
       readonly kind: 'Invoke';
       readonly capabilityId: string;
       readonly args: readonly InvokeArg[];
+    };
+
+/**
+ * Phase 818 — a `Binding.Transform`'s source slot (mirror of the F#
+ * `TransformSource` DU). `Data` is the canonical columnar / `ref` source (the
+ * pre-818 shape, byte-identical on the wire). `Live` preserves a
+ * binding-shaped source (State / Selection / Query) verbatim so a runtime
+ * re-evaluates the Transform when the binding's channel changes; `initial` is
+ * the decode-time snapshot table derived from the binding's carried default
+ * data (never encoded — the binding IS the wire form), which SSR / diagnostic
+ * evaluation reads, byte-identical to the Phase-815 snapshot for the same
+ * input.
+ */
+export type TransformSource =
+  | { readonly kind: 'Data'; readonly source: DataSource }
+  | {
+      readonly kind: 'Live';
+      readonly binding: Binding<JsonValue>;
+      readonly initial: DataSource;
     };
 
 /** Phase 62: when a `Binding.Local` flushes its buffered value to the model. */
@@ -394,7 +418,16 @@ export type Action<TMsg> =
     }
   | { readonly kind: 'Notify'; readonly channel: string; readonly payload: JsonValue }
   | { readonly kind: 'Navigate'; readonly route: string }
-  | { readonly kind: 'SetState'; readonly key: string; readonly value: JsonValue }
+  // Phase 818 — `valueFrom` (a Binding evaluated at dispatch time inside the
+  // existing gate) is a SIBLING of the literal `value`; decode enforces
+  // value XOR valueFrom. `value` became optional in the same change so the
+  // valueFrom-only wire shape is representable without a placeholder.
+  | {
+      readonly kind: 'SetState';
+      readonly key: string;
+      readonly value?: JsonValue;
+      readonly valueFrom?: Binding<JsonValue>;
+    }
   | { readonly kind: 'AiTool'; readonly toolName: string; readonly args: JsonValue }
   | { readonly kind: 'Chain'; readonly actions: readonly Action<TMsg>[] }
   | { readonly kind: 'CommitLocal'; readonly nodeId: string }
@@ -1613,6 +1646,16 @@ export interface GridSpec<TMsg> {
   // decoded grid uses the field for stable identity with zero host code. Closure wins when both present.
   readonly rowKey?: (row: unknown) => string;
   readonly rowKeyField?: string;
+  // Phase 818 — the grid-sort header affordance for a DATA-BOUND grid: names
+  // the State key carrying the sort descriptor
+  // `{"column": <index>, "direction": "asc"|"desc"}`. When set, the runtime
+  // renders sortable column headers (a header click writes the toggled
+  // descriptor via the SetState path) and sorts its resolved rows by the
+  // state-carried descriptor before rendering. Sorting keys off the clicked
+  // column's `field` — a field-less closure column renders without the
+  // affordance. Omitted on the wire when absent; `staticRows`' own Phase-801
+  // sort intent is untouched.
+  readonly sortStateKey?: string;
   readonly columns: readonly ColumnErased<TMsg>[];
   readonly onRowClick?: (row: unknown) => Action<TMsg>;
   readonly editable: boolean;
