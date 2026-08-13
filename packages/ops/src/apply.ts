@@ -322,6 +322,35 @@ const updateField = (
         return field === 'Rows'
           ? patch(coerce.int(value), (x) => disp({ kind: 'Skeleton', spec: { rows: x } }))
           : { tag: 'unknownField' };
+      case 'Icon': {
+        // Phase 821 — the standalone Icon display kind's field surface.
+        const s = d.spec;
+        switch (field) {
+          case 'Icon':
+            return patch(coerce.string(value), (x) =>
+              disp({ kind: 'Icon', spec: { ...s, icon: x } }),
+            );
+          case 'Size':
+            return patch(coerce.iconSize(value), (x) =>
+              disp({ kind: 'Icon', spec: { ...s, size: x } }),
+            );
+          case 'Tone':
+            return patch(coerce.tone(value), (x) =>
+              disp({ kind: 'Icon', spec: { ...s, tone: x } }),
+            );
+          case 'Label': {
+            return patch(coerce.stringOption(value), (x) => {
+              const { label: _label, ...rest } = s;
+              return disp({
+                kind: 'Icon',
+                spec: { ...rest, ...(x !== undefined ? { label: x } : {}) },
+              });
+            });
+          }
+          default:
+            return { tag: 'unknownField' };
+        }
+      }
       case 'Callout': {
         const s = d.spec;
         switch (field) {

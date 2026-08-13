@@ -444,6 +444,14 @@ export type CellValue =
   | { readonly kind: 'Date'; readonly value: Date }
   | { readonly kind: 'Empty' };
 
+/** Duration grain for `CellFormat.Duration` / `Format.Duration` (Phase 819) —
+ * the numeric source counts this unit (Seconds = 1, Minutes = 60, Hours = 3600). */
+export type DurationUnit = 'Seconds' | 'Minutes' | 'Hours';
+
+/** Duration presentation for `CellFormat.Duration` / `Format.Duration`
+ * (Phase 819): `Compact` "1h 20m", `Clock` "1:20:00", `Long` "1 hour 20 minutes". */
+export type DurationStyle = 'Compact' | 'Clock' | 'Long';
+
 export type CellFormat =
   | { readonly kind: 'None' }
   | { readonly kind: 'Number'; readonly decimals?: number }
@@ -451,6 +459,8 @@ export type CellFormat =
   | { readonly kind: 'Percent'; readonly decimals?: number }
   | { readonly kind: 'SignificantDigits'; readonly digits: number }
   | { readonly kind: 'Date'; readonly format: string }
+  | { readonly kind: 'Duration'; readonly unit: DurationUnit; readonly style: DurationStyle }
+  | { readonly kind: 'RelativeTime'; readonly unit: RelativeTimeUnit }
   | { readonly kind: 'Custom'; readonly format: (value: CellValue) => string };
 
 export type ColumnWidth =
@@ -470,14 +480,16 @@ export type RelativeTimeUnit = 'Second' | 'Minute' | 'Hour' | 'Day' | 'Week' | '
  * Bounded, semantic locale-aware formatting intent carried by `Binding.Format`.
  * The numeric source is read as a plain number (`Number` / `Currency` /
  * `Percent` — `Percent` a ratio), whole Unix-epoch seconds (`Date`), or a
- * signed count of the unit (`RelativeTime`). No raw Intl option-bag escape.
+ * signed count of the unit (`RelativeTime` / `Duration` — Phase 819; Duration
+ * renders locale-independently, see `DurationStyle`). No raw Intl option-bag escape.
  */
 export type Format =
   | { readonly kind: 'Number'; readonly decimals?: number }
   | { readonly kind: 'Currency'; readonly isoCode: string }
   | { readonly kind: 'Percent'; readonly decimals?: number }
   | { readonly kind: 'Date'; readonly dateStyle: DateStyle }
-  | { readonly kind: 'RelativeTime'; readonly unit: RelativeTimeUnit };
+  | { readonly kind: 'RelativeTime'; readonly unit: RelativeTimeUnit }
+  | { readonly kind: 'Duration'; readonly unit: DurationUnit; readonly style: DurationStyle };
 
 /**
  * Locale selector for `Binding.Format`. `Ambient` defers to the host-supplied
@@ -598,6 +610,7 @@ export const NODE_KIND_GROUPS: readonly {
       'Callout',
       'Progress',
       'Skeleton',
+      'Icon',
       'LabelValueRow',
       'Fact',
       'Link',
@@ -976,6 +989,7 @@ export type DisplayKind =
   | { readonly kind: 'Callout'; readonly spec: CalloutSpec }
   | { readonly kind: 'Progress'; readonly spec: ProgressSpec }
   | { readonly kind: 'Skeleton'; readonly spec: SkeletonSpec }
+  | { readonly kind: 'Icon'; readonly spec: IconSpec }
   | { readonly kind: 'LabelValueRow'; readonly spec: LabelValueRowSpec }
   | { readonly kind: 'Fact'; readonly spec: FactSpec }
   | { readonly kind: 'Link'; readonly spec: LinkSpec }
@@ -1220,6 +1234,22 @@ export interface DrawingSpec {
 
 export interface SkeletonSpec {
   readonly rows: number;
+}
+
+/** Icon glyph size for the standalone `Icon` display kind (Phase 821). */
+export type IconSize = 'Small' | 'Medium' | 'Large';
+
+/**
+ * Phase 821 — the standalone icon-only display kind: a decorative or labelled
+ * glyph with no Button / Image envelope. `icon` names a glyph from the existing
+ * icon vocabulary (the `data-icon` hook); `label` absent is decorative
+ * (`aria-hidden="true"`), present is meaningful (`role="img"` + `aria-label`).
+ */
+export interface IconSpec {
+  readonly icon: string;
+  readonly size: IconSize;
+  readonly tone: ToneVariant;
+  readonly label?: string;
 }
 
 export interface CalloutSpec {

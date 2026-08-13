@@ -103,6 +103,23 @@ export const renderDisplay = <TMsg,>(
         </div>
       );
 
+    case 'Icon': {
+      // Phase 821 — the standalone icon-only display kind. The glyph NAME
+      // rides `data-icon` (the uniform icon-hook contract — no text content,
+      // hosts map it to glyphs); size + tone are modifier classes. A11y:
+      // decorative (no label) emits `aria-hidden="true"`; labelled emits
+      // `role="img"` + `aria-label`. Mirrors the F# renderers byte-for-byte.
+      const spec = display.spec;
+      const className = `fuaran-icon fuaran-icon--${spec.size.toLowerCase()} fuaran-icon-${toneVar(
+        spec.tone,
+      )}`;
+      return spec.label !== undefined ? (
+        <span className={className} data-icon={spec.icon} role="img" aria-label={spec.label} />
+      ) : (
+        <span className={className} data-icon={spec.icon} aria-hidden="true" />
+      );
+    }
+
     case 'Callout':
       return renderCallout(ctx, display.spec);
 

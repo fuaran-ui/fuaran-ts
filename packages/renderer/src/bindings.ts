@@ -16,8 +16,11 @@ import type {
   Cell,
   CellFormat,
   CellValue,
+  DurationStyle,
+  DurationUnit,
   Format,
   JsonValue,
+  RelativeTimeUnit,
   Table,
   TextSource,
 } from '@fuaran-ui/schema';
@@ -344,6 +347,76 @@ const dateStyleLower = (s: string): Intl.DateTimeFormatOptions['dateStyle'] =>
 const relUnitLower = (u: string): Intl.RelativeTimeFormatUnit =>
   u.toLowerCase() as Intl.RelativeTimeFormatUnit;
 
+// ─── Duration / relative-time rendering (Phase 819) ──────────────────────────
+//
+// Mirrors the F# `Formatting.formatDuration` / `formatRelativeEnglish` exactly
+// (shared hand-rolled implementations — a duration is deliberately
+// LOCALE-INDEPENDENT, and the cell vocabulary has no locale dimension, so the
+// English relative form IS the canonical cell rendering). Rounding is
+// half-to-even, matching .NET `round`.
+
+const roundHalfEven = (v: number): number => {
+  const f = Math.floor(v);
+  const diff = v - f;
+  if (diff > 0.5) return f + 1;
+  if (diff < 0.5) return f;
+  return f % 2 === 0 ? f : f + 1;
+};
+
+const durationUnitSeconds = (u: DurationUnit): number =>
+  u === 'Seconds' ? 1 : u === 'Minutes' ? 60 : 3600;
+
+/** Render `value` (a signed count of `unit`s) per the bounded `DurationStyle`. */
+export const formatDuration = (unit: DurationUnit, style: DurationStyle, value: number): string => {
+  const totalSeconds = value * durationUnitSeconds(unit);
+  const total = roundHalfEven(Math.abs(totalSeconds));
+  const sign = totalSeconds < 0 && total > 0 ? '-' : '';
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  let body: string;
+  switch (style) {
+    case 'Compact':
+      // Largest two grains, zero tails omitted: "1h 20m" / "2h" / "5m 30s" /
+      // "42s"; zero -> "0s".
+      if (hours >= 1) body = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+      else if (minutes >= 1) body = seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+      else body = `${seconds}s`;
+      break;
+    case 'Clock':
+      // "h:mm:ss" from one hour up, "m:ss" below it.
+      body =
+        hours >= 1
+          ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+          : `${minutes}:${String(seconds).padStart(2, '0')}`;
+      break;
+    case 'Long': {
+      // English words, singular/plural, zero components omitted; zero -> "0 minutes".
+      const part = (n: number, word: string): string | undefined =>
+        n === 0 ? undefined : n === 1 ? `1 ${word}` : `${n} ${word}s`;
+      const parts = [part(hours, 'hour'), part(minutes, 'minute'), part(seconds, 'second')].filter(
+        (p): p is string => p !== undefined,
+      );
+      body = parts.length === 0 ? '0 minutes' : parts.join(' ');
+      break;
+    }
+  }
+  return sign + body;
+};
+
+/**
+ * English relative-time rendering over a signed count of `unit` — "in 2 hours"
+ * / "3 minutes ago" / "this minute" (Phase 819).
+ */
+export const formatRelativeEnglish = (unit: RelativeTimeUnit, value: number): string => {
+  const n = roundHalfEven(value);
+  const unitWord = unit.toLowerCase();
+  if (n === 0) return `this ${unitWord}`;
+  const magnitude = Math.abs(n);
+  const plural = magnitude === 1 ? unitWord : `${unitWord}s`;
+  return n < 0 ? `${magnitude} ${plural} ago` : `in ${magnitude} ${plural}`;
+};
+
 /** Format a numeric value per a bounded `Format` intent + BCP-47 locale tag. */
 export const formatLocaleValue = (localeTag: string, fmt: Format, value: number): string => {
   const loc = localeTag === '' ? undefined : localeTag;
@@ -377,6 +450,10 @@ export const formatLocaleValue = (localeTag: string, fmt: Format, value: number)
         value,
         relUnitLower(fmt.unit),
       );
+    case 'Duration':
+      // Phase 819 — locale-independent by design (see formatDuration above):
+      // the one Format case with exact cross-host parity.
+      return formatDuration(fmt.unit, fmt.style, value);
   }
 };
 
@@ -585,6 +662,10 @@ export const formatNumber = (format: CellFormat, value: number): string => {
       return Number(value.toPrecision(format.digits)).toString();
     case 'Date':
       return numToString(value);
+    case 'Duration':
+      return formatDuration(format.unit, format.style, value);
+    case 'RelativeTime':
+      return formatRelativeEnglish(format.unit, value);
     case 'Custom':
       return format.format({ kind: 'Numeric', value });
   }

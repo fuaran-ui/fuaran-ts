@@ -70,6 +70,7 @@ import type {
   FormFieldKind,
   HeadingVariant,
   HoleDecl,
+  IconSpec,
   JsonValue,
   MetricSpec,
   LocalBinding,
@@ -1540,6 +1541,17 @@ export const fuaran = {
   },
   skeleton<TMsg>(id: NodeId | string, rows: number): Node<TMsg> {
     return buildNode(id, { kind: 'Display', display: { kind: 'Skeleton', spec: { rows } } });
+  },
+  /** Phase 821 — the standalone icon-only display kind, decorative form
+   * (no label ⇒ `aria-hidden`). Full record form via `iconSpec`. */
+  icon<TMsg>(id: NodeId | string, name: string): Node<TMsg> {
+    return buildNode(id, {
+      kind: 'Display',
+      display: { kind: 'Icon', spec: { icon: name, size: 'Medium', tone: 'Default' } },
+    });
+  },
+  iconSpec<TMsg>(id: NodeId | string, spec: IconSpec): Node<TMsg> {
+    return buildNode(id, { kind: 'Display', display: { kind: 'Icon', spec } });
   },
 
   // ─── Input ─────────────────────────────────────────────────────────────

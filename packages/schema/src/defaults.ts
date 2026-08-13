@@ -57,6 +57,7 @@ import type {
   SelectSpec,
   SemanticStyle,
   SkeletonSpec,
+  IconSpec,
   SparklineSpec,
   SplitPanelSpec,
   StackSpec,
@@ -212,6 +213,9 @@ const badge: BadgeSpec = { label: emptyLiteral, variant: 'Neutral' };
 const sparkline: SparklineSpec = { source: noBinding<readonly number[]>() };
 
 const skeleton: SkeletonSpec = { rows: 3 };
+
+// Phase 821 — decorative by default (no label ⇒ aria-hidden).
+const icon: IconSpec = { icon: '', size: 'Medium', tone: 'Default' };
 
 const callout: CalloutSpec = {
   tone: 'Info',
@@ -414,6 +418,7 @@ export const defaults = {
   badge,
   sparkline,
   skeleton,
+  icon,
   callout,
   progress,
   button,

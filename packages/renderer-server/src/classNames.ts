@@ -180,6 +180,7 @@ const displayKindClass: Record<string, string> = {
   Callout: 'fuaran-kind-callout',
   Progress: 'fuaran-kind-progress',
   Skeleton: 'fuaran-kind-skeleton',
+  Icon: 'fuaran-kind-icon',
 };
 
 const inputKindClass: Record<string, string> = {

@@ -127,6 +127,11 @@ import type {
   SelectSpec,
   SemanticStyle,
   SkeletonSpec,
+  IconSpec,
+  IconSize,
+  DurationUnit,
+  DurationStyle,
+  RelativeTimeUnit,
   SparklineSpec,
   SplitPanelSpec,
   StateBehaviour,
@@ -622,6 +627,22 @@ const decodeLiveRegion = (p: string, j: JsonAst): R<LiveRegionKind> =>
 
 // ─── CellFormat / ColumnWidth / IconSource ───────────────────────────────────
 
+// Phase 819 — the Duration / RelativeTime format enums. Defined ahead of
+// `decodeCellFormat` (which references them); `decodeFormat` below shares them.
+const decodeDurationUnit = (p: string, j: JsonAst): R<DurationUnit> =>
+  bareEnum(p, j, ['Seconds', 'Minutes', 'Hours'] as const, 'DurationUnit');
+
+const decodeDurationStyle = (p: string, j: JsonAst): R<DurationStyle> =>
+  bareEnum(p, j, ['Compact', 'Clock', 'Long'] as const, 'DurationStyle');
+
+const decodeRelativeTimeUnit = (p: string, j: JsonAst): R<RelativeTimeUnit> =>
+  bareEnum(
+    p,
+    j,
+    ['Second', 'Minute', 'Hour', 'Day', 'Week', 'Month', 'Year'] as const,
+    'RelativeTimeUnit',
+  );
+
 const decodeCellFormat = (path: string, j: JsonAst): R<CellFormat> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
@@ -656,13 +677,27 @@ const decodeCellFormat = (path: string, j: JsonAst): R<CellFormat> => {
       const r = reqField(path, f, 'format', 'format string', requireString);
       return r.ok ? ok({ kind: 'Date', format: r.value }) : r;
     }
+    case 'Duration': {
+      // Phase 819 — trendable duration cells: raw float counts `unit`s,
+      // rendered per `style`.
+      const unit = reqField(path, f, 'unit', 'DurationUnit string', decodeDurationUnit);
+      if (!unit.ok) return unit;
+      const style = reqField(path, f, 'style', 'DurationStyle string', decodeDurationStyle);
+      if (!style.ok) return style;
+      return ok<CellFormat>({ kind: 'Duration', unit: unit.value, style: style.value });
+    }
+    case 'RelativeTime': {
+      // Phase 819 — cell-vocabulary parity with `Format.RelativeTime`.
+      const r = reqField(path, f, 'unit', 'RelativeTimeUnit string', decodeRelativeTimeUnit);
+      return r.ok ? ok<CellFormat>({ kind: 'RelativeTime', unit: r.value }) : r;
+    }
     case 'Custom':
       return ok({ kind: 'Custom', format: () => CLOSURE });
     default:
       return unknownDuCase(
         path,
         d.value,
-        'None | Number | Currency | Percent | SignificantDigits | Date | Custom',
+        'None | Number | Currency | Percent | SignificantDigits | Date | Duration | RelativeTime | Custom',
       );
   }
 };
@@ -699,18 +734,23 @@ const decodeFormat = (path: string, j: JsonAst): R<Format> => {
       return r.ok ? ok<Format>({ kind: 'Date', dateStyle: r.value }) : r;
     }
     case 'RelativeTime': {
-      const r = reqField(path, f, 'unit', 'RelativeTimeUnit string', (p, v) =>
-        bareEnum(
-          p,
-          v,
-          ['Second', 'Minute', 'Hour', 'Day', 'Week', 'Month', 'Year'] as const,
-          'RelativeTimeUnit',
-        ),
-      );
+      const r = reqField(path, f, 'unit', 'RelativeTimeUnit string', decodeRelativeTimeUnit);
       return r.ok ? ok<Format>({ kind: 'RelativeTime', unit: r.value }) : r;
     }
+    case 'Duration': {
+      // Phase 819 — locale-independent duration formatting.
+      const unit = reqField(path, f, 'unit', 'DurationUnit string', decodeDurationUnit);
+      if (!unit.ok) return unit;
+      const style = reqField(path, f, 'style', 'DurationStyle string', decodeDurationStyle);
+      if (!style.ok) return style;
+      return ok<Format>({ kind: 'Duration', unit: unit.value, style: style.value });
+    }
     default:
-      return unknownDuCase(path, d.value, 'Number | Currency | Percent | Date | RelativeTime');
+      return unknownDuCase(
+        path,
+        d.value,
+        'Number | Currency | Percent | Date | RelativeTime | Duration',
+      );
   }
 };
 
@@ -1961,7 +2001,7 @@ const decodeBinding = (
       if (!srcJ.ok) return srcJ;
       const pipeJ = requireField(path, f, 'pipeline', 'Transform pipeline array');
       if (!pipeJ.ok) return pipeJ;
-      const src = decodeDataSource(srcJ.value);
+      const src = decodeDataSource(normaliseTransformSource(srcJ.value));
       if (!src.ok) return makeError('WRONG_TYPE', `${path}.source`, src.error);
       const pipe = decodePipelineCore(pipeJ.value);
       if (!pipe.ok) return makeError('WRONG_TYPE', `${path}.pipeline`, pipe.error);
@@ -2055,6 +2095,59 @@ const decodeBinding = (
         'Static | Query | Filter | Selection | State | Computed | I18n | Local | Format | Transform | Invoke',
       );
   }
+};
+
+// Phase 815 — organic-demand leniencies for the Transform `source` slot, both
+// observed cross-family (claude, gemini, kimi — the Tier-D pilot, 2026-08-13):
+// models bind a derived value to a Transform whose source is
+// `{"$type":"State","defaultValue":[{row},…]}`. Two universal priors,
+// accommodated as typed data at THIS host bridge, before the columnar codec
+// sees the value (the fuaran#633 `Bound`-unwrap precedent — no Core change,
+// no wire-spec change, no new key). Mirror of the F# `normaliseTransformSource`:
+//   1. a `State`/`Static`/`Bound` binding WRAPPER around the data unwraps to
+//      its `defaultValue`/`value` (initial-snapshot semantics — a LIVE
+//      state-sourced Transform is the 032/c6 charter, deliberately not this);
+//   2. ROW-MAJOR data (an array of row objects) transposes to the canonical
+//      columnar `{"columns": …}` shape — FIRST-row key set (sorted, the F#
+//      Map ordering), absent cells null. Canonical columnar and `ref` sources
+//      pass through untouched, so existing fixtures stay byte-identical.
+// Ragged / mixed-type rows may still fail downstream (the mixed-type
+// didactic) — deliberately not special-cased.
+const normaliseTransformSource = (j: JsonAst): JsonAst => {
+  let unwrapped = j;
+  if (j.kind === 'JObject') {
+    const t = j.fields.get('$type');
+    if (
+      t !== undefined &&
+      t.kind === 'JString' &&
+      (t.value === 'State' || t.value === 'Static' || t.value === 'Bound')
+    ) {
+      const inner = j.fields.get('defaultValue') ?? j.fields.get('value');
+      if (inner !== undefined) unwrapped = inner;
+    }
+  }
+  if (
+    unwrapped.kind === 'JArray' &&
+    unwrapped.items.length > 0 &&
+    unwrapped.items[0]!.kind === 'JObject'
+  ) {
+    const rows = unwrapped.items;
+    const first = unwrapped.items[0] as { readonly fields: ReadonlyMap<string, JsonAst> };
+    const keys = [...first.fields.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const cols = new Map<string, JsonAst>();
+    for (const k of keys) {
+      const cells = rows.map((row): JsonAst => {
+        if (row.kind !== 'JObject') return { kind: 'JNull' };
+        return row.fields.get(k) ?? { kind: 'JNull' };
+      });
+      cols.set(k, { kind: 'JArray', items: cells });
+    }
+    return {
+      kind: 'JObject',
+      fields: new Map<string, JsonAst>([['columns', { kind: 'JObject', fields: cols }]]),
+    };
+  }
+  return unwrapped;
 };
 
 const decodeBindingArgs = (path: string, j: JsonAst): R<Record<string, Binding<JsonValue>>> => {
@@ -2798,6 +2891,34 @@ const decodeSkeletonSpec = (path: string, j: JsonAst): R<SkeletonSpec> => {
   return rows.ok ? ok({ rows: rows.value }) : rows;
 };
 
+// Phase 821 — the standalone icon-only display kind.
+const decodeIconSize = (p: string, j: JsonAst): R<IconSize> =>
+  bareEnum(p, j, ['Small', 'Medium', 'Large'] as const, 'IconSize');
+
+const decodeIconSpec = (path: string, j: JsonAst): R<IconSpec> => {
+  const fo = requireObject(path, j);
+  if (!fo.ok) return fo;
+  const f = fo.value;
+  const icon = reqField(path, f, 'icon', 'icon name string', requireString);
+  if (!icon.ok) return icon;
+  // `size` omitted-when-`Medium`; `tone` omitted-when-default (the Phase 460
+  // discipline); `label` omitted-when-decorative.
+  const sizeJ = tryField(f, 'size');
+  const size = sizeJ === undefined ? ok<IconSize>('Medium') : decodeIconSize(`${path}.size`, sizeJ);
+  if (!size.ok) return size;
+  const toneJ = tryField(f, 'tone');
+  const tone = toneJ === undefined ? ok<ToneVariant>('Default') : decodeTone(`${path}.tone`, toneJ);
+  if (!tone.ok) return tone;
+  const label = optField(path, f, 'label', requireString);
+  if (!label.ok) return label;
+  return ok<IconSpec>({
+    icon: icon.value,
+    size: size.value,
+    tone: tone.value,
+    ...(label.value !== undefined ? { label: label.value } : {}),
+  });
+};
+
 const decodeCalloutSpec = (path: string, j: JsonAst): R<CalloutSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
@@ -3158,6 +3279,10 @@ const decodeDisplayKind = (path: string, j: JsonAst): R<DisplayKind> => {
     case 'Skeleton': {
       const r = decodeSkeletonSpec(path, j);
       return r.ok ? ok({ kind: 'Skeleton', spec: r.value }) : r;
+    }
+    case 'Icon': {
+      const r = decodeIconSpec(path, j);
+      return r.ok ? ok<DisplayKind>({ kind: 'Icon', spec: r.value }) : r;
     }
     case 'LabelValueRow': {
       const r = decodeLabelValueRowSpec(path, j);
@@ -4699,6 +4824,7 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
     case 'Callout':
     case 'Progress':
     case 'Skeleton':
+    case 'Icon':
     case 'LabelValueRow':
     case 'Fact':
     case 'Link':
@@ -5303,6 +5429,11 @@ export const coerce = {
   headingVariant: (v: JsonValue): Result<HeadingVariant, string> => viaAst(v, decodeHeadingVariant),
   badgeVariant: (v: JsonValue): Result<BadgeVariant, string> => viaAst(v, decodeBadgeVariant),
   iconSource: (v: JsonValue): Result<IconSource, string> => viaAst(v, decodeIconSource),
+  /** `Icon.Size : IconSize` (Phase 821) — the UpdateProp twin of `decodeIconSize`,
+   * added with the standalone Icon display kind. */
+  iconSize: (v: JsonValue): Result<IconSize, string> => viaAst(v, decodeIconSize),
+  stringOption: (v: JsonValue): Result<string | undefined, string> =>
+    viaAst(v, parseStaticStringOpt) as Result<string | undefined, string>,
 };
 
 // ─── Public surface ──────────────────────────────────────────────────────────

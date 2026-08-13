@@ -92,6 +92,7 @@ import type {
   SelectSpec,
   SemanticStyle,
   SkeletonSpec,
+  IconSpec,
   SparklineSpec,
   SplitPanelSpec,
   StateBehaviour,
@@ -849,6 +850,15 @@ const cellFormat = (f: CellFormat): string => {
       return caseObj('SignificantDigits', [['digits', num(f.digits)]]);
     case 'Date':
       return caseObj('Date', [['format', str(f.format)]]);
+    case 'Duration':
+      // Phase 819 — alphabetical field order (style before unit), the
+      // canonical ordering rule.
+      return caseObj('Duration', [
+        ['style', str(f.style)],
+        ['unit', str(f.unit)],
+      ]);
+    case 'RelativeTime':
+      return caseObj('RelativeTime', [['unit', str(f.unit)]]);
     case 'Custom':
       return caseObj('Custom', [['fn', CLOSURE]]);
     default:
@@ -868,6 +878,12 @@ const formatIntent = (f: Format): string => {
       return caseObj('Date', [['dateStyle', str(f.dateStyle)]]);
     case 'RelativeTime':
       return caseObj('RelativeTime', [['unit', str(f.unit)]]);
+    case 'Duration':
+      // Phase 819 — alphabetical field order (style before unit).
+      return caseObj('Duration', [
+        ['style', str(f.style)],
+        ['unit', str(f.unit)],
+      ]);
     default:
       return assertNever(f);
   }
@@ -1039,6 +1055,16 @@ const sparklineSpec = (s: SparklineSpec): string =>
   jObject([['source', binding(s.source, staticFloatSeq)]]);
 
 const skeletonSpec = (s: SkeletonSpec): string => jObject([['rows', num(s.rows)]]);
+
+// Phase 821 — Icon display kind. `size` omitted-when-`Medium`, `tone`
+// omitted-when-`Default`, `label` omitted-when-decorative.
+const iconSpec = (s: IconSpec): string => {
+  const fields: Field[] = [['icon', str(s.icon)]];
+  if (s.label !== undefined) fields.push(['label', str(s.label)]);
+  if (s.size !== 'Medium') fields.push(['size', str(s.size)]);
+  pushToneOptional(fields, s.tone);
+  return jObject(fields);
+};
 
 const calloutSpec = (s: CalloutSpec): string => {
   // Phase 460 — `tone` omitted-when-default.
@@ -1215,6 +1241,8 @@ const displayKind = (d: DisplayKind): string => {
       return hoistSpec('Progress', progressSpec(d.spec));
     case 'Skeleton':
       return hoistSpec('Skeleton', skeletonSpec(d.spec));
+    case 'Icon':
+      return hoistSpec('Icon', iconSpec(d.spec));
     case 'LabelValueRow':
       return hoistSpec('LabelValueRow', labelValueRowSpec(d.spec));
     case 'Fact':
