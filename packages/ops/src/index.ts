@@ -42,6 +42,26 @@ export {
   type OpApplyTelemetryRecord,
 } from './apply.js';
 export type { TreeOp } from './treeOp.js';
+export {
+  // Placement helpers — placed insert / move / nudge + the clone verbs.
+  // Every helper emits ops built from the existing TreeOp vocabulary
+  // (InsertChild / MoveNode / ReorderChildren / Batch): no new op case, no
+  // wire-format change.
+  canPlace,
+  placeOp,
+  moveOp,
+  nudgeOp,
+  duplicateOp,
+  duplicateOpWith,
+  pasteOp,
+  pasteOpWith,
+  derivedFreshIds,
+  sequentialFreshIds,
+  type Placement,
+  type PlaceTarget,
+  type PlaceError,
+  type FreshIds,
+} from './placement.js';
 export { parse, field as jsonField, type JsonAst, type ParseError } from './parse.js';
 export {
   encodeDagRecord,

@@ -61,6 +61,38 @@ if (result.ok) {
 `EMPTY_NODE_ID` — byte-identical to the F# decoder's codes, surfaced at a `$`-rooted
 dotted path.
 
+## Placement helpers
+
+`placeOp` / `moveOp` / `nudgeOp` / `canPlace` (plus the clone verbs
+`duplicateOp` / `pasteOp` and their `…With` variants taking an injectable
+fresh-id strategy) derive the ops that put a node **at a stated position** —
+first, last, before or after a named sibling — from the positionless op
+vocabulary.
+
+```ts
+import { placeOp, moveOp, nudgeOp, canPlace, apply } from '@fuaran-ui/ops';
+
+// Insert `child` immediately before sibling "b" under parent "left".
+const r = placeOp(tree, child, {
+  parentId: 'left',
+  placement: { kind: 'Before', anchor: 'b' },
+}); // Result<TreeOp, PlaceError>
+if (r.ok) apply(tree, r.value);
+```
+
+**These helpers emit only existing `TreeOp` shapes** — a bare `InsertChild` /
+`MoveNode` when appending already yields the wanted order, otherwise
+`Batch [InsertChild|MoveNode, ReorderChildren]`, and `ReorderChildren` alone
+for a nudge. There is no new op case and **no wire-format change**; anything
+they emit encodes, decodes, and applies exactly as if a consumer had assembled
+it by hand. Pre-checks mirror the apply engine's own rejections (absent or
+childless parent, move-into-self, move-into-descendant, duplicate id), so a
+helper refusal and an apply refusal always agree; an anchor that is not among
+the destination's children is refused (`UnknownAnchor`) rather than silently
+appended. The clone verbs remap colliding ids across the whole traversal
+surface before insert, so a duplicate or paste never trips the tree-wide
+duplicate-id check.
+
 ## Storage-shape erasure
 
 Decode is **storage-shape erased**: it always yields `Node<unknown>` / `TreeOp<unknown>`,

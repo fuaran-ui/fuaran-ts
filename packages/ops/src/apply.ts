@@ -78,8 +78,13 @@ const fail = (code: ApplyErrorCode, message: string, batchIndex?: number): R => 
 const idOf = (n: N): string => n.id as string;
 
 // ─── Tree walkers ────────────────────────────────────────────────────────────
+//
+// The walkers below are exported for intra-package reuse (the placement
+// helpers in placement.ts pre-check against the SAME traversal the apply
+// engine runs, so helper verdicts and apply verdicts cannot drift). They are
+// deliberately not re-exported from the package index.
 
-interface ChildSlot {
+export interface ChildSlot {
   readonly child: N;
   readonly rebuild: (c: N) => N;
 }
@@ -91,11 +96,11 @@ const withLayoutChildren = (n: N, children: readonly N[]): N => {
   return { ...n, kind: { kind: 'Layout', layout } };
 };
 
-const layoutChildren = (n: N): readonly N[] | undefined =>
+export const layoutChildren = (n: N): readonly N[] | undefined =>
   n.kind.kind === 'Layout' ? n.kind.layout.spec.children : undefined;
 
 /** Every immediate sub-node position, each with a rebuild that swaps it. */
-const childSlots = (n: N): ChildSlot[] => {
+export const childSlots = (n: N): ChildSlot[] => {
   const slots: ChildSlot[] = [];
   const k = n.kind;
   if (k.kind === 'Layout') {
@@ -161,7 +166,7 @@ const childSlots = (n: N): ChildSlot[] => {
   return slots;
 };
 
-const findNode = (target: string, n: N): N | undefined => {
+export const findNode = (target: string, n: N): N | undefined => {
   if (idOf(n) === target) return n;
   for (const s of childSlots(n)) {
     const r = findNode(target, s.child);
@@ -190,7 +195,7 @@ export const allNodeIds = (n: N): string[] => [
   ...childSlots(n).flatMap((s) => allNodeIds(s.child)),
 ];
 
-const findLayoutParent = (target: string, n: N): N | undefined => {
+export const findLayoutParent = (target: string, n: N): N | undefined => {
   const children = layoutChildren(n);
   if (children !== undefined && children.some((c) => idOf(c) === target)) return n;
   for (const s of childSlots(n)) {
@@ -200,7 +205,7 @@ const findLayoutParent = (target: string, n: N): N | undefined => {
   return undefined;
 };
 
-const isAncestor = (ancestorId: string, descendantId: string, root: N): boolean => {
+export const isAncestor = (ancestorId: string, descendantId: string, root: N): boolean => {
   const a = findNode(ancestorId, root);
   if (a === undefined) return false;
   return childSlots(a).some((s) => allNodeIds(s.child).includes(descendantId));
