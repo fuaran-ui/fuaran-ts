@@ -138,16 +138,56 @@ const extractScheme = (url: string): [string | undefined, string] => {
 };
 
 /**
+ * §19 rule 1 — normalise a URL string exactly as the WHATWG URL Standard's basic
+ * URL parser does before it parses anything, ASCII-exact, in this order:
+ *
+ *   1. remove leading and trailing C0 control or space — ALL of U+0000–U+0020,
+ *      not merely the whitespace subset;
+ *   2. remove every U+0009 / U+000A / U+000D from anywhere in what remains.
+ *
+ * This is deliberately NOT `String.prototype.trim()`. A native trim answers a
+ * different question in every language — Python's `strip` also removes
+ * U+001C–U+001F where JS, .NET, Go and Rust do not; JS alone keeps U+0085 NEL
+ * where the other four drop it — and all of them remove non-ASCII whitespace
+ * (U+00A0, U+2028, …) that the parser keeps. The floor's whole purpose is that a
+ * tree vetted on one host is safe on another, so the normalisation has to be
+ * defined by the parser that will actually consume the string rather than by the
+ * host's standard library.
+ *
+ * Step 2 is those three code points ONLY: the parser removes U+000B and U+000C at
+ * the edges (step 1) and KEEPS them in the interior, so `/<VT>/host/x` is an
+ * ordinary same-origin path and must stay one.
+ */
+const normalizeUrlForFloor = (url: string): string => {
+  let lo = 0;
+  let hi = url.length - 1;
+  while (lo <= hi && url.charCodeAt(lo) <= 0x20) lo++;
+  while (hi >= lo && url.charCodeAt(hi) <= 0x20) hi--;
+  let out = '';
+  for (let i = lo; i <= hi; i++) {
+    const c = url.charCodeAt(i);
+    if (c === 0x09 || c === 0x0a || c === 0x0d) continue;
+    out += url[i];
+  }
+  return out;
+};
+
+/**
  * Returns the sanitized URL, or `undefined` if the scheme is rejected.
  * Empty string passes through (a valid same-page href). `data:` is rejected
  * by default (SVG data-URL XSS vector); unknown schemes are rejected
  * conservatively. Protocol-relative URLs (`//host`, and the `\\` / `/\` / `\/`
  * forms browsers normalise to it) are rejected despite carrying no scheme —
  * see `isProtocolRelative`.
+ *
+ * The input is first normalised per §19 rule 1 (see `normalizeUrlForFloor`), and
+ * that normalised form is also what is EMITTED on acceptance — so an accepted URL
+ * carrying an interior tab loses it, which is what the browser would have parsed
+ * anyway.
  */
 export const sanitizeUrl = (url: string): string | undefined => {
   if (url == null) return undefined;
-  const trimmed = url.trim();
+  const trimmed = normalizeUrlForFloor(url);
   if (trimmed === '') return trimmed;
   const [scheme] = extractScheme(trimmed);
   if (scheme === undefined) {
