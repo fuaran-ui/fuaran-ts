@@ -53,6 +53,10 @@ interface ChartInput {
   readonly xTitle?: string;
   readonly yTitle?: string;
   readonly subtitle?: string;
+  // Phase 880 — the legend's declared edge, a WIRE field carried as the
+  // canonical enum string; omitted when absent (so every pre-880 input is
+  // byte-unchanged even though the PICTURE many of them lower to has moved).
+  readonly legendPosition?: ChartLowerSpec['legendPosition'];
   readonly data: readonly ChartRow[];
 }
 
@@ -98,6 +102,9 @@ const specAndRows = (
     ...(inp.xTitle !== undefined ? { xTitle: inp.xTitle } : {}),
     ...(inp.yTitle !== undefined ? { yTitle: inp.yTitle } : {}),
     ...(inp.subtitle !== undefined ? { subtitle: inp.subtitle } : {}),
+    // Phase 880 — same omitted-when-absent posture; a real wire field, so it
+    // goes on the spec rather than the style.
+    ...(inp.legendPosition !== undefined ? { legendPosition: inp.legendPosition } : {}),
   },
   rows: inp.data,
   style: inp.axisUnitMode !== undefined ? { axisUnitMode: inp.axisUnitMode } : {},

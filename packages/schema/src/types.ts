@@ -137,6 +137,17 @@ export type FontVoice = 'Default' | 'Display' | 'Structural';
 
 export type ChartKind = 'Line' | 'Bar' | 'Area' | 'Pie' | 'Scatter' | 'Heatmap';
 
+/**
+ * Phase 880 — which edge of the chart the series legend occupies, or `'None'`,
+ * which suppresses it entirely.
+ *
+ * A WIRE vocabulary on the same side of the line as `ChartSpec.title`: WHERE an
+ * author wants the legend is their meaning; the geometry that puts it there —
+ * column widths, pitches, how the plot shrinks — stays the host's. The lowering
+ * carries the DEFAULT (`Right`); an explicit `ChartSpec.legendPosition` beats it.
+ */
+export type ChartLegendPosition = 'Top' | 'Right' | 'Bottom' | 'None';
+
 /** `aria-live` politeness. Wire form is lower-case (WIRE_FORMAT.md §3.5). */
 export type LiveRegionKind = 'polite' | 'assertive' | 'off';
 
@@ -1902,6 +1913,15 @@ export interface ChartSpec<TMsg> {
   readonly xTitle?: TextSource;
   readonly yTitle?: TextSource;
   readonly subtitle?: TextSource;
+  // Phase 880 — WHERE the legend sits, and whether it sits anywhere at all.
+  // Semantic for the same reason the titles above are: the edge an author wants
+  // the legend on is their meaning; the column widths and pitches that realise
+  // it are the host's.
+  //
+  // Absent means "the host's default" (`Right`) — NOT "no legend"; suppression
+  // is the explicit `'None'`. So absence stays the ordinary shape and is omitted
+  // on the wire, and an author who wants no legend says so.
+  readonly legendPosition?: ChartLegendPosition;
   readonly onPointClick?: (point: unknown) => Action<TMsg>;
   readonly stacked: boolean;
 }

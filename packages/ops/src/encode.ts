@@ -1738,6 +1738,9 @@ const chartSpec = (s: ChartSpec<unknown>): string => {
   if (s.xTitle !== undefined) fields.push(['xTitle', textSource(s.xTitle)]);
   if (s.yTitle !== undefined) fields.push(['yTitle', textSource(s.yTitle)]);
   if (s.subtitle !== undefined) fields.push(['subtitle', textSource(s.subtitle)]);
+  // Phase 880 — the legend's declared edge (canonical key order). Absent means
+  // the host's default, so the key is simply omitted.
+  if (s.legendPosition !== undefined) fields.push(['legendPosition', str(s.legendPosition)]);
   if (s.onPointClick !== undefined) fields.push(['onPointClick', CLOSURE]);
   return jObject(fields);
 };

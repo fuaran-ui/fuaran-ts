@@ -142,6 +142,15 @@
         "Heatmap"
       ]
     },
+    "ChartLegendPosition": {
+      "type": "string",
+      "enum": [
+        "Top",
+        "Right",
+        "Bottom",
+        "None"
+      ]
+    },
     "LiveRegionKind": {
       "type": "string",
       "enum": [
@@ -3256,6 +3265,9 @@
         },
         "subtitle": {
           "$ref": "#/$defs/TextSource"
+        },
+        "legendPosition": {
+          "$ref": "#/$defs/ChartLegendPosition"
         },
         "onPointClick": {
           "const": "<closure>"

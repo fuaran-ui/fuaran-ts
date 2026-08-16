@@ -980,6 +980,14 @@
       "description": "Visualisation/Chart (Phase 878 — xTitle/yTitle/subtitle: the axis names + the muted subtitle)"
     },
     {
+      "id": "chart-legend-position",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/chart-legend-position.json",
+      "expectedFile": "nodes/chart-legend-position.json",
+      "description": "Visualisation/Chart (Phase 880 — legendPosition: the legend's declared edge)"
+    },
+    {
       "id": "chart-state-rows",
       "kind": "node-round-trip",
       "decoder": "node",

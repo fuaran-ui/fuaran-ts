@@ -60,6 +60,7 @@ import type {
   CellFormat,
   CellKindErased,
   ChartKind,
+  ChartLegendPosition,
   ChartSpec,
   ColumnErased,
   ColumnWidth,
@@ -595,6 +596,9 @@ const decodeFontVoice = (p: string, j: JsonAst): R<FontVoice> =>
 
 const decodeChartKind = (p: string, j: JsonAst): R<ChartKind> =>
   bareEnum(p, j, ['Line', 'Bar', 'Area', 'Pie', 'Scatter', 'Heatmap'] as const, 'ChartKind');
+
+const decodeChartLegendPosition = (p: string, j: JsonAst): R<ChartLegendPosition> =>
+  bareEnum(p, j, ['Top', 'Right', 'Bottom', 'None'] as const, 'ChartLegendPosition');
 
 const decodeFileReadEncoding = (p: string, j: JsonAst): R<FileReadEncoding> =>
   bareEnum(p, j, ['Text', 'Base64', 'DataUrl'] as const, 'FileReadEncoding');
@@ -4384,6 +4388,11 @@ const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
   if (!yTitle.ok) return yTitle;
   const subtitle = optField(path, f, 'subtitle', decodeTextSource);
   if (!subtitle.ok) return subtitle;
+  // Phase 880 — `legendPosition`: WHERE the legend goes, or `None` to suppress
+  // it. Absent means the host's default (`Right`) — NOT "no legend" — so the
+  // ordinary wire shape omits the key and suppression has to be said out loud.
+  const legendPosition = optField(path, f, 'legendPosition', decodeChartLegendPosition);
+  if (!legendPosition.ok) return legendPosition;
   const hasPointClick = tryField(f, 'onPointClick') !== undefined;
   // stacked (Phase 126) now round-trips; absent (legacy wire) defaults to false.
   const stacked = optField(path, f, 'stacked', requireBool);
@@ -4399,6 +4408,7 @@ const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
     ...(xTitle.value !== undefined ? { xTitle: xTitle.value } : {}),
     ...(yTitle.value !== undefined ? { yTitle: yTitle.value } : {}),
     ...(subtitle.value !== undefined ? { subtitle: subtitle.value } : {}),
+    ...(legendPosition.value !== undefined ? { legendPosition: legendPosition.value } : {}),
     ...(hasPointClick ? { onPointClick: () => placeholderAction } : {}),
   });
 };
