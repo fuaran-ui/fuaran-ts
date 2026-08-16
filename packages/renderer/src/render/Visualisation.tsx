@@ -10,6 +10,7 @@
 import type { ReactElement, ReactNode } from 'react';
 
 import type {
+  Binding,
   CellKindErased,
   CellValue,
   ChartKind,
@@ -120,6 +121,30 @@ const renderGrid = <TMsg,>(
       ? readSortDescriptor(ctx.sources, spec.sortStateKey)
       : undefined;
   const rows = sortRowsByDescriptor(spec.columns, sortDescriptor, resolvedRows);
+  // Phase 862 — `pageStateKey` + `pageSize`: the grid shows one page at a time
+  // and owns the pager that moves between them. `hostPages` is the source-shape
+  // rule (a `Query` depending on the page key returns the page itself), in
+  // which case the pager still renders and drives the query but the grid does
+  // NOT slice again.
+  const paging =
+    spec.pageStateKey !== undefined && spec.pageSize !== undefined && spec.pageSize > 0
+      ? (() => {
+          const key = spec.pageStateKey;
+          const size = spec.pageSize;
+          const hostPages = sourceHostPagesOn(spec.source, key);
+          const requested = readPageDescriptor(ctx.sources, key);
+          return {
+            key,
+            size,
+            hostPages,
+            page: hostPages ? Math.max(1, requested) : clampPage(size, requested, rows.length),
+          };
+        })()
+      : undefined;
+  const pageRows =
+    paging !== undefined && !paging.hostPages
+      ? sliceRowsToPage(paging.size, paging.page, rows)
+      : rows;
   // Phase 427 — the default row-click write (the 423/426 archetype for the
   // Selection channel): a data-bearing grid whose `onRowClick` is omitted
   // writes the clicked row to the host selection seam (`runtime.setSelection`)
@@ -203,13 +228,48 @@ const renderGrid = <TMsg,>(
     );
   };
 
-  return (
+  // Phase 862 — the pager. RENDERER-OWNED, which is the whole point of the
+  // Phase-860 rule: because the grid draws it, the control that writes the page
+  // state and the grid that reads it cannot come apart, so the decorative-pager
+  // shape is not authorable. Host-paged grids cannot know the row total, so the
+  // pager degrades to previous/next with no page count — a stated limit of this
+  // cut, not an oversight. Parity-locked with the F# renderer's `pager`.
+  const pager = (): ReactElement | undefined => {
+    if (paging === undefined) return undefined;
+    const lastPage = paging.hostPages ? undefined : pageCountOf(paging.size, rows.length);
+    const goTo = (target: number): void => {
+      runAction(ctx, { kind: 'SetState', key: paging.key, value: { page: target } });
+    };
+    const step = (label: string, target: number, disabled: boolean): ReactElement => (
+      <button
+        type="button"
+        className="fuaran-grid-pager-step"
+        disabled={disabled}
+        {...(disabled ? {} : { onClick: () => goTo(target) })}
+      >
+        {label}
+      </button>
+    );
+    return (
+      <nav className="fuaran-grid-pager" aria-label="Pagination">
+        {step('Previous', paging.page - 1, paging.page <= 1)}
+        {/* The page position changes without the surrounding layout moving, so
+            a screen reader is told politely rather than left to discover it. */}
+        <span className="fuaran-grid-pager-status" aria-live="polite">
+          {lastPage !== undefined ? `Page ${paging.page} of ${lastPage}` : `Page ${paging.page}`}
+        </span>
+        {step('Next', paging.page + 1, lastPage !== undefined && paging.page >= lastPage)}
+      </nav>
+    );
+  };
+
+  const gridTable = (
     <table className="fuaran-grid">
       <thead>
         <tr>{spec.columns.map((col, i) => sortableHeader(i, col))}</tr>
       </thead>
       <tbody>
-        {rows.map((row, ri) => {
+        {pageRows.map((row, ri) => {
           const isSelected =
             selectedKey !== undefined && rowKeyOf !== undefined && rowKeyOf(row) === selectedKey;
           return (
@@ -232,6 +292,16 @@ const renderGrid = <TMsg,>(
         })}
       </tbody>
     </table>
+  );
+
+  // The paged grid gains ONE wrapper element; an unpaged grid emits
+  // byte-identical DOM to before this phase.
+  if (paging === undefined) return gridTable;
+  return (
+    <div className="fuaran-grid-paged">
+      {gridTable}
+      {pager()}
+    </div>
   );
 };
 
@@ -256,6 +326,44 @@ const readSortDescriptor = (
   if (typeof col !== 'number' || !Number.isInteger(col) || col < 0) return undefined;
   if (dir !== 'asc' && dir !== 'desc') return undefined;
   return [col, dir];
+};
+
+// ─── Data-bound grid pagination (Phase 862 — `pageStateKey` / `pageSize`) ────
+//
+// Parity-locked with F# `BindingResolver.readPageDescriptor` / `clampPage` /
+// `sliceRowsToPage` / `pageCountOf` / `sourceHostPagesOn`. Same discipline as
+// the sort helpers above: validated rather than trusted, and one definition per
+// rule so the two hosts cannot disagree about which rows are on page 3.
+//
+// Who slices is decided by the SOURCE shape, never by a second declaration: a
+// `Query` whose `dependsOn` names the page key already returns the page.
+
+const readPageDescriptor = (sources: BindingSources, key: string): number => {
+  const raw = sources.state?.[key];
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return 1;
+  const page = (raw as Record<string, unknown>)['page'];
+  if (typeof page !== 'number' || !Number.isInteger(page) || page < 1) return 1;
+  return page;
+};
+
+const sourceHostPagesOn = (source: Binding<readonly unknown[]>, pageKey: string): boolean =>
+  source.kind === 'Query' && (source.dependsOn ?? []).includes(pageKey);
+
+const pageCountOf = (pageSize: number, rowCount: number): number =>
+  pageSize <= 0 ? 1 : Math.max(1, Math.ceil(rowCount / pageSize));
+
+const clampPage = (pageSize: number, page: number, rowCount: number): number =>
+  Math.min(Math.max(1, page), pageCountOf(pageSize, rowCount));
+
+const sliceRowsToPage = (
+  pageSize: number,
+  page: number,
+  rows: readonly unknown[],
+): readonly unknown[] => {
+  if (pageSize <= 0) return rows;
+  const clamped = clampPage(pageSize, page, rows.length);
+  const start = (clamped - 1) * pageSize;
+  return rows.slice(start, start + pageSize);
 };
 
 const cellSortRank = (v: CellValue): number => {

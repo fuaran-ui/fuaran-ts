@@ -1575,7 +1575,38 @@ const renderGrid = (
     spec.sortStateKey !== undefined
       ? readSortDescriptor(ctx.sources, spec.sortStateKey)
       : undefined;
-  const rows = sortRowsByDescriptor(spec.columns, sortDescriptor, resolvedRows);
+  const sorted = sortRowsByDescriptor(spec.columns, sortDescriptor, resolvedRows);
+  // Phase 862 — `pageStateKey` + `pageSize`, under the SAME rule the sort above
+  // follows: the SLICE is a data operation the seeded State determines, so a
+  // static host performs it (page 1 absent a seeded descriptor); the PAGER is
+  // an interactive affordance this inert renderer cannot honour, so it is
+  // omitted rather than emitted dead. A page a reader cannot leave is still an
+  // honest first page; a pager that does nothing is not.
+  //
+  // The wire declaration is this phase's; what a static host renders for a
+  // bound grid more broadly is Phase 668's, and this follows 818's shipped
+  // precedent rather than pre-empting it.
+  const paging =
+    spec.pageStateKey !== undefined && spec.pageSize !== undefined && spec.pageSize > 0
+      ? (() => {
+          const key = spec.pageStateKey;
+          const size = spec.pageSize;
+          const hostPages = sourceHostPagesOn(spec.source, key);
+          const requested = readPageDescriptor(ctx.sources, key);
+          return {
+            size,
+            hostPages,
+            page: hostPages
+              ? Math.max(1, requested)
+              : Math.min(Math.max(1, requested), pageCountOf(size, sorted.length)),
+            lastPage: hostPages ? undefined : pageCountOf(size, sorted.length),
+          };
+        })()
+      : undefined;
+  const rows =
+    paging !== undefined && !paging.hostPages
+      ? sliceRowsToPage(paging.size, paging.page, sorted)
+      : sorted;
   const headerCells = spec.columns
     .map((col) => textEl('th', [['class', 'fuaran-grid-header']], col.label))
     .join('');
@@ -1589,7 +1620,49 @@ const renderGrid = (
     })
     .join('');
   const body = el('tbody', [], bodyRows);
-  return el('table', [['class', 'fuaran-grid']], head + body);
+  const table = el('table', [['class', 'fuaran-grid']], head + body);
+  if (paging === undefined) return table;
+  // Phase 862 — the pager is emitted with BOTH steps `disabled`. Three
+  // constraints meet here and this is the only shape that satisfies all of
+  // them:
+  //
+  //  - A static host cannot honour a click, and 818's rule is that a surface
+  //    never advertises an interaction it cannot perform. A disabled control
+  //    does not advertise one; it states plainly that it is unavailable.
+  //  - Omitting the pager entirely would silently drop every row past page 1
+  //    with nothing to say so. The STATUS is the honest part — the reader is
+  //    told which page they are on, and of how many.
+  //  - Lock A holds the two renderers to the same `fuaran-*` class set. An
+  //    omitted pager breaks that parity; an inert one keeps it.
+  const stepAttrs = (label: string): string =>
+    textEl(
+      'button',
+      [
+        ['type', 'button'],
+        ['class', 'fuaran-grid-pager-step'],
+        ['disabled', ''],
+      ],
+      label,
+    );
+  const status = textEl(
+    'span',
+    [
+      ['class', 'fuaran-grid-pager-status'],
+      ['aria-live', 'polite'],
+    ],
+    paging.lastPage !== undefined
+      ? `Page ${paging.page} of ${paging.lastPage}`
+      : `Page ${paging.page}`,
+  );
+  const pager = el(
+    'nav',
+    [
+      ['class', 'fuaran-grid-pager'],
+      ['aria-label', 'Pagination'],
+    ],
+    stepAttrs('Previous') + status + stepAttrs('Next'),
+  );
+  return el('div', [['class', 'fuaran-grid-paged']], table + pager);
 };
 
 // ─── Data-bound grid sort (Phase 818 — `sortStateKey`; parity-locked with the
@@ -1607,6 +1680,34 @@ const readSortDescriptor = (
   if (typeof col !== 'number' || !Number.isInteger(col) || col < 0) return undefined;
   if (dir !== 'asc' && dir !== 'desc') return undefined;
   return [col, dir];
+};
+
+// ─── Data-bound grid pagination (Phase 862 — `pageStateKey` / `pageSize`;
+// parity-locked with the client renderer and with F# `BindingResolver`) ──────
+
+const readPageDescriptor = (sources: BindingSources, key: string): number => {
+  const raw = sources.state?.[key];
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return 1;
+  const page = (raw as Record<string, unknown>)['page'];
+  if (typeof page !== 'number' || !Number.isInteger(page) || page < 1) return 1;
+  return page;
+};
+
+const sourceHostPagesOn = (source: Binding<readonly unknown[]>, pageKey: string): boolean =>
+  source.kind === 'Query' && (source.dependsOn ?? []).includes(pageKey);
+
+const pageCountOf = (pageSize: number, rowCount: number): number =>
+  pageSize <= 0 ? 1 : Math.max(1, Math.ceil(rowCount / pageSize));
+
+const sliceRowsToPage = (
+  pageSize: number,
+  page: number,
+  rows: readonly unknown[],
+): readonly unknown[] => {
+  if (pageSize <= 0) return rows;
+  const clamped = Math.min(Math.max(1, page), pageCountOf(pageSize, rows.length));
+  const start = (clamped - 1) * pageSize;
+  return rows.slice(start, start + pageSize);
 };
 
 const cellSortRank = (v: CellValue): number => {

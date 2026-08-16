@@ -4264,6 +4264,25 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
     if (!sk.ok) return sk;
     sortStateKey = sk.value;
   }
+  // Phase 862 — declarative pagination. `pageStateKey` names the State key
+  // carrying `{"page": N}` (1-based); `pageSize` is how many rows a page holds.
+  // A page of zero or fewer rows names no page at all, so it is WRONG_TYPE —
+  // which is also what schema.json's `minimum: 1` says. The pager that writes
+  // the key is renderer-owned, so nothing here decodes a control.
+  const pageSizeJ = tryField(f, 'pageSize');
+  let pageSize: number | undefined;
+  if (pageSizeJ !== undefined) {
+    if (pageSizeJ.kind !== 'JNumber' || pageSizeJ.value < 1 || !Number.isInteger(pageSizeJ.value))
+      return wrongType(`${path}.pageSize`, 'JSON number (integer page size of 1 or more)');
+    pageSize = pageSizeJ.value;
+  }
+  const pageStateKeyJ = tryField(f, 'pageStateKey');
+  let pageStateKey: string | undefined;
+  if (pageStateKeyJ !== undefined) {
+    const pk = requireString(`${path}.pageStateKey`, pageStateKeyJ);
+    if (!pk.ok) return pk;
+    pageStateKey = pk.value;
+  }
   // Phase 393 — the static read-only mode (omitted for a data-bound grid, so existing fixtures
   // stay byte-identical).
   const staticRowsJ = tryField(f, 'staticRows');
@@ -4281,6 +4300,8 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
     ...(hasRowKey ? { rowKey: () => CLOSURE } : {}),
     ...(rowKeyField !== undefined ? { rowKeyField } : {}),
     ...(sortStateKey !== undefined ? { sortStateKey } : {}),
+    ...(pageSize !== undefined ? { pageSize } : {}),
+    ...(pageStateKey !== undefined ? { pageStateKey } : {}),
     ...(staticRows !== undefined ? { staticRows } : {}),
   });
 };

@@ -3126,6 +3126,13 @@
         "sortStateKey": {
           "type": "string"
         },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pageStateKey": {
+          "type": "string"
+        },
         "source": {
           "$ref": "#/$defs/Binding"
         },

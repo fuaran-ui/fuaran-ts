@@ -1676,6 +1676,17 @@ export interface GridSpec<TMsg> {
   // affordance. Omitted on the wire when absent; `staticRows`' own Phase-801
   // sort intent is untouched.
   readonly sortStateKey?: string;
+  // Phase 862 — declarative pagination, the second instance of the
+  // grid-behaviour rule (Phase 860's charter): a behaviour the user drives
+  // names the State key the grid both writes and reads. `pageStateKey` carries
+  // the descriptor `{"page": <1-based int>}`; `pageSize` is how many rows a
+  // page holds. When both are set the runtime renders a pager and shows one
+  // page at a time; the pager is renderer-owned, so a decorative pager (a
+  // button writing state nothing reads) cannot be authored. Where the source is
+  // a `Query` whose `dependsOn` names the page key, the HOST pages and the grid
+  // does not slice. Both omitted on the wire when absent.
+  readonly pageSize?: number;
+  readonly pageStateKey?: string;
   readonly columns: readonly ColumnErased<TMsg>[];
   readonly onRowClick?: (row: unknown) => Action<TMsg>;
   readonly editable: boolean;

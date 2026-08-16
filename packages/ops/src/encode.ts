@@ -1677,6 +1677,10 @@ const gridSpec = (s: GridSpec<unknown>): string => {
   if (s.rowKeyField !== undefined) fields.push(['rowKeyField', str(s.rowKeyField)]);
   // Phase 818 — omitted when absent, so every pre-818 grid stays byte-identical.
   if (s.sortStateKey !== undefined) fields.push(['sortStateKey', str(s.sortStateKey)]);
+  // Phase 862 — same discipline: omitted when absent, so every pre-862 grid
+  // stays byte-identical.
+  if (s.pageSize !== undefined) fields.push(['pageSize', num(s.pageSize)]);
+  if (s.pageStateKey !== undefined) fields.push(['pageStateKey', str(s.pageStateKey)]);
   // Phase 393 — the static read-only mode; omitted for a data-bound grid so every existing
   // grid fixture stays byte-identical.
   if (s.staticRows !== undefined) {
