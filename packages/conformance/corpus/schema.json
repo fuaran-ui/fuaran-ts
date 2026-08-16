@@ -3096,6 +3096,9 @@
         "field": {
           "type": "string"
         },
+        "sortable": {
+          "type": "boolean"
+        },
         "width": {
           "$ref": "#/$defs/ColumnWidth"
         }
@@ -3132,6 +3135,26 @@
         },
         "pageStateKey": {
           "type": "string"
+        },
+        "defaultSort": {
+          "type": "object",
+          "properties": {
+            "column": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          },
+          "required": [
+            "column",
+            "direction"
+          ]
         },
         "source": {
           "$ref": "#/$defs/Binding"

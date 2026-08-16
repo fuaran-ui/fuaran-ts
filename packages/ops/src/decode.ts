@@ -4138,6 +4138,14 @@ const decodeColumnErased = (path: string, j: JsonAst): R<ColumnErased<unknown>> 
   // omitted, and `field` (if present, extracted above) drives the row-field projection
   // with zero host code.
   const hasValue = tryField(f, 'value') !== undefined;
+  // Phase 861 — per-column sort narrowing; absent inherits.
+  const sortableJ = tryField(f, 'sortable');
+  let sortable: boolean | undefined;
+  if (sortableJ !== undefined) {
+    const sr = requireBool(`${path}.sortable`, sortableJ);
+    if (!sr.ok) return sr;
+    sortable = sr.value;
+  }
   return ok({
     format: format.value ?? { kind: 'None' },
     kind: kind.value,
@@ -4145,6 +4153,7 @@ const decodeColumnErased = (path: string, j: JsonAst): R<ColumnErased<unknown>> 
     width: width.value ?? { kind: 'Auto' },
     ...(hasValue ? { value: () => ({ kind: 'Empty' as const }) } : {}),
     ...(field !== undefined ? { field } : {}),
+    ...(sortable !== undefined ? { sortable } : {}),
   });
 };
 
@@ -4276,6 +4285,16 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
       return wrongType(`${path}.pageSize`, 'JSON number (integer page size of 1 or more)');
     pageSize = pageSizeJ.value;
   }
+  // Phase 861 — the bound path's declared initial order, decoded by the SAME
+  // function the staticRows spelling uses: same record, same bound, same
+  // message at a different path.
+  const defaultSortJ = tryField(f, 'defaultSort');
+  let defaultSort: DefaultSort | undefined;
+  if (defaultSortJ !== undefined) {
+    const ds = decodeDefaultSort(`${path}.defaultSort`, defaultSortJ);
+    if (!ds.ok) return ds;
+    defaultSort = ds.value;
+  }
   const pageStateKeyJ = tryField(f, 'pageStateKey');
   let pageStateKey: string | undefined;
   if (pageStateKeyJ !== undefined) {
@@ -4302,6 +4321,7 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
     ...(sortStateKey !== undefined ? { sortStateKey } : {}),
     ...(pageSize !== undefined ? { pageSize } : {}),
     ...(pageStateKey !== undefined ? { pageStateKey } : {}),
+    ...(defaultSort !== undefined ? { defaultSort } : {}),
     ...(staticRows !== undefined ? { staticRows } : {}),
   });
 };

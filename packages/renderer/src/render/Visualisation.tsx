@@ -12,6 +12,7 @@ import type { ReactElement, ReactNode } from 'react';
 import type {
   Binding,
   CellKindErased,
+  DefaultSort,
   CellValue,
   ChartKind,
   ChartSpec,
@@ -116,10 +117,10 @@ const renderGrid = <TMsg,>(
   // Phase 818 — `sortStateKey`: the grid sorts its RESOLVED rows by the
   // state-carried descriptor before rendering (runtime-side sort — the author
   // wires no Transform). No descriptor written yet ⇒ natural source order.
-  const sortDescriptor =
-    spec.sortStateKey !== undefined
-      ? readSortDescriptor(ctx.sources, spec.sortStateKey)
-      : undefined;
+  // Phase 861 — the effective order: the state slot decides, and a declared
+  // `defaultSort` fills only the not-yet-sorted case. Parity-locked with F#
+  // `BindingResolver.effectiveSortDescriptor`.
+  const sortDescriptor = effectiveSortDescriptor(spec.sortStateKey, spec.defaultSort, ctx.sources);
   const rows = sortRowsByDescriptor(spec.columns, sortDescriptor, resolvedRows);
   // Phase 862 — `pageStateKey` + `pageSize`: the grid shows one page at a time
   // and owns the pager that moves between them. `hostPages` is the source-shape
@@ -186,7 +187,10 @@ const renderGrid = <TMsg,>(
   // field-less closure column is not sortable and renders without the
   // affordance.
   const sortableHeader = (colIndex: number, col: ColumnErased<TMsg>): ReactElement => {
-    if (spec.sortStateKey === undefined || col.field === undefined) {
+    // Phase 861 — the column flag NARROWS, never widens: absent inherits,
+    // `false` opts out, and `true` cannot turn the affordance on where the grid
+    // names no sort state key (FUARAN094 refuses that pre-emit).
+    if (spec.sortStateKey === undefined || col.field === undefined || col.sortable === false) {
       return (
         <th key={colIndex} className="fuaran-grid-header">
           {col.label}
@@ -198,13 +202,19 @@ const renderGrid = <TMsg,>(
       sortDescriptor !== undefined && sortDescriptor[0] === colIndex
         ? sortDescriptor[1]
         : undefined;
+    // Phase 801's three-state cycle, adopted for the bound path: ascending →
+    // descending → AUTHORED. The third state writes an EMPTY descriptor rather
+    // than clearing the key, because a cleared key means "not yet sorted" and
+    // would re-apply `defaultSort` — the user would ask for the emitter's order
+    // and be handed the declared one.
     const dispatchToggle = (): void => {
-      const nextDirection = active === 'asc' ? 'desc' : 'asc';
-      runAction(ctx, {
-        kind: 'SetState',
-        key: sortKey,
-        value: { column: colIndex, direction: nextDirection },
-      });
+      const next =
+        active === 'asc'
+          ? { column: colIndex, direction: 'desc' }
+          : active === 'desc'
+            ? {}
+            : { column: colIndex, direction: 'asc' };
+      runAction(ctx, { kind: 'SetState', key: sortKey, value: next });
     };
     return (
       <th
@@ -364,6 +374,43 @@ const sliceRowsToPage = (
   const clamped = clampPage(pageSize, page, rows.length);
   const start = (clamped - 1) * pageSize;
   return rows.slice(start, start + pageSize);
+};
+
+// Phase 861 — the three-way slot. `readSortDescriptor` collapses "nothing
+// written" and "written but not a sort" into undefined, which was right while
+// the only alternative to a sort was the authored order; it stops being right
+// once a grid can declare an initial order. Parity-locked with F#
+// `BindingResolver.readSortSlot` / `effectiveSortDescriptor`.
+type SortSlot =
+  | { readonly kind: 'NotSorted' }
+  | { readonly kind: 'SortedBy'; readonly column: number; readonly direction: SortDirection }
+  | { readonly kind: 'Cleared' };
+
+const readSortSlot = (sources: BindingSources, key: string): SortSlot => {
+  if (sources.state?.[key] === undefined) return { kind: 'NotSorted' };
+  const d = readSortDescriptor(sources, key);
+  return d === undefined
+    ? { kind: 'Cleared' }
+    : { kind: 'SortedBy', column: d[0], direction: d[1] };
+};
+
+const effectiveSortDescriptor = (
+  sortStateKey: string | undefined,
+  defaultSort: DefaultSort | undefined,
+  sources: BindingSources,
+): readonly [number, SortDirection] | undefined => {
+  const declared: readonly [number, SortDirection] | undefined =
+    defaultSort !== undefined ? [defaultSort.column, defaultSort.direction] : undefined;
+  if (sortStateKey === undefined) return declared;
+  const slot = readSortSlot(sources, sortStateKey);
+  switch (slot.kind) {
+    case 'NotSorted':
+      return declared;
+    case 'SortedBy':
+      return [slot.column, slot.direction];
+    case 'Cleared':
+      return undefined;
+  }
 };
 
 const cellSortRank = (v: CellValue): number => {

@@ -1687,6 +1687,13 @@ export interface GridSpec<TMsg> {
   // does not slice. Both omitted on the wire when absent.
   readonly pageSize?: number;
   readonly pageStateKey?: string;
+  // Phase 861 — the bound path's declared INITIAL order, reusing the same
+  // `DefaultSort` record and field name `staticRows` carries (Phase 801): same
+  // behaviour, same spelling, no twin. It applies while the sort state key
+  // carries nothing; once the user has sorted, the state wins. A grid may
+  // declare it with no `sortStateKey` at all — an initial order without
+  // interactive re-sorting.
+  readonly defaultSort?: DefaultSort;
   readonly columns: readonly ColumnErased<TMsg>[];
   readonly onRowClick?: (row: unknown) => Action<TMsg>;
   readonly editable: boolean;
@@ -1745,6 +1752,13 @@ export interface ColumnErased<TMsg> {
   // A decoded column renders from `field` with zero host code. Closure wins when both present.
   readonly value?: (row: unknown) => CellValue;
   readonly field?: string;
+  // Phase 861 — per-column sort NARROWING on the bound path (Phase 860's
+  // charter rule: a column flag narrows a behaviour, never widens it). Absent =
+  // inherit, i.e. sortable iff the column has a `field` and the grid declares
+  // `sortStateKey`. `false` opts this column out. `true` is the inherited
+  // default made explicit and is an ERROR where the grid declares no
+  // `sortStateKey`. Omitted on the wire when absent.
+  readonly sortable?: boolean;
   readonly format: CellFormat;
   readonly kind: CellKindErased<TMsg>;
   readonly width: ColumnWidth;

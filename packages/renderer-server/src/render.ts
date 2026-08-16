@@ -32,6 +32,7 @@ import type {
   CellKindErased,
   CellValue,
   ColumnErased,
+  DefaultSort,
   DisplayKind,
   ErrorPayload,
   FilterSpec,
@@ -1571,10 +1572,10 @@ const renderGrid = (
   // affordance (`data-sortable` / live `aria-sort`) is a client-runtime
   // surface this inert renderer deliberately does not emit — a table never
   // advertises an interaction it cannot perform.
-  const sortDescriptor =
-    spec.sortStateKey !== undefined
-      ? readSortDescriptor(ctx.sources, spec.sortStateKey)
-      : undefined;
+  // Phase 861 — the effective order. A static host applies a DECLARED initial
+  // order for the same reason it applies a seeded sort: both are data
+  // operations the document itself determines, and neither needs a click.
+  const sortDescriptor = effectiveSortDescriptor(spec.sortStateKey, spec.defaultSort, ctx.sources);
   const sorted = sortRowsByDescriptor(spec.columns, sortDescriptor, resolvedRows);
   // Phase 862 — `pageStateKey` + `pageSize`, under the SAME rule the sort above
   // follows: the SLICE is a data operation the seeded State determines, so a
@@ -1680,6 +1681,24 @@ const readSortDescriptor = (
   if (typeof col !== 'number' || !Number.isInteger(col) || col < 0) return undefined;
   if (dir !== 'asc' && dir !== 'desc') return undefined;
   return [col, dir];
+};
+
+// ─── Phase 861 — the three-way sort slot (parity-locked with the client
+// renderer and F# `BindingResolver`) ────────────────────────────────────────
+
+const effectiveSortDescriptor = (
+  sortStateKey: string | undefined,
+  defaultSort: DefaultSort | undefined,
+  sources: BindingSources,
+): readonly [number, SortDirection] | undefined => {
+  const declared: readonly [number, SortDirection] | undefined =
+    defaultSort !== undefined ? [defaultSort.column, defaultSort.direction] : undefined;
+  if (sortStateKey === undefined) return declared;
+  // An absent key is "not yet sorted" (the declared order applies); a key
+  // holding anything that is not a usable descriptor is the cycle's authored
+  // state (no sort at all).
+  if (sources.state?.[sortStateKey] === undefined) return declared;
+  return readSortDescriptor(sources, sortStateKey);
 };
 
 // ─── Data-bound grid pagination (Phase 862 — `pageStateKey` / `pageSize`;

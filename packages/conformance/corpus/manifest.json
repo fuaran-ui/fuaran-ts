@@ -1300,6 +1300,14 @@
       "description": "Visualisation/Grid"
     },
     {
+      "id": "grid-bound-sort",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/grid-bound-sort.json",
+      "expectedFile": "nodes/grid-bound-sort.json",
+      "description": "Visualisation/Grid (Phase 861 — bound-path sort: per-column sortable narrowing + a declared initial order)"
+    },
+    {
       "id": "grid-editable-state",
       "kind": "node-round-trip",
       "decoder": "node",
@@ -2276,6 +2284,15 @@
       "expectedErrorCode": "WRONG_TYPE",
       "expectedPath": "$.kind.text.$type",
       "description": "Discriminator under Style is number"
+    },
+    {
+      "id": "reject-wrongtype-grid-default-sort-column",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-wrongtype-grid-default-sort-column.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.defaultSort.column",
+      "description": "bound-grid defaultSort column -1 — the same non-negative bound the staticRows spelling carries, same record, same message (Phase 861)"
     },
     {
       "id": "reject-wrongtype-grid-page-size-zero",

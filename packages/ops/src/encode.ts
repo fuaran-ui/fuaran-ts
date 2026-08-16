@@ -24,6 +24,7 @@ import type {
   Accessibility,
   Action,
   Agg,
+  DefaultSort,
   BadgeSpec,
   Cell,
   ColExpr,
@@ -1660,8 +1661,21 @@ const columnErased = (c: ColumnErased<unknown>): string => {
   pushColumnWidthOptional(fields, 'width', c.width);
   if (c.value !== undefined) fields.push(['value', CLOSURE]);
   if (c.field !== undefined) fields.push(['field', str(c.field)]);
+  // Phase 861 — per-column sort narrowing; omitted when absent, so every
+  // pre-861 column stays byte-identical.
+  if (c.sortable !== undefined) fields.push(['sortable', bool(c.sortable)]);
   return jObject(fields);
 };
+
+// Phase 801 / 861 — ONE encoder for the `{column, direction}` initial-order
+// record, used by both the `staticRows` spelling and the bound-grid one. The
+// two paths share the record by design ("reuse, do not mint twins"); sharing
+// the encoder is what makes that true rather than merely intended.
+const defaultSortJson = (d: DefaultSort): string =>
+  jObject([
+    ['column', intLit(d.column)],
+    ['direction', str(d.direction)],
+  ]);
 
 const gridSpec = (s: GridSpec<unknown>): string => {
   const fields: Field[] = [
@@ -1681,6 +1695,9 @@ const gridSpec = (s: GridSpec<unknown>): string => {
   // stays byte-identical.
   if (s.pageSize !== undefined) fields.push(['pageSize', num(s.pageSize)]);
   if (s.pageStateKey !== undefined) fields.push(['pageStateKey', str(s.pageStateKey)]);
+  // Phase 861 — the bound path's declared initial order, through the SAME
+  // encoder the staticRows spelling uses.
+  if (s.defaultSort !== undefined) fields.push(['defaultSort', defaultSortJson(s.defaultSort)]);
   // Phase 393 — the static read-only mode; omitted for a data-bound grid so every existing
   // grid fixture stays byte-identical.
   if (s.staticRows !== undefined) {
@@ -1693,13 +1710,7 @@ const gridSpec = (s: GridSpec<unknown>): string => {
     // table saying nothing encodes exactly as it did before the fields existed.
     if (sr.sortable !== undefined) srFields.push(['sortable', bool(sr.sortable)]);
     if (sr.defaultSort !== undefined)
-      srFields.push([
-        'defaultSort',
-        jObject([
-          ['column', intLit(sr.defaultSort.column)],
-          ['direction', str(sr.defaultSort.direction)],
-        ]),
-      ]);
+      srFields.push(['defaultSort', defaultSortJson(sr.defaultSort)]);
     fields.push(['staticRows', jObject(srFields)]);
   }
   return jObject(fields);
