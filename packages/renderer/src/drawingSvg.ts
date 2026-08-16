@@ -118,8 +118,19 @@ const shapeSvg = (sources: BindingSources, sh: Shape): string => {
       return `<circle class="fuaran-drawing-circle" cx="${formatNum(sh.cx)}" cy="${formatNum(sh.cy)}" r="${formatNum(sh.r)}"${styleAttrs(sources, false, sh.style)}/>`;
     case 'Ellipse':
       return `<ellipse class="fuaran-drawing-ellipse" cx="${formatNum(sh.cx)}" cy="${formatNum(sh.cy)}" rx="${formatNum(sh.rx)}" ry="${formatNum(sh.ry)}"${styleAttrs(sources, false, sh.style)}/>`;
-    case 'Label':
-      return `<text class="fuaran-drawing-label" x="${formatNum(sh.x)}" y="${formatNum(sh.y)}"${styleAttrs(sources, false, sh.style)}>${escape(renderText(sources, sh.text))}</text>`;
+    case 'Label': {
+      // Phase 877 — text rotation. Emitted here rather than in `styleAttrs`
+      // because the pivot is the label's own anchor point, which the style
+      // record does not know; `styleAttrs` is shared by every shape and stays
+      // position-free. Anchoring at (x, y) is what makes rotation compose with
+      // `textAnchor` — the text turns about the point it is aligned to.
+      // Degrees, clockwise (SVG's own convention), so no sign conversion.
+      const rot =
+        sh.style.rotation !== undefined
+          ? ` transform="rotate(${formatNum(sh.style.rotation)} ${formatNum(sh.x)} ${formatNum(sh.y)})"`
+          : '';
+      return `<text class="fuaran-drawing-label" x="${formatNum(sh.x)}" y="${formatNum(sh.y)}"${rot}${styleAttrs(sources, false, sh.style)}>${escape(renderText(sources, sh.text))}</text>`;
+    }
   }
 };
 

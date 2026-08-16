@@ -1189,6 +1189,26 @@ export interface DrawStyle {
    * and hand-authored drawings are byte-unchanged.
    */
   readonly markId?: string;
+  /**
+   * Phase 877 — clockwise text rotation in DEGREES about the label's own
+   * anchor point (`Shape.Label`'s `x` / `y`). Renderers emit
+   * `transform="rotate(θ x y)"` on the `<text>` element, so the anchor is the
+   * pivot and `textAnchor` keeps its meaning in the rotated frame.
+   *
+   * Like the other text fields it applies only to `Label` and is ignored on
+   * every other shape — and here that is load-bearing rather than cosmetic:
+   * SVG's `transform` on a `<rect>` would MOVE GEOMETRY, so emitting it off
+   * `Label` would make this the one text field with side-effects elsewhere.
+   *
+   * Omitted-when-unset, so every pre-877 drawing is byte-unchanged. Note that
+   * `0` is a legitimate PRESENT value and is not the same wire shape as
+   * absent — encode with an `!== undefined` test, never a truthiness test.
+   *
+   * Rounding (2 dp, round-half-up) is an authoring discipline applied by the
+   * producing tier; the wire value is taken as-authored and no host re-rounds
+   * on decode.
+   */
+  readonly rotation?: number;
 }
 
 // The typed drawing-command list for `Shape.Curve` — the `Path`/`d`-string

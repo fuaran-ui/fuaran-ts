@@ -119,6 +119,35 @@ describe('protected email link — no plaintext address in server output', () =>
   });
 });
 
+// ─── Drawing Label rotation (Phase 877) — the cross-host emission lock ──────
+
+describe('rotated Drawing labels emit transform=rotate anchored at the label', () => {
+  it('drawing-rotated-labels matches the F# reference emission byte-for-byte', () => {
+    const html = renderToHtml(decode('drawing-rotated-labels.json'));
+
+    // The pivot is each label's own (x, y) — not the viewBox origin — so the
+    // rotation composes with `textAnchor` rather than fighting it. These are
+    // the exact strings the F# `DrawingSvg` emitter produces for the same
+    // fixture; the corpus is the oracle, and this is the emission half of the
+    // conformance the codec round-trip does not cover.
+    expect(html).toContain('transform="rotate(-30 30 100)"'); // tilted category label
+    expect(html).toContain('transform="rotate(-90 70 100)"'); // vertical escalation
+    expect(html).toContain('transform="rotate(90 8 60)"'); // rotated y-axis title
+    expect(html).toContain('transform="rotate(12.34 110 100)"'); // 2-dp fraction
+    expect(html).toContain('transform="rotate(-0.5 180 100)"'); // negative fraction
+
+    // An explicit 0 is a PRESENT value and must still emit: absent and zero are
+    // different wire shapes, and a renderer that conflates them re-introduces
+    // downstream the very distinction the codec is careful to preserve.
+    expect(html).toContain('transform="rotate(0 150 100)"');
+
+    // The unrotated label in the same fixture emits no transform at all — the
+    // byte-unchanged guarantee for every pre-877 drawing.
+    expect(html).toContain('<text class="fuaran-drawing-label" x="100" y="20"');
+    expect(html.match(/transform="rotate\(/g)).toHaveLength(6);
+  });
+});
+
 describe.skipIf(!referenceAvailable)(
   'Lock B — server classes are in the F# reference vocabulary',
   () => {

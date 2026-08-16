@@ -1135,6 +1135,10 @@ const drawStyle = (s: DrawStyle): string => {
   if (s.fontFamily !== undefined) fields.push(['fontFamily', str(s.fontFamily)]);
   // Phase 642 — keyed mark identity; omitted when unset.
   if (s.markId !== undefined) fields.push(['markId', str(s.markId)]);
+  // Phase 877 — Label text rotation (degrees). `!== undefined`, NOT a
+  // truthiness test: an explicit 0 is a present value and a distinct wire
+  // shape from absent, so omitting it would round-trip to different bytes.
+  if (s.rotation !== undefined) fields.push(['rotation', num(s.rotation)]);
   return jObject(fields);
 };
 

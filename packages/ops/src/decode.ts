@@ -3152,6 +3152,9 @@ const decodeDrawStyle = (path: string, j: JsonAst): R<DrawStyle> => {
   // Phase 642 — keyed mark identity; optional.
   const markId = optField(path, f, 'markId', requireString);
   if (!markId.ok) return markId;
+  // Phase 877 — Label text rotation in degrees; optional, no default.
+  const rotation = optField(path, f, 'rotation', requireFloat);
+  if (!rotation.ok) return rotation;
   return ok({
     ...(fill.value !== undefined ? { fill: fill.value } : {}),
     ...(stroke.value !== undefined ? { stroke: stroke.value } : {}),
@@ -3164,6 +3167,7 @@ const decodeDrawStyle = (path: string, j: JsonAst): R<DrawStyle> => {
     ...(emphasis.value !== undefined ? { emphasis: emphasis.value } : {}),
     ...(fontFamily.value !== undefined ? { fontFamily: fontFamily.value } : {}),
     ...(markId.value !== undefined ? { markId: markId.value } : {}),
+    ...(rotation.value !== undefined ? { rotation: rotation.value } : {}),
   });
 };
 
