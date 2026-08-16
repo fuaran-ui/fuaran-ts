@@ -1734,6 +1734,10 @@ const chartSpec = (s: ChartSpec<unknown>): string => {
   if (s.title !== undefined) fields.push(['title', textSource(s.title)]);
   // Phase 876 — the value axis's declared number format (canonical key order).
   if (s.valueFormat !== undefined) fields.push(['valueFormat', formatIntent(s.valueFormat)]);
+  // Phase 878 — the axis names + the subtitle (canonical key order).
+  if (s.xTitle !== undefined) fields.push(['xTitle', textSource(s.xTitle)]);
+  if (s.yTitle !== undefined) fields.push(['yTitle', textSource(s.yTitle)]);
+  if (s.subtitle !== undefined) fields.push(['subtitle', textSource(s.subtitle)]);
   if (s.onPointClick !== undefined) fields.push(['onPointClick', CLOSURE]);
   return jObject(fields);
 };

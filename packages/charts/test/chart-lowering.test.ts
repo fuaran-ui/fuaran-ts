@@ -48,6 +48,11 @@ interface ChartInput {
   // lowering parameter, never wire), present so the corpus can pin every mode.
   readonly valueFormat?: { readonly $type: string; readonly [k: string]: unknown };
   readonly axisUnitMode?: ChartAxisUnitMode;
+  // Phase 878 — the axis names + the subtitle, plain strings beside `title`,
+  // omitted when absent (so every pre-878 input is byte-unchanged).
+  readonly xTitle?: string;
+  readonly yTitle?: string;
+  readonly subtitle?: string;
   readonly data: readonly ChartRow[];
 }
 
@@ -89,6 +94,10 @@ const specAndRows = (
     ...(inp.title !== null ? { title: inp.title } : {}),
     stacked: inp.stacked,
     ...(inp.valueFormat !== undefined ? { valueFormat: valueFormatOf(inp.valueFormat) } : {}),
+    // Phase 878 — plain-string keys beside `title`, omitted when absent.
+    ...(inp.xTitle !== undefined ? { xTitle: inp.xTitle } : {}),
+    ...(inp.yTitle !== undefined ? { yTitle: inp.yTitle } : {}),
+    ...(inp.subtitle !== undefined ? { subtitle: inp.subtitle } : {}),
   },
   rows: inp.data,
   style: inp.axisUnitMode !== undefined ? { axisUnitMode: inp.axisUnitMode } : {},

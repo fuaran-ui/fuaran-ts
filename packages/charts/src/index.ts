@@ -135,6 +135,18 @@ const TEXT_LINE_HEIGHT_FACTOR = 1.2;
 const CATEGORY_LABEL_OFFSET_Y = 20.0;
 /** Distance from the canvas bottom to the x-axis title's BASELINE. */
 const AXIS_TITLE_BOTTOM_OFFSET = 12.0;
+/** Phase 878 — the subtitle's font size (below the 18 px title) and baseline. */
+const SUBTITLE_FONT_SIZE = 13.0;
+const SUBTITLE_BASELINE_Y = 38.0;
+/**
+ * Phase 878 — the ROTATED y-axis title: the x of its baseline measured from the
+ * canvas LEFT EDGE (not the autosized margin, so it does not slide about as
+ * tick widths change), and the MAGNITUDE of its rotation. Emitted as `-degrees`
+ * — `rotation` is clockwise, so the negative angle reads BOTTOM-UP, the same
+ * sign convention the vertical category labels already use.
+ */
+const Y_AXIS_TITLE_OFFSET_X = 18.0;
+const Y_AXIS_TITLE_DEGREES = 90.0;
 /** The MAGNITUDE of the category-label tilt, in degrees. Tilt is the default
  * state — it is for LEGIBILITY, not a crowding fallback. */
 const LABEL_TILT_DEGREES = 30.0;
@@ -630,6 +642,21 @@ export interface ChartLowerSpec {
   /** Phase 876 — the VALUE axis's number format, reusing the existing `Format`
    * vocabulary. A wire field: a semantic declaration, not an appearance. */
   readonly valueFormat?: Format;
+  /**
+   * Phase 878 — the axis NAMES and the muted subtitle. Wire fields for the same
+   * reason `title` is one: what an axis is CALLED is the author's meaning.
+   *
+   * Absent is the ORDINARY shape, not an opt-out: each axis title falls back to
+   * its capitalised field name, so an axis is never nameless.
+   */
+  readonly xTitle?: string;
+  readonly yTitle?: string;
+  /**
+   * The natural home for a units statement. Declaring one SUPPRESSES the
+   * lowering's own display-unit slot — the author has said it, so the machine
+   * does not repeat it.
+   */
+  readonly subtitle?: string;
 }
 
 /**
@@ -790,14 +817,56 @@ export const lower = (
   const widestOf = (texts: readonly string[]): number =>
     texts.reduce((acc, t) => Math.max(acc, textWidth(tickSize, t)), 0.0);
 
+  // ── Axis names + subtitle (Phase 878) ──
+  //
+  // Resolved HERE, before any margin, because both margins reserve a line for
+  // text whose presence these three fields decide — the left margin for the
+  // rotated y title, the top margin for the subtitle.
+  //
+  // An axis title is the author's own when declared, else the capitalised field
+  // name (which is what the x axis has always drawn, now stated once and applied
+  // to both). Undefined only where there is no honest fallback: an empty field
+  // name, or a y axis carrying no series at all.
+  const axisTitleOf = (declared: string | undefined, fallbackField: string): string | undefined =>
+    declared !== undefined
+      ? declared
+      : fallbackField === ''
+        ? undefined
+        : capitalise(fallbackField);
+
+  const xTitle = axisTitleOf(spec.xTitle, spec.xField);
+  // The y fallback is the capitalised FIRST y-field — the honest answer to
+  // "what is on this axis", where the retired `"Value"` literal named neither
+  // the measure nor its unit.
+  const yTitle = axisTitleOf(spec.yTitle, spec.yFields[0] ?? '');
+
+  // ── Top margin ──
+  // A subtitle takes one line under the title, and everything below it in the
+  // top band — the legend row, the display-unit slot, the plot itself — moves
+  // down by exactly that line. Reserved only when one is present, so a chart
+  // without a subtitle keeps the pre-878 layout byte-for-byte.
+  const subtitleBand =
+    spec.subtitle !== undefined ? textLineHeight(SUBTITLE_FONT_SIZE, TEXT_LINE_HEIGHT_FACTOR) : 0.0;
+  const marginTop = r2(MARGIN_TOP + subtitleBand);
+
   // ── Left margin ──
   // The truncation budget is derived from the CEILING — a constant — so the
   // truncation that feeds the margin never depends on the margin it decides.
   const leftCeiling = MARGIN_LEFT_MAX_SHARE * W;
-  const tickTextBudget = Math.max(0.0, leftCeiling - TICK_LABEL_GAP - AXIS_LABEL_PADDING);
+  // Phase 878 — the rotated y title occupies one LINE of the left margin,
+  // outboard of the tick column. Only its line height (plus the padding beside
+  // it) is reserved: the title is rotated, so its LENGTH runs vertically and is
+  // bounded against the plot height further down, which is what keeps this
+  // acyclic.
+  const yTitleBand = yTitle !== undefined ? lineHeight + AXIS_LABEL_PADDING : 0.0;
+  const tickTextBudget = Math.max(
+    0.0,
+    leftCeiling - TICK_LABEL_GAP - AXIS_LABEL_PADDING - yTitleBand,
+  );
   const yTickLabelText = (v: number): string =>
     truncateToWidth(tickSize, tickTextBudget, yTickText(v));
-  const requiredLeft = TICK_LABEL_GAP + widestOf(ticks.map(yTickLabelText)) + AXIS_LABEL_PADDING;
+  const requiredLeft =
+    TICK_LABEL_GAP + widestOf(ticks.map(yTickLabelText)) + AXIS_LABEL_PADDING + yTitleBand;
   const marginLeft = r2(Math.max(MARGIN_LEFT, Math.min(leftCeiling, requiredLeft)));
 
   const PLOT_X0 = marginLeft;
@@ -855,7 +924,7 @@ export const lower = (
     AXIS_TITLE_BOTTOM_OFFSET;
   const marginBottom = r2(Math.max(MARGIN_BOTTOM, Math.min(bottomCeiling, requiredBottom)));
 
-  const PLOT_Y0 = MARGIN_TOP;
+  const PLOT_Y0 = marginTop;
   const PLOT_Y1 = H - marginBottom;
   const PLOT_H = PLOT_Y1 - PLOT_Y0;
 
@@ -961,23 +1030,66 @@ export const lower = (
         ),
       );
 
-  // ── Axis titles (a name on both axes) ──
-  const axisTitles: Shape[] = [
-    label(
-      r2((PLOT_X0 + PLOT_X1) / 2.0),
-      r2(H - AXIS_TITLE_BOTTOM_OFFSET),
-      literal(capitalise(spec.xField)),
-      textStyle(undefined, 'Middle', tickSize, 'Normal'),
-    ),
-    label(
-      r2(8.0),
-      r2(PLOT_Y0 - 12.0),
-      // The top-left slot states the value axis's DISPLAY UNIT once when
-      // scaling applies, and otherwise keeps the horizontal "Value" hint.
-      literal(yDisplayUnit.label === '' ? 'Value' : yDisplayUnit.label),
-      textStyle(undefined, 'Start', tickSize, 'Normal'),
-    ),
-  ];
+  // ── Axis titles + the display-unit slot (Phase 878) ──
+  //
+  // Three rules, and together they retire the hardcoded `"Value"`:
+  //
+  //   1. NAMES. The x title stays centred under the tick band; the y title is
+  //      ROTATED bottom-up in the left margin, Middle-anchored at the plot's
+  //      vertical centre so it stays centred on the axis it names whatever its
+  //      length. Each falls back to its capitalised field name.
+  //   2. UNITS KEEP THEIR OWN SLOT. The top-left label states the Phase-876
+  //      display unit and NOTHING else: with no scaling in play it is not drawn
+  //      at all, where it previously fell back to the literal `"Value"` — a word
+  //      naming neither the measure nor its unit. Composing the unit INTO the
+  //      rotated title was rejected: that concatenation is only expressible for
+  //      a literal title, so a bound or i18n one would silently take a different
+  //      layout, and a rule whose shape depends on that is not a rule.
+  //   3. DEDUPE. An explicit subtitle SUPPRESSES the unit slot — the author's
+  //      own units statement wins over the machine restating it two lines away.
+  //      PRESENCE is the whole test, so no string comparison is involved and the
+  //      rule is identical on every host.
+  //
+  // A SELF-EVIDENT DATE AXIS SUPPRESSES ITS DEFAULT TITLE — stated in the design
+  // note (§4e) and deliberately NOT wired: nothing here can tell a date column
+  // from a string one, and inferring it from the label text would be a guess.
+  const boundText = (fontSize: number, extent: number, t: string): string =>
+    truncateToWidth(fontSize, extent, t);
+
+  const axisTitles: Shape[] = [];
+  if (xTitle !== undefined) {
+    axisTitles.push(
+      label(
+        r2((PLOT_X0 + PLOT_X1) / 2.0),
+        r2(H - AXIS_TITLE_BOTTOM_OFFSET),
+        literal(boundText(tickSize, PLOT_W, xTitle)),
+        textStyle(undefined, 'Middle', tickSize, 'Normal'),
+      ),
+    );
+  }
+  if (yTitle !== undefined) {
+    axisTitles.push(
+      label(
+        r2(Y_AXIS_TITLE_OFFSET_X),
+        r2((PLOT_Y0 + PLOT_Y1) / 2.0),
+        literal(boundText(tickSize, PLOT_H, yTitle)),
+        {
+          ...textStyle(undefined, 'Middle', tickSize, 'Normal'),
+          rotation: r2(-Y_AXIS_TITLE_DEGREES),
+        },
+      ),
+    );
+  }
+  if (yDisplayUnit.label !== '' && spec.subtitle === undefined) {
+    axisTitles.push(
+      label(
+        r2(8.0),
+        r2(PLOT_Y0 - 12.0),
+        literal(yDisplayUnit.label),
+        textStyle(undefined, 'Start', tickSize, 'Normal'),
+      ),
+    );
+  }
 
   // ── Series geometry ──
   const seriesShapes: Shape[] = [];
@@ -1136,11 +1248,14 @@ export const lower = (
       // The label offsets from the ROUNDED swatch x, exactly as the reference
       // does — rounding the sum instead can differ in the last 2 dp.
       const sx = r2(lx);
-      legend.push(rectangle(sx, 34.0, 10.0, 10.0, 2.0, styleFill(colour)));
+      // Phase 878 — the legend row sits BELOW the subtitle, so it moves down by
+      // the line the subtitle took. `subtitleBand` is 0 without one, leaving the
+      // pre-878 constants exactly where they were.
+      legend.push(rectangle(sx, r2(34.0 + subtitleBand), 10.0, 10.0, 2.0, styleFill(colour)));
       legend.push(
         label(
           r2(sx + LEGEND_LABEL_OFFSET_X),
-          43.0,
+          r2(43.0 + subtitleBand),
           literal(name),
           textStyle(LABEL_OPACITY, 'Start', tickSize, 'Normal'),
         ),
@@ -1158,6 +1273,24 @@ export const lower = (
             22.0,
             literal(spec.title),
             textStyle(undefined, 'Start', titleSize, 'Loud'),
+          ),
+        ]
+      : [];
+
+  // ── Subtitle (Phase 878) — the muted line under the title ──
+  //
+  // MUTED (label-role opacity, not the title's full strength) and SMALLER,
+  // sharing the title's x and anchor so the pair reads as one block. It draws
+  // independently of the title: the top margin has already reserved the line
+  // either way.
+  const subtitleShapes: Shape[] =
+    spec.subtitle !== undefined
+      ? [
+          label(
+            r2(PLOT_X0),
+            SUBTITLE_BASELINE_Y,
+            literal(boundText(SUBTITLE_FONT_SIZE, PLOT_W, spec.subtitle)),
+            textStyle(LABEL_OPACITY, 'Start', SUBTITLE_FONT_SIZE, 'Normal'),
           ),
         ]
       : [];
@@ -1278,7 +1411,7 @@ export const lower = (
   // legend, chart title.
   const shapes: Shape[] =
     spec.kind === 'Pie'
-      ? [...pieShapes(), ...titleShapes]
+      ? [...pieShapes(), ...titleShapes, ...subtitleShapes]
       : [
           ...gridlines,
           ...xGridlines,
@@ -1291,6 +1424,7 @@ export const lower = (
           ...seriesShapes,
           ...legend,
           ...titleShapes,
+          ...subtitleShapes,
         ];
 
   const drawing: DrawingSpec = {

@@ -3245,6 +3245,18 @@
         "title": {
           "$ref": "#/$defs/TextSource"
         },
+        "valueFormat": {
+          "$ref": "#/$defs/Format"
+        },
+        "xTitle": {
+          "$ref": "#/$defs/TextSource"
+        },
+        "yTitle": {
+          "$ref": "#/$defs/TextSource"
+        },
+        "subtitle": {
+          "$ref": "#/$defs/TextSource"
+        },
         "onPointClick": {
           "const": "<closure>"
         }

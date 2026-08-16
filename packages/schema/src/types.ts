@@ -1891,6 +1891,17 @@ export interface ChartSpec<TMsg> {
   // no declared meaning — the lowering still applies its canonical default
   // rendering (thousands separators + step-derived decimals).
   readonly valueFormat?: Format;
+  // Phase 878 — the axis NAMES and the muted subtitle. Wire fields for the same
+  // reason `title` is one and the chart STYLE is not: what an axis is CALLED is
+  // the author's meaning; where and how it is drawn is the host's appearance.
+  //
+  // Absent is the ORDINARY shape, not an opt-out — each axis title falls back to
+  // its capitalised field name, so an axis is never nameless. An explicit
+  // `subtitle` additionally SUPPRESSES the lowering's own display-unit label:
+  // the author has stated the units, so the machine does not repeat them.
+  readonly xTitle?: TextSource;
+  readonly yTitle?: TextSource;
+  readonly subtitle?: TextSource;
   readonly onPointClick?: (point: unknown) => Action<TMsg>;
   readonly stacked: boolean;
 }

@@ -4376,6 +4376,14 @@ const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
   // existing `Format` vocabulary. Absent is the ordinary shape.
   const valueFormat = optField(path, f, 'valueFormat', decodeFormat);
   if (!valueFormat.ok) return valueFormat;
+  // Phase 878 — the axis NAMES and the muted subtitle. Absent is the ordinary
+  // shape: each axis title falls back to its capitalised field name.
+  const xTitle = optField(path, f, 'xTitle', decodeTextSource);
+  if (!xTitle.ok) return xTitle;
+  const yTitle = optField(path, f, 'yTitle', decodeTextSource);
+  if (!yTitle.ok) return yTitle;
+  const subtitle = optField(path, f, 'subtitle', decodeTextSource);
+  if (!subtitle.ok) return subtitle;
   const hasPointClick = tryField(f, 'onPointClick') !== undefined;
   // stacked (Phase 126) now round-trips; absent (legacy wire) defaults to false.
   const stacked = optField(path, f, 'stacked', requireBool);
@@ -4388,6 +4396,9 @@ const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
     stacked: stacked.value ?? false,
     ...(title.value !== undefined ? { title: title.value } : {}),
     ...(valueFormat.value !== undefined ? { valueFormat: valueFormat.value } : {}),
+    ...(xTitle.value !== undefined ? { xTitle: xTitle.value } : {}),
+    ...(yTitle.value !== undefined ? { yTitle: yTitle.value } : {}),
+    ...(subtitle.value !== undefined ? { subtitle: subtitle.value } : {}),
     ...(hasPointClick ? { onPointClick: () => placeholderAction } : {}),
   });
 };
