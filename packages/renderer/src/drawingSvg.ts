@@ -96,6 +96,23 @@ const styleAttrs = (
   return out;
 };
 
+/** Phase 875 — round line joins + caps on a STROKED path shape (`Polyline` /
+ * `Polygon` / `Curve`). A RENDERER default, not a wire field: `DrawStyle`
+ * gains nothing, no fixture changes shape, and every host emits the same two
+ * attributes from its own builder. SVG's initial `stroke-linejoin` is
+ * `miter`, which spikes at the acute vertices a data polyline routinely has —
+ * a visible artefact that carries no data.
+ *
+ * Emitted only when the shape actually strokes, so a fill-only polygon (an
+ * area band) keeps its minimal attribute set. `Line` is deliberately
+ * excluded: a round cap on the axis and gridline rules would overhang each
+ * end by half the stroke width, lengthening chrome that is positioned
+ * exactly. */
+const strokeJoinAttrs = (sources: BindingSources, style: DrawStyle): string => {
+  const stroke = style.stroke !== undefined ? tryResolve(sources, style.stroke) : undefined;
+  return stroke !== undefined ? ' stroke-linejoin="round" stroke-linecap="round"' : '';
+};
+
 const shapeSvg = (sources: BindingSources, sh: Shape): string => {
   switch (sh.kind) {
     case 'Group': {
@@ -109,11 +126,11 @@ const shapeSvg = (sources: BindingSources, sh: Shape): string => {
     case 'Line':
       return `<line class="fuaran-drawing-line" x1="${formatNum(sh.x1)}" y1="${formatNum(sh.y1)}" x2="${formatNum(sh.x2)}" y2="${formatNum(sh.y2)}"${styleAttrs(sources, false, sh.style)}/>`;
     case 'Polyline':
-      return `<polyline class="fuaran-drawing-polyline" points="${pointsAttr(sh.points)}"${styleAttrs(sources, true, sh.style)}/>`;
+      return `<polyline class="fuaran-drawing-polyline" points="${pointsAttr(sh.points)}"${styleAttrs(sources, true, sh.style)}${strokeJoinAttrs(sources, sh.style)}/>`;
     case 'Polygon':
-      return `<polygon class="fuaran-drawing-polygon" points="${pointsAttr(sh.points)}"${styleAttrs(sources, false, sh.style)}/>`;
+      return `<polygon class="fuaran-drawing-polygon" points="${pointsAttr(sh.points)}"${styleAttrs(sources, false, sh.style)}${strokeJoinAttrs(sources, sh.style)}/>`;
     case 'Curve':
-      return `<path class="fuaran-drawing-curve" d="${pathD(sh.commands)}"${styleAttrs(sources, true, sh.style)}/>`;
+      return `<path class="fuaran-drawing-curve" d="${pathD(sh.commands)}"${styleAttrs(sources, true, sh.style)}${strokeJoinAttrs(sources, sh.style)}/>`;
     case 'Circle':
       return `<circle class="fuaran-drawing-circle" cx="${formatNum(sh.cx)}" cy="${formatNum(sh.cy)}" r="${formatNum(sh.r)}"${styleAttrs(sources, false, sh.style)}/>`;
     case 'Ellipse':

@@ -60,7 +60,23 @@ const PLOT_W = PLOT_X1 - PLOT_X0;
 const PLOT_H = PLOT_Y1 - PLOT_Y0;
 
 // A fixed, deterministic categorical palette (series index → colour).
-const PALETTE = ['#3366cc', '#dc3912', '#ff9900', '#109618', '#990099', '#0099c6'] as const;
+//
+// Phase 875 palette v2 — 8 slots, fixed assignment order. Validated on BOTH
+// surfaces (light #fcfcfb, dark #1a1a19) against the OKLab gate set:
+// lightness band, chroma floor, adjacent-pair CVD ΔE (protan + deutan, Machado
+// 2009 at severity 1.0), adjacent-pair normal-vision ΔE. The ASSIGNMENT ORDER
+// is load-bearing — the gates are measured over ADJACENT pairs — so this array
+// must never be sorted or re-ordered.
+const PALETTE = [
+  '#1a86ac', // loch blue
+  '#bf831c', // ochre
+  '#a51574', // magenta
+  '#21a766', // green
+  '#6454e5', // violet
+  '#af153d', // crimson
+  '#21a2b2', // teal
+  '#d3241b', // vermilion
+] as const;
 
 const colourFor = (i: number): string => PALETTE[i % PALETTE.length]!;
 
@@ -72,8 +88,31 @@ const LABEL_OPACITY = 0.66;
 
 /** A translucent categorical fill (Phase 637 — area bands). The gridlines stay
  * legible through the band; the series' full-strength Polyline edge on top
- * carries the categorical colour at full contrast. */
-const AREA_FILL_OPACITY = 0.35;
+ * carries the categorical colour at full contrast. Phase 875 dropped this to
+ * a wash: at 0.35 two overlaid bands read as a third colour and the chrome
+ * beneath them disappears. */
+const AREA_FILL_OPACITY = 0.12;
+
+// ─── Axis chrome + mark geometry constants (Phase 875) ────────────────────────
+
+/** Gap between the y-axis spine and the right edge of a tick label. */
+const TICK_LABEL_GAP = 12.0;
+
+/** Length of the small OUTSIDE tick marks on both axes: y-axis marks run left
+ * from the spine, x-axis marks run down from it, so neither eats plot area. */
+const TICK_MARK_LENGTH = 5.0;
+
+/** Hard pixel ceiling on a single bar's thickness. The bar takes the MIN of
+ * its band share and this cap, and is then centred in its slot. */
+const BAR_MAX_THICKNESS = 28.0;
+
+/** GEOMETRIC gap between consecutive segments of a stacked bar — the segment
+ * is shortened on the side facing the next segment. */
+const STACK_SEGMENT_GAP = 2.0;
+
+/** GEOMETRIC angular padding between pie wedges, in DEGREES — half is taken
+ * from each end of every wedge's sweep. */
+const WEDGE_GAP_DEGREES = 0.75;
 
 // The chart's own font stack — carried in the wire so a lowered chart is
 // self-contained + legible on every host without host CSS.
@@ -367,23 +406,63 @@ export const lower = (spec: ChartLowerSpec, rows: readonly ChartRow[]): DrawingS
     r2(PLOT_X0 + ((v - xNiceLo) / (xNiceHi - xNiceLo)) * PLOT_W);
 
   const tickSize = 13.0;
-  const titleSize = 16.0;
+  const titleSize = 18.0;
 
   // ── Chrome (assembled in painter's order below) ──
+  const axisStyle = styleStrokeInk(AXIS_OPACITY, 1.0);
+  const gridStyle = styleStrokeInk(GRID_OPACITY, 1.0);
+
   const gridlines: Shape[] = ticks.map((t) => {
     const y = yScale(t);
-    return line(r2(PLOT_X0), y, r2(PLOT_X1), y, styleStrokeInk(GRID_OPACITY, 1.0));
+    return line(r2(PLOT_X0), y, r2(PLOT_X1), y, gridStyle);
   });
 
+  // Vertical gridlines — the Scatter arm only (Phase 875). A linear x-scale has
+  // readable x positions, so a reader traces a point back to an x value the
+  // same way the horizontal grid lets them trace a y value. A BAND x-axis has
+  // no such positions to trace (a category is a label, not a magnitude), so a
+  // vertical rule there would be decoration.
+  const xGridlines: Shape[] = isScatter
+    ? xTicks.map((t) => line(xScale(t), r2(PLOT_Y0), xScale(t), r2(PLOT_Y1), gridStyle))
+    : [];
+
   const axes: Shape[] = [
-    line(r2(PLOT_X0), r2(PLOT_Y0), r2(PLOT_X0), r2(PLOT_Y1), styleStrokeInk(AXIS_OPACITY, 1.0)),
-    line(r2(PLOT_X0), r2(PLOT_Y1), r2(PLOT_X1), r2(PLOT_Y1), styleStrokeInk(AXIS_OPACITY, 1.0)),
+    line(r2(PLOT_X0), r2(PLOT_Y0), r2(PLOT_X0), r2(PLOT_Y1), axisStyle),
+    line(r2(PLOT_X0), r2(PLOT_Y1), r2(PLOT_X1), r2(PLOT_Y1), axisStyle),
   ];
+
+  // Zero baseline (Phase 875) — only when the domain CROSSES zero, where the
+  // sign of a value is a reading of the chart and the zero line is what the
+  // reader measures against. Drawn at axis strength, over the ordinary
+  // gridline it shares a y with; when the domain does not cross zero the axis
+  // spine already IS the baseline and a second rule at the same strength
+  // would be noise.
+  const zeroLine: Shape[] =
+    niceLo < 0.0 && niceHi > 0.0
+      ? [line(r2(PLOT_X0), yScale(0.0), r2(PLOT_X1), yScale(0.0), axisStyle)]
+      : [];
+
+  // Outside tick marks (Phase 875) — outside the plot on both axes, so the
+  // plot area stays ink-free and the marks tie each label to its position.
+  // y marks first, then x marks. Suppressed entirely when TICK_MARK_LENGTH <= 0.
+  const tickMarks: Shape[] = (() => {
+    if (TICK_MARK_LENGTH <= 0.0) return [];
+    const yMarks: Shape[] = ticks.map((t) => {
+      const y = yScale(t);
+      return line(r2(PLOT_X0 - TICK_MARK_LENGTH), y, r2(PLOT_X0), y, axisStyle);
+    });
+    const xAt = (x: number): Shape =>
+      line(x, r2(PLOT_Y1), x, r2(PLOT_Y1 + TICK_MARK_LENGTH), axisStyle);
+    const xMarks: Shape[] = isScatter
+      ? xTicks.map((t) => xAt(xScale(t)))
+      : Array.from({ length: n }, (_, i) => xAt(centreX(i)));
+    return [...yMarks, ...xMarks];
+  })();
 
   // y-axis tick labels — right-anchored (End) in the left margin.
   const yTickLabels: Shape[] = ticks.map((t) =>
     label(
-      r2(PLOT_X0 - 8.0),
+      r2(PLOT_X0 - TICK_LABEL_GAP),
       r2(yScale(t) + 4.0),
       literal(tickLabel(t)),
       textStyle(LABEL_OPACITY, 'End', tickSize, 'Normal'),
@@ -429,18 +508,25 @@ export const lower = (spec: ChartLowerSpec, rows: readonly ChartRow[]): DrawingS
   // ── Series geometry ──
   const seriesShapes: Shape[] = [];
   if (spec.kind === 'Bar' && stacked) {
-    // One full group-width bar per category; series stack as segments between
-    // consecutive cumulative sums (Phase 637).
+    // One capped bar per category, centred in its band; series stack as
+    // segments between consecutive cumulative sums (Phase 637), each
+    // shortened by STACK_SEGMENT_GAP on the side facing the next segment so
+    // the boundaries read as gaps rather than colour changes (Phase 875).
     const groupW = bandW * 0.7;
+    const bw = r2(Math.min(groupW * 0.9, BAR_MAX_THICKNESS));
     for (let i = 0; i < n; i++) {
-      const bx = r2(PLOT_X0 + bandW * i + (bandW - groupW) / 2.0);
-      const bw = r2(groupW * 0.9);
+      const bx = r2(PLOT_X0 + bandW * i + (bandW - bw) / 2.0);
       const cums = cumsFor(i);
       for (let j = 0; j < m; j++) {
         const y0 = yScale(cums[j]!);
         const y1 = yScale(cums[j + 1]!);
-        const top = Math.min(y0, y1);
-        const hgt = r2(Math.abs(y1 - y0));
+        // The gap comes off the far side from the baseline, and only where
+        // another segment follows — so the stack's outer tip keeps its full
+        // height and the total stays honest. Math.max(0, …) covers a segment
+        // thinner than the gap.
+        const gap = j < m - 1 ? STACK_SEGMENT_GAP : 0.0;
+        const top = r2(Math.min(y0, y1) + (y1 < y0 ? gap : 0.0));
+        const hgt = r2(Math.max(0.0, Math.abs(y1 - y0) - gap));
         seriesShapes.push(
           rectangle(
             bx,
@@ -456,14 +542,18 @@ export const lower = (spec: ChartLowerSpec, rows: readonly ChartRow[]): DrawingS
   } else if (spec.kind === 'Bar') {
     const groupW = bandW * 0.7;
     const subW = m > 0 ? groupW / m : groupW;
+    const bw = r2(Math.min(subW * 0.9, BAR_MAX_THICKNESS));
     const baseY = yScale(0.0);
     for (let j = 0; j < m; j++) {
       const colour = colourFor(j);
       const seriesValues = series[j]!;
       for (let i = 0; i < n; i++) {
         const v = seriesValues[i]!;
-        const bx = r2(PLOT_X0 + bandW * i + (bandW - groupW) / 2.0 + j * subW);
-        const bw = r2(subW * 0.9);
+        // Centre the (possibly capped) bar in its own sub-slot, so a cap
+        // takes air off BOTH sides and the group stays symmetric about the
+        // band centre.
+        const slotX = PLOT_X0 + bandW * i + (bandW - groupW) / 2.0 + j * subW;
+        const bx = r2(slotX + (subW - bw) / 2.0);
         const vy = yScale(v);
         const top = Math.min(vy, baseY);
         const hgt = r2(Math.abs(vy - baseY));
@@ -638,6 +728,12 @@ export const lower = (spec: ChartLowerSpec, rows: readonly ChartRow[]): DrawingS
     for (const f of fractions) starts.push(starts[starts.length - 1]! + f);
     const top = -Math.PI / 2.0;
 
+    // Half the angular padding comes off each end of every wedge (Phase 875),
+    // so the separation is a sliver of absent ink — no surface colour is
+    // needed and the result is theme-invariant, which a stroked wedge border
+    // could not be.
+    const halfGap = (WEDGE_GAP_DEGREES * Math.PI) / 360.0;
+
     const segs: Shape[] = [];
     const yf = spec.yFields[0]!;
     for (let i = 0; i < n; i++) {
@@ -646,17 +742,24 @@ export const lower = (spec: ChartLowerSpec, rows: readonly ChartRow[]): DrawingS
         const colour = colourFor(i);
         const markStyle = withMark(yf, categories[i]!, styleFill(colour));
         if (f >= 1.0 - 1e-9) {
+          // A lone 100% category is a circle — there is no neighbour to
+          // separate from, so no padding.
           segs.push(circle(cx, cy, radius, markStyle));
         } else {
-          const a0 = top + 2.0 * Math.PI * starts[i]!;
-          const a1 = top + 2.0 * Math.PI * starts[i + 1]!;
-          const cmds: CurveCommand[] = [
-            { kind: 'MoveTo', to: { x: cx, y: cy } },
-            { kind: 'LineTo', to: pt(a0) },
-            ...arcCubics(a0, a1),
-            { kind: 'Close' },
-          ];
-          segs.push({ kind: 'Curve', commands: cmds, style: markStyle });
+          const a0 = top + 2.0 * Math.PI * starts[i]! + halfGap;
+          const a1 = top + 2.0 * Math.PI * starts[i + 1]! - halfGap;
+          // A wedge narrower than the padding is DROPPED rather than drawn
+          // inverted — the alternative is a sliver sweeping the wrong way
+          // round the circle, which is a wrong picture, not a small one.
+          if (a1 > a0) {
+            const cmds: CurveCommand[] = [
+              { kind: 'MoveTo', to: { x: cx, y: cy } },
+              { kind: 'LineTo', to: pt(a0) },
+              ...arcCubics(a0, a1),
+              { kind: 'Close' },
+            ];
+            segs.push({ kind: 'Curve', commands: cmds, style: markStyle });
+          }
         }
       }
     }
@@ -682,14 +785,18 @@ export const lower = (spec: ChartLowerSpec, rows: readonly ChartRow[]): DrawingS
   };
 
   // Pie is polar — no axes/gridlines/tick chrome; every other arm assembles
-  // the shared cartesian chrome in painter's order: gridlines, axes, y-tick +
-  // x labels, axis titles, series, legend, chart title.
+  // the shared cartesian chrome in painter's order: gridlines (h then v), the
+  // zero baseline, axes, tick marks, y-tick + x labels, axis titles, series,
+  // legend, chart title.
   const shapes: Shape[] =
     spec.kind === 'Pie'
       ? [...pieShapes(), ...titleShapes]
       : [
           ...gridlines,
+          ...xGridlines,
+          ...zeroLine,
           ...axes,
+          ...tickMarks,
           ...yTickLabels,
           ...xLabels,
           ...axisTitles,

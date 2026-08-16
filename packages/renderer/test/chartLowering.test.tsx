@@ -56,7 +56,7 @@ describe('Chart first-party lowering (Phase 534 tail)', () => {
     // The literal title folded into the drawing's a11y <title>.
     expect(html).toContain('Revenue by quarter');
     // A series bar rectangle from the geometry (palette index 0) made it in.
-    expect(html).toContain('#3366cc');
+    expect(html).toContain('#1a86ac');
     // Not the adapter-less fallback.
     expect(html).not.toContain('fuaran-chart-placeholder');
   });
