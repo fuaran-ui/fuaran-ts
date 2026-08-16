@@ -1664,6 +1664,8 @@ const columnErased = (c: ColumnErased<unknown>): string => {
   // Phase 861 — per-column sort narrowing; omitted when absent, so every
   // pre-861 column stays byte-identical.
   if (c.sortable !== undefined) fields.push(['sortable', bool(c.sortable)]);
+  // Phase 863 — per-column editability narrowing.
+  if (c.editable !== undefined) fields.push(['editable', bool(c.editable)]);
   return jObject(fields);
 };
 
@@ -1698,6 +1700,8 @@ const gridSpec = (s: GridSpec<unknown>): string => {
   // Phase 861 — the bound path's declared initial order, through the SAME
   // encoder the staticRows spelling uses.
   if (s.defaultSort !== undefined) fields.push(['defaultSort', defaultSortJson(s.defaultSort)]);
+  // Phase 863 — the declared edit destination.
+  if (s.editStateKey !== undefined) fields.push(['editStateKey', str(s.editStateKey)]);
   // Phase 393 — the static read-only mode; omitted for a data-bound grid so every existing
   // grid fixture stays byte-identical.
   if (s.staticRows !== undefined) {

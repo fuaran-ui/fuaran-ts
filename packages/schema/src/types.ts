@@ -1694,6 +1694,12 @@ export interface GridSpec<TMsg> {
   // declare it with no `sortStateKey` at all — an initial order without
   // interactive re-sorting.
   readonly defaultSort?: DefaultSort;
+  // Phase 863 — the DECLARED edit destination: the State key an edited cell's
+  // whole updated rows value commits to. Absent keeps Phase 663's shipped
+  // behaviour (write back to the grid's own State `source`). Present, it names
+  // the destination explicitly — what census row #27 asked for, since the only
+  // previous spelling was a closure erasing to "<closure>".
+  readonly editStateKey?: string;
   readonly columns: readonly ColumnErased<TMsg>[];
   readonly onRowClick?: (row: unknown) => Action<TMsg>;
   readonly editable: boolean;
@@ -1759,6 +1765,12 @@ export interface ColumnErased<TMsg> {
   // default made explicit and is an ERROR where the grid declares no
   // `sortStateKey`. Omitted on the wire when absent.
   readonly sortable?: boolean;
+  // Phase 863 — per-column EDITABILITY narrowing, the same rule on the write
+  // side. Absent = inherit the grid-level `editable`. `false` makes this column
+  // read-only under a grid-level `true` — the declaration "read-only implied by
+  // omission" could not express. `true` under a non-editable grid is an ERROR:
+  // a column narrows, never widens. Omitted on the wire when absent.
+  readonly editable?: boolean;
   readonly format: CellFormat;
   readonly kind: CellKindErased<TMsg>;
   readonly width: ColumnWidth;

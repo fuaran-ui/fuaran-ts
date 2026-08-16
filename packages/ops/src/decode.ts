@@ -4138,6 +4138,15 @@ const decodeColumnErased = (path: string, j: JsonAst): R<ColumnErased<unknown>> 
   // omitted, and `field` (if present, extracted above) drives the row-field projection
   // with zero host code.
   const hasValue = tryField(f, 'value') !== undefined;
+  // Phase 863 — per-column editability narrowing; absent inherits the
+  // grid-level flag.
+  const colEditableJ = tryField(f, 'editable');
+  let colEditable: boolean | undefined;
+  if (colEditableJ !== undefined) {
+    const er = requireBool(`${path}.editable`, colEditableJ);
+    if (!er.ok) return er;
+    colEditable = er.value;
+  }
   // Phase 861 — per-column sort narrowing; absent inherits.
   const sortableJ = tryField(f, 'sortable');
   let sortable: boolean | undefined;
@@ -4154,6 +4163,7 @@ const decodeColumnErased = (path: string, j: JsonAst): R<ColumnErased<unknown>> 
     ...(hasValue ? { value: () => ({ kind: 'Empty' as const }) } : {}),
     ...(field !== undefined ? { field } : {}),
     ...(sortable !== undefined ? { sortable } : {}),
+    ...(colEditable !== undefined ? { editable: colEditable } : {}),
   });
 };
 
@@ -4295,6 +4305,14 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
     if (!ds.ok) return ds;
     defaultSort = ds.value;
   }
+  // Phase 863 — the declared edit destination.
+  const editStateKeyJ = tryField(f, 'editStateKey');
+  let editStateKey: string | undefined;
+  if (editStateKeyJ !== undefined) {
+    const ek = requireString(`${path}.editStateKey`, editStateKeyJ);
+    if (!ek.ok) return ek;
+    editStateKey = ek.value;
+  }
   const pageStateKeyJ = tryField(f, 'pageStateKey');
   let pageStateKey: string | undefined;
   if (pageStateKeyJ !== undefined) {
@@ -4322,6 +4340,7 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
     ...(pageSize !== undefined ? { pageSize } : {}),
     ...(pageStateKey !== undefined ? { pageStateKey } : {}),
     ...(defaultSort !== undefined ? { defaultSort } : {}),
+    ...(editStateKey !== undefined ? { editStateKey } : {}),
     ...(staticRows !== undefined ? { staticRows } : {}),
   });
 };

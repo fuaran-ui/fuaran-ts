@@ -3099,6 +3099,9 @@
         "sortable": {
           "type": "boolean"
         },
+        "editable": {
+          "type": "boolean"
+        },
         "width": {
           "$ref": "#/$defs/ColumnWidth"
         }
@@ -3134,6 +3137,9 @@
           "minimum": 1
         },
         "pageStateKey": {
+          "type": "string"
+        },
+        "editStateKey": {
           "type": "string"
         },
         "defaultSort": {
