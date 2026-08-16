@@ -1732,6 +1732,8 @@ const chartSpec = (s: ChartSpec<unknown>): string => {
     ['yFields', jArray(s.yFields.map(str))],
   ];
   if (s.title !== undefined) fields.push(['title', textSource(s.title)]);
+  // Phase 876 — the value axis's declared number format (canonical key order).
+  if (s.valueFormat !== undefined) fields.push(['valueFormat', formatIntent(s.valueFormat)]);
   if (s.onPointClick !== undefined) fields.push(['onPointClick', CLOSURE]);
   return jObject(fields);
 };

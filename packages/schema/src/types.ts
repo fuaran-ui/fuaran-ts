@@ -1885,6 +1885,12 @@ export interface ChartSpec<TMsg> {
   readonly xField: string;
   readonly yFields: readonly string[];
   readonly title?: TextSource;
+  // Phase 876 — the VALUE axis's number format, reusing the existing `Format`
+  // vocabulary. A semantic declaration ("these numbers are pounds / a ratio"),
+  // which is why it is a wire field where the chart STYLE is not. Absent means
+  // no declared meaning — the lowering still applies its canonical default
+  // rendering (thousands separators + step-derived decimals).
+  readonly valueFormat?: Format;
   readonly onPointClick?: (point: unknown) => Action<TMsg>;
   readonly stacked: boolean;
 }

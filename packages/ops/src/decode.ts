@@ -4372,6 +4372,10 @@ const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
   if (!yFields.ok) return yFields;
   const title = optField(path, f, 'title', decodeTextSource);
   if (!title.ok) return title;
+  // Phase 876 — `valueFormat`: the value axis's number format, reusing the
+  // existing `Format` vocabulary. Absent is the ordinary shape.
+  const valueFormat = optField(path, f, 'valueFormat', decodeFormat);
+  if (!valueFormat.ok) return valueFormat;
   const hasPointClick = tryField(f, 'onPointClick') !== undefined;
   // stacked (Phase 126) now round-trips; absent (legacy wire) defaults to false.
   const stacked = optField(path, f, 'stacked', requireBool);
@@ -4383,6 +4387,7 @@ const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
     yFields: yFields.value,
     stacked: stacked.value ?? false,
     ...(title.value !== undefined ? { title: title.value } : {}),
+    ...(valueFormat.value !== undefined ? { valueFormat: valueFormat.value } : {}),
     ...(hasPointClick ? { onPointClick: () => placeholderAction } : {}),
   });
 };

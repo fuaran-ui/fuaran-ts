@@ -17,7 +17,13 @@ import { fileURLToPath } from 'node:url';
 import { encodeNode } from '@fuaran-ui/ops';
 import { describe, expect, it } from 'vitest';
 
-import { lowerNode, type ChartLowerSpec, type ChartRow } from '../src/index.js';
+import {
+  lowerNode,
+  type ChartAxisUnitMode,
+  type ChartLowerSpec,
+  type ChartLowerStyle,
+  type ChartRow,
+} from '../src/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // packages/charts/test → workspace-root/wire-format-fixtures/chart-lowering
@@ -37,8 +43,33 @@ interface ChartInput {
   readonly yFields: readonly string[];
   readonly title: string | null;
   readonly stacked: boolean;
+  // Phase 876 — `valueFormat` is a WIRE field carried in canonical `Format`
+  // JSON; `axisUnitMode` is a harness-only STYLE selector (the chart style is a
+  // lowering parameter, never wire), present so the corpus can pin every mode.
+  readonly valueFormat?: { readonly $type: string; readonly [k: string]: unknown };
+  readonly axisUnitMode?: ChartAxisUnitMode;
   readonly data: readonly ChartRow[];
 }
+
+/** The corpus carries a `Format` in canonical `$type` wire JSON; the lowering
+ * takes the host's tagged-union shape. Only the numeric arms appear here. */
+const valueFormatOf = (raw: ChartInput['valueFormat']): ChartLowerSpec['valueFormat'] => {
+  if (raw === undefined) return undefined;
+  switch (raw.$type) {
+    case 'Number':
+      return raw.decimals === undefined
+        ? { kind: 'Number' }
+        : { kind: 'Number', decimals: raw.decimals as number };
+    case 'Percent':
+      return raw.decimals === undefined
+        ? { kind: 'Percent' }
+        : { kind: 'Percent', decimals: raw.decimals as number };
+    case 'Currency':
+      return { kind: 'Currency', isoCode: raw.isoCode as string };
+    default:
+      throw new Error(`chart-lowering input: unsupported valueFormat ${raw.$type}`);
+  }
+};
 
 const cases = (): string[] => {
   if (!existsSync(CHART_LOWERING_DIR)) return [];
@@ -48,15 +79,19 @@ const cases = (): string[] => {
     .sort();
 };
 
-const specAndRows = (inp: ChartInput): { spec: ChartLowerSpec; rows: readonly ChartRow[] } => ({
+const specAndRows = (
+  inp: ChartInput,
+): { spec: ChartLowerSpec; rows: readonly ChartRow[]; style: ChartLowerStyle } => ({
   spec: {
     kind: inp.kind,
     xField: inp.xField,
     yFields: inp.yFields,
     ...(inp.title !== null ? { title: inp.title } : {}),
     stacked: inp.stacked,
+    ...(inp.valueFormat !== undefined ? { valueFormat: valueFormatOf(inp.valueFormat) } : {}),
   },
   rows: inp.data,
+  style: inp.axisUnitMode !== undefined ? { axisUnitMode: inp.axisUnitMode } : {},
 });
 
 const readInput = (name: string): ChartInput =>
@@ -71,17 +106,17 @@ describe('chart lowering — cross-host byte-parity', () => {
 
   it.each(names)('%s — TS lowering is byte-identical to the golden', (name) => {
     const expected = readFileSync(join(CHART_LOWERING_DIR, `${name}.expected.json`), 'utf8');
-    const { spec, rows } = specAndRows(readInput(name));
-    expect(encodeNode(lowerNode(`chart-${name}`, spec, rows))).toBe(expected);
+    const { spec, rows, style } = specAndRows(readInput(name));
+    expect(encodeNode(lowerNode(`chart-${name}`, spec, rows, style))).toBe(expected);
   });
 
   it.each(names)('%s — lowering is order-independent (fields read by name)', (name) => {
-    const { spec, rows } = specAndRows(readInput(name));
+    const { spec, rows, style } = specAndRows(readInput(name));
     const reversedRows = rows.map(
       (r) => Object.fromEntries(Object.entries(r).reverse()) as ChartRow,
     );
-    const a = encodeNode(lowerNode('c', spec, rows));
-    const b = encodeNode(lowerNode('c', spec, reversedRows));
+    const a = encodeNode(lowerNode('c', spec, rows, style));
+    const b = encodeNode(lowerNode('c', spec, reversedRows, style));
     expect(a).toBe(b);
   });
 });

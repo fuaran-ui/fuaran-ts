@@ -36,6 +36,7 @@ import type {
   DrawStyle,
   DrawingSpec,
   Emphasis,
+  Format,
   Node,
   Shape,
   TextAnchor,
@@ -145,7 +146,7 @@ const niceNum = (x: number, roundIt: boolean): number => {
 const niceDomain = (
   lo: number,
   hi: number,
-): { niceLo: number; niceHi: number; ticks: number[] } => {
+): { niceLo: number; niceHi: number; step: number; ticks: number[] } => {
   const hiAdj = hi === lo ? lo + 1.0 : hi;
   const targetTicks = 5.0;
   const range = niceNum(hiAdj - lo, false);
@@ -156,7 +157,7 @@ const niceDomain = (
   const count = Math.round((niceHi - niceLo) / step);
   const ticks: number[] = [];
   for (let i = 0; i <= count; i++) ticks.push(r2(niceLo + i * step));
-  return { niceLo, niceHi, ticks };
+  return { niceLo, niceHi, step, ticks };
 };
 
 /**
@@ -171,7 +172,216 @@ const formatNum = (n: number): string => {
   return String(n);
 };
 
-const tickLabel = (v: number): string => formatNum(r2(v));
+// ─── The canonical invariant number formatter (Phase 876) ────
+//
+// A byte-for-byte port of the F# reference spec. The chart lowering does NOT
+// inherit the locale-aware rendering other surfaces give `Format` (that is
+// `Binding.Format`'s job, via `Intl`): a chart's ticks are part of a drawing
+// whose bytes must be identical on every host, so the rendering here is
+// locale-INVARIANT by definition — period decimal separator, comma thousands.
+//
+//   1. Decimals come from the TICK STEP, never the data (`dpsOfStep`).
+//   2. The base render is round-half-up on the magnitude at that precision,
+//      grouped in threes, zero-padded to exactly d places, a leading `-` only
+//      when the rounded magnitude is non-zero.
+//   3. The `Format` arms layer meaning over that base; `Date` / `RelativeTime`
+//      / `Duration` are not value-axis formats and fall through to the base.
+//   4. Display-unit scaling divides BOTH the value and the step by 10ⁿ.
+
+/** Decimal places implied by a tick step: the smallest `d <= 6` for which
+ * `step * 10^d` is (within relative float tolerance) an integer. */
+const dpsOfStep = (step: number): number => {
+  const s = Math.abs(step);
+  if (!(s > 0.0) || !Number.isFinite(s)) return 0;
+  let scaled = s;
+  for (let d = 0; d < 6; d++) {
+    if (Math.abs(scaled - Math.floor(scaled + 0.5)) <= 1e-9 * Math.max(1.0, scaled)) return d;
+    scaled *= 10.0;
+  }
+  return 6;
+};
+
+/** Group an integral digit string in threes from the right with `,`. */
+const groupThousands = (digits: string): string => {
+  const n = digits.length;
+  if (n <= 3) return digits;
+  const head = n % 3;
+  const parts: string[] = [];
+  if (head > 0) parts.push(digits.slice(0, head));
+  for (let i = head; i <= n - 3; i += 3) parts.push(digits.slice(i, i + 3));
+  return parts.join(',');
+};
+
+/** Render `v` with EXACTLY `dps` decimals — round-half-up on the magnitude,
+ * comma thousands separators, period decimal point, locale-invariant. */
+const renderFixed = (dps: number, v: number): string => {
+  if (Number.isNaN(v) || !Number.isFinite(v)) return '0';
+  const d = dps < 0 ? 0 : dps > 6 ? 6 : dps;
+  const scale = 10.0 ** d;
+  const units = Math.floor(Math.abs(v) * scale + 0.5);
+  const intPart = Math.floor(units / scale);
+  const fracPart = units - intPart * scale;
+  const intStr = groupThousands(formatNum(intPart));
+  let body = intStr;
+  if (d > 0) {
+    const raw = formatNum(fracPart);
+    body = `${intStr}.${'0'.repeat(Math.max(0, d - raw.length))}${raw}`;
+  }
+  return v < 0.0 && units > 0.0 ? `-${body}` : body;
+};
+
+/** ISO-4217 code -> symbol, the invariant table. An unlisted code renders as
+ * the code itself — deterministic, and never a wrong symbol. */
+const CURRENCY_SYMBOLS: Readonly<Record<string, string>> = {
+  EUR: '€',
+  USD: '$',
+  GBP: '£',
+  JPY: '¥',
+  CNY: '¥',
+  CHF: 'CHF',
+  AUD: '$',
+  CAD: '$',
+  NZD: '$',
+  HKD: '$',
+  SGD: '$',
+  INR: '₹',
+  KRW: '₩',
+  BRL: 'R$',
+  RUB: '₽',
+  ZAR: 'R',
+  SEK: 'kr',
+  NOK: 'kr',
+  DKK: 'kr',
+  PLN: 'zł',
+  CZK: 'Kč',
+  HUF: 'Ft',
+  TRY: '₺',
+  MXN: '$',
+  THB: '฿',
+  ILS: '₪',
+};
+
+const currencySymbol = (iso: string): string => CURRENCY_SYMBOLS[iso] ?? iso;
+
+/** The unit symbol a `Format` contributes to an axis-unit label. */
+const formatUnitSymbol = (fmt: Format | undefined): string =>
+  fmt !== undefined && fmt.kind === 'Currency' ? currencySymbol(fmt.isoCode) : '';
+
+/** The x100 a `Format.Percent` applies to BOTH the value and the step. */
+const formatValueScale = (fmt: Format | undefined): number =>
+  fmt !== undefined && fmt.kind === 'Percent' ? 100.0 : 1.0;
+
+/** Render one value-axis number. `divisor` is the display unit (1 when no
+ * scaling applies); `dropSymbol` suppresses a currency symbol on the ticks
+ * because the axis-unit label already states it once. */
+const formatValue = (
+  fmt: Format | undefined,
+  divisor: number,
+  dropSymbol: boolean,
+  step: number,
+  v: number,
+): string => {
+  const pct = formatValueScale(fmt);
+  const dv = (v * pct) / divisor;
+  const ds = (step * pct) / divisor;
+  const pinned =
+    fmt !== undefined && (fmt.kind === 'Number' || fmt.kind === 'Percent')
+      ? fmt.decimals
+      : undefined;
+  const dps = pinned !== undefined ? pinned : dpsOfStep(ds);
+  const body = renderFixed(dps, dv);
+  if (fmt !== undefined && fmt.kind === 'Percent') return `${body}%`;
+  if (fmt !== undefined && fmt.kind === 'Currency' && !dropSymbol) {
+    const sym = currencySymbol(fmt.isoCode);
+    return body.startsWith('-') ? `-${sym}${body.slice(1)}` : `${sym}${body}`;
+  }
+  return body;
+};
+
+// ─── Display units (Phase 876) ───────────────────
+//
+// The operator's prefix table: thresholds sit at 1 + 3k and the selected
+// threshold `t` for a magnitude of exponent `e` satisfies `e - 1 <= t < e + 2`,
+// giving the unit exponent `n = t - 1`. Each unit therefore covers three
+// exponents — Thousands for e in {3,4,5}, Millions for {6,7,8} — which is why a
+// 12-million axis and a 900-million axis both read in millions.
+
+/** How a value axis states its display unit once scaling applies. */
+export type ChartAxisUnitMode =
+  | 'Words'
+  | 'WordsWithSymbol'
+  | 'SIAbbreviation'
+  | 'CompactPerTick'
+  | 'Off';
+
+/** The smallest unit exponent that triggers scaling at the shipped default —
+ * the operator's `unit > 3` gate, so scaling begins at MILLIONS and a
+ * thousands-range axis still reads `12,500` in full. */
+const DISPLAY_UNIT_MIN_EXPONENT = 6;
+
+const unitExponentOf = (maxAbs: number): number => {
+  if (!(maxAbs > 0.0) || !Number.isFinite(maxAbs)) return 0;
+  const e = Math.floor(Math.log10(maxAbs) + 0.5);
+  const n = 3 * Math.ceil((e - 2) / 3);
+  return n < -15 ? -15 : n > 15 ? 15 : n;
+};
+
+const UNIT_WORDS: Readonly<Record<number, string>> = {
+  3: 'Thousands',
+  6: 'Millions',
+  9: 'Billions',
+  12: 'Trillions',
+  15: 'Quadrillions',
+};
+const UNIT_SI: Readonly<Record<number, string>> = { 3: 'k', 6: 'M', 9: 'G', 12: 'T', 15: 'P' };
+const UNIT_COMPACT: Readonly<Record<number, string>> = { 3: 'K', 6: 'M', 9: 'B', 12: 'T', 15: 'Q' };
+
+interface DisplayUnit {
+  readonly divisor: number;
+  readonly tickSuffix: string;
+  readonly dropSymbol: boolean;
+  readonly label: string;
+}
+
+const NO_DISPLAY_UNIT: DisplayUnit = { divisor: 1.0, tickSuffix: '', dropSymbol: false, label: '' };
+
+/** Resolve the display unit for a value axis whose PRINTED magnitudes peak at
+ * `maxAbs` (already through any `Format.Percent` x100). */
+const resolveDisplayUnit = (
+  mode: ChartAxisUnitMode,
+  minExponent: number,
+  fmt: Format | undefined,
+  maxAbs: number,
+): DisplayUnit => {
+  const n = unitExponentOf(maxAbs);
+  const threshold = mode === 'CompactPerTick' ? 3 : minExponent;
+  const words = UNIT_WORDS[n] ?? '';
+  if (mode === 'Off' || n < 3 || n < threshold || words === '') return NO_DISPLAY_UNIT;
+  const symbol = formatUnitSymbol(fmt);
+  const divisor = 10.0 ** n;
+  switch (mode) {
+    case 'Words':
+      return { divisor, tickSuffix: '', dropSymbol: false, label: words };
+    case 'WordsWithSymbol':
+      return {
+        divisor,
+        tickSuffix: '',
+        dropSymbol: symbol !== '',
+        label: symbol === '' ? words : `${words} of ${symbol}`,
+      };
+    case 'SIAbbreviation':
+      return {
+        divisor,
+        tickSuffix: '',
+        dropSymbol: symbol !== '',
+        label: `${UNIT_SI[n] ?? ''}${symbol}`,
+      };
+    case 'CompactPerTick':
+      return { divisor, tickSuffix: UNIT_COMPACT[n] ?? '', dropSymbol: false, label: '' };
+    default:
+      return NO_DISPLAY_UNIT;
+  }
+};
 
 // ─── DrawStyle + shape builders ──────────────────────────────────────────────
 
@@ -297,6 +507,20 @@ export interface ChartLowerSpec {
   readonly yFields: readonly string[];
   readonly title?: string;
   readonly stacked?: boolean;
+  /** Phase 876 — the VALUE axis's number format, reusing the existing `Format`
+   * vocabulary. A wire field: a semantic declaration, not an appearance. */
+  readonly valueFormat?: Format;
+}
+
+/**
+ * The styling knobs this lowering exposes (Phase 876). NOT wire fields — a
+ * theme flip or a house display-unit convention is the host's, made at render
+ * time, and must never rewrite a semantic node. Absent = the shipped defaults,
+ * which are what the `chart-lowering/*` goldens pin.
+ */
+export interface ChartLowerStyle {
+  readonly axisUnitMode?: ChartAxisUnitMode;
+  readonly displayUnitMinExponent?: number;
 }
 
 /** One data row — a field-name → scalar map (the canonical embedded-data shape). */
@@ -344,7 +568,13 @@ const capitalise = (s: string): string => (s.length === 0 ? s : s[0]!.toUpperCas
  * `Pie`) is ignored — the flag only changes `Bar` / `Area` geometry.
  * Wrap the result in a node with {@link lowerNode}.
  */
-export const lower = (spec: ChartLowerSpec, rows: readonly ChartRow[]): DrawingSpec => {
+export const lower = (
+  spec: ChartLowerSpec,
+  rows: readonly ChartRow[],
+  style?: ChartLowerStyle,
+): DrawingSpec => {
+  const axisUnitMode: ChartAxisUnitMode = style?.axisUnitMode ?? 'Words';
+  const minUnitExponent = style?.displayUnitMinExponent ?? DISPLAY_UNIT_MIN_EXPONENT;
   const categories = rows.map((r) => stringOf(r, spec.xField));
   const n = rows.length;
 
@@ -378,7 +608,28 @@ export const lower = (spec: ChartLowerSpec, rows: readonly ChartRow[]): DrawingS
   // Bars + lines share a zero-anchored domain — deterministic + honest for
   // bars. Stacked domains come from the cumulative partial sums, so the axis
   // covers the stack totals, never a single series' range.
-  const { niceLo, niceHi, ticks } = niceDomain(Math.min(0.0, dataMin), Math.max(0.0, dataMax));
+  const {
+    niceLo,
+    niceHi,
+    step: yStep,
+    ticks,
+  } = niceDomain(Math.min(0.0, dataMin), Math.max(0.0, dataMax));
+
+  // ── Value-axis number formatting (Phase 876) ──
+  // The declared meaning (`spec.valueFormat`) chooses the arms; the style
+  // chooses whether a large magnitude is stated once as a display unit; the
+  // tick STEP chooses the precision. The unit is resolved from the PRINTED
+  // magnitude, so a `Percent` axis is measured after its x100.
+  const valueFormat = spec.valueFormat;
+  const yDisplayUnit = resolveDisplayUnit(
+    axisUnitMode,
+    minUnitExponent,
+    valueFormat,
+    Math.max(Math.abs(niceLo), Math.abs(niceHi)) * formatValueScale(valueFormat),
+  );
+  const yTickText = (v: number): string =>
+    formatValue(valueFormat, yDisplayUnit.divisor, yDisplayUnit.dropSymbol, yStep, v) +
+    yDisplayUnit.tickSuffix;
 
   const yScale = (v: number): number => r2(PLOT_Y1 - ((v - niceLo) / (niceHi - niceLo)) * PLOT_H);
 
@@ -395,12 +646,19 @@ export const lower = (spec: ChartLowerSpec, rows: readonly ChartRow[]): DrawingS
   const {
     niceLo: xNiceLo,
     niceHi: xNiceHi,
+    step: xStep,
     ticks: xTicks,
   } = isScatter
     ? xValues.length === 0
       ? niceDomain(0.0, 1.0)
       : niceDomain(Math.min(...xValues), Math.max(...xValues))
-    : { niceLo: 0.0, niceHi: 1.0, ticks: [] as number[] };
+    : { niceLo: 0.0, niceHi: 1.0, step: 1.0, ticks: [] as number[] };
+
+  // The Scatter arm's x IS a value axis, so its ticks take the same canonical
+  // formatter (Phase 876). `valueFormat` is deliberately NOT applied to it: one
+  // declared meaning cannot be true of two different measures, and there is no
+  // second axis-unit slot to state an x display unit in.
+  const xTickText = (v: number): string => formatValue(undefined, 1.0, false, xStep, v);
 
   const xScale = (v: number): number =>
     r2(PLOT_X0 + ((v - xNiceLo) / (xNiceHi - xNiceLo)) * PLOT_W);
@@ -464,7 +722,7 @@ export const lower = (spec: ChartLowerSpec, rows: readonly ChartRow[]): DrawingS
     label(
       r2(PLOT_X0 - TICK_LABEL_GAP),
       r2(yScale(t) + 4.0),
-      literal(tickLabel(t)),
+      literal(yTickText(t)),
       textStyle(LABEL_OPACITY, 'End', tickSize, 'Normal'),
     ),
   );
@@ -476,7 +734,7 @@ export const lower = (spec: ChartLowerSpec, rows: readonly ChartRow[]): DrawingS
         label(
           xScale(t),
           r2(PLOT_Y1 + 20.0),
-          literal(tickLabel(t)),
+          literal(xTickText(t)),
           textStyle(LABEL_OPACITY, 'Middle', tickSize, 'Normal'),
         ),
       )
@@ -500,7 +758,9 @@ export const lower = (spec: ChartLowerSpec, rows: readonly ChartRow[]): DrawingS
     label(
       r2(8.0),
       r2(PLOT_Y0 - 12.0),
-      literal('Value'),
+      // The top-left slot states the value axis's DISPLAY UNIT once when
+      // scaling applies, and otherwise keeps the horizontal "Value" hint.
+      literal(yDisplayUnit.label === '' ? 'Value' : yDisplayUnit.label),
       textStyle(undefined, 'Start', tickSize, 'Normal'),
     ),
   ];
@@ -770,7 +1030,10 @@ export const lower = (spec: ChartLowerSpec, rows: readonly ChartRow[]): DrawingS
     for (let i = 0; i < n; i++) {
       const ly = 70.0 + 20.0 * i;
       pieLegend.push(rectangle(r2(W - 168.0), r2(ly), 10.0, 10.0, 2.0, styleFill(colourFor(i))));
-      const pct = formatNum(Math.floor(fractions[i]! * 100.0 + 0.5));
+      // Routed through the canonical formatter (Phase 876) — one rounding +
+      // rendering rule for every number this module prints. A share is a whole
+      // percent here, so the shipped `NN%` shape is unchanged.
+      const pct = formatValue(undefined, 1.0, false, 1.0, fractions[i]! * 100.0);
       pieLegend.push(
         label(
           r2(W - 153.0),
@@ -819,9 +1082,10 @@ export const lowerNode = (
   id: string,
   spec: ChartLowerSpec,
   rows: readonly ChartRow[],
+  style?: ChartLowerStyle,
 ): Node<never> => ({
   id: nodeId(id),
-  kind: { kind: 'Display', display: { kind: 'Drawing', spec: lower(spec, rows) } },
+  kind: { kind: 'Display', display: { kind: 'Drawing', spec: lower(spec, rows, style) } },
   state: defaults.stateBehaviour<never>(),
   style: defaults.style,
 });

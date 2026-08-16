@@ -1950,6 +1950,9 @@ const renderChart = (
         yFields: spec.yFields,
         stacked: spec.stacked,
         ...(loweredTitle !== undefined ? { title: loweredTitle } : {}),
+        // Phase 876 — the declared value-axis number format travels with the
+        // spec into the lowering (the style stays the host's default).
+        ...(spec.valueFormat !== undefined ? { valueFormat: spec.valueFormat } : {}),
       },
       rows as readonly ChartRow[],
     );
