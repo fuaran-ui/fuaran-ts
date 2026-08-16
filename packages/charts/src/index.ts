@@ -50,15 +50,23 @@ const W = 640.0;
 const H = 400.0;
 const MARGIN_TOP = 64.0; // title + legend band
 const MARGIN_RIGHT = 28.0;
-const MARGIN_BOTTOM = 56.0; // x-axis category labels + x-axis title
-const MARGIN_LEFT = 64.0; // right-aligned y-axis tick labels
+/** Phase 879 — the FLOOR of the autosized bottom margin (category labels + the
+ * x-axis title). A tilted or vertical label needs room to fall into. */
+const MARGIN_BOTTOM = 56.0;
+/** Phase 879 — the FLOOR of the autosized left margin (right-aligned y-axis
+ * tick labels). The value is derived from the widest FORMATTED tick. */
+const MARGIN_LEFT = 64.0;
 
-const PLOT_X0 = MARGIN_LEFT;
-const PLOT_X1 = W - MARGIN_RIGHT;
-const PLOT_Y0 = MARGIN_TOP;
-const PLOT_Y1 = H - MARGIN_BOTTOM;
-const PLOT_W = PLOT_X1 - PLOT_X0;
-const PLOT_H = PLOT_Y1 - PLOT_Y0;
+/** Ceiling on the autosized left margin, as a share of the canvas width. */
+const MARGIN_LEFT_MAX_SHARE = 0.3;
+/** Ceiling on the autosized bottom margin, as a share of the canvas height. */
+const MARGIN_BOTTOM_MAX_SHARE = 0.35;
+/** Breathing room between an autosized margin's content and the canvas edge —
+ * also absorbs the few percent by which a real font differs from the table. */
+const AXIS_LABEL_PADDING = 6.0;
+
+// The plot rectangle is NOT a module constant since Phase 879: it depends on
+// the text the chart is going to print, so it is computed per lowering.
 
 // A fixed, deterministic categorical palette (series index → colour).
 //
@@ -119,6 +127,26 @@ const WEDGE_GAP_DEGREES = 0.75;
 // self-contained + legible on every host without host CSS.
 const CHART_FONT = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 
+/** Font size of tick labels, category labels, axis titles and legend text. */
+const TICK_FONT_SIZE = 13.0;
+/** A line's height as a multiple of its font size (Phase 879). */
+const TEXT_LINE_HEIGHT_FACTOR = 1.2;
+/** Drop from the x-axis spine to the category / x-tick label baseline. */
+const CATEGORY_LABEL_OFFSET_Y = 20.0;
+/** Distance from the canvas bottom to the x-axis title's BASELINE. */
+const AXIS_TITLE_BOTTOM_OFFSET = 12.0;
+/** The MAGNITUDE of the category-label tilt, in degrees. Tilt is the default
+ * state — it is for LEGIBILITY, not a crowding fallback. */
+const LABEL_TILT_DEGREES = 30.0;
+/** The vertical arm of the escalation: one line height along the axis whatever
+ * the label's length, so it packs at any category count. */
+const VERTICAL_TILT_DEGREES = 90.0;
+/** Gap from a legend swatch's left edge to its label's left edge. */
+const LEGEND_LABEL_OFFSET_X = 15.0;
+/** Horizontal padding after a legend entry's label, before the next entry's
+ * swatch (Phase 879). The pitch itself is per-entry, not a fixed stride. */
+const LEGEND_ENTRY_GAP = 24.0;
+
 // ─── Deterministic numeric helpers ────────────────────────────────────────────
 
 /** Round-half-up to 2 dp — the single deterministic rule every host reproduces. */
@@ -171,6 +199,98 @@ const formatNum = (n: number): string => {
   if (n === Math.floor(n) && Math.abs(n) < 1e15) return String(Math.trunc(n));
   return String(n);
 };
+
+// ─── Deterministic text metrics (Phase 879) ───────────────────
+//
+// A byte-for-byte MIRROR of the F# reference table
+// (`Fuaran.UI.Charts.TextMetrics`) — mirrored, never re-derived, because the
+// margins, the legend pitch and the label rotations it decides are all pinned
+// by the shared `chart-lowering/*` corpus.
+//
+// THE APPROXIMATION IS THE SPEC. No host measures text: a headless emitter has
+// no font engine, and a browser's measurement depends on which member of the
+// font stack actually resolved — either would make the lowering's output a
+// function of the host, destroying the byte-identical cross-host property the
+// corpus rests on. So the widths come from a FIXED table of per-character
+// advance widths as a fraction of the font size (em), approximating a typical
+// sans-serif. A real font differs by a few percent; `AXIS_LABEL_PADDING`
+// absorbs it.
+//
+//   1. Five width classes; an unlisted character (including every non-ASCII
+//      one) takes the DEFAULT, which is what makes the table total.
+//   2. Width = fontSize × Σ advanceEm(ch), summed LEFT TO RIGHT (float addition
+//      is not associative — the order is part of the spec), rounded once.
+//   3. Line height = fontSize × TEXT_LINE_HEIGHT_FACTOR.
+//   4. Truncation keeps the longest prefix that still fits with the ellipsis;
+//      when nothing fits the result is a bare `…`, never the empty string.
+
+const THIN_EM = 0.28;
+const NARROW_EM = 0.33;
+const DEFAULT_EM = 0.55;
+const WIDE_EM = 0.7;
+const EXTRA_WIDE_EM = 0.9;
+const ELLIPSIS = '…';
+
+const THIN_CHARS = " !',.:;Iijl|";
+const NARROW_CHARS = '"()*-/\\[]{}frt';
+const EXTRA_WIDE_CHARS = '%@MWm';
+
+/** One character's advance width as a fraction of the font size. Total: an
+ * unlisted character takes `DEFAULT_EM`, so no host enumerates Unicode. */
+const advanceEm = (ch: string): number => {
+  if (THIN_CHARS.includes(ch)) return THIN_EM;
+  if (NARROW_CHARS.includes(ch)) return NARROW_EM;
+  if (EXTRA_WIDE_CHARS.includes(ch)) return EXTRA_WIDE_EM;
+  if (ch === 'J' || ch === 'L') return DEFAULT_EM;
+  if (ch >= 'A' && ch <= 'Z') return WIDE_EM;
+  if (ch === 'w') return WIDE_EM;
+  return DEFAULT_EM;
+};
+
+/** A string's advance width in em — summed LEFT TO RIGHT (rule 2). */
+const advanceEmOf = (text: string): number => {
+  let acc = 0.0;
+  for (let i = 0; i < text.length; i++) acc += advanceEm(text[i]!);
+  return acc;
+};
+
+/** The estimated rendered width of `text` at `fontSize`, rounded once. */
+const textWidth = (fontSize: number, text: string): number => r2(fontSize * advanceEmOf(text));
+
+/** The estimated line height at `fontSize` (rule 3). */
+const textLineHeight = (fontSize: number, lineHeightFactor: number): number =>
+  r2(fontSize * lineHeightFactor);
+
+/** Does `text` fit a box `maxWidth` × `maxHeight` at `fontSize`? The single
+ * predicate a data-label gate answers inside/outside/suppress with, so a label
+ * can never disagree with the margin that made room for it. */
+export const textFitsBox = (
+  fontSize: number,
+  lineHeightFactor: number,
+  maxWidth: number,
+  maxHeight: number,
+  text: string,
+): boolean =>
+  textWidth(fontSize, text) <= maxWidth && textLineHeight(fontSize, lineHeightFactor) <= maxHeight;
+
+/** Deterministic ellipsis truncation to `maxWidth` (rule 4). A string that
+ * already fits comes back unchanged. */
+const truncateToWidth = (fontSize: number, maxWidth: number, text: string): string => {
+  if (textWidth(fontSize, text) <= maxWidth) return text;
+  const budget = maxWidth - textWidth(fontSize, ELLIPSIS);
+  if (budget < 0.0) return ELLIPSIS;
+  let acc = 0.0;
+  let take = 0;
+  for (let i = 0; i < text.length; i++) {
+    const next = acc + advanceEm(text[i]!);
+    if (r2(fontSize * next) > budget) break;
+    acc = next;
+    take = i + 1;
+  }
+  return text.slice(0, take) + ELLIPSIS;
+};
+
+const DEG_TO_RAD = Math.PI / 180.0;
 
 // ─── The canonical invariant number formatter (Phase 876) ────
 //
@@ -631,11 +751,6 @@ export const lower = (
     formatValue(valueFormat, yDisplayUnit.divisor, yDisplayUnit.dropSymbol, yStep, v) +
     yDisplayUnit.tickSuffix;
 
-  const yScale = (v: number): number => r2(PLOT_Y1 - ((v - niceLo) / (niceHi - niceLo)) * PLOT_H);
-
-  const bandW = n > 0 ? PLOT_W / n : PLOT_W;
-  const centreX = (i: number): number => r2(PLOT_X0 + bandW * (i + 0.5));
-
   // ── Linear x-scale (Phase 636 — the Scatter arm's numeric x axis) ──
   // Scatter reads the x-field NUMERICALLY and plots on a linear x-domain (the
   // first non-band x-scale arm). The domain is NOT zero-anchored — a scatter's
@@ -660,11 +775,94 @@ export const lower = (
   // second axis-unit slot to state an x display unit in.
   const xTickText = (v: number): string => formatValue(undefined, 1.0, false, xStep, v);
 
+  const tickSize = TICK_FONT_SIZE;
+  const titleSize = 18.0;
+
+  // ── Text-metric layout (Phase 879) ─────────────────────────────────────────
+  //
+  // ORDER IS LOAD-BEARING. The plot rectangle used to be four module constants;
+  // it is now DERIVED from the text the chart prints — the widest formatted y
+  // tick decides the left margin, and the category labels' tilt decides the
+  // bottom one. So: the left margin, the band pitch that follows from it, the
+  // tilt, and the bottom margin the tilt needs, in that order.
+
+  const lineHeight = textLineHeight(tickSize, TEXT_LINE_HEIGHT_FACTOR);
+  const widestOf = (texts: readonly string[]): number =>
+    texts.reduce((acc, t) => Math.max(acc, textWidth(tickSize, t)), 0.0);
+
+  // ── Left margin ──
+  // The truncation budget is derived from the CEILING — a constant — so the
+  // truncation that feeds the margin never depends on the margin it decides.
+  const leftCeiling = MARGIN_LEFT_MAX_SHARE * W;
+  const tickTextBudget = Math.max(0.0, leftCeiling - TICK_LABEL_GAP - AXIS_LABEL_PADDING);
+  const yTickLabelText = (v: number): string =>
+    truncateToWidth(tickSize, tickTextBudget, yTickText(v));
+  const requiredLeft = TICK_LABEL_GAP + widestOf(ticks.map(yTickLabelText)) + AXIS_LABEL_PADDING;
+  const marginLeft = r2(Math.max(MARGIN_LEFT, Math.min(leftCeiling, requiredLeft)));
+
+  const PLOT_X0 = marginLeft;
+  const PLOT_X1 = W - MARGIN_RIGHT;
+  const PLOT_W = PLOT_X1 - PLOT_X0;
+
+  const bandW = n > 0 ? PLOT_W / n : PLOT_W;
+  const centreX = (i: number): number => r2(PLOT_X0 + bandW * (i + 0.5));
+
+  // ── Category-label tilt + its vertical escalation ──
+  // Only the BAND arms label categories: Scatter labels numeric x ticks (short
+  // by construction, left horizontal) and Pie has no x axis. Both must
+  // therefore contribute NO drop, or their bottom margin — and with it the
+  // pie's centre — would move for a decision they never take.
+  const drawsCategoryLabels = !isScatter && spec.kind !== 'Pie';
+
+  // A rotated label's footprint ALONG the axis is w·cos θ + h·sin θ. Escalate
+  // when the widest label's footprint at the tilt no longer fits the band
+  // pitch. At 90° the width term vanishes, so the vertical arm packs one label
+  // per line height at any count — which is why it is terminal.
+  const alongAxisFootprint = (deg: number, w: number): number =>
+    w * Math.cos(deg * DEG_TO_RAD) + lineHeight * Math.sin(deg * DEG_TO_RAD);
+
+  const tiltDegrees =
+    !drawsCategoryLabels || n === 0 || LABEL_TILT_DEGREES <= 0.0
+      ? 0.0
+      : alongAxisFootprint(LABEL_TILT_DEGREES, widestOf(categories)) > bandW
+        ? VERTICAL_TILT_DEGREES
+        : LABEL_TILT_DEGREES;
+
+  // ── Bottom margin ──
+  // Below the plot, top to bottom: the label offset, the tilted label's drop
+  // (w·sin θ), the padding, the x-axis title's own LINE (its offset measures to
+  // its BASELINE, so the glyphs above it need reserving separately), and that
+  // offset. Same ceiling-then-truncate posture as the left margin.
+  const sinTilt = Math.sin(tiltDegrees * DEG_TO_RAD);
+  const bottomCeiling = MARGIN_BOTTOM_MAX_SHARE * H;
+  const dropCeiling = Math.max(
+    0.0,
+    bottomCeiling -
+      CATEGORY_LABEL_OFFSET_Y -
+      AXIS_LABEL_PADDING -
+      lineHeight -
+      AXIS_TITLE_BOTTOM_OFFSET,
+  );
+  const categoryTextBudget = sinTilt > 0.0 ? dropCeiling / sinTilt : Infinity;
+  const categoryTexts = drawsCategoryLabels
+    ? categories.map((c) => truncateToWidth(tickSize, categoryTextBudget, c))
+    : [];
+  const requiredBottom =
+    CATEGORY_LABEL_OFFSET_Y +
+    sinTilt * widestOf(categoryTexts) +
+    AXIS_LABEL_PADDING +
+    lineHeight +
+    AXIS_TITLE_BOTTOM_OFFSET;
+  const marginBottom = r2(Math.max(MARGIN_BOTTOM, Math.min(bottomCeiling, requiredBottom)));
+
+  const PLOT_Y0 = MARGIN_TOP;
+  const PLOT_Y1 = H - marginBottom;
+  const PLOT_H = PLOT_Y1 - PLOT_Y0;
+
+  const yScale = (v: number): number => r2(PLOT_Y1 - ((v - niceLo) / (niceHi - niceLo)) * PLOT_H);
+
   const xScale = (v: number): number =>
     r2(PLOT_X0 + ((v - xNiceLo) / (xNiceHi - xNiceLo)) * PLOT_W);
-
-  const tickSize = 13.0;
-  const titleSize = 18.0;
 
   // ── Chrome (assembled in painter's order below) ──
   const axisStyle = styleStrokeInk(AXIS_OPACITY, 1.0);
@@ -717,33 +915,49 @@ export const lower = (
     return [...yMarks, ...xMarks];
   })();
 
-  // y-axis tick labels — right-anchored (End) in the left margin.
+  // y-axis tick labels — right-anchored (End) in the left margin. The text is
+  // the margin-bounded one (Phase 879): whatever the margin was sized for is
+  // exactly what gets drawn.
   const yTickLabels: Shape[] = ticks.map((t) =>
     label(
       r2(PLOT_X0 - TICK_LABEL_GAP),
       r2(yScale(t) + 4.0),
-      literal(yTickText(t)),
+      literal(yTickLabelText(t)),
       textStyle(LABEL_OPACITY, 'End', tickSize, 'Normal'),
     ),
   );
 
   // x-axis labels — band arms label each category under its band centre;
   // Scatter labels its numeric x-ticks along the linear axis (Phase 636).
+  //
+  // A tilted category label is `End`-anchored at the band centre and rotated
+  // NEGATIVELY (counter-clockwise, against `rotation`'s clockwise convention):
+  // the anchor is the pivot, so the text ENDS under the band's tick and runs
+  // back down-and-left, reading up-to-the-right into it. The opposite sign
+  // would swing the same text up into the plot area. At 90° this degenerates
+  // to reading bottom-up. Scatter's numeric ticks stay horizontal + Middle.
+  const tiltedLabelStyle: DrawStyle = {
+    ...textStyle(LABEL_OPACITY, 'End', tickSize, 'Normal'),
+    rotation: r2(-tiltDegrees),
+  };
+
   const xLabels: Shape[] = isScatter
     ? xTicks.map((t) =>
         label(
           xScale(t),
-          r2(PLOT_Y1 + 20.0),
+          r2(PLOT_Y1 + CATEGORY_LABEL_OFFSET_Y),
           literal(xTickText(t)),
           textStyle(LABEL_OPACITY, 'Middle', tickSize, 'Normal'),
         ),
       )
-    : categories.map((c, i) =>
+    : categoryTexts.map((c, i) =>
         label(
           centreX(i),
-          r2(PLOT_Y1 + 20.0),
+          r2(PLOT_Y1 + CATEGORY_LABEL_OFFSET_Y),
           literal(c),
-          textStyle(LABEL_OPACITY, 'Middle', tickSize, 'Normal'),
+          tiltDegrees > 0.0
+            ? tiltedLabelStyle
+            : textStyle(LABEL_OPACITY, 'Middle', tickSize, 'Normal'),
         ),
       );
 
@@ -751,7 +965,7 @@ export const lower = (
   const axisTitles: Shape[] = [
     label(
       r2((PLOT_X0 + PLOT_X1) / 2.0),
-      r2(H - 12.0),
+      r2(H - AXIS_TITLE_BOTTOM_OFFSET),
       literal(capitalise(spec.xField)),
       textStyle(undefined, 'Middle', tickSize, 'Normal'),
     ),
@@ -907,20 +1121,31 @@ export const lower = (
   }
 
   // ── Legend (only when >1 series) — a swatch + series name per series ──
+  // The legend pitch is PER ENTRY since Phase 879: an entry occupies its
+  // swatch-to-label offset, its own measured name width, and the inter-entry
+  // gap, so entries lay out cumulatively rather than on a fixed stride. A long
+  // series name now pushes its neighbour along instead of being overwritten by
+  // it. Legend POSITION and OVERFLOW are deliberately unchanged — they are one
+  // problem and land together in a later phase.
   const legend: Shape[] = [];
   if (m > 1) {
+    let lx = PLOT_X0;
     for (let j = 0; j < m; j++) {
       const colour = colourFor(j);
-      const lx = r2(PLOT_X0 + j * 100.0);
-      legend.push(rectangle(lx, 34.0, 10.0, 10.0, 2.0, styleFill(colour)));
+      const name = spec.yFields[j]!;
+      // The label offsets from the ROUNDED swatch x, exactly as the reference
+      // does — rounding the sum instead can differ in the last 2 dp.
+      const sx = r2(lx);
+      legend.push(rectangle(sx, 34.0, 10.0, 10.0, 2.0, styleFill(colour)));
       legend.push(
         label(
-          r2(lx + 15.0),
+          r2(sx + LEGEND_LABEL_OFFSET_X),
           43.0,
-          literal(spec.yFields[j]!),
+          literal(name),
           textStyle(LABEL_OPACITY, 'Start', tickSize, 'Normal'),
         ),
       );
+      lx += LEGEND_LABEL_OFFSET_X + textWidth(tickSize, name) + LEGEND_ENTRY_GAP;
     }
   }
 
