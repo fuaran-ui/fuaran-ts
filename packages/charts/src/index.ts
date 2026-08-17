@@ -110,7 +110,10 @@ const AREA_FILL_OPACITY = 0.12;
 const TICK_LABEL_GAP = 12.0;
 
 /** Length of the small OUTSIDE tick marks on both axes: y-axis marks run left
- * from the spine, x-axis marks run down from it, so neither eats plot area. */
+ * from the spine, x-axis marks run down from it, so neither eats plot area. One
+ * per y tick and — since Phase 903 — one per BAND BOUNDARY on a category axis
+ * (`n+1` for `n` bands, delimiting the groups rather than pointing at their
+ * centres), or one per x tick on the Scatter arm, whose x is continuous. */
 const TICK_MARK_LENGTH = 5.0;
 
 /** Hard pixel ceiling on a single bar's thickness. The bar takes the MIN of
@@ -149,11 +152,15 @@ const SUBTITLE_BASELINE_Y = 38.0;
  */
 const Y_AXIS_TITLE_OFFSET_X = 18.0;
 const Y_AXIS_TITLE_DEGREES = 90.0;
-/** The MAGNITUDE of the category-label tilt, in degrees. Tilt is the default
- * state — it is for LEGIBILITY, not a crowding fallback. */
+/** The MAGNITUDE of the MIDDLE RUNG of the category-label angle ladder, in
+ * degrees. The ladder is fit-driven and UNIFORM per axis: flat while every label
+ * fits its band, all at this angle when any does not, all vertical when this
+ * angle no longer packs either. (Phase 879 read the tilt as the resting state;
+ * Phase 903's correction makes it the middle rung.) `0` opts out of rotation
+ * entirely — flat at every label length, never escalated instead. */
 const LABEL_TILT_DEGREES = 30.0;
-/** The vertical arm of the escalation: one line height along the axis whatever
- * the label's length, so it packs at any category count. */
+/** The terminal rung of the ladder: one line height along the axis whatever the
+ * label's length, so it packs at any category count. */
 const VERTICAL_TILT_DEGREES = 90.0;
 /** Gap from a legend swatch's left edge to its label's left edge. */
 const LEGEND_LABEL_OFFSET_X = 15.0;
@@ -1008,26 +1015,52 @@ export const lower = (
   const bandW = n > 0 ? PLOT_W / n : PLOT_W;
   const centreX = (i: number): number => r2(PLOT_X0 + bandW * (i + 0.5));
 
-  // ── Category-label tilt + its vertical escalation ──
+  /** The `i`th BAND BOUNDARY — `n` bands have `n+1` of them, boundary `0` on the
+   * y-axis spine and boundary `n` on the plot's right edge. Phase 903's category
+   * tick marks land here, where a label lands at `centreX`. */
+  const boundaryX = (i: number): number => r2(PLOT_X0 + bandW * i);
+
+  // ── The category-label ANGLE LADDER (Phase 903, correcting Phase 879) ──
   // Only the BAND arms label categories: Scatter labels numeric x ticks (short
   // by construction, left horizontal) and Pie has no x axis. Both must
   // therefore contribute NO drop, or their bottom margin — and with it the
   // pie's centre — would move for a decision they never take.
   const drawsCategoryLabels = !isScatter && spec.kind !== 'Pie';
 
-  // A rotated label's footprint ALONG the axis is w·cos θ + h·sin θ. Escalate
-  // when the widest label's footprint at the tilt no longer fits the band
-  // pitch. At 90° the width term vanishes, so the vertical arm packs one label
-  // per line height at any count — which is why it is terminal.
+  // A rotated label's footprint ALONG the axis is w·cos θ + h·sin θ. At 0° that
+  // is the bare width (`cos 0 = 1`, `sin 0 = 0`, both exact on every IEEE-754
+  // host, so the flat rung needs no special case); at 90° the width term
+  // vanishes, so the vertical rung takes one line height per label at any count
+  // — which is why it is terminal.
   const alongAxisFootprint = (deg: number, w: number): number =>
     w * Math.cos(deg * DEG_TO_RAD) + lineHeight * Math.sin(deg * DEG_TO_RAD);
 
+  // THREE RUNGS, ONE PREDICATE, applied to the WIDEST label and therefore
+  // UNIFORMLY to the axis: flat while every label fits its band, 30° when it
+  // does not, vertical when 30° no longer packs either. Phase 879 read the tilt
+  // as the resting state and started at rung two; the correction makes it the
+  // MIDDLE rung of a fit-driven ladder — "North South East West" is legible flat
+  // and reads flat. Deciding on the widest label rather than per-label is what
+  // keeps an axis from mixing angles.
+  //
+  // Decided on the labels AS AUTHORED (`categories`, not `categoryTexts`): the
+  // truncation budget below is a function of the angle, so reading truncated
+  // text here would be circular as well as wrong.
+  const widestCategory = widestOf(categories);
+  const packsAt = (deg: number): boolean => alongAxisFootprint(deg, widestCategory) <= bandW;
+
+  // `LABEL_TILT_DEGREES = 0` is FLAT-ALWAYS, not "the ladder with a flat rung":
+  // a host that zeroed the tilt named the one rotation the ladder may use, so
+  // escalating past it to vertical would override an explicit choice with a
+  // computed one.
   const tiltDegrees =
     !drawsCategoryLabels || n === 0 || LABEL_TILT_DEGREES <= 0.0
       ? 0.0
-      : alongAxisFootprint(LABEL_TILT_DEGREES, widestOf(categories)) > bandW
-        ? VERTICAL_TILT_DEGREES
-        : LABEL_TILT_DEGREES;
+      : packsAt(0.0)
+        ? 0.0
+        : packsAt(LABEL_TILT_DEGREES)
+          ? LABEL_TILT_DEGREES
+          : VERTICAL_TILT_DEGREES;
 
   // ── Bottom margin ──
   // Below the plot, top to bottom: the label offset, the tilted label's drop
@@ -1107,6 +1140,13 @@ export const lower = (
   // Outside tick marks (Phase 875) — outside the plot on both axes, so the
   // plot area stays ink-free and the marks tie each label to its position.
   // y marks first, then x marks. Suppressed entirely when TICK_MARK_LENGTH <= 0.
+  //
+  // BAND vs CONTINUOUS (Phase 903). Where the axis is CONTINUOUS a tick marks a
+  // VALUE and sits at it: the y axis, and Scatter's numeric x. Where it is a BAND
+  // axis a tick DELIMITS a group, so the `n+1` marks land on the band BOUNDARIES
+  // and the label stays centred between two of them — the category-axis
+  // convention, and the honest one: a category has an extent, not a position, so
+  // a mark under its centre claims a coordinate the axis does not have.
   const tickMarks: Shape[] = (() => {
     if (TICK_MARK_LENGTH <= 0.0) return [];
     const yMarks: Shape[] = ticks.map((t) => {
@@ -1117,7 +1157,9 @@ export const lower = (
       line(x, r2(PLOT_Y1), x, r2(PLOT_Y1 + TICK_MARK_LENGTH), axisStyle);
     const xMarks: Shape[] = isScatter
       ? xTicks.map((t) => xAt(xScale(t)))
-      : Array.from({ length: n }, (_, i) => xAt(centreX(i)));
+      : n === 0
+        ? []
+        : Array.from({ length: n + 1 }, (_, i) => xAt(boundaryX(i)));
     return [...yMarks, ...xMarks];
   })();
 
@@ -1136,9 +1178,15 @@ export const lower = (
   // x-axis labels — band arms label each category under its band centre;
   // Scatter labels its numeric x-ticks along the linear axis (Phase 636).
   //
-  // A tilted category label is `End`-anchored at the band centre and rotated
+  // Every category label sits at its band CENTRE — including since Phase 903,
+  // when the tick marks moved to the boundaries: the label names the band, the
+  // marks delimit it.
+  //
+  // The ANCHOR follows the ladder's rung. At the FLAT rung a label is
+  // `Middle`-anchored on the band centre (the pre-879 convention, restored). At
+  // either ROTATED rung it is `End`-anchored at the same point and rotated
   // NEGATIVELY (counter-clockwise, against `rotation`'s clockwise convention):
-  // the anchor is the pivot, so the text ENDS under the band's tick and runs
+  // the anchor is the pivot, so the text ENDS under the band centre and runs
   // back down-and-left, reading up-to-the-right into it. The opposite sign
   // would swing the same text up into the plot area. At 90° this degenerates
   // to reading bottom-up. Scatter's numeric ticks stay horizontal + Middle.
