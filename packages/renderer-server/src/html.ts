@@ -29,10 +29,40 @@ export const escapeAttr = (value: string): string =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#x27;');
 
+/**
+ * Positive character allowlist for an attribute NAME: ASCII letters, digits, `-`.
+ *
+ * Attribute *values* are escaped by `escapeAttr`; attribute *names* are written
+ * verbatim, and HTML has no escape for an illegal character in a name — a space
+ * starts a NEW attribute and an `=` starts its value. So a name is either
+ * conforming or dropped; there is no third option, and "escape the name" is a
+ * plausible-looking fix that cannot work.
+ *
+ * This duplicates the gate in `@fuaran-ui/renderer/sanitize` deliberately rather
+ * than importing it: this package is dependency-light by design, and the point of
+ * a defence-in-depth re-check is that it does not rely on the upstream one having
+ * run. Every name this renderer emits is already `[A-Za-z0-9-]`, so the guard
+ * costs nothing in the ordinary path — it exists for the untrusted seam.
+ */
+const isSafeAttributeName = (name: string): boolean => {
+  if (name === '') return false;
+  for (const ch of name) {
+    const ok =
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= 'A' && ch <= 'Z') ||
+      (ch >= '0' && ch <= '9') ||
+      ch === '-';
+    if (!ok) return false;
+  }
+  return true;
+};
+
 const attrString = (attrs: readonly Attr[]): string => {
   let out = '';
   for (const [name, value] of attrs) {
     if (value === undefined || value === false) continue;
+    // Drop, never escape — see `isSafeAttributeName`.
+    if (!isSafeAttributeName(name)) continue;
     if (value === true) {
       out += ` ${name}`;
     } else {

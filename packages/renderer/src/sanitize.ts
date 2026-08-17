@@ -28,8 +28,43 @@
 // ─── extraAttributes key / value sanitization ───────────────────────────────
 
 /**
- * Allowlist predicate for an extra-attribute key: the data-* / aria-* rule,
- * with explicit rejection of `on*` event handlers and `style`.
+ * Positive character allowlist for an HTML attribute NAME: ASCII letters, digits
+ * and `-`. Everything else — `=`, quotes, backtick, `<`, `>`, `/`, space, tab,
+ * newline, C0 controls, and any non-ASCII byte — is rejected.
+ *
+ * This is a REJECTION gate, not an escape, because HTML has no escape for an
+ * illegal character in an attribute name: a space inside a name simply starts a
+ * NEW attribute, and an `=` starts its value. So `data-x=1 onmouseover=alert(1) z`
+ * is not a mangled attribute name — it is three attributes, one of them a live
+ * event handler. The server renderer writes names verbatim (values are escaped,
+ * names are not), so dropping the entry is the only sound response.
+ *
+ * Exported so the emission site can re-check it as defence in depth rather than
+ * trusting upstream validation alone.
+ */
+export const isSafeAttributeName = (name: string): boolean => {
+  if (name == null || name === '') return false;
+  for (const ch of name) {
+    const ok =
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= 'A' && ch <= 'Z') ||
+      (ch >= '0' && ch <= '9') ||
+      ch === '-';
+    if (!ok) return false;
+  }
+  return true;
+};
+
+/**
+ * Allowlist predicate for an extra-attribute key: the data-* / aria-* rule, with
+ * explicit rejection of `on*` event handlers and `style`, plus
+ * `isSafeAttributeName` over the whole trimmed key.
+ *
+ * Without that last check a key like `data-x=1 onmouseover=alert(1) z` satisfies
+ * the `data-` prefix and smuggles a live event handler into server-rendered HTML.
+ *
+ * The predicate answers "is this key admissible", judged on its TRIMMED form; a
+ * caller using it directly must trim before emission too.
  */
 export const isAllowedExtraAttributeKey = (key: string): boolean => {
   if (key == null) return false;
@@ -37,6 +72,7 @@ export const isAllowedExtraAttributeKey = (key: string): boolean => {
   if (trimmed === '') return false;
   if (trimmed.toLowerCase().startsWith('on')) return false;
   if (trimmed.toLowerCase() === 'style') return false;
+  if (!isSafeAttributeName(trimmed)) return false;
   return trimmed.startsWith('data-') || trimmed.startsWith('aria-');
 };
 
@@ -70,7 +106,9 @@ export const sanitizeExtraAttributes = (
       isAllowedExtraAttributeKey(key) &&
       isSafeExtraAttributeValue(value)
     ) {
-      out[key] = value;
+      // The re-key is load-bearing: the predicate judges `key.trim()`, so emitting
+      // the untrimmed key would emit something the gate never inspected.
+      out[key.trim()] = value;
     }
   }
   return out;
