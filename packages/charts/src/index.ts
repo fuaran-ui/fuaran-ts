@@ -31,6 +31,7 @@
 import type {
   Binding,
   ChartKind,
+  ChartDataLabels,
   ChartLegendPosition,
   CurveCommand,
   DrawPoint,
@@ -177,6 +178,28 @@ const LEGEND_COLUMN_MAX_SHARE = 0.3;
 /** The DEFAULT legend edge when the spec does not declare one (Phase 880 —
  * operator decision 2026-08-16). Style, not wire. */
 const LEGEND_POSITION: ChartLegendPosition = 'Right';
+/**
+ * Phase 881 — the data-label geometry. NONE of these feeds a margin: a data
+ * label never makes the plot smaller, it either fits the room the picture
+ * already has or it is suppressed. That is what keeps `Off` byte-identical to
+ * the pre-881 layout rather than merely visually similar.
+ *
+ * The font size is one point BELOW the tick size, and a constant of its own: a
+ * tick sits OUTSIDE the plot in a column, where a data label sits INSIDE it
+ * competing with the mark it describes.
+ */
+const DATA_LABEL_FONT_SIZE = 12.0;
+/** Clearance between a bar's cap and the nearest ink of its label, in BOTH
+ * directions — one constant used twice, so the two placements are mirrors. */
+const DATA_LABEL_OFFSET_Y = 5.0;
+/** Clearance a label keeps from the plot edge, and half the clearance it keeps
+ * from its neighbour's. Feeds the fit gate only. */
+const DATA_LABEL_PADDING = 2.0;
+/** Gap from a line/area endpoint to the left edge of its label. */
+const DATA_LABEL_END_OFFSET_X = 6.0;
+/** Rise from a line/area endpoint to its label's baseline — the nudge that
+ * takes the text off the line it belongs to. */
+const DATA_LABEL_END_NUDGE_Y = 5.0;
 
 // ─── Deterministic numeric helpers ────────────────────────────────────────────
 
@@ -687,6 +710,16 @@ export interface ChartLowerSpec {
    * omitted on the wire.
    */
   readonly legendPosition?: ChartLegendPosition;
+  /**
+   * Phase 881 — whether the values are written onto the picture. `'Ends'`
+   * labels bar CAPS (a stacked bar's TOTAL only) and LINE/AREA ENDPOINTS, and
+   * nothing else: there is deliberately no all-points value, so a number on
+   * every interior point is not expressible.
+   *
+   * Absent means `'Off'`, which is also the default — so an absent field lowers
+   * to the pre-881 picture byte-for-byte.
+   */
+  readonly dataLabels?: ChartDataLabels;
 }
 
 /**
@@ -1198,6 +1231,29 @@ export const lower = (
     );
   }
 
+  // ── Bar geometry ──
+  //
+  // Hoisted out of the two Bar arms (Phase 881) because the cap labels have to
+  // land on the SAME caps the rectangles draw: one expression per quantity, so a
+  // label and its bar cannot disagree about where the bar is. The arithmetic is
+  // character-for-character what the arms computed inline before, which is why
+  // every golden is unmoved.
+  const barGroupW = bandW * 0.7;
+  const stackedBarW = r2(Math.min(barGroupW * 0.9, BAR_MAX_THICKNESS));
+  const stackedBarX = (i: number): number => r2(PLOT_X0 + bandW * i + (bandW - stackedBarW) / 2.0);
+  const groupedSubW = m > 0 ? barGroupW / m : barGroupW;
+  const groupedBarW = r2(Math.min(groupedSubW * 0.9, BAR_MAX_THICKNESS));
+  // Centre the (possibly capped) bar in its own sub-slot, so a cap takes air off
+  // BOTH sides and the group stays symmetric about the band centre.
+  const groupedBarX = (i: number, j: number): number =>
+    r2(
+      PLOT_X0 +
+        bandW * i +
+        (bandW - barGroupW) / 2.0 +
+        j * groupedSubW +
+        (groupedSubW - groupedBarW) / 2.0,
+    );
+
   // ── Series geometry ──
   const seriesShapes: Shape[] = [];
   if (spec.kind === 'Bar' && stacked) {
@@ -1205,10 +1261,9 @@ export const lower = (
     // segments between consecutive cumulative sums (Phase 637), each
     // shortened by STACK_SEGMENT_GAP on the side facing the next segment so
     // the boundaries read as gaps rather than colour changes (Phase 875).
-    const groupW = bandW * 0.7;
-    const bw = r2(Math.min(groupW * 0.9, BAR_MAX_THICKNESS));
+    const bw = stackedBarW;
     for (let i = 0; i < n; i++) {
-      const bx = r2(PLOT_X0 + bandW * i + (bandW - bw) / 2.0);
+      const bx = stackedBarX(i);
       const cums = cumsFor(i);
       for (let j = 0; j < m; j++) {
         const y0 = yScale(cums[j]!);
@@ -1233,20 +1288,14 @@ export const lower = (
       }
     }
   } else if (spec.kind === 'Bar') {
-    const groupW = bandW * 0.7;
-    const subW = m > 0 ? groupW / m : groupW;
-    const bw = r2(Math.min(subW * 0.9, BAR_MAX_THICKNESS));
+    const bw = groupedBarW;
     const baseY = yScale(0.0);
     for (let j = 0; j < m; j++) {
       const colour = colourFor(j);
       const seriesValues = series[j]!;
       for (let i = 0; i < n; i++) {
         const v = seriesValues[i]!;
-        // Centre the (possibly capped) bar in its own sub-slot, so a cap
-        // takes air off BOTH sides and the group stays symmetric about the
-        // band centre.
-        const slotX = PLOT_X0 + bandW * i + (bandW - groupW) / 2.0 + j * subW;
-        const bx = r2(slotX + (subW - bw) / 2.0);
+        const bx = groupedBarX(i, j);
         const vy = yScale(v);
         const top = Math.min(vy, baseY);
         const hgt = r2(Math.abs(vy - baseY));
@@ -1336,6 +1385,135 @@ export const lower = (
           ),
         );
       }
+    }
+  }
+
+  // ── Data labels (Phase 881) — the values, written selectively ───────────────
+  //
+  // Two states and no third: `Off` (the default, and what an absent field means)
+  // and `Ends`. There is deliberately NO all-points mode — a number on every
+  // interior point is the clutter this vocabulary exists to prevent, so the API
+  // cannot express it. `Ends` names the placements that read on their own:
+  //
+  //   * BARS label the CAP — above a positive cap, below a negative one, the two
+  //     exact mirrors about the cap.
+  //   * A GROUPED bar labels every bar. A STACKED bar labels the TOTAL at the
+  //     stack cap and nothing else: an interior segment's value is unreadable
+  //     against the segment above it, and the legend plus the hover readout
+  //     already serve it.
+  //   * LINES and AREA EDGES label the LAST point of each series, right of the
+  //     endpoint and nudged up off the line.
+  //   * SCATTER gets nothing in v1 (recorded decision): a scatter's x IS a value
+  //     axis, so its last ROW carries no meaning its first does not, and
+  //     labelling by row order would present an accident of the feed as a
+  //     reading of the chart.
+  //   * PIE is unchanged — its legend already carries `name (NN%)`.
+  //
+  // Every value goes through `yTickText`, so a label and a tick agree by
+  // construction. NO LABEL EVER MOVES A MARGIN: the plot rectangle is decided
+  // long before this point, so a label either fits the room the picture already
+  // has or it is SUPPRESSED — never clipped, never overlapped, never relocated
+  // inside the bar.
+  const dataLabelsOn = spec.dataLabels === 'Ends';
+  const dataLabelLine = textLineHeight(DATA_LABEL_FONT_SIZE, TEXT_LINE_HEIGHT_FACTOR);
+  // Label-role ink at the chrome opacity — NEVER the series colour: a value is a
+  // reading of the mark, not a second copy of its identity.
+  const dataLabelStyleFor = (anchor: TextAnchor): DrawStyle =>
+    textStyle(LABEL_OPACITY, anchor, DATA_LABEL_FONT_SIZE, 'Normal');
+  const dataLabelShapes: Shape[] = [];
+
+  /** The single fit gate: `fitsBox` against the room the placement actually has. */
+  const pushDataLabel = (
+    anchor: TextAnchor,
+    x: number,
+    baseline: number,
+    maxWidth: number,
+    maxHeight: number,
+    text: string,
+  ): boolean => {
+    if (!textFitsBox(DATA_LABEL_FONT_SIZE, TEXT_LINE_HEIGHT_FACTOR, maxWidth, maxHeight, text))
+      return false;
+    dataLabelShapes.push(label(r2(x), r2(baseline), literal(text), dataLabelStyleFor(anchor)));
+    return true;
+  };
+
+  /** A value at a bar's cap, centred on `cx`. `pitch` is the distance to the NEXT
+   * label's centre — the neighbouring bar's slot — so the budget is what
+   * separates two labels rather than what fits one bar. */
+  const pushCapLabel = (cx: number, pitch: number, v: number): void => {
+    const capY = yScale(v);
+    const maxWidth = Math.max(0.0, pitch - 2.0 * DATA_LABEL_PADDING);
+    if (v < 0.0) {
+      pushDataLabel(
+        'Middle',
+        cx,
+        capY + DATA_LABEL_OFFSET_Y + DATA_LABEL_FONT_SIZE,
+        maxWidth,
+        PLOT_Y1 - capY - DATA_LABEL_OFFSET_Y - DATA_LABEL_PADDING,
+        yTickText(v),
+      );
+    } else {
+      pushDataLabel(
+        'Middle',
+        cx,
+        capY - DATA_LABEL_OFFSET_Y,
+        maxWidth,
+        capY - PLOT_Y0 - DATA_LABEL_OFFSET_Y - DATA_LABEL_PADDING,
+        yTickText(v),
+      );
+    }
+  };
+
+  /** The series-endpoint labels, in series order. Two gates, the second the
+   * vertical analogue of the cap labels' pitch: every endpoint label shares one
+   * x, so the thing they collide with is each other. A label is admitted only
+   * when its line clears every ALREADY-ADMITTED one — series order decides who
+   * yields, which makes the outcome deterministic. */
+  const pushEndpointLabels = (valueAt: (j: number) => number): void => {
+    if (n === 0) return;
+    const labelX = centreX(n - 1) + DATA_LABEL_END_OFFSET_X;
+    // The budget runs to the PLOT's right edge, not the canvas's: beyond it lies
+    // the legend column, and running into it is the collision the gate refuses.
+    const maxWidth = Math.max(0.0, PLOT_X1 - labelX - DATA_LABEL_PADDING);
+    const admitted: number[] = [];
+    for (let j = 0; j < m; j++) {
+      const v = valueAt(j);
+      const baseline = yScale(v) - DATA_LABEL_END_NUDGE_Y;
+      const separated = admitted.every(
+        (b) => Math.abs(b - baseline) >= dataLabelLine + DATA_LABEL_PADDING,
+      );
+      if (!separated) continue;
+      if (
+        pushDataLabel(
+          'Start',
+          labelX,
+          baseline,
+          maxWidth,
+          baseline - PLOT_Y0 - DATA_LABEL_PADDING,
+          yTickText(v),
+        )
+      )
+        admitted.push(baseline);
+    }
+  };
+
+  if (dataLabelsOn) {
+    if (spec.kind === 'Bar' && stacked) {
+      // The TOTAL at the stack cap, once per category.
+      for (let i = 0; i < n; i++)
+        pushCapLabel(stackedBarX(i) + stackedBarW / 2.0, bandW, cumsFor(i)[m]!);
+    } else if (spec.kind === 'Bar') {
+      for (let j = 0; j < m; j++)
+        for (let i = 0; i < n; i++)
+          pushCapLabel(groupedBarX(i, j) + groupedBarW / 2.0, groupedSubW, series[j]![i]!);
+    } else if (spec.kind === 'Area' && stacked) {
+      // The band's own UPPER boundary is the edge that was drawn, so it is the
+      // cumulative value there — not the series' own datum, which is nowhere on
+      // the picture.
+      const lastCums = n > 0 ? cumsFor(n - 1) : [];
+      pushEndpointLabels((j) => lastCums[j + 1]!);
+    } else if (spec.kind === 'Line' || spec.kind === 'Area') {
+      pushEndpointLabels((j) => series[j]![n - 1]!);
     }
   }
 
@@ -1539,6 +1717,9 @@ export const lower = (
           ...xLabels,
           ...axisTitles,
           ...seriesShapes,
+          // Phase 881 — the values sit ON the series, so they are painted straight
+          // after it and before the legend.
+          ...dataLabelShapes,
           ...legend,
           ...titleShapes,
           ...subtitleShapes,

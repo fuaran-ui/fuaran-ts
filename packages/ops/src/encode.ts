@@ -1741,6 +1741,9 @@ const chartSpec = (s: ChartSpec<unknown>): string => {
   // Phase 880 — the legend's declared edge (canonical key order). Absent means
   // the host's default, so the key is simply omitted.
   if (s.legendPosition !== undefined) fields.push(['legendPosition', str(s.legendPosition)]);
+  // Phase 881 — whether the values are written onto the picture (canonical key
+  // order). Absent means `Off`, which is the default, so the key is omitted.
+  if (s.dataLabels !== undefined) fields.push(['dataLabels', str(s.dataLabels)]);
   if (s.onPointClick !== undefined) fields.push(['onPointClick', CLOSURE]);
   return jObject(fields);
 };

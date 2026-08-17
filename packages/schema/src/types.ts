@@ -148,6 +148,22 @@ export type ChartKind = 'Line' | 'Bar' | 'Area' | 'Pie' | 'Scatter' | 'Heatmap';
  */
 export type ChartLegendPosition = 'Top' | 'Right' | 'Bottom' | 'None';
 
+/**
+ * Phase 881 — whether a chart writes its values directly onto the picture,
+ * and where.
+ *
+ * A WIRE vocabulary on the semantic side of the line: whether the reader is
+ * meant to READ THE NUMBERS or read the shape is the author's meaning; the
+ * type size, the offsets and the fit rule that realise it stay the host's.
+ *
+ * THE CASE SET IS TWO, AND THAT IS THE POINT. There is deliberately no
+ * all-points value: a number on every interior point is the clutter this
+ * vocabulary exists to avoid, so no shape of this type can request one.
+ * `'Ends'` names the selective placements that read — a bar's cap, a line's
+ * last point — and the set is closed there.
+ */
+export type ChartDataLabels = 'Off' | 'Ends';
+
 /** `aria-live` politeness. Wire form is lower-case (WIRE_FORMAT.md §3.5). */
 export type LiveRegionKind = 'polite' | 'assertive' | 'off';
 
@@ -1922,6 +1938,16 @@ export interface ChartSpec<TMsg> {
   // is the explicit `'None'`. So absence stays the ordinary shape and is omitted
   // on the wire, and an author who wants no legend says so.
   readonly legendPosition?: ChartLegendPosition;
+  // Phase 881 — whether the values are written onto the picture. Semantic in
+  // the same way: whether a reader is meant to read the NUMBERS or the shape
+  // is the author's meaning; the type size, the offsets and the fit rule that
+  // decide whether a given label draws are the host's.
+  //
+  // Absent means `'Off'`, and `'Off'` is also the default — the one place this
+  // differs from `legendPosition`, deliberately: a legend is chrome an author
+  // opts OUT of, where a data label is ink an author opts IN to. So an absent
+  // field is byte-identical to the pre-881 wire AND to the pre-881 picture.
+  readonly dataLabels?: ChartDataLabels;
   readonly onPointClick?: (point: unknown) => Action<TMsg>;
   readonly stacked: boolean;
 }

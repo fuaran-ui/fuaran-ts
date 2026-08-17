@@ -57,6 +57,10 @@ interface ChartInput {
   // canonical enum string; omitted when absent (so every pre-880 input is
   // byte-unchanged even though the PICTURE many of them lower to has moved).
   readonly legendPosition?: ChartLowerSpec['legendPosition'];
+  // Phase 881 — whether the values are written onto the picture, a WIRE field
+  // carried as the canonical enum string; omitted when absent (so every pre-881
+  // input AND golden is byte-unchanged).
+  readonly dataLabels?: ChartLowerSpec['dataLabels'];
   readonly data: readonly ChartRow[];
 }
 
@@ -105,6 +109,8 @@ const specAndRows = (
     // Phase 880 — same omitted-when-absent posture; a real wire field, so it
     // goes on the spec rather than the style.
     ...(inp.legendPosition !== undefined ? { legendPosition: inp.legendPosition } : {}),
+    // Phase 881 — same omitted-when-absent posture; a real wire field.
+    ...(inp.dataLabels !== undefined ? { dataLabels: inp.dataLabels } : {}),
   },
   rows: inp.data,
   style: inp.axisUnitMode !== undefined ? { axisUnitMode: inp.axisUnitMode } : {},

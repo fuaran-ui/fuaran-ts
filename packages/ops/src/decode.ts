@@ -60,6 +60,7 @@ import type {
   CellFormat,
   CellKindErased,
   ChartKind,
+  ChartDataLabels,
   ChartLegendPosition,
   ChartSpec,
   ColumnErased,
@@ -599,6 +600,9 @@ const decodeChartKind = (p: string, j: JsonAst): R<ChartKind> =>
 
 const decodeChartLegendPosition = (p: string, j: JsonAst): R<ChartLegendPosition> =>
   bareEnum(p, j, ['Top', 'Right', 'Bottom', 'None'] as const, 'ChartLegendPosition');
+
+const decodeChartDataLabels = (p: string, j: JsonAst): R<ChartDataLabels> =>
+  bareEnum(p, j, ['Off', 'Ends'] as const, 'ChartDataLabels');
 
 const decodeFileReadEncoding = (p: string, j: JsonAst): R<FileReadEncoding> =>
   bareEnum(p, j, ['Text', 'Base64', 'DataUrl'] as const, 'FileReadEncoding');
@@ -4393,6 +4397,13 @@ const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
   // ordinary wire shape omits the key and suppression has to be said out loud.
   const legendPosition = optField(path, f, 'legendPosition', decodeChartLegendPosition);
   if (!legendPosition.ok) return legendPosition;
+  // Phase 881 — `dataLabels`: whether the values are written onto the picture.
+  // Absent means `Off`, which is also the default, so the ordinary wire shape
+  // omits the key and lowers to the pre-881 picture byte-for-byte. `Ends` is
+  // the only other value: no shape of this vocabulary can request a label on
+  // every interior point.
+  const dataLabels = optField(path, f, 'dataLabels', decodeChartDataLabels);
+  if (!dataLabels.ok) return dataLabels;
   const hasPointClick = tryField(f, 'onPointClick') !== undefined;
   // stacked (Phase 126) now round-trips; absent (legacy wire) defaults to false.
   const stacked = optField(path, f, 'stacked', requireBool);
@@ -4409,6 +4420,7 @@ const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
     ...(yTitle.value !== undefined ? { yTitle: yTitle.value } : {}),
     ...(subtitle.value !== undefined ? { subtitle: subtitle.value } : {}),
     ...(legendPosition.value !== undefined ? { legendPosition: legendPosition.value } : {}),
+    ...(dataLabels.value !== undefined ? { dataLabels: dataLabels.value } : {}),
     ...(hasPointClick ? { onPointClick: () => placeholderAction } : {}),
   });
 };

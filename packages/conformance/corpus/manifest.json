@@ -980,6 +980,14 @@
       "description": "Visualisation/Chart (Phase 878 — xTitle/yTitle/subtitle: the axis names + the muted subtitle)"
     },
     {
+      "id": "chart-data-labels",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/chart-data-labels.json",
+      "expectedFile": "nodes/chart-data-labels.json",
+      "description": "Visualisation/Chart (Phase 881 — dataLabels: values written onto the picture)"
+    },
+    {
       "id": "chart-legend-position",
       "kind": "node-round-trip",
       "decoder": "node",
