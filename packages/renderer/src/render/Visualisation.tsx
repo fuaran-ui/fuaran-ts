@@ -23,6 +23,7 @@ import type {
   SortDirection,
   StateBehaviour,
   TableSpec,
+  TextSource,
   ToneVariant,
   VisKind,
 } from '@fuaran-ui/schema';
@@ -53,6 +54,12 @@ import { renderNode } from './core.js';
 // `isinstance(item, Obj)` check) — never an array or a scalar.
 const isChartRow = (row: unknown): row is ChartRow =>
   typeof row === 'object' && row !== null && !Array.isArray(row);
+
+// Only a LITERAL text source carries into a lowered drawing — a bound / i18n
+// text cannot be resolved into the picture (mirrors the Python gate). Shared by
+// every TextSource-typed chart field (title, xTitle, yTitle, subtitle).
+const literalText = (src: TextSource | undefined): string | undefined =>
+  src !== undefined && src.kind === 'Literal' ? src.value : undefined;
 
 export const renderVis = <TMsg,>(
   ctx: RenderContext<TMsg>,
@@ -655,9 +662,11 @@ const renderChart = <TMsg,>(
   // sibling of the existing `Display.Drawing` arm). Anything unresolved / not-yet-lowered
   // falls through to the client-hydration placeholder below.
   if (isLowered(spec.kind) && rows.length > 0 && rows.every(isChartRow)) {
-    // Only a literal title carries into the lowered drawing (mirrors the Python gate).
-    const title =
-      spec.title !== undefined && spec.title.kind === 'Literal' ? spec.title.value : undefined;
+    // Only literal text fields carry into the lowered drawing (mirrors the Python gate).
+    const title = literalText(spec.title);
+    const xTitle = literalText(spec.xTitle);
+    const yTitle = literalText(spec.yTitle);
+    const subtitle = literalText(spec.subtitle);
     const drawing = lower(
       {
         kind: spec.kind,
@@ -665,6 +674,16 @@ const renderChart = <TMsg,>(
         yFields: spec.yFields,
         stacked: spec.stacked,
         ...(title !== undefined ? { title } : {}),
+        // Phase 876 — the declared value-axis number format travels with the
+        // spec into the lowering (the style stays the host's default).
+        ...(spec.valueFormat !== undefined ? { valueFormat: spec.valueFormat } : {}),
+        // Phase 878 — the axis names + the muted subtitle (Literal-gated like title).
+        ...(xTitle !== undefined ? { xTitle } : {}),
+        ...(yTitle !== undefined ? { yTitle } : {}),
+        ...(subtitle !== undefined ? { subtitle } : {}),
+        // Phase 880 — the legend edge; Phase 881 — the declared data labels.
+        ...(spec.legendPosition !== undefined ? { legendPosition: spec.legendPosition } : {}),
+        ...(spec.dataLabels !== undefined ? { dataLabels: spec.dataLabels } : {}),
       },
       rows as readonly ChartRow[],
     );
