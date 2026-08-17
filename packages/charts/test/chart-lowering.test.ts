@@ -70,19 +70,20 @@ interface ChartInput {
 
 /** The corpus carries a `Format` in canonical `$type` wire JSON; the lowering
  * takes the host's tagged-union shape. Only the numeric arms appear here. */
-const valueFormatOf = (raw: ChartInput['valueFormat']): ChartLowerSpec['valueFormat'] => {
-  if (raw === undefined) return undefined;
+const valueFormatOf = (
+  raw: NonNullable<ChartInput['valueFormat']>,
+): NonNullable<ChartLowerSpec['valueFormat']> => {
   switch (raw.$type) {
     case 'Number':
-      return raw.decimals === undefined
+      return raw['decimals'] === undefined
         ? { kind: 'Number' }
-        : { kind: 'Number', decimals: raw.decimals as number };
+        : { kind: 'Number', decimals: raw['decimals'] as number };
     case 'Percent':
-      return raw.decimals === undefined
+      return raw['decimals'] === undefined
         ? { kind: 'Percent' }
-        : { kind: 'Percent', decimals: raw.decimals as number };
+        : { kind: 'Percent', decimals: raw['decimals'] as number };
     case 'Currency':
-      return { kind: 'Currency', isoCode: raw.isoCode as string };
+      return { kind: 'Currency', isoCode: raw['isoCode'] as string };
     default:
       throw new Error(`chart-lowering input: unsupported valueFormat ${raw.$type}`);
   }
