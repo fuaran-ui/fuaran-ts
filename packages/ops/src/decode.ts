@@ -4110,6 +4110,76 @@ const decodeCellKindErased = (
   }
 };
 
+// Phase 863 — decode-time didactics for the grid-behaviour family's NEAR
+// MISSES (Phase 860's charter, its rejected-spellings deliverable).
+//
+// Every shape below decoded SILENTLY before: rule 2 tolerates unknown keys, so
+// a model that reached for the wrong name got a tree that decoded, validated
+// and rendered while the declaration did nothing — the fake-affordance failure
+// in a new guise, and tolerance is what hid it. The narrowing is an ENUMERATED
+// set with an unambiguous canonical form each; rule 2 holds for everything
+// else. Parity-locked with F# `nearMiss` / `checkNearMisses`, and mirrored in
+// the published schema as `not: { required: [...] }`.
+const nearMiss = (path: string, found: string, canonical: string): R<never> =>
+  makeError(
+    'WRONG_TYPE',
+    `${path}.${found}`,
+    `'${found}' is not part of the grid vocabulary — it would be ignored, not honoured`,
+    canonical,
+  );
+
+const checkNearMisses = (
+  path: string,
+  f: Fields,
+  candidates: readonly (readonly [string, string])[],
+): R<void> => {
+  for (const [name, canonical] of candidates) {
+    if (tryField(f, name) !== undefined) return nearMiss(path, name, canonical);
+  }
+  return ok(undefined);
+};
+
+const COLUMN_NEAR_MISSES = [
+  // Named by the census row itself. Deliberately NOT aliased to
+  // `editable: false`: an inverting alias that guesses wrong makes a read-only
+  // column editable.
+  ['readOnly', "editable: false — the column flag NARROWS the grid's editable capability"],
+] as const;
+
+const GRID_NEAR_MISSES = [
+  // The sharpest of them: a LITERAL page number is not expressible at all,
+  // because the position lives in State so a control can move it. Ignoring it
+  // is what produced the ×11 fake-affordance cluster.
+  [
+    'currentPage',
+    'pageStateKey — the page POSITION lives in State as {"page": N} so the pager can move it; a literal page number is not expressible',
+  ],
+  [
+    'page',
+    'pageStateKey — the page POSITION lives in State as {"page": N} so the pager can move it; a literal page number is not expressible',
+  ],
+  [
+    'pageIndex',
+    'pageStateKey — the page POSITION lives in State as {"page": N}, 1-based (not a zero-based index)',
+  ],
+  [
+    'sortable',
+    'sortStateKey on the grid + sortable on each COLUMN — grid-wide sortable is the staticRows spelling; a data-bound grid narrows per column',
+  ],
+  [
+    'onEdit',
+    'editStateKey — the edit DESTINATION is a State key on the grid; onEdit is a per-cell host closure and carries no destination across the wire',
+  ],
+  [
+    'behaviour',
+    'sibling fields on the grid (sortStateKey / pageStateKey / pageSize / editStateKey / defaultSort) — grid behaviour is not a nested record',
+  ],
+  [
+    'behavior',
+    'sibling fields on the grid (sortStateKey / pageStateKey / pageSize / editStateKey / defaultSort) — grid behaviour is not a nested record',
+  ],
+] as const;
+
 const decodeColumnErased = (path: string, j: JsonAst): R<ColumnErased<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
@@ -4146,6 +4216,8 @@ const decodeColumnErased = (path: string, j: JsonAst): R<ColumnErased<unknown>> 
   // omitted, and `field` (if present, extracted above) drives the row-field projection
   // with zero host code.
   const hasValue = tryField(f, 'value') !== undefined;
+  const colNearMiss = checkNearMisses(path, f, COLUMN_NEAR_MISSES);
+  if (!colNearMiss.ok) return colNearMiss;
   // Phase 863 — per-column editability narrowing; absent inherits the
   // grid-level flag.
   const colEditableJ = tryField(f, 'editable');
@@ -4313,6 +4385,8 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
     if (!ds.ok) return ds;
     defaultSort = ds.value;
   }
+  const gridNearMiss = checkNearMisses(path, f, GRID_NEAR_MISSES);
+  if (!gridNearMiss.ok) return gridNearMiss;
   // Phase 863 — the declared edit destination.
   const editStateKeyJ = tryField(f, 'editStateKey');
   let editStateKey: string | undefined;
