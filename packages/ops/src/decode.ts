@@ -63,6 +63,7 @@ import type {
   ChartDataLabels,
   ChartLegendPosition,
   ChartSpec,
+  ChartXScale,
   ColumnErased,
   ColumnWidth,
   ContentHash,
@@ -603,6 +604,9 @@ const decodeChartLegendPosition = (p: string, j: JsonAst): R<ChartLegendPosition
 
 const decodeChartDataLabels = (p: string, j: JsonAst): R<ChartDataLabels> =>
   bareEnum(p, j, ['Off', 'Ends'] as const, 'ChartDataLabels');
+
+const decodeChartXScale = (p: string, j: JsonAst): R<ChartXScale> =>
+  bareEnum(p, j, ['Category', 'Temporal'] as const, 'ChartXScale');
 
 const decodeFileReadEncoding = (p: string, j: JsonAst): R<FileReadEncoding> =>
   bareEnum(p, j, ['Text', 'Base64', 'DataUrl'] as const, 'FileReadEncoding');
@@ -4478,6 +4482,14 @@ const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
   // every interior point.
   const dataLabels = optField(path, f, 'dataLabels', decodeChartDataLabels);
   if (!dataLabels.ok) return dataLabels;
+  // Phase 882 — `xScale`: what the x column MEANS, discrete `Category` bands or
+  // `Temporal` dates on a continuous day-scale. Absent means `Category`, which
+  // is also the default, so the ordinary wire shape omits the key and lowers to
+  // the pre-882 picture byte-for-byte. A `Temporal` declaration is GROUNDED
+  // pre-emit (FUARAN097) rather than inferred here: the decoder's job is to
+  // carry the author's claim faithfully, not to second-guess it against the rows.
+  const xScale = optField(path, f, 'xScale', decodeChartXScale);
+  if (!xScale.ok) return xScale;
   const hasPointClick = tryField(f, 'onPointClick') !== undefined;
   // stacked (Phase 126) now round-trips; absent (legacy wire) defaults to false.
   const stacked = optField(path, f, 'stacked', requireBool);
@@ -4495,6 +4507,7 @@ const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
     ...(subtitle.value !== undefined ? { subtitle: subtitle.value } : {}),
     ...(legendPosition.value !== undefined ? { legendPosition: legendPosition.value } : {}),
     ...(dataLabels.value !== undefined ? { dataLabels: dataLabels.value } : {}),
+    ...(xScale.value !== undefined ? { xScale: xScale.value } : {}),
     ...(hasPointClick ? { onPointClick: () => placeholderAction } : {}),
   });
 };

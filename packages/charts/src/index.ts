@@ -33,6 +33,7 @@ import type {
   ChartKind,
   ChartDataLabels,
   ChartLegendPosition,
+  ChartXScale,
   CurveCommand,
   DrawPoint,
   DrawStyle,
@@ -231,13 +232,18 @@ const niceNum = (x: number, roundIt: boolean): number => {
   return nf * 10.0 ** exp;
 };
 
+/** The tick count both axes aim for. Named because Phase 882's calendar ladder
+ * derives its own ceiling from it (`TARGET_TICK_COUNT + 1`), and the two must
+ * not be able to drift apart. */
+const TARGET_TICK_COUNT = 5.0;
+
 /** A nice value domain + its tick values for `[lo, hi]`, targeting ~5 ticks. */
 const niceDomain = (
   lo: number,
   hi: number,
 ): { niceLo: number; niceHi: number; step: number; ticks: number[] } => {
   const hiAdj = hi === lo ? lo + 1.0 : hi;
-  const targetTicks = 5.0;
+  const targetTicks = TARGET_TICK_COUNT;
   const range = niceNum(hiAdj - lo, false);
   const step = niceNum(range / (targetTicks - 1.0), true);
   const niceLo = Math.floor(lo / step) * step;
@@ -564,6 +570,325 @@ const resolveDisplayUnit = (
   }
 };
 
+// ─── The temporal x-axis (Phase 882) ─────────────────────────────────────────
+//
+// NORMATIVE CROSS-HOST SPEC (R2), the same standing as the text metrics and the
+// number formatter above: every conformant host reproduces this block exactly,
+// and `docs/CHARTS-DRAWING-PRIMITIVE-DESIGN.md` §4h carries it as the
+// language-neutral statement. The `chart-lowering/*` goldens pin it.
+//
+// FIVE RULES, and each one exists to remove a way two hosts could disagree.
+//
+//   1. THE UNIT IS THE DAY, and a date is an INTEGER: days since 1970-01-01 in
+//      the PROLEPTIC GREGORIAN calendar. Nothing here reads a host date type, a
+//      locale, a time zone, or a clock — no `Date`, no `Intl`, no library. The
+//      conversions are the fixed integer algorithms below (Howard Hinnant's
+//      `days_from_civil` / `civil_from_days`, public domain), exact for every
+//      date they admit and needing no leap-year table. A timestamp cell's
+//      TIME-OF-DAY IS DISCARDED: the value is its UTC date. That is the whole
+//      of the axis's time-zone policy, stated rather than inherited, because
+//      inheriting it from a host would make the picture depend on where it was
+//      drawn.
+//
+//      Integer division must TRUNCATE TOWARD ZERO, so every `/` in the two
+//      conversions is wrapped in `Math.trunc` — `Math.floor` is WRONG for the
+//      negative-bias branches, and JavaScript's bare `/` is not integral at
+//      all. The algorithms bias their operands into the non-negative range
+//      precisely so truncation is the only convention they need.
+//
+//   2. THE DOMAIN IS THE DATA'S OWN EXTENT, UNEXPANDED — `[min, max]`, so the
+//      first and last points sit on the plot's edges. It is NOT snapped outward
+//      the way `niceDomain` snaps the value axis, because a calendar boundary
+//      is a coarse thing to round to: nicing a 30-day domain to whole months
+//      would add a month of empty plot at each end to make room for ticks
+//      nobody asked for. The ticks come to the domain instead. A degenerate
+//      domain (every row the same date, or no rows) becomes `[lo, lo+1]`, the
+//      same guard `niceDomain` applies for the same reason.
+//
+//   3. THE TICKS ARE CALENDAR-ALIGNED INSTANTS INSIDE THE DOMAIN, at a step
+//      drawn from a FIXED LADDER — the `{1,2,5}·10ⁿ` rule's analogue for units
+//      that are not decimal:
+//
+//        1, 2, 5, 10 DAYS · 1, 2, 3, 6 MONTHS · {1,2,5}·10ⁿ YEARS (n ≤ 6)
+//
+//      The chosen rung is the FIRST whose in-domain tick count fits the
+//      ceiling; the coarsest rung is the fallback nothing else fits. Day rungs
+//      step from the DOMAIN'S OWN START (a "nice" 2-day or 5-day boundary does
+//      not exist — days are uniform, so the honest anchor is the first datum);
+//      month rungs land on month starts where `(month-1) mod k === 0`, which
+//      makes `k = 3` the calendar quarters and `k = 6` January and July; year
+//      rungs land on the January 1 of years where `year mod k === 0`.
+//
+//      The ceiling is `TARGET_TICK_COUNT + 1` (6 at the shipped default) rather
+//      than `TARGET_TICK_COUNT` itself. The value axis's step is CONTINUOUS and
+//      can be tuned to hit a target; a calendar rung jumps by 2–3× and cannot,
+//      so rounding down a rung loses roughly half the ticks. Admitting the
+//      densest rung that still reads keeps the actual count in the 3–6 band.
+//      Counts are computed WITHOUT generating the ticks, so the ladder can be
+//      walked from its densest rung on a millennium-wide domain without
+//      unbounded work.
+//
+//   4. THE FORMAT FOLLOWS THE STEP'S NOMINAL LENGTH, at the operator's
+//      thresholds: `> 365` days ⇒ `yyyy`, `> 27` ⇒ `mmm yy`, else `dd mmm yy`.
+//      Nominal, not measured: a month is `365.2425 / 12 = 30.436875` days and a
+//      year `365.2425`, so the rung decides the format and the DATA cannot.
+//      Measuring the actual tick gaps instead would put the year rung's average
+//      at exactly 365.0 across a run of non-leap years (1900–1903, say) and
+//      flip a decade chart from `yyyy` to `mmm yy` on a property of the
+//      calendar nobody was asking about. The thresholds are calibrated for
+//      this: the 1-month rung clears 27 and the 6-month rung does not clear
+//      365, so each threshold separates two ADJACENT rungs.
+//
+//   5. THE MONTH NAMES ARE PART OF THE SPEC. English three-letter
+//      abbreviations, invariant, never a locale lookup — an i18n date axis is a
+//      different feature with its own vocabulary, and a chart whose golden
+//      bytes changed with the host's culture would not be certifiable at all.
+
+/** The English three-letter month abbreviations, in calendar order. INVARIANT —
+ * part of the wire-visible spec (rule 5), never a locale lookup. */
+const MONTH_NAMES = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
+
+/** The calendar unit a tick step counts in. */
+type TemporalUnit = 'Days' | 'Months' | 'Years';
+
+/** One rung of the ladder: `count` of `unit`. */
+interface TemporalStep {
+  readonly unit: TemporalUnit;
+  readonly count: number;
+}
+
+/** Integer division TRUNCATED TOWARD ZERO (rule 1) — the one division
+ * convention both conversions below rely on. */
+const idiv = (a: number, b: number): number => Math.trunc(a / b);
+
+/** Gregorian leap year (proleptic — the rule applies to every year the parser
+ * admits, with no historical exception). */
+const isLeapYear = (y: number): boolean => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+
+/** Days in a month — the one place the calendar's irregularity is written down,
+ * used by the PARSER only (the conversions need no table). */
+const daysInMonth = (y: number, m: number): number =>
+  m === 2 ? (isLeapYear(y) ? 29 : 28) : m === 4 || m === 6 || m === 9 || m === 11 ? 30 : 31;
+
+/** `(y, m, d)` → days since 1970-01-01. Hinnant's `days_from_civil`: exact for
+ * every proleptic-Gregorian date, no leap table, integer-only. */
+const daysFromCivil = (year: number, month: number, day: number): number => {
+  const y = month <= 2 ? year - 1 : year;
+  const era = idiv(y >= 0 ? y : y - 399, 400);
+  const yoe = y - era * 400; // [0, 399]
+  const mp = month > 2 ? month - 3 : month + 9; // March-based month
+  const doy = idiv(153 * mp + 2, 5) + day - 1; // [0, 365]
+  const doe = yoe * 365 + idiv(yoe, 4) - idiv(yoe, 100) + doy; // [0, 146096]
+  return era * 146097 + doe - 719468;
+};
+
+/** Days since 1970-01-01 → `(y, m, d)`. Hinnant's `civil_from_days`, the exact
+ * inverse of {@link daysFromCivil}. */
+const civilFromDays = (days: number): { year: number; month: number; day: number } => {
+  const z = days + 719468;
+  const era = idiv(z >= 0 ? z : z - 146096, 146097);
+  const doe = z - era * 146097; // [0, 146096]
+  const yoe = idiv(doe - idiv(doe, 1460) + idiv(doe, 36524) - idiv(doe, 146096), 365); // [0, 399]
+  const y = yoe + era * 400;
+  const doy = doe - (365 * yoe + idiv(yoe, 4) - idiv(yoe, 100)); // [0, 365]
+  const mp = idiv(5 * doy + 2, 153); // [0, 11], March-based
+  const d = doy - idiv(153 * mp + 2, 5) + 1; // [1, 31]
+  const m = mp < 10 ? mp + 3 : mp - 9; // [1, 12]
+  return { year: m <= 2 ? y + 1 : y, month: m, day: d };
+};
+
+/**
+ * Parse a canonical ISO-8601 date to days since epoch — `YYYY-MM-DD`,
+ * optionally followed by `T…`, whose time-of-day is DISCARDED (rule 1). STRICT
+ * by shape and by calendar: four digits, two, two, both hyphens, a month in
+ * 1–12 and a day the month actually has. `undefined` for everything else,
+ * including a locale spelling (`15/01/2026`) and a bare year — admitting either
+ * would be the string-sniffing this axis exists to avoid.
+ */
+const tryParseDay = (text: string): number | undefined => {
+  const digits = (start: number, len: number): number | undefined => {
+    if (start + len > text.length) return undefined;
+    let acc = 0;
+    for (let k = start; k < start + len; k++) {
+      const c = text.charCodeAt(k);
+      if (c < 48 || c > 57) return undefined;
+      acc = acc * 10 + (c - 48);
+    }
+    return acc;
+  };
+  if (text.length < 10) return undefined;
+  if (text[4] !== '-' || text[7] !== '-') return undefined;
+  if (text.length > 10 && text[10] !== 'T') return undefined;
+  const y = digits(0, 4);
+  const m = digits(5, 2);
+  const d = digits(8, 2);
+  if (y === undefined || m === undefined || d === undefined) return undefined;
+  if (m < 1 || m > 12 || d < 1 || d > daysInMonth(y, m)) return undefined;
+  return daysFromCivil(y, m, d);
+};
+
+/** The day number a row's x cell carries, with an UNPARSEABLE cell reading as
+ * the epoch. That mirrors `numericOf`'s posture for a non-numeric value-axis
+ * cell — the lowering stays total and the grounding rule (FUARAN097) is what
+ * makes a non-date column loud, upstream, before any picture is drawn. Silence
+ * here is not the design; refusing here would be. */
+const temporalDayOf = (text: string): number => tryParseDay(text) ?? 0;
+
+/** The step's NOMINAL length in days (rule 4) — a mean Gregorian month and
+ * year, so the FORMAT is a property of the rung rather than of the data. */
+const nominalDays = (step: TemporalStep): number => {
+  switch (step.unit) {
+    case 'Days':
+      return step.count;
+    case 'Months':
+      return step.count * 30.436875; // 365.2425 / 12
+    default:
+      return step.count * 365.2425;
+  }
+};
+
+/** The ladder, ascending (rule 3). Written out rather than generated: it is a
+ * pinned vocabulary five hosts mirror, and an explicit list cannot drift on a
+ * difference of opinion about exponentiation. */
+const TEMPORAL_LADDER: readonly TemporalStep[] = [
+  { unit: 'Days', count: 1 },
+  { unit: 'Days', count: 2 },
+  { unit: 'Days', count: 5 },
+  { unit: 'Days', count: 10 },
+  { unit: 'Months', count: 1 },
+  { unit: 'Months', count: 2 },
+  { unit: 'Months', count: 3 },
+  { unit: 'Months', count: 6 },
+  { unit: 'Years', count: 1 },
+  { unit: 'Years', count: 2 },
+  { unit: 'Years', count: 5 },
+  { unit: 'Years', count: 10 },
+  { unit: 'Years', count: 20 },
+  { unit: 'Years', count: 50 },
+  { unit: 'Years', count: 100 },
+  { unit: 'Years', count: 200 },
+  { unit: 'Years', count: 500 },
+  { unit: 'Years', count: 1000 },
+  { unit: 'Years', count: 2000 },
+  { unit: 'Years', count: 5000 },
+  { unit: 'Years', count: 10000 },
+  { unit: 'Years', count: 20000 },
+  { unit: 'Years', count: 50000 },
+  { unit: 'Years', count: 100000 },
+  { unit: 'Years', count: 200000 },
+  { unit: 'Years', count: 500000 },
+  { unit: 'Years', count: 1000000 },
+  { unit: 'Years', count: 2000000 },
+  { unit: 'Years', count: 5000000 },
+];
+
+/** Round an index UP to the next multiple of `k` (both non-negative). */
+const ceilTo = (k: number, i: number): number => idiv(i + k - 1, k) * k;
+
+/** The aligned window a month rung covers: `[first aligned month index, count]`
+ * over `[lo, hi]`, in month-index space (`year·12 + month - 1`). Closed-form,
+ * so a count never generates a tick. */
+const monthWindow = (k: number, lo: number, hi: number): readonly [number, number] => {
+  const start = civilFromDays(lo);
+  // A `lo` past the 1st means `lo`'s own month start is outside the domain.
+  const firstIdx = start.year * 12 + start.month - 1 + (start.day > 1 ? 1 : 0);
+  const first = ceilTo(k, firstIdx);
+  const end = civilFromDays(hi);
+  // `hi`'s own month start is always inside the domain (its day ≥ 1).
+  const last = idiv(end.year * 12 + end.month - 1, k) * k;
+  return last < first ? [first, 0] : [first, idiv(last - first, k) + 1];
+};
+
+/** The year rung's twin of {@link monthWindow}, in year space. */
+const yearWindow = (k: number, lo: number, hi: number): readonly [number, number] => {
+  const start = civilFromDays(lo);
+  const firstYear = start.year + (start.month === 1 && start.day === 1 ? 0 : 1);
+  const first = ceilTo(k, firstYear);
+  const last = idiv(civilFromDays(hi).year, k) * k;
+  return last < first ? [first, 0] : [first, idiv(last - first, k) + 1];
+};
+
+/** How many `step`-aligned ticks fall in `[lo, hi]` — closed-form, never by
+ * generation (rule 3), so walking the ladder is O(rungs) whatever the span. */
+const temporalTickCount = (step: TemporalStep, lo: number, hi: number): number => {
+  if (hi < lo) return 0;
+  switch (step.unit) {
+    case 'Days':
+      return idiv(hi - lo, step.count) + 1;
+    case 'Months':
+      return monthWindow(step.count, lo, hi)[1];
+    default:
+      return yearWindow(step.count, lo, hi)[1];
+  }
+};
+
+/** The `step`-aligned ticks in `[lo, hi]`, ascending. */
+const temporalTicks = (step: TemporalStep, lo: number, hi: number): number[] => {
+  if (hi < lo) return [];
+  const out: number[] = [];
+  if (step.unit === 'Days') {
+    for (let i = 0; i <= idiv(hi - lo, step.count); i++) out.push(lo + i * step.count);
+    return out;
+  }
+  if (step.unit === 'Months') {
+    const [first, count] = monthWindow(step.count, lo, hi);
+    for (let i = 0; i < count; i++) {
+      const idx = first + i * step.count;
+      out.push(daysFromCivil(idiv(idx, 12), (idx % 12) + 1, 1));
+    }
+    return out;
+  }
+  const [first, count] = yearWindow(step.count, lo, hi);
+  for (let i = 0; i < count; i++) out.push(daysFromCivil(first + i * step.count, 1, 1));
+  return out;
+};
+
+/** The chosen rung: the FIRST whose in-domain tick count fits `maxTicks`, else
+ * the coarsest (rule 3). Total — the ladder is never empty. */
+const chooseTemporalStep = (maxTicks: number, lo: number, hi: number): TemporalStep =>
+  TEMPORAL_LADDER.find((s) => temporalTickCount(s, lo, hi) <= maxTicks) ??
+  TEMPORAL_LADDER[TEMPORAL_LADDER.length - 1]!;
+
+/** The domain: the data's own extent, unexpanded, with the degenerate guard
+ * (rule 2). No rows ⇒ `[0, 1]` — the epoch day and the one after it, which
+ * draws an axis rather than dividing by zero. */
+const temporalDomain = (days: readonly number[]): readonly [number, number] => {
+  if (days.length === 0) return [0, 1];
+  const lo = Math.min(...days);
+  const hi = Math.max(...days);
+  return hi === lo ? [lo, lo + 1] : [lo, hi];
+};
+
+const padTo = (width: number, v: number): string => {
+  const s = String(v);
+  return s.length >= width ? s : '0'.repeat(width - s.length) + s;
+};
+
+/** The tick label for `day` under `step` — the granularity-adaptive format
+ * (rule 4). `yyyy` past a year, `mmm yy` past 27 days, else `dd mmm yy`. */
+const temporalLabel = (step: TemporalStep, day: number): string => {
+  const { year, month, day: d } = civilFromDays(day);
+  const nominal = nominalDays(step);
+  const yy = padTo(2, year % 100);
+  const mmm = MONTH_NAMES[month - 1]!;
+  if (nominal > 365.0) return padTo(4, year);
+  if (nominal > 27.0) return mmm + ' ' + yy;
+  return padTo(2, d) + ' ' + mmm + ' ' + yy;
+};
+
 // ─── DrawStyle + shape builders ──────────────────────────────────────────────
 
 const staticBinding = <T>(value: T): Binding<T> => ({ kind: 'Static', value });
@@ -727,6 +1052,19 @@ export interface ChartLowerSpec {
    * to the pre-881 picture byte-for-byte.
    */
   readonly dataLabels?: ChartDataLabels;
+  /**
+   * Phase 882 — what the x column MEANS: discrete `'Category'` bands, or
+   * `'Temporal'` dates read on a continuous day-scale (points at their date,
+   * calendar-aligned ticks, granularity-adaptive labels, vertical gridlines,
+   * and no fallback x-title).
+   *
+   * DECLARED, never inferred — the validator grounds the claim against the
+   * column type (FUARAN097) rather than the lowering sniffing cell strings.
+   * Absent means `'Category'`, which is also the default, so an absent field
+   * lowers to the pre-882 picture byte-for-byte. Inert on `Pie`, which has no
+   * x axis to scale.
+   */
+  readonly xScale?: ChartXScale;
 }
 
 /**
@@ -854,23 +1192,91 @@ export const lower = (
   // x range carries no baseline semantics (the y domain stays zero-anchored
   // with the other arms, deliberately: one shared y-domain rule).
   const isScatter = spec.kind === 'Scatter';
-  const xValues = isScatter ? rows.map((r) => numericOf(r, spec.xField)) : [];
+
+  // ── Temporal x-scale (Phase 882 — the SECOND non-band x-scale) ──
+  //
+  // DECLARED, never inferred. `xScale: 'Temporal'` is the author saying "this
+  // column is dates"; the language then GROUNDS that claim against the
+  // statically-known column type (FUARAN097) wherever it can. Inference was the
+  // alternative and is wrong twice over: the schema is statically known only for
+  // an embedded table with an EMPTY pipeline (FUARAN086's window), so an
+  // inferred axis would make the same tree draw a band axis or a temporal one
+  // depending on where its rows came from — a picture that depends on data
+  // PROVENANCE — and sniffing the cell strings for an ISO-8601 shape is the
+  // guess-dressed-as-a-rule §4e refused. Absent is `'Category'`, which is every
+  // pre-882 chart, byte-for-byte.
+  //
+  // Pie is excluded because it HAS no x axis: a temporal declaration there is
+  // dead intent the polar arm cannot honour, and neutralising it here keeps the
+  // pie geometry free of a scale it never reads.
+  const isTemporal = spec.xScale === 'Temporal' && spec.kind !== 'Pie';
+
+  // Each row's x as a DAY NUMBER, read off the same string projection the band
+  // arms label with — which is exactly the canonical ISO-8601 form a date /
+  // timestamp cell carries through the row bridge. So the mark identity keeps
+  // the ISO string while the geometry uses the integer, and neither has to be
+  // derived from the other.
+  const dayValues: number[] = isTemporal ? categories.map(temporalDayOf) : [];
+
+  // The x axis is CONTINUOUS (Phase 903's split) on exactly two arms: the
+  // Scatter arm's numeric x and a temporal x. Everything keyed off this — tick
+  // marks AT the value, vertical gridlines, marks placed by value rather than by
+  // band index — follows from that one property rather than from a list of kinds.
+  const isContinuousX = isScatter || isTemporal;
+
+  const xValues = isTemporal
+    ? dayValues
+    : isScatter
+      ? rows.map((r) => numericOf(r, spec.xField))
+      : [];
+
+  // The chosen calendar rung, on a temporal axis only. ONE value decides both
+  // the tick positions and the label format, so the two cannot disagree about
+  // the axis's granularity.
+  const temporalStep: TemporalStep | undefined = isTemporal
+    ? (() => {
+        const [lo, hi] = temporalDomain(dayValues);
+        return chooseTemporalStep(TARGET_TICK_COUNT + 1.0, lo, hi);
+      })()
+    : undefined;
+
   const {
     niceLo: xNiceLo,
     niceHi: xNiceHi,
     step: xStep,
     ticks: xTicks,
-  } = isScatter
-    ? xValues.length === 0
-      ? niceDomain(0.0, 1.0)
-      : niceDomain(Math.min(...xValues), Math.max(...xValues))
-    : { niceLo: 0.0, niceHi: 1.0, step: 1.0, ticks: [] as number[] };
+  } = temporalStep !== undefined
+    ? // The domain is the data's own extent (rule 2) — deliberately NOT nice-d
+      // outward — and the ticks are the calendar-aligned instants inside it.
+      // `xStep` carries the rung's NOMINAL length, which is what the label
+      // format reads.
+      ((): { niceLo: number; niceHi: number; step: number; ticks: number[] } => {
+        const [lo, hi] = temporalDomain(dayValues);
+        return {
+          niceLo: lo,
+          niceHi: hi,
+          step: nominalDays(temporalStep),
+          ticks: temporalTicks(temporalStep, lo, hi),
+        };
+      })()
+    : isScatter
+      ? xValues.length === 0
+        ? niceDomain(0.0, 1.0)
+        : niceDomain(Math.min(...xValues), Math.max(...xValues))
+      : { niceLo: 0.0, niceHi: 1.0, step: 1.0, ticks: [] as number[] };
 
   // The Scatter arm's x IS a value axis, so its ticks take the same canonical
   // formatter (Phase 876). `valueFormat` is deliberately NOT applied to it: one
   // declared meaning cannot be true of two different measures, and there is no
   // second axis-unit slot to state an x display unit in.
-  const xTickText = (v: number): string => formatValue(undefined, 1.0, false, xStep, v);
+  //
+  // A TEMPORAL tick takes the calendar label instead (Phase 882) — the same
+  // one-formatter-per-axis discipline over a different vocabulary: the number
+  // formatter has nothing true to say about a date.
+  const xTickText = (v: number): string =>
+    temporalStep !== undefined
+      ? temporalLabel(temporalStep, Math.trunc(v))
+      : formatValue(undefined, 1.0, false, xStep, v);
 
   const tickSize = TICK_FONT_SIZE;
   const titleSize = 18.0;
@@ -904,7 +1310,16 @@ export const lower = (
         ? undefined
         : capitalise(fallbackField);
 
-  const xTitle = axisTitleOf(spec.xTitle, spec.xField);
+  // Phase 882 wires §4e's date-axis rule: a SELF-EVIDENT DATE AXIS SUPPRESSES
+  // ITS DEFAULT TITLE — an axis reading "Jan Feb Mar" does not need the word
+  // "Date" beneath it. Two boundaries, both stated when the rule was written
+  // down and both kept: it applies to the FALLBACK only (an explicit `xTitle` is
+  // the author overriding the default and always draws), and it suppresses the
+  // TITLE, never the axis. The declaration is what made it wirable — nothing
+  // before 882 could tell a date column from a string one, which is why §4e
+  // recorded the rule instead of shipping it.
+  const xTitle =
+    isTemporal && spec.xTitle === undefined ? undefined : axisTitleOf(spec.xTitle, spec.xField);
   // The y fallback is the capitalised FIRST y-field — the honest answer to
   // "what is on this axis", where the retired `"Value"` literal named neither
   // the measure nor its unit.
@@ -1020,12 +1435,44 @@ export const lower = (
    * tick marks land here, where a label lands at `centreX`. */
   const boundaryX = (i: number): number => r2(PLOT_X0 + bandW * i);
 
-  // ── The category-label ANGLE LADDER (Phase 903, correcting Phase 879) ──
-  // Only the BAND arms label categories: Scatter labels numeric x ticks (short
-  // by construction, left horizontal) and Pie has no x axis. Both must
+  // ── The x-axis-label ANGLE LADDER (Phase 903, correcting Phase 879) ──
+  // The BAND arms label categories; Pie has no x axis and Scatter labels numeric
+  // x ticks (short by construction, left horizontal). Both of those must
   // therefore contribute NO drop, or their bottom margin — and with it the
   // pie's centre — would move for a decision they never take.
-  const drawsCategoryLabels = !isScatter && spec.kind !== 'Pie';
+  const drawsCategoryLabels = !isScatter && !isTemporal && spec.kind !== 'Pie';
+
+  // Phase 882 — a TEMPORAL axis labels its TICKS, and the ladder applies to
+  // them: same three rungs, same footprint formula, measured against the TICK
+  // PITCH instead of the band pitch. A date label is not short by construction
+  // the way a numeric tick is (`15 Jan 26` against `150`), so leaving it
+  // always-flat would recreate exactly the overlap the ladder exists to resolve
+  // — and reusing the ladder rather than adding a second rule is what keeps one
+  // angle policy for the whole x axis.
+  const temporalTickTexts = isTemporal ? xTicks.map(xTickText) : [];
+
+  /** Whether the x axis draws labels the ladder governs at all — the band arms'
+   * categories or a temporal axis's ticks. Scatter and Pie: no. */
+  const drawsXAxisLabels = drawsCategoryLabels || isTemporal;
+
+  /** The pitch the ladder measures a label against: a band's width, or — on a
+   * temporal axis — the SMALLEST pixel gap between consecutive ticks, since
+   * calendar gaps are not uniform (28 to 31 days a month) and the tightest pair
+   * is the one that has to fit. Computable here because it needs `PLOT_W` only,
+   * which the left margin has already fixed: the acyclicity Phase 879
+   * established survives intact, with nothing reading the bottom margin the
+   * ladder is about to decide. */
+  const xLabelPitch = ((): number => {
+    if (!isTemporal) return bandW;
+    const span = xNiceHi - xNiceLo;
+    if (xTicks.length < 2) return PLOT_W;
+    let minGap = span;
+    for (let i = 1; i < xTicks.length; i++) minGap = Math.min(minGap, xTicks[i]! - xTicks[i - 1]!);
+    return (PLOT_W * minGap) / span;
+  })();
+
+  /** The labels the ladder decides on, AS AUTHORED (see below). */
+  const xLabelsAsAuthored: readonly string[] = isTemporal ? temporalTickTexts : categories;
 
   // A rotated label's footprint ALONG the axis is w·cos θ + h·sin θ. At 0° that
   // is the bare width (`cos 0 = 1`, `sin 0 = 0`, both exact on every IEEE-754
@@ -1043,18 +1490,18 @@ export const lower = (
   // and reads flat. Deciding on the widest label rather than per-label is what
   // keeps an axis from mixing angles.
   //
-  // Decided on the labels AS AUTHORED (`categories`, not `categoryTexts`): the
-  // truncation budget below is a function of the angle, so reading truncated
-  // text here would be circular as well as wrong.
-  const widestCategory = widestOf(categories);
-  const packsAt = (deg: number): boolean => alongAxisFootprint(deg, widestCategory) <= bandW;
+  // Decided on the labels AS AUTHORED (`xLabelsAsAuthored`, not the truncated
+  // `xLabelTexts`): the truncation budget below is a function of the angle, so
+  // reading truncated text here would be circular as well as wrong.
+  const widestXLabel = widestOf(xLabelsAsAuthored);
+  const packsAt = (deg: number): boolean => alongAxisFootprint(deg, widestXLabel) <= xLabelPitch;
 
   // `LABEL_TILT_DEGREES = 0` is FLAT-ALWAYS, not "the ladder with a flat rung":
   // a host that zeroed the tilt named the one rotation the ladder may use, so
   // escalating past it to vertical would override an explicit choice with a
   // computed one.
   const tiltDegrees =
-    !drawsCategoryLabels || n === 0 || LABEL_TILT_DEGREES <= 0.0
+    !drawsXAxisLabels || n === 0 || LABEL_TILT_DEGREES <= 0.0
       ? 0.0
       : packsAt(0.0)
         ? 0.0
@@ -1078,12 +1525,15 @@ export const lower = (
       AXIS_TITLE_BOTTOM_OFFSET,
   );
   const categoryTextBudget = sinTilt > 0.0 ? dropCeiling / sinTilt : Infinity;
-  const categoryTexts = drawsCategoryLabels
-    ? categories.map((c) => truncateToWidth(tickSize, categoryTextBudget, c))
+  /** The x labels as DRAWN — the ladder's own labels, bounded by the drop
+   * ceiling. Empty on the arms that draw none, so their bottom margin is
+   * unmoved (Scatter's short numeric ticks are emitted separately, flat). */
+  const xLabelTexts = drawsXAxisLabels
+    ? xLabelsAsAuthored.map((c) => truncateToWidth(tickSize, categoryTextBudget, c))
     : [];
   const requiredBottom =
     CATEGORY_LABEL_OFFSET_Y +
-    sinTilt * widestOf(categoryTexts) +
+    sinTilt * widestOf(xLabelTexts) +
     AXIS_LABEL_PADDING +
     lineHeight +
     AXIS_TITLE_BOTTOM_OFFSET;
@@ -1100,8 +1550,13 @@ export const lower = (
 
   const yScale = (v: number): number => r2(PLOT_Y1 - ((v - niceLo) / (niceHi - niceLo)) * PLOT_H);
 
-  const xScale = (v: number): number =>
-    r2(PLOT_X0 + ((v - xNiceLo) / (xNiceHi - xNiceLo)) * PLOT_W);
+  /** The x-scale before rounding. Split out by Phase 882 so the bar arms can
+   * derive an UNROUNDED slot origin from it: rounding a centre and then
+   * subtracting half a width would round twice, and the band arms' goldens pin
+   * the single-rounding form. */
+  const xScaleRaw = (v: number): number => PLOT_X0 + ((v - xNiceLo) / (xNiceHi - xNiceLo)) * PLOT_W;
+
+  const xScale = (v: number): number => r2(xScaleRaw(v));
 
   // ── Chrome (assembled in painter's order below) ──
   const axisStyle = styleStrokeInk(AXIS_OPACITY, 1.0);
@@ -1112,12 +1567,16 @@ export const lower = (
     return line(r2(PLOT_X0), y, r2(PLOT_X1), y, gridStyle);
   });
 
-  // Vertical gridlines — the Scatter arm only (Phase 875). A linear x-scale has
+  // Vertical gridlines — wherever the x axis is CONTINUOUS (Phase 875 for
+  // Scatter, extended to the temporal axis by Phase 882). A continuous scale has
   // readable x positions, so a reader traces a point back to an x value the
   // same way the horizontal grid lets them trace a y value. A BAND x-axis has
   // no such positions to trace (a category is a label, not a magnitude), so a
-  // vertical rule there would be decoration.
-  const xGridlines: Shape[] = isScatter
+  // vertical rule there would be decoration. Stating it as "continuous" rather
+  // than "Scatter" is what let the temporal axis inherit the behaviour instead
+  // of re-deciding it — including on a temporal BAR chart, where the rules read
+  // as date guides through the bars rather than as chrome.
+  const xGridlines: Shape[] = isContinuousX
     ? xTicks.map((t) => line(xScale(t), r2(PLOT_Y0), xScale(t), r2(PLOT_Y1), gridStyle))
     : [];
 
@@ -1146,7 +1605,10 @@ export const lower = (
   // axis a tick DELIMITS a group, so the `n+1` marks land on the band BOUNDARIES
   // and the label stays centred between two of them — the category-axis
   // convention, and the honest one: a category has an extent, not a position, so
-  // a mark under its centre claims a coordinate the axis does not have.
+  // a mark under its centre claims a coordinate the axis does not have. Phase
+  // 882's temporal axis TAKES the continuous side of this split: a date IS a
+  // position, so its marks sit at their dates and its labels are centred ON
+  // them — there are no boundaries to delimit, because there are no bands.
   const tickMarks: Shape[] = (() => {
     if (TICK_MARK_LENGTH <= 0.0) return [];
     const yMarks: Shape[] = ticks.map((t) => {
@@ -1155,7 +1617,7 @@ export const lower = (
     });
     const xAt = (x: number): Shape =>
       line(x, r2(PLOT_Y1), x, r2(PLOT_Y1 + TICK_MARK_LENGTH), axisStyle);
-    const xMarks: Shape[] = isScatter
+    const xMarks: Shape[] = isContinuousX
       ? xTicks.map((t) => xAt(xScale(t)))
       : n === 0
         ? []
@@ -1190,10 +1652,19 @@ export const lower = (
   // back down-and-left, reading up-to-the-right into it. The opposite sign
   // would swing the same text up into the plot area. At 90° this degenerates
   // to reading bottom-up. Scatter's numeric ticks stay horizontal + Middle.
+  //
+  // Phase 882 — a TEMPORAL axis's labels sit at their TICKS (not at a band
+  // centre, because there are no bands) and take the ladder's rung and anchor
+  // exactly as the band arms do. So one expression covers "centred at the
+  // position the label names" on both, and the only thing that differs is which
+  // positions those are.
   const tiltedLabelStyle: DrawStyle = {
     ...textStyle(LABEL_OPACITY, 'End', tickSize, 'Normal'),
     rotation: r2(-tiltDegrees),
   };
+
+  const xLabelStyle: DrawStyle =
+    tiltDegrees > 0.0 ? tiltedLabelStyle : textStyle(LABEL_OPACITY, 'Middle', tickSize, 'Normal');
 
   const xLabels: Shape[] = isScatter
     ? xTicks.map((t) =>
@@ -1204,16 +1675,18 @@ export const lower = (
           textStyle(LABEL_OPACITY, 'Middle', tickSize, 'Normal'),
         ),
       )
-    : categoryTexts.map((c, i) =>
-        label(
-          centreX(i),
-          r2(PLOT_Y1 + CATEGORY_LABEL_OFFSET_Y),
-          literal(c),
-          tiltDegrees > 0.0
-            ? tiltedLabelStyle
-            : textStyle(LABEL_OPACITY, 'Middle', tickSize, 'Normal'),
-        ),
-      );
+    : isTemporal
+      ? xTicks.map((t, i) =>
+          label(
+            xScale(t),
+            r2(PLOT_Y1 + CATEGORY_LABEL_OFFSET_Y),
+            literal(xLabelTexts[i]!),
+            xLabelStyle,
+          ),
+        )
+      : xLabelTexts.map((c, i) =>
+          label(centreX(i), r2(PLOT_Y1 + CATEGORY_LABEL_OFFSET_Y), literal(c), xLabelStyle),
+        );
 
   // ── Axis titles + the display-unit slot (Phase 878) ──
   //
@@ -1236,8 +1709,10 @@ export const lower = (
   //      rule is identical on every host.
   //
   // A SELF-EVIDENT DATE AXIS SUPPRESSES ITS DEFAULT TITLE — stated in the design
-  // note (§4e) and deliberately NOT wired: nothing here can tell a date column
-  // from a string one, and inferring it from the label text would be a guess.
+  // note (§4e) and WIRED by Phase 882, once `xScale` made "this column is dates"
+  // something the author declares rather than something the lowering guesses
+  // from the label text. Decided where `xTitle` is resolved, above; the fallback
+  // only, and the title only — never the axis.
   const boundText = (fontSize: number, extent: number, t: string): string =>
     truncateToWidth(fontSize, extent, t);
 
@@ -1279,6 +1754,31 @@ export const lower = (
     );
   }
 
+  // ── Where a datum sits along x (Phase 882) ─────────────────────────────────
+  //
+  // ONE pair of expressions the series geometry reads, and the band-vs-value
+  // difference lives here and nowhere else. On a band axis a datum sits at its
+  // band's INDEX; on a temporal axis it sits at its DATE — the same datum, a
+  // different question asked of the axis.
+  //
+  // The temporal slot keeps `bandW` as its PITCH — `PLOT_W / n`, the average
+  // spacing — so a bar's thickness is decided by the same expression on both
+  // axes and a monthly bar chart looks like a bar chart rather than like a
+  // sequence of hairlines. With irregular dates two slots can overlap; that is
+  // honest, because the bars are at their true positions and the overlap is the
+  // data's, not the layout's. `BAR_MAX_THICKNESS` already bounds the other
+  // direction.
+
+  /** The x a datum's mark centres on. */
+  const xCentre = (i: number): number => (isTemporal ? xScale(xValues[i]!) : centreX(i));
+
+  /** The UNROUNDED left edge of the slot a datum's bar geometry lays out in.
+   * Unrounded because the bar arms round once, at the end — the band form is
+   * `PLOT_X0 + bandW·i` character-for-character, so every band golden is
+   * unmoved. */
+  const slotOriginX = (i: number): number =>
+    isTemporal ? xScaleRaw(xValues[i]!) - bandW / 2.0 : PLOT_X0 + bandW * i;
+
   // ── Bar geometry ──
   //
   // Hoisted out of the two Bar arms (Phase 881) because the cap labels have to
@@ -1288,15 +1788,14 @@ export const lower = (
   // every golden is unmoved.
   const barGroupW = bandW * 0.7;
   const stackedBarW = r2(Math.min(barGroupW * 0.9, BAR_MAX_THICKNESS));
-  const stackedBarX = (i: number): number => r2(PLOT_X0 + bandW * i + (bandW - stackedBarW) / 2.0);
+  const stackedBarX = (i: number): number => r2(slotOriginX(i) + (bandW - stackedBarW) / 2.0);
   const groupedSubW = m > 0 ? barGroupW / m : barGroupW;
   const groupedBarW = r2(Math.min(groupedSubW * 0.9, BAR_MAX_THICKNESS));
   // Centre the (possibly capped) bar in its own sub-slot, so a cap takes air off
   // BOTH sides and the group stays symmetric about the band centre.
   const groupedBarX = (i: number, j: number): number =>
     r2(
-      PLOT_X0 +
-        bandW * i +
+      slotOriginX(i) +
         (bandW - barGroupW) / 2.0 +
         j * groupedSubW +
         (groupedSubW - groupedBarW) / 2.0,
@@ -1369,10 +1868,10 @@ export const lower = (
         const colour = colourFor(j);
         const yf = spec.yFields[j]!;
         const upper: DrawPoint[] = [];
-        for (let i = 0; i < n; i++) upper.push({ x: centreX(i), y: yScale(cums[i]![j + 1]!) });
+        for (let i = 0; i < n; i++) upper.push({ x: xCentre(i), y: yScale(cums[i]![j + 1]!) });
         const lowerBoundary: DrawPoint[] = [];
         for (let i = n - 1; i >= 0; i--)
-          lowerBoundary.push({ x: centreX(i), y: yScale(cums[i]![j]!) });
+          lowerBoundary.push({ x: xCentre(i), y: yScale(cums[i]![j]!) });
         seriesShapes.push(
           polygon(
             [...upper, ...lowerBoundary],
@@ -1393,11 +1892,11 @@ export const lower = (
         const seriesValues = series[j]!;
         const yf = spec.yFields[j]!;
         const points: DrawPoint[] = [];
-        for (let i = 0; i < n; i++) points.push({ x: centreX(i), y: yScale(seriesValues[i]!) });
+        for (let i = 0; i < n; i++) points.push({ x: xCentre(i), y: yScale(seriesValues[i]!) });
         const band: DrawPoint[] = [
-          { x: centreX(0), y: baseY },
+          { x: xCentre(0), y: baseY },
           ...points,
-          { x: centreX(n - 1), y: baseY },
+          { x: xCentre(n - 1), y: baseY },
         ];
         seriesShapes.push(
           polygon(band, withSeriesMark(yf, styleFillOpacity(colour, AREA_FILL_OPACITY))),
@@ -1410,7 +1909,7 @@ export const lower = (
       const colour = colourFor(j);
       const seriesValues = series[j]!;
       const points: DrawPoint[] = [];
-      for (let i = 0; i < n; i++) points.push({ x: centreX(i), y: yScale(seriesValues[i]!) });
+      for (let i = 0; i < n; i++) points.push({ x: xCentre(i), y: yScale(seriesValues[i]!) });
       seriesShapes.push(
         polyline(points, withSeriesMark(spec.yFields[j]!, styleStroke(colour, 2.0))),
       );
@@ -1519,7 +2018,7 @@ export const lower = (
    * yields, which makes the outcome deterministic. */
   const pushEndpointLabels = (valueAt: (j: number) => number): void => {
     if (n === 0) return;
-    const labelX = centreX(n - 1) + DATA_LABEL_END_OFFSET_X;
+    const labelX = xCentre(n - 1) + DATA_LABEL_END_OFFSET_X;
     // The budget runs to the PLOT's right edge, not the canvas's: beyond it lies
     // the legend column, and running into it is the collision the gate refuses.
     const maxWidth = Math.max(0.0, PLOT_X1 - labelX - DATA_LABEL_PADDING);

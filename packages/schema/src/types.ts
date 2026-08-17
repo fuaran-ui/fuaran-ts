@@ -164,6 +164,28 @@ export type ChartLegendPosition = 'Top' | 'Right' | 'Bottom' | 'None';
  */
 export type ChartDataLabels = 'Off' | 'Ends';
 
+/**
+ * Phase 882 — what a chart's x axis MEANS: the scale its x column is read on.
+ *
+ * A WIRE vocabulary on the semantic side of the line: whether a column is a set
+ * of CATEGORIES or a run of DATES is a fact about the data the author is
+ * declaring, not an appearance choice. Where the ticks land, how they are
+ * formatted and how much margin they need stay the host's.
+ *
+ * DECLARED, NOT INFERRED, and that is the point of the field. A chart's data
+ * schema is statically known only for an embedded table with an empty pipeline,
+ * so an inferred axis would make one wire tree draw a band axis or a temporal
+ * one depending on where its rows came from; and sniffing the cell strings for
+ * an ISO-8601 shape is a guess dressed as a rule. Declaring it lets the pre-emit
+ * validator GROUND the claim instead (`FUARAN097` refuses a temporal axis over a
+ * non-date column) — the author says what the column is, and the language
+ * refuses to be wrong about it quietly.
+ *
+ * `'Category'` is the shipped default and what an absent field means, so every
+ * pre-882 chart is byte-unchanged on the wire AND in the picture.
+ */
+export type ChartXScale = 'Category' | 'Temporal';
+
 /** `aria-live` politeness. Wire form is lower-case (WIRE_FORMAT.md §3.5). */
 export type LiveRegionKind = 'polite' | 'assertive' | 'off';
 
@@ -1948,6 +1970,17 @@ export interface ChartSpec<TMsg> {
   // opts OUT of, where a data label is ink an author opts IN to. So an absent
   // field is byte-identical to the pre-881 wire AND to the pre-881 picture.
   readonly dataLabels?: ChartDataLabels;
+  // Phase 882 — what the x column MEANS: discrete categories, or dates on a
+  // continuous temporal scale. Semantic in the same way: whether a column is a
+  // set of categories or a run of dates is a fact about the data; the tick
+  // ladder, the label format and the margins that realise it are the host's.
+  //
+  // Absent means `'Category'`, which is also the shipped default, so an absent
+  // field is byte-identical to the pre-882 wire AND to the pre-882 picture.
+  // `'Temporal'` is a DECLARATION the pre-emit validator grounds against the
+  // column type (`FUARAN097`) — never an inference from the data, which would
+  // make the same tree draw differently depending on where its rows came from.
+  readonly xScale?: ChartXScale;
   readonly onPointClick?: (point: unknown) => Action<TMsg>;
   readonly stacked: boolean;
 }

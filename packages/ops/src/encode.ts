@@ -1744,6 +1744,10 @@ const chartSpec = (s: ChartSpec<unknown>): string => {
   // Phase 881 — whether the values are written onto the picture (canonical key
   // order). Absent means `Off`, which is the default, so the key is omitted.
   if (s.dataLabels !== undefined) fields.push(['dataLabels', str(s.dataLabels)]);
+  // Phase 882 — what the x column MEANS (canonical key order). Absent means
+  // `Category`, which is the default, so the key is OMITTED and every pre-882
+  // chart encodes to the same bytes it always did.
+  if (s.xScale !== undefined) fields.push(['xScale', str(s.xScale)]);
   if (s.onPointClick !== undefined) fields.push(['onPointClick', CLOSURE]);
   return jObject(fields);
 };

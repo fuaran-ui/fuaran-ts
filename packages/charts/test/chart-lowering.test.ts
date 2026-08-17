@@ -61,6 +61,10 @@ interface ChartInput {
   // carried as the canonical enum string; omitted when absent (so every pre-881
   // input AND golden is byte-unchanged).
   readonly dataLabels?: ChartLowerSpec['dataLabels'];
+  // Phase 882 — what the x column MEANS, a WIRE field carried as the canonical
+  // enum string; omitted when absent (so every pre-882 input AND golden is
+  // byte-unchanged — `Category` is what absence means and what it always did).
+  readonly xScale?: ChartLowerSpec['xScale'];
   readonly data: readonly ChartRow[];
 }
 
@@ -111,6 +115,8 @@ const specAndRows = (
     ...(inp.legendPosition !== undefined ? { legendPosition: inp.legendPosition } : {}),
     // Phase 881 — same omitted-when-absent posture; a real wire field.
     ...(inp.dataLabels !== undefined ? { dataLabels: inp.dataLabels } : {}),
+    // Phase 882 — same omitted-when-absent posture; a real wire field.
+    ...(inp.xScale !== undefined ? { xScale: inp.xScale } : {}),
   },
   rows: inp.data,
   style: inp.axisUnitMode !== undefined ? { axisUnitMode: inp.axisUnitMode } : {},
@@ -141,4 +147,25 @@ describe('chart lowering — cross-host byte-parity', () => {
     const b = encodeNode(lowerNode('c', spec, reversedRows, style));
     expect(a).toBe(b);
   });
+
+  // Phase 882 — the STRONGER form the corpus cannot state. The goldens show that
+  // the default is byte-unchanged (not one pre-882 `.expected.json` moved); this
+  // shows the two SPELLINGS of the default agree — an absent `xScale` and an
+  // explicit `'Category'` lower to the same bytes. Without it, "absent means
+  // Category" would be a claim about code nothing checks.
+  const categoryNames = names.filter((name) => readInput(name).xScale === undefined);
+
+  it.runIf(names.length > 0)('has cases that declare no x-scale', () => {
+    expect(categoryNames.length).toBeGreaterThan(0);
+  });
+
+  it.each(categoryNames)(
+    '%s — an absent xScale is byte-identical to an explicit Category',
+    (name) => {
+      const { spec, rows, style } = specAndRows(readInput(name));
+      const absent = encodeNode(lowerNode('c', spec, rows, style));
+      const explicit = encodeNode(lowerNode('c', { ...spec, xScale: 'Category' }, rows, style));
+      expect(absent).toBe(explicit);
+    },
+  );
 });
