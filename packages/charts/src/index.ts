@@ -1433,12 +1433,38 @@ export const lower = (
     spec.subtitle !== undefined ? textLineHeight(SUBTITLE_FONT_SIZE, TEXT_LINE_HEIGHT_FACTOR) : 0.0;
   const marginTop = r2(MARGIN_TOP + subtitleBand);
 
-  // ── Legend placement (Phase 880) ──
+  // ── Left margin ──
+  // The truncation budget is derived from the CEILING — a constant — so the
+  // truncation that feeds the margin never depends on the margin it decides.
+  const leftCeiling = MARGIN_LEFT_MAX_SHARE * W;
+  // Phase 878 — the rotated y title occupies one LINE of the left margin,
+  // outboard of the tick column. Only its line height (plus the padding beside
+  // it) is reserved: the title is rotated, so its LENGTH runs vertically and is
+  // bounded against the plot height further down, which is what keeps this
+  // acyclic.
+  const yTitleBand = yTitle !== undefined ? lineHeight + AXIS_LABEL_PADDING : 0.0;
+  const tickTextBudget = Math.max(
+    0.0,
+    leftCeiling - TICK_LABEL_GAP - AXIS_LABEL_PADDING - yTitleBand,
+  );
+  const yTickLabelText = (v: number): string =>
+    truncateToWidth(tickSize, tickTextBudget, yTickText(v));
+  const requiredLeft =
+    TICK_LABEL_GAP + widestOf(ticks.map(yTickLabelText)) + AXIS_LABEL_PADDING + yTitleBand;
+  const marginLeft = r2(Math.max(MARGIN_LEFT, Math.min(leftCeiling, requiredLeft)));
+
+  const PLOT_X0 = marginLeft;
+
+  // ── Legend placement (Phase 880; BAND overflow fallback 2026-08-18) ──
   //
-  // ONE legend with four placements, resolved HERE — above the margins, because
-  // a `Right` legend's column width is an INPUT to the plot rectangle and a
-  // `Bottom` legend's band is an input to the bottom margin. Same acyclicity
-  // discipline the text metrics established.
+  // ONE legend with four placements, resolved HERE — AFTER the left margin,
+  // whose `PLOT_X0` is where a band packs FROM, and before the plot's right
+  // edge, because a `Right` legend's column width is an INPUT to the plot
+  // rectangle and a `Bottom` legend's band is an input to the bottom margin.
+  // Same acyclicity discipline the text metrics established. Phase 880 resolved
+  // this block above ALL the margins; the overflow rule moved it below the LEFT
+  // one, because that is where the band's available width comes from. Nothing
+  // between the two reads the legend, so the block moved whole.
   //
   // The pie arm's shares are resolved here for the same reason: its legend
   // labels carry them ("name (NN%)"), so they are layout input, not output.
@@ -1470,18 +1496,60 @@ export const lower = (
       ? spec.yFields.map((yf, j) => [colourFor(j), yf] as const)
       : [];
 
-  // The placement actually used: the author's explicit value where there is one,
+  // The placement the author ASKED FOR: their explicit value where there is one,
   // else the host default. With no entries the answer is `None` whatever either
   // said — so an explicit position on a single-series chart draws nothing and,
   // more to the point, reserves no space.
-  const legendPos: ChartLegendPosition =
+  const requestedPos: ChartLegendPosition =
     legendEntries.length === 0 ? 'None' : (spec.legendPosition ?? LEGEND_POSITION);
+
+  /** A BAND entry's PITCH: the swatch's label offset, the label's own natural
+   * width, and the gap before the next entry. Read by the overflow predicate AND
+   * by the band emitter far below — one expression, so the rule can never decide
+   * against geometry the drawing does not use. The name is the untruncated one,
+   * because a band never truncates. */
+  const bandEntryWidth = (t: string): number =>
+    LEGEND_LABEL_OFFSET_X + textWidth(tickSize, t) + LEGEND_ENTRY_GAP;
+
+  /** The width a BAND has to pack into: from the plot's left edge, where the band
+   * starts, to the plot's right edge — which on a band arm is the canvas less the
+   * right margin, since a band reserves no column and `legendColumnW` is 0 there
+   * by construction. So the term is not circular, and it is the PLOT's width
+   * rather than canvas-minus-declared-margins: the band packs from `PLOT_X0`, the
+   * AUTOSIZED left margin, not from `MARGIN_LEFT`. */
+  const bandAvailableW = W - MARGIN_RIGHT - PLOT_X0;
+
+  /** **The BAND overflow rule (operator decision, 2026-08-18).** An explicit
+   * `Top` or `Bottom` legend whose entries do not pack into one band row FALLS
+   * BACK TO THE RIGHT-HAND COLUMN. A band's width is the SUM of its entries, so
+   * it runs off the canvas once the names are long enough or numerous enough —
+   * and truncating any one name cannot fix a sum, which is why Phase 879's
+   * per-entry natural pitch and Phase 880's repositioning both left it standing.
+   *
+   * The column never loses information, never grows the band unboundedly, and
+   * reuses layout that already shipped. Two alternatives were considered and
+   * DECLINED: a second row grows the reserved band and moves the plot rectangle
+   * with the entry COUNT (chrome sliding under a data refresh); a refusal loses
+   * the legend entirely, when the author's intent — a visible legend — is
+   * honourable at another edge. So `Top`/`Bottom` mean "band if it fits, column
+   * if it cannot"; the wire is unchanged.
+   *
+   * The comparison INCLUDES the last entry's trailing `LEGEND_ENTRY_GAP`, exactly
+   * as the emitter computes it — that gap is the clearance to the right margin.
+   * Strict `>`, so an exact fit stays a band. And the fallback is UNIFORM: the
+   * whole legend moves, never a split across two edges. */
+  const bandOverflows =
+    (requestedPos === 'Top' || requestedPos === 'Bottom') &&
+    legendEntries.reduce((acc, [, t]) => acc + bandEntryWidth(t), 0.0) > bandAvailableW;
+
+  /** The placement actually used. */
+  const legendPos: ChartLegendPosition = bandOverflows ? 'Right' : requestedPos;
 
   // COLUMN arms: the widest label decides the column, bounded by a share of the
   // canvas and truncated beyond it — the margin autosizes' posture, for the same
-  // reason. The band arms pack at natural width and are left as Phase 879
-  // shipped them: truncating there would not help, because the overflow is in
-  // the SUM, not in any one name.
+  // reason. A BAND arm packs at NATURAL width and never truncates: its overflow
+  // is in the SUM, not in one name, so truncating would cost information without
+  // fixing anything — a band that cannot pack falls back to the column above.
   const legendNameBudget = Math.max(
     0.0,
     LEGEND_COLUMN_MAX_SHARE * W - LEGEND_LABEL_OFFSET_X - LEGEND_COLUMN_GAP,
@@ -1498,27 +1566,6 @@ export const lower = (
   // never contend. The exact mirror of `subtitleBand` at the top.
   const legendBandH = legendPos === 'Bottom' ? r2(lineHeight + AXIS_LABEL_PADDING) : 0.0;
 
-  // ── Left margin ──
-  // The truncation budget is derived from the CEILING — a constant — so the
-  // truncation that feeds the margin never depends on the margin it decides.
-  const leftCeiling = MARGIN_LEFT_MAX_SHARE * W;
-  // Phase 878 — the rotated y title occupies one LINE of the left margin,
-  // outboard of the tick column. Only its line height (plus the padding beside
-  // it) is reserved: the title is rotated, so its LENGTH runs vertically and is
-  // bounded against the plot height further down, which is what keeps this
-  // acyclic.
-  const yTitleBand = yTitle !== undefined ? lineHeight + AXIS_LABEL_PADDING : 0.0;
-  const tickTextBudget = Math.max(
-    0.0,
-    leftCeiling - TICK_LABEL_GAP - AXIS_LABEL_PADDING - yTitleBand,
-  );
-  const yTickLabelText = (v: number): string =>
-    truncateToWidth(tickSize, tickTextBudget, yTickText(v));
-  const requiredLeft =
-    TICK_LABEL_GAP + widestOf(ticks.map(yTickLabelText)) + AXIS_LABEL_PADDING + yTitleBand;
-  const marginLeft = r2(Math.max(MARGIN_LEFT, Math.min(leftCeiling, requiredLeft)));
-
-  const PLOT_X0 = marginLeft;
   // Phase 880 — a `Right` legend takes its column off the PLOT, not off the
   // right margin: the margin stays the clearance between the legend's widest
   // label and the canvas edge, exactly as it was the clearance to the plot
@@ -2210,7 +2257,10 @@ export const lower = (
   //
   // BAND (`Top` / `Bottom`): Phase 879's horizontal row, laid out cumulatively
   // from the plot's left edge at each entry's own natural width — unchanged for
-  // `Top`, which is the pre-880 shape every pre-880 golden pins.
+  // `Top`, which is the pre-880 shape every pre-880 golden pins. A band that
+  // cannot PACK into the plot's width no longer runs off the edge: `bandOverflows`
+  // above sends the whole legend to the column instead (operator decision,
+  // 2026-08-18), so by the time this arm is reached the entries are known to fit.
   const legendLabelStyle = textStyle(LABEL_OPACITY, 'Start', tickSize, 'Normal');
   const legend: Shape[] = [];
   if (legendPos === 'Right') {
@@ -2251,7 +2301,8 @@ export const lower = (
           legendLabelStyle,
         ),
       );
-      lx += LEGEND_LABEL_OFFSET_X + textWidth(tickSize, legendTexts[j]!) + LEGEND_ENTRY_GAP;
+      // The same `bandEntryWidth` the overflow rule measured against.
+      lx += bandEntryWidth(legendTexts[j]!);
     }
   }
 
