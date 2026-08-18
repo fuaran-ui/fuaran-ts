@@ -374,6 +374,27 @@ const DEG_TO_RAD = Math.PI / 180.0;
 //   3. The `Format` arms layer meaning over that base; `Date` / `RelativeTime`
 //      / `Duration` are not value-axis formats and fall through to the base.
 //   4. Display-unit scaling divides BOTH the value and the step by 10ⁿ.
+//   5. THE INTEGER PART IS RENDERED IN POSITIONAL NOTATION AT EVERY MAGNITUDE,
+//      by an expansion this module owns — never by inheriting a host's default
+//      number→string switch. Grouping walks decimal digits, so handing it an
+//      exponent form corrupts it silently, and the hosts do not agree on WHEN
+//      that form appears: the .NET `"R"` layout (which the Python and Rust
+//      hosts mirror, and which the wire format pins) goes scientific once the
+//      leading-digit exponent passes 16, i.e. at 1e17, while JavaScript's
+//      `Number.prototype.toString` stays positional until 1e21. So between
+//      1e17 and 1e21 those hosts drew `2.5E,+17` where this one drew the
+//      correct digits, and past 1e21 this one drew `1e,+21` — the same chart,
+//      different bytes, and no host right. `expandToFixed` therefore re-lays
+//      any `d[.ddd]E±NN` mantissa/exponent pair (this host's lower-case
+//      `e+NN` included) as its digits zero-padded to `exp + 1` places, and
+//      leaves an already-positional form untouched, so nothing below 1e21
+//      moves on this host and nothing below 1e17 moves on any host.
+//      NOTE the threshold is 1e17, not the 1e15 in `formatNum` — that constant
+//      bounds the exact integer fast path, not the notation switch.
+//      The expansion is over the SHORTEST-ROUND-TRIP digits, the canonical
+//      decimal identity of the double, not its exact binary value: 1e21 reads
+//      `1,000,000,000,000,000,000,000`, not `999,999,999,999,999,916,000`.
+//      Only the INTEGER part needs this — the fraction is bounded by 10^6.
 
 /** Decimal places implied by a tick step: the smallest `d <= 6` for which
  * `step * 10^d` is (within relative float tolerance) an integer. */
@@ -399,6 +420,28 @@ const groupThousands = (digits: string): string => {
   return parts.join(',');
 };
 
+/** Expand a canonical round-trip number form into POSITIONAL notation (rule 5).
+ * `s` is whatever the host's shortest-round-trip formatter produced for a
+ * non-negative INTEGER-valued double: positional at small magnitudes, and
+ * `d[.ddd]E±NN` — or this host's lower-case `e+NN` — above whichever magnitude
+ * that host switches at. Total by construction: a form carrying no exponent is
+ * returned unchanged, as is the negative-exponent form an integer part cannot
+ * produce. */
+const expandToFixed = (s: string): string => {
+  let eIdx = s.indexOf('E');
+  if (eIdx < 0) eIdx = s.indexOf('e');
+  if (eIdx < 0) return s;
+  const mant = s.slice(0, eIdx);
+  const exp = Number(s.slice(eIdx + 1));
+  if (!Number.isFinite(exp) || exp < 0) return s;
+  const dot = mant.indexOf('.');
+  const digits = dot < 0 ? mant : mant.slice(0, dot) + mant.slice(dot + 1);
+  // An integer-valued double's shortest round-trip always has at least as many
+  // places as digits; the guard keeps the function total rather than describing
+  // a reachable case.
+  return digits.length >= exp + 1 ? digits : digits + '0'.repeat(exp + 1 - digits.length);
+};
+
 /** Render `v` with EXACTLY `dps` decimals — round-half-up on the magnitude,
  * comma thousands separators, period decimal point, locale-invariant. */
 const renderFixed = (dps: number, v: number): string => {
@@ -408,7 +451,9 @@ const renderFixed = (dps: number, v: number): string => {
   const units = Math.floor(Math.abs(v) * scale + 0.5);
   const intPart = Math.floor(units / scale);
   const fracPart = units - intPart * scale;
-  const intStr = groupThousands(formatNum(intPart));
+  // Rule 5 — expand before grouping. `formatNum` alone would hand the grouper
+  // an exponent form above the host's own switch magnitude.
+  const intStr = groupThousands(expandToFixed(formatNum(intPart)));
   let body = intStr;
   if (d > 0) {
     const raw = formatNum(fracPart);
