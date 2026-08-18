@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/style-observer",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Browser-default computed-style observer for the Fuaran UI typed Node tree — reads back the resolved computed styles of a rendered tree via getComputedStyle + an effective-background composite walk and derives a fixed vocabulary of resolved-style flags (contrast-below-AA, invisible-text, accent-indistinct) the semantic-state channel is blind to. The TypeScript port of Fuaran.UI.StyleObserver.{Abstractions,Default}; flag + observation JSON is byte-identical to the F# tier.",
   "keywords": [
     "fuaran",
