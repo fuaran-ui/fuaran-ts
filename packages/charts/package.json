@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/charts",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Render-time Chart → Drawing lowering for Fuaran UI — the bounded, deterministic layout engine that turns a semantic ChartSpec + data rows into a canonical themed Drawing subtree (scales, ticks, axes, gridlines, legend, series geometry). The TypeScript twin of Fuaran.UI.Charts; certified byte-identical to the shared chart-lowering fixtures so a chart renders as first-party inline SVG on every host.",
   "keywords": [
     "fuaran",

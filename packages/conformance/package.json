@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/conformance",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Third-party certification kit for the Fuaran UI wire format — runs any candidate implementation (via a small decode/encode adapter) over the bundled canonical fixture corpus and emits a per-leg pass/fail conformance report naming the corpus version. See CONFORMANCE.md for the certification procedure.",
   "keywords": [
     "fuaran",
