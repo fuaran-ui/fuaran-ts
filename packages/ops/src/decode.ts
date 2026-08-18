@@ -3167,6 +3167,10 @@ const decodeDrawStyle = (path: string, j: JsonAst): R<DrawStyle> => {
   // Phase 877 — Label text rotation in degrees; optional, no default.
   const rotation = optField(path, f, 'rotation', requireFloat);
   if (!rotation.ok) return rotation;
+  // Phase 883 — the per-mark hover readout, a full TextSource (so a `Bound`
+  // envelope decodes here as well as the canonical bare-string `Literal`).
+  const tip = optField(path, f, 'tip', decodeTextSource);
+  if (!tip.ok) return tip;
   return ok({
     ...(fill.value !== undefined ? { fill: fill.value } : {}),
     ...(stroke.value !== undefined ? { stroke: stroke.value } : {}),
@@ -3180,6 +3184,7 @@ const decodeDrawStyle = (path: string, j: JsonAst): R<DrawStyle> => {
     ...(fontFamily.value !== undefined ? { fontFamily: fontFamily.value } : {}),
     ...(markId.value !== undefined ? { markId: markId.value } : {}),
     ...(rotation.value !== undefined ? { rotation: rotation.value } : {}),
+    ...(tip.value !== undefined ? { tip: tip.value } : {}),
   });
 };
 

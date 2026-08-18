@@ -2143,6 +2143,9 @@
         },
         "rotation": {
           "type": "number"
+        },
+        "tip": {
+          "$ref": "#/$defs/TextSource"
         }
       }
     },

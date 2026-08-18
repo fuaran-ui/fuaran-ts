@@ -1258,6 +1258,26 @@ export interface DrawStyle {
    * on decode.
    */
   readonly rotation?: number;
+  /**
+   * Phase 883 — the mark's hover-readable text. Renderers emit it as an SVG
+   * `<title>` element that is the FIRST CHILD of that shape's own element:
+   * the native browser tooltip and the element's accessible name, with no
+   * script, so a statically-served page carries the readout too.
+   *
+   * Unlike the Phase 528.1 text cluster and `rotation`, this applies to EVERY
+   * shape, not just `Label` — the marks a reader hovers are bars, wedges and
+   * points, and a `<title>` child is inert geometry-wise everywhere.
+   *
+   * The emission consequence to get right: a TIPPED shape cannot be emitted
+   * self-closing — `<rect …/>` becomes `<rect …><title>…</title></rect>`. An
+   * absent tip leaves the emitted bytes unchanged, self-closing tag included.
+   *
+   * Omitted-when-unset. Note that an EMPTY STRING tip is a legitimate PRESENT
+   * value and is not the same wire shape as absent — encode with a
+   * `!== undefined` test, never a truthiness test, exactly as for `rotation`'s
+   * explicit `0`.
+   */
+  readonly tip?: TextSource;
 }
 
 // The typed drawing-command list for `Shape.Curve` — the `Path`/`d`-string

@@ -113,28 +113,52 @@ const strokeJoinAttrs = (sources: BindingSources, style: DrawStyle): string => {
   return stroke !== undefined ? ' stroke-linejoin="round" stroke-linecap="round"' : '';
 };
 
+/** Phase 883 — the mark's hover readout as an SVG `<title>` CHILD of its own
+ * element: the native browser tooltip and the element's accessible name, with
+ * no script, so a statically-served page carries it. `<title>` must be the
+ * FIRST child to be the accessible name, which is why every arm below emits it
+ * ahead of any other content.
+ *
+ * A tip is the one `DrawStyle` field honoured on EVERY shape rather than only
+ * on `Label` — the marks a reader hovers are bars, wedges and points, and a
+ * `<title>` is inert geometry-wise on all of them (unlike `rotation`, whose
+ * off-`Label` emission would move geometry).
+ *
+ * The text is XML-escaped through the same `escape` the label text and the
+ * drawing `<title>` / `<desc>` use: this builder emits raw markup, so escaping
+ * here is the whole defence, and the chart lowering feeds it UNTRUSTED
+ * series/category strings straight off the data feed. */
+const tipChild = (sources: BindingSources, style: DrawStyle): string =>
+  style.tip !== undefined ? `<title>${escape(renderText(sources, style.tip))}</title>` : '';
+
+/** The tail of a shape element carrying no child content of its own:
+ * self-closing when untipped (byte-unchanged from pre-883), an open/close pair
+ * wrapping the `<title>` when tipped. */
+const closeTag = (sources: BindingSources, style: DrawStyle, element: string): string =>
+  style.tip !== undefined ? `>${tipChild(sources, style)}</${element}>` : '/>';
+
 const shapeSvg = (sources: BindingSources, sh: Shape): string => {
   switch (sh.kind) {
     case 'Group': {
       const inner = sh.children.map((c) => shapeSvg(sources, c)).join('');
-      return `<g class="fuaran-drawing-group"${styleAttrs(sources, false, sh.style)}>${inner}</g>`;
+      return `<g class="fuaran-drawing-group"${styleAttrs(sources, false, sh.style)}>${tipChild(sources, sh.style)}${inner}</g>`;
     }
     case 'Rectangle': {
       const rx = sh.cornerRadius !== undefined ? ` rx="${formatNum(sh.cornerRadius)}"` : '';
-      return `<rect class="fuaran-drawing-rect" x="${formatNum(sh.x)}" y="${formatNum(sh.y)}" width="${formatNum(sh.width)}" height="${formatNum(sh.height)}"${rx}${styleAttrs(sources, false, sh.style)}/>`;
+      return `<rect class="fuaran-drawing-rect" x="${formatNum(sh.x)}" y="${formatNum(sh.y)}" width="${formatNum(sh.width)}" height="${formatNum(sh.height)}"${rx}${styleAttrs(sources, false, sh.style)}${closeTag(sources, sh.style, 'rect')}`;
     }
     case 'Line':
-      return `<line class="fuaran-drawing-line" x1="${formatNum(sh.x1)}" y1="${formatNum(sh.y1)}" x2="${formatNum(sh.x2)}" y2="${formatNum(sh.y2)}"${styleAttrs(sources, false, sh.style)}/>`;
+      return `<line class="fuaran-drawing-line" x1="${formatNum(sh.x1)}" y1="${formatNum(sh.y1)}" x2="${formatNum(sh.x2)}" y2="${formatNum(sh.y2)}"${styleAttrs(sources, false, sh.style)}${closeTag(sources, sh.style, 'line')}`;
     case 'Polyline':
-      return `<polyline class="fuaran-drawing-polyline" points="${pointsAttr(sh.points)}"${styleAttrs(sources, true, sh.style)}${strokeJoinAttrs(sources, sh.style)}/>`;
+      return `<polyline class="fuaran-drawing-polyline" points="${pointsAttr(sh.points)}"${styleAttrs(sources, true, sh.style)}${strokeJoinAttrs(sources, sh.style)}${closeTag(sources, sh.style, 'polyline')}`;
     case 'Polygon':
-      return `<polygon class="fuaran-drawing-polygon" points="${pointsAttr(sh.points)}"${styleAttrs(sources, false, sh.style)}${strokeJoinAttrs(sources, sh.style)}/>`;
+      return `<polygon class="fuaran-drawing-polygon" points="${pointsAttr(sh.points)}"${styleAttrs(sources, false, sh.style)}${strokeJoinAttrs(sources, sh.style)}${closeTag(sources, sh.style, 'polygon')}`;
     case 'Curve':
-      return `<path class="fuaran-drawing-curve" d="${pathD(sh.commands)}"${styleAttrs(sources, true, sh.style)}${strokeJoinAttrs(sources, sh.style)}/>`;
+      return `<path class="fuaran-drawing-curve" d="${pathD(sh.commands)}"${styleAttrs(sources, true, sh.style)}${strokeJoinAttrs(sources, sh.style)}${closeTag(sources, sh.style, 'path')}`;
     case 'Circle':
-      return `<circle class="fuaran-drawing-circle" cx="${formatNum(sh.cx)}" cy="${formatNum(sh.cy)}" r="${formatNum(sh.r)}"${styleAttrs(sources, false, sh.style)}/>`;
+      return `<circle class="fuaran-drawing-circle" cx="${formatNum(sh.cx)}" cy="${formatNum(sh.cy)}" r="${formatNum(sh.r)}"${styleAttrs(sources, false, sh.style)}${closeTag(sources, sh.style, 'circle')}`;
     case 'Ellipse':
-      return `<ellipse class="fuaran-drawing-ellipse" cx="${formatNum(sh.cx)}" cy="${formatNum(sh.cy)}" rx="${formatNum(sh.rx)}" ry="${formatNum(sh.ry)}"${styleAttrs(sources, false, sh.style)}/>`;
+      return `<ellipse class="fuaran-drawing-ellipse" cx="${formatNum(sh.cx)}" cy="${formatNum(sh.cy)}" rx="${formatNum(sh.rx)}" ry="${formatNum(sh.ry)}"${styleAttrs(sources, false, sh.style)}${closeTag(sources, sh.style, 'ellipse')}`;
     case 'Label': {
       // Phase 877 — text rotation. Emitted here rather than in `styleAttrs`
       // because the pivot is the label's own anchor point, which the style
@@ -146,7 +170,9 @@ const shapeSvg = (sources: BindingSources, sh: Shape): string => {
         sh.style.rotation !== undefined
           ? ` transform="rotate(${formatNum(sh.style.rotation)} ${formatNum(sh.x)} ${formatNum(sh.y)})"`
           : '';
-      return `<text class="fuaran-drawing-label" x="${formatNum(sh.x)}" y="${formatNum(sh.y)}"${rot}${styleAttrs(sources, false, sh.style)}>${escape(renderText(sources, sh.text))}</text>`;
+      // The tip precedes the visible run — `<title>` is the accessible name
+      // only as the FIRST child, and SVG renders it either way as nothing.
+      return `<text class="fuaran-drawing-label" x="${formatNum(sh.x)}" y="${formatNum(sh.y)}"${rot}${styleAttrs(sources, false, sh.style)}>${tipChild(sources, sh.style)}${escape(renderText(sources, sh.text))}</text>`;
     }
   }
 };

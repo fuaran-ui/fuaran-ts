@@ -908,6 +908,19 @@ const withSeriesMark = (seriesField: string, style: DrawStyle): DrawStyle => ({
   markId: seriesField,
 });
 
+/** Phase 883 — the separator between the three parts of a hover readout. A
+ * middle dot with spaces of its own: not a character a series or category name
+ * is likely to contain (a hyphen, a slash and a comma all are), and it reads as
+ * a separator rather than as punctuation belonging to either side. */
+const TIP_SEPARATOR = ' · ';
+
+/** Phase 883 — stamp the hover readout onto a data-bearing shape's style. An
+ * EMPTY readout is dropped rather than encoded: an empty SVG `<title>`
+ * suppresses the native tooltip AND overrides the element's accessible name
+ * with nothing, which is worse than no title at all. */
+const withTip = (text: string, style: DrawStyle): DrawStyle =>
+  text === '' ? style : { ...style, tip: { kind: 'Literal', value: text } };
+
 const styleFill = (fill: string): DrawStyle => ({ fill: staticBinding(fill) });
 
 const styleStroke = (stroke: string, width: number): DrawStyle => ({
@@ -1185,6 +1198,47 @@ export const lower = (
   const yTickText = (v: number): string =>
     formatValue(valueFormat, yDisplayUnit.divisor, yDisplayUnit.dropSymbol, yStep, v) +
     yDisplayUnit.tickSuffix;
+
+  // ── Hover readout (Phase 883) ────────────────────────────────────────────
+  //
+  // THE TIP IS WHERE FULL PRECISION LIVES. A printed data label (Phase 881)
+  // goes through `yTickText` — the axis's own formatter, step precision and
+  // display unit — and reads ROUGHLY WHERE. The tip answers the other
+  // question, WHAT EXACTLY IS THIS, so it takes the opposite three decisions:
+  // UNSCALED by the display unit (a tooltip has no unit slot beside it), the
+  // DATUM's own precision rather than the tick step's (an explicit
+  // `Format.Number`/`Percent` precision still wins — a declared precision is a
+  // statement about the data, not the axis), and the currency symbol KEPT (the
+  // ticks drop it because the axis-unit label states it once).
+  //
+  // Passing `v` as the step is what selects the datum's own precision:
+  // `formatValue` derives decimals from the step when no explicit precision is
+  // declared, so step = value gives the fewest decimals that reproduce it.
+  const tipValueText = (v: number): string => formatValue(valueFormat, 1.0, false, v, v);
+
+  /** The readout for a PER-DATUM mark (bar, stack segment, wedge, scatter
+   * point): "Series · Category · value". Both leading parts are untrusted
+   * strings straight off the data feed — the renderer's XML escape is what
+   * makes that safe. The series name is the FIELD name, matching the legend
+   * and `markId` rather than the capitalised axis title. */
+  const datumTip = (
+    seriesField: string,
+    categoryKey: string,
+    v: number,
+    style: DrawStyle,
+  ): DrawStyle =>
+    withTip(
+      `${seriesField}${TIP_SEPARATOR}${categoryKey}${TIP_SEPARATOR}${tipValueText(v)}`,
+      style,
+    );
+
+  /** The readout for a SERIES-LEVEL mark (a line, an area band or its edge).
+   * THE TIP'S GRANULARITY FOLLOWS THE MARK'S IDENTITY GRANULARITY — one
+   * element IS the whole series, and SVG resolves a tooltip per ELEMENT, so a
+   * single `<title>` cannot honestly report one point's value: whichever was
+   * chosen would show for a hover anywhere along the line. */
+  const seriesTip = (seriesField: string, style: DrawStyle): DrawStyle =>
+    withTip(seriesField, style);
 
   // ── Linear x-scale (Phase 636 — the Scatter arm's numeric x axis) ──
   // Scatter reads the x-field NUMERICALLY and plots on a linear x-domain (the
@@ -1829,7 +1883,16 @@ export const lower = (
             bw,
             hgt,
             undefined,
-            withMark(spec.yFields[j]!, categories[i]!, styleFill(colourFor(j))),
+            // Phase 883 — a stack SEGMENT's tip carries its OWN series value,
+            // never the running total. This is where an interior segment gets
+            // its readout: Phase 881 prints the stack TOTAL at the cap and
+            // nothing else, and pointed here for the rest.
+            datumTip(
+              spec.yFields[j]!,
+              categories[i]!,
+              series[j]![i]!,
+              withMark(spec.yFields[j]!, categories[i]!, styleFill(colourFor(j))),
+            ),
           ),
         );
       }
@@ -1853,7 +1916,12 @@ export const lower = (
             bw,
             hgt,
             undefined,
-            withMark(spec.yFields[j]!, categories[i]!, styleFill(colour)),
+            datumTip(
+              spec.yFields[j]!,
+              categories[i]!,
+              v,
+              withMark(spec.yFields[j]!, categories[i]!, styleFill(colour)),
+            ),
           ),
         );
       }
@@ -1875,10 +1943,12 @@ export const lower = (
         seriesShapes.push(
           polygon(
             [...upper, ...lowerBoundary],
-            withSeriesMark(yf, styleFillOpacity(colour, AREA_FILL_OPACITY)),
+            seriesTip(yf, withSeriesMark(yf, styleFillOpacity(colour, AREA_FILL_OPACITY))),
           ),
         );
-        seriesShapes.push(polyline(upper, withSeriesMark(yf, styleStroke(colour, 2.0))));
+        seriesShapes.push(
+          polyline(upper, seriesTip(yf, withSeriesMark(yf, styleStroke(colour, 2.0)))),
+        );
       }
     }
   } else if (spec.kind === 'Area') {
@@ -1899,9 +1969,14 @@ export const lower = (
           { x: xCentre(n - 1), y: baseY },
         ];
         seriesShapes.push(
-          polygon(band, withSeriesMark(yf, styleFillOpacity(colour, AREA_FILL_OPACITY))),
+          polygon(
+            band,
+            seriesTip(yf, withSeriesMark(yf, styleFillOpacity(colour, AREA_FILL_OPACITY))),
+          ),
         );
-        seriesShapes.push(polyline(points, withSeriesMark(yf, styleStroke(colour, 2.0))));
+        seriesShapes.push(
+          polyline(points, seriesTip(yf, withSeriesMark(yf, styleStroke(colour, 2.0)))),
+        );
       }
     }
   } else if (spec.kind === 'Line') {
@@ -1911,7 +1986,10 @@ export const lower = (
       const points: DrawPoint[] = [];
       for (let i = 0; i < n; i++) points.push({ x: xCentre(i), y: yScale(seriesValues[i]!) });
       seriesShapes.push(
-        polyline(points, withSeriesMark(spec.yFields[j]!, styleStroke(colour, 2.0))),
+        polyline(
+          points,
+          seriesTip(spec.yFields[j]!, withSeriesMark(spec.yFields[j]!, styleStroke(colour, 2.0))),
+        ),
       );
     }
   } else if (spec.kind === 'Scatter') {
@@ -1928,7 +2006,16 @@ export const lower = (
             xScale(xValues[i]!),
             yScale(seriesValues[i]!),
             4.0,
-            withMark(yf, formatNum(xValues[i]!), styleFill(colour)),
+            // The tip's middle part is the x cell as PROJECTED
+            // (`categories[i]`), not the mark id's canonical numeric form: the
+            // id is for object constancy, the tip is for a human, and on a
+            // temporal axis the projection is the ISO date, not a day count.
+            datumTip(
+              yf,
+              categories[i]!,
+              seriesValues[i]!,
+              withMark(yf, formatNum(xValues[i]!), styleFill(colour)),
+            ),
           ),
         );
       }
@@ -2220,7 +2307,16 @@ export const lower = (
       const f = pieFractions[i]!;
       if (f > 0.0) {
         const colour = colourFor(i);
-        const markStyle = withMark(yf, categories[i]!, styleFill(colour));
+        // The wedge's own VALUE, not its share. The share is already stated,
+        // once, in the legend entry (`name (NN%)`); restating it here would
+        // leave the magnitude behind the slice the one number still
+        // unreachable.
+        const markStyle = datumTip(
+          yf,
+          categories[i]!,
+          pieValues[i]!,
+          withMark(yf, categories[i]!, styleFill(colour)),
+        );
         if (f >= 1.0 - 1e-9) {
           // A lone 100% category is a circle — there is no neighbour to
           // separate from, so no padding.

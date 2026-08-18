@@ -1140,6 +1140,10 @@ const drawStyle = (s: DrawStyle): string => {
   // truthiness test: an explicit 0 is a present value and a distinct wire
   // shape from absent, so omitting it would round-trip to different bytes.
   if (s.rotation !== undefined) fields.push(['rotation', num(s.rotation)]);
+  // Phase 883 — the per-mark hover readout. Same `!== undefined` discipline:
+  // an EMPTY STRING tip is a present value and a distinct wire shape from
+  // absent, and `if (s.tip)` is the natural, wrong test here.
+  if (s.tip !== undefined) fields.push(['tip', textSource(s.tip)]);
   return jObject(fields);
 };
 
