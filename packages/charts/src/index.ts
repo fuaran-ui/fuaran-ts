@@ -1170,6 +1170,65 @@ const stringOf = (row: ChartRow, field: string): string => {
 
 const capitalise = (s: string): string => (s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1));
 
+// ─── The accessible summary (Phase 921) ──────────────────────────────────────
+//
+// NORMATIVE CROSS-HOST SPEC, ported verbatim from the F# reference and pinned by
+// the `chart-lowering/*` goldens; `docs/CHARTS-DRAWING-PRIMITIVE-DESIGN.md` §4i
+// carries the language-neutral statement.
+//
+// The drawing root is `role="img"`, which presents the chart as ONE graphic and
+// does not traverse into it — so the per-mark `<title>`s are never announced.
+// Operator decision 2026-08-18: the root keeps that role, and the lowering
+// generates a deterministic summary as the drawing's `description`, which the
+// SVG builder wires to the root's `aria-label`. The title is NOT part of the
+// summary: it is a `TextSource` whose bound/i18n arms resolve only at render
+// time, so the builder composes it in front instead.
+
+/** The clause separator + terminator. Periods, not commas: a screen reader
+ * pauses at a sentence boundary. */
+const SUMMARY_CLAUSE_SEPARATOR = '. ';
+
+/** At most this many series are NAMED before the summary folds the rest into a
+ * count — a legibility bound, not a technical one. */
+const SUMMARY_MAX_SERIES_NAMED = 4;
+
+/** The per-NAME character cap (a series field, a category label) — untrusted
+ * strings straight off the data feed. */
+const SUMMARY_MAX_NAME_CHARS = 32;
+
+/** The whole summary's character cap. */
+const SUMMARY_MAX_CHARS = 320;
+
+/** Truncate to at most `maxChars`, marking the cut with the ellipsis. The cut
+ * never splits a UTF-16 surrogate pair — a boundary landing between a high and a
+ * low surrogate moves one unit earlier. */
+const clampText = (maxChars: number, s: string): string => {
+  if (s.length <= maxChars) return s;
+  let cut = maxChars - 1;
+  const prev = s.charCodeAt(cut - 1);
+  if (cut > 0 && prev >= 0xd800 && prev <= 0xdbff) cut -= 1;
+  return s.slice(0, cut) + ELLIPSIS;
+};
+
+/** The chart's kind in words. `stacked` earns a word only on the two arms where
+ * it changes the geometry — the same rule the lowering itself applies. */
+const summaryKindWords = (kind: ChartLowerSpec['kind'], stacked: boolean): string => {
+  switch (kind) {
+    case 'Bar':
+      return stacked ? 'Stacked bar chart' : 'Bar chart';
+    case 'Line':
+      return 'Line chart';
+    case 'Area':
+      return stacked ? 'Stacked area chart' : 'Area chart';
+    case 'Scatter':
+      return 'Scatter chart';
+    case 'Pie':
+      return 'Pie chart';
+    default:
+      return 'Heatmap chart';
+  }
+};
+
 // ─── The lowering ─────────────────────────────────────────────────────────────
 
 /**
@@ -2464,11 +2523,84 @@ export const lower = (
           ...subtitleShapes,
         ];
 
+  // ── The accessible summary (Phase 921) ───────────────────────────────────
+  //
+  // The grammar is stated at the section head above and normatively in §4i;
+  // this is its four clauses in order. A REFUSED PIE announces nothing, for the
+  // reason Phase 880 gave when it stopped emitting the refused pie's legend: a
+  // claim about data the drawing declined to show.
+  const accessibleSummary = ((): string | undefined => {
+    if (pieRefused) return undefined;
+
+    const namedSeries = spec.yFields
+      .slice(0, SUMMARY_MAX_SERIES_NAMED)
+      .map((f) => clampText(SUMMARY_MAX_NAME_CHARS, f))
+      .join(', ');
+
+    const seriesClause =
+      m === 0
+        ? 'no series'
+        : m > SUMMARY_MAX_SERIES_NAMED
+          ? `${m} series: ${namedSeries}, and ${m - SUMMARY_MAX_SERIES_NAMED} more`
+          : `${m} series: ${namedSeries}`;
+
+    // The extent clause follows the X AXIS's own kind, not the chart's: a band
+    // axis states its first and last category, a continuous axis its domain
+    // endpoints through that axis's own tick formatter.
+    const extentClause = isContinuousX
+      ? n === 0
+        ? 'no points'
+        : `${n === 1 ? '1 point: ' : `${n} points: `}${xTickText(xNiceLo)} to ${xTickText(xNiceHi)}`
+      : n === 0
+        ? 'no categories'
+        : n === 1
+          ? `1 category: ${clampText(SUMMARY_MAX_NAME_CHARS, categories[0]!)}`
+          : `${n} categories: ${clampText(SUMMARY_MAX_NAME_CHARS, categories[0]!)} to ${clampText(
+              SUMMARY_MAX_NAME_CHARS,
+              categories[n - 1]!,
+            )}`;
+
+    // The peak is the largest SINGLE DATUM — never a stacked total, because the
+    // clause names one series at one category and a total belongs to neither.
+    // Ties resolve to the earliest category then the earliest series (a strict
+    // `>` scanned category-major), which is the axis's own reading order. The
+    // number takes the value axis's rendering (the Phase-876 formatter at the
+    // axis's step precision, plus the axis's display unit in its own words);
+    // the category is the datum's OWN label, verbatim, even on a temporal axis.
+    const clauses = [summaryKindWords(spec.kind, stacked), seriesClause, extentClause];
+
+    if (n > 0 && m > 0) {
+      let bi = 0;
+      let bj = 0;
+      let bv = series[0]![0]!;
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < m; j++) {
+          const v = series[j]![i]!;
+          if (v > bv) {
+            bv = v;
+            bi = i;
+            bj = j;
+          }
+        }
+      }
+      const unitSuffix = yDisplayUnit.label === '' ? '' : ` ${yDisplayUnit.label}`;
+      clauses.push(
+        `Peak ${clampText(SUMMARY_MAX_NAME_CHARS, spec.yFields[bj]!)} at ${clampText(
+          SUMMARY_MAX_NAME_CHARS,
+          categories[bi]!,
+        )}, ${yTickText(bv)}${unitSuffix}`,
+      );
+    }
+
+    return clampText(SUMMARY_MAX_CHARS, `${clauses.join(SUMMARY_CLAUSE_SEPARATOR)}.`);
+  })();
+
   const drawing: DrawingSpec = {
     viewBox: { minX: 0.0, minY: 0.0, width: W, height: H },
     shapes,
     style: {},
     ...(spec.title !== undefined ? { title: literal(spec.title) } : {}),
+    ...(accessibleSummary !== undefined ? { description: literal(accessibleSummary) } : {}),
   };
   return drawing;
 };

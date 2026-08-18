@@ -177,6 +177,40 @@ const shapeSvg = (sources: BindingSources, sh: Shape): string => {
   }
 };
 
+// ─── The root's announced accessible name (Phase 921) ────────────────────────
+//
+// `role="img"` presents the drawing as ONE graphic and does not traverse into
+// it, and `<desc>` is not uniformly mapped to the accessible description
+// (Chromium has never exposed it) — so the value the markup has carried since
+// Phase 525 is one a reader cannot reach.
+//
+// The fix is `aria-label` on the root, composing the TITLE and the DESCRIPTION
+// into one string. It is the accessible NAME, which every assistive technology
+// announces unconditionally for a `role="img"` element.
+//
+// NOT `aria-labelledby` / `aria-describedby`: both reference elements BY ID, and
+// this builder has no id to give — its whole input is a `DrawingSpec`, several
+// drawings routinely share one document, and any minted id would have to be both
+// unique per page and byte-identical across five hosts.
+//
+// Emitted ONLY when a description is present, so every pre-921 title-only or
+// bare drawing is byte-identical. The `<title>` and `<desc>` children are
+// unchanged — `<title>` stays the native hover tooltip.
+
+/** Terminate a title with `.` unless it already ends in sentence punctuation, so
+ * the composed label reads as two sentences rather than one run-on. */
+const terminateTitle = (t: string): string =>
+  t === '' || t.endsWith('.') || t.endsWith('!') || t.endsWith('?') ? t : `${t}.`;
+
+/** The composed accessible name, or `''` when the root emits no `aria-label`. */
+const rootAriaLabel = (sources: BindingSources, spec: DrawingSpec): string => {
+  if (spec.description === undefined) return '';
+  const descText = renderText(sources, spec.description);
+  const titleText = spec.title !== undefined ? terminateTitle(renderText(sources, spec.title)) : '';
+  const composed = titleText !== '' ? `${titleText} ${descText}` : descText;
+  return ` aria-label="${escape(composed)}"`;
+};
+
 /** The full canonical inline-SVG string for a `Drawing` (a11y root + shapes). */
 export const drawingSvg = (sources: BindingSources, spec: DrawingSpec): string => {
   const vb = spec.viewBox;
@@ -188,5 +222,5 @@ export const drawingSvg = (sources: BindingSources, spec: DrawingSpec): string =
       ? `<desc>${escape(renderText(sources, spec.description))}</desc>`
       : '';
   const body = spec.shapes.map((s) => shapeSvg(sources, s)).join('');
-  return `<svg class="fuaran-drawing" role="img" viewBox="${viewBox}"${styleAttrs(sources, false, spec.style)}>${title}${desc}${body}</svg>`;
+  return `<svg class="fuaran-drawing" role="img" viewBox="${viewBox}"${rootAriaLabel(sources, spec)}${styleAttrs(sources, false, spec.style)}>${title}${desc}${body}</svg>`;
 };
