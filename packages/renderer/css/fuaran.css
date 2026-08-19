@@ -1624,6 +1624,41 @@ body {
   outline-offset: 1px;
 }
 
+/* Phase 934 — the declarative row-reorder affordance. The handle is a real
+   <button> (focusable, keyboard-activatable); the cell column is as narrow as
+   the glyph, so a non-reorderable grid loses nothing and a reorderable one
+   gains one slim leading column. `cursor: grab` telegraphs the pointer
+   affordance; arrow keys on the focused handle are the keyboard one. */
+.fuaran-grid-reorder-header {
+  width: 1%;
+}
+
+.fuaran-grid-reorder-cell {
+  width: 1%;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.fuaran-grid-reorder-handle {
+  padding: 0 var(--fuaran-space-xs, 4px);
+  font-size: var(--fuaran-text-sm, 14px);
+  line-height: 1;
+  border: none;
+  background: transparent;
+  color: var(--fuaran-color-text-muted, #6b7280);
+  cursor: grab;
+}
+
+.fuaran-grid-reorder-handle:active {
+  cursor: grabbing;
+}
+
+.fuaran-grid-reorder-handle:focus-visible {
+  outline: var(--fuaran-focus-ring-width, 2px) var(--fuaran-focus-ring-style, solid)
+    var(--fuaran-focus-ring-color, #93c5fd);
+  outline-offset: 1px;
+}
+
 .fuaran-grid-cell-editable {
   width: 100px;
   padding: 2px var(--fuaran-space-xs, 4px);

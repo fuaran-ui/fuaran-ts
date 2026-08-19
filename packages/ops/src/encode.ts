@@ -1688,6 +1688,8 @@ const gridSpec = (s: GridSpec<unknown>): string => {
     ['columns', jArray(s.columns.map(columnErased))],
     // 0.2.0 omitted-when-false.
     ...(s.editable ? ([['editable', bool(true)]] as const) : []),
+    // Phase 934 — omit-when-false, exactly as `editable` above.
+    ...(s.reorderable ? ([['reorderable', bool(true)]] as const) : []),
     // fuaran#665 — rows are a typed Static payload now, not the opaque residual.
     ['source', binding(s.source, staticRowSeq)],
   ];

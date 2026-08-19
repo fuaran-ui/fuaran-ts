@@ -4342,6 +4342,9 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
   // 0.2.0 omitted-when-false.
   const editable = optField(path, f, 'editable', requireBool);
   if (!editable.ok) return editable;
+  // Phase 934 — omitted-when-false, the same convention as `editable`.
+  const reorderable = optField(path, f, 'reorderable', requireBool);
+  if (!reorderable.ok) return reorderable;
   const source = reqFieldAliased(
     path,
     f,
@@ -4423,6 +4426,7 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
   return ok({
     columns: columns.value,
     editable: editable.value ?? false,
+    reorderable: reorderable.value ?? false,
     source: source.value as Binding<readonly unknown[]>,
     ...(hasRowClick ? { onRowClick: () => placeholderAction } : {}),
     ...(hasRowKey ? { rowKey: () => CLOSURE } : {}),

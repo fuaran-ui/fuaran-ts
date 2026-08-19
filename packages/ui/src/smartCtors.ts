@@ -1109,6 +1109,8 @@ export interface GridOptions<TRow, TMsg> {
   readonly columns: readonly Column<TRow, TMsg>[];
   readonly onRowClick?: (row: TRow) => Action<TMsg>;
   readonly editable?: boolean;
+  // Phase 934 — declarative row reorder; absent means off, as `editable`.
+  readonly reorderable?: boolean;
 }
 
 export interface CustomOptions {
@@ -1710,6 +1712,7 @@ export const fuaran = {
             source: { kind: 'Static', value: [] },
             columns: [],
             editable: false,
+            reorderable: false,
             staticRows: {
               headers: o.headers.map(text),
               rows: o.rows.map((row) => row.map(text)),
@@ -1756,6 +1759,8 @@ export const fuaran = {
             rowKey: (row: unknown) => o.rowKey(row as TRow),
             columns: o.columns.map((c) => column.erase(c)),
             editable: o.editable ?? false,
+            // Phase 934 — declarative row reorder; absent means off, as `editable`.
+            reorderable: o.reorderable ?? false,
             ...(o.onRowClick !== undefined
               ? { onRowClick: (row: unknown) => o.onRowClick!(row as TRow) }
               : {}),

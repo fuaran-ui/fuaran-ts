@@ -1769,6 +1769,12 @@ export interface GridSpec<TMsg> {
   // the destination explicitly — what census row #27 asked for, since the only
   // previous spelling was a closure erasing to "<closure>".
   readonly editStateKey?: string;
+  // Phase 934 — declarative row reorder. Omit-when-false, matching `editable`:
+  // for an affordance flag "not stated" and "explicitly off" are the same
+  // state. The reordered rows commit to the same destination an edit does
+  // (`editStateKey`, else the Phase-663 State-source floor) — a reorder IS a
+  // write of the whole updated rows value, so it mints no second key.
+  readonly reorderable: boolean;
   readonly columns: readonly ColumnErased<TMsg>[];
   readonly onRowClick?: (row: unknown) => Action<TMsg>;
   readonly editable: boolean;
