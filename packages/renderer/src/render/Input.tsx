@@ -40,10 +40,14 @@ import { iconHook } from './iconHook.js';
 export const renderInput = <TMsg,>(
   ctx: RenderContext<TMsg>,
   input: InputKind<TMsg>,
+  // Phase 951 — the node's a11y projection, for the kinds whose body IS the
+  // node's semantic element (here: Button alone — a field's control sits inside
+  // its <label>, which already names it). `{}` everywhere else.
+  semanticAttrs: Record<string, string> = {},
 ): ReactElement => {
   switch (input.kind) {
     case 'Button':
-      return renderButton(ctx, input.spec);
+      return renderButton(ctx, input.spec, semanticAttrs);
     case 'Select':
       return renderSelect(ctx, input.spec);
     case 'Form':
@@ -57,7 +61,12 @@ export const renderInput = <TMsg,>(
 
 // ─── Button ──────────────────────────────────────────────────────────────────
 
-const renderButton = <TMsg,>(ctx: RenderContext<TMsg>, spec: ButtonSpec<TMsg>): ReactElement => {
+const renderButton = <TMsg,>(
+  ctx: RenderContext<TMsg>,
+  spec: ButtonSpec<TMsg>,
+  // Phase 951 — the node's a11y projection, emitted on the <button> itself.
+  semanticAttrs: Record<string, string> = {},
+): ReactElement => {
   const unwired = containsUnwiredAction(spec.onClick);
   const variantClass = buttonVariantClass(spec.variant);
   const className = unwired
@@ -79,6 +88,7 @@ const renderButton = <TMsg,>(ctx: RenderContext<TMsg>, spec: ButtonSpec<TMsg>): 
       className={className}
       {...(tooltip !== undefined ? { title: tooltip } : {})}
       {...(isDisabled ? { disabled: true } : {})}
+      {...semanticAttrs}
       onClick={() => runAction(ctx, spec.onClick)}
     >
       {spec.icon !== undefined ? iconHook('fuaran-button-icon', spec.icon) : null}

@@ -51,7 +51,11 @@ import type {
   VisKind,
 } from '@fuaran-ui/schema';
 
-import { accessibilityAttributes } from './accessibility.js';
+import {
+  accessibilityAttributes,
+  forwardsToSemanticElement,
+  partitionExtraAttributes,
+} from './accessibility.js';
 import {
   asArray,
   type BindingSources,
@@ -243,10 +247,27 @@ const renderNode = (ctx: ServerContext, node: Node<unknown>): string => {
 
   // Accessibility first, then sanitized extra-attributes (extra overrides a11y,
   // mirroring the client's `Object.assign` order).
+  //
+  // Phase 951 — but routed: a kind whose body IS the node's semantic element
+  // takes the a11y attributes (plus the `aria-*` half of extraAttributes) onto
+  // that element, leaving the wrapper only the `data-*` addressing half beside
+  // data-fuaran-node-id. Every other kind is unchanged. The predicate is shared
+  // with the client tier and with both F# renderers, so the placement cannot
+  // fork by host.
   const dyn: Record<string, string> = {};
-  for (const [k, v] of accessibilityAttributes(ctx.sources, node.accessibility)) dyn[k] = v;
+  const semantic: Record<string, string> = {};
+  const forwards = forwardsToSemanticElement(node.kind);
+  const target = forwards ? semantic : dyn;
+  for (const [k, v] of accessibilityAttributes(ctx.sources, node.accessibility)) target[k] = v;
   if (node.extraAttributes !== undefined) {
-    Object.assign(dyn, sanitizeExtraAttributes(node.extraAttributes));
+    const extras = sanitizeExtraAttributes(node.extraAttributes);
+    if (forwards) {
+      const [dataHalf, ariaHalf] = partitionExtraAttributes(extras);
+      Object.assign(dyn, dataHalf);
+      Object.assign(semantic, ariaHalf);
+    } else {
+      Object.assign(dyn, extras);
+    }
   }
 
   const attrs: Attr[] = [
@@ -255,18 +276,24 @@ const renderNode = (ctx: ServerContext, node: Node<unknown>): string => {
     ['class', className],
     ...Object.entries(dyn),
   ];
-  return el('div', attrs, renderKind(ctx, node));
+  return el('div', attrs, renderKind(ctx, node, Object.entries(semantic)));
 };
 
-const renderKind = (ctx: ServerContext, node: Node<unknown>): string => {
+const renderKind = (
+  ctx: ServerContext,
+  node: Node<unknown>,
+  // Phase 951 — the node's a11y projection, for the kinds that carry it on
+  // their own semantic element. `[]` for every other kind.
+  semanticAttrs: readonly Attr[] = [],
+): string => {
   const kind = node.kind;
   switch (kind.kind) {
     case 'Layout':
       return renderLayout(ctx, node.id, kind.layout);
     case 'Display':
-      return renderDisplay(ctx, node.state, kind.display);
+      return renderDisplay(ctx, node.state, kind.display, semanticAttrs);
     case 'Input':
-      return renderInput(ctx, node.id, kind.input);
+      return renderInput(ctx, node.id, kind.input, semanticAttrs);
     case 'Visualisation':
       return renderVis(ctx, node.state, kind.visualisation);
     case 'ErrorBoundary':
@@ -678,6 +705,9 @@ const renderDisplay = (
   ctx: ServerContext,
   state: StateBehaviour<unknown>,
   display: DisplayKind,
+  // Phase 951 — the node's a11y projection, for the kinds whose body IS the
+  // node's semantic element (here: Link and Image). `[]` everywhere else.
+  semanticAttrs: readonly Attr[] = [],
 ): string => {
   switch (display.kind) {
     case 'Heading': {
@@ -804,7 +834,10 @@ const renderDisplay = (
           '">' +
           entityEncode(renderText(ctx.sources, display.spec.label)) +
           '</a>';
-        return el('span', [['class', 'fuaran-link-protected-wrap']], anchor);
+        // Phase 951 — the anchor here is an entity-encoded opaque string, so
+        // the projection lands on the wrap <span>: the only element this arm
+        // owns in every tier, and parity outranks reaching one tier's anchor.
+        return el('span', [['class', 'fuaran-link-protected-wrap'], ...semanticAttrs], anchor);
       }
       const attrs: Attr[] = [
         ['class', 'fuaran-link'],
@@ -813,6 +846,8 @@ const renderDisplay = (
       if (display.spec.rel !== undefined) attrs.push(['rel', display.spec.rel]);
       if (display.spec.target !== undefined) attrs.push(['target', display.spec.target]);
       if (display.spec.download) attrs.push(['download', true]);
+      // Phase 951 — the node's a11y projection lands on the anchor.
+      attrs.push(...semanticAttrs);
       return textEl('a', attrs, renderText(ctx.sources, display.spec.label));
     }
 
@@ -824,10 +859,12 @@ const renderDisplay = (
           : display.spec.variant === 'Rounded'
             ? 'fuaran-image fuaran-image-rounded'
             : 'fuaran-image';
+      // Phase 951 — the a11y projection lands on the <img> itself.
       return voidEl('img', [
         ['class', variantClass],
         ['src', src],
         ['alt', renderText(ctx.sources, display.spec.alt)],
+        ...semanticAttrs,
       ]);
     }
 
@@ -1107,10 +1144,14 @@ const renderInput = (
   ctx: ServerContext,
   parentNodeId: string,
   input: InputKind<unknown>,
+  // Phase 951 — the node's a11y projection, for the kinds whose body IS the
+  // node's semantic element (here: Button alone — a field's control sits inside
+  // its <label>, which already names it). `[]` everywhere else.
+  semanticAttrs: readonly Attr[] = [],
 ): string => {
   switch (input.kind) {
     case 'Button':
-      return renderButton(ctx, input.spec);
+      return renderButton(ctx, input.spec, semanticAttrs);
     case 'Select':
       return renderSelect(ctx, input.spec);
     case 'Form':
@@ -1125,6 +1166,8 @@ const renderInput = (
 const renderButton = (
   ctx: ServerContext,
   spec: Extract<InputKind<unknown>, { kind: 'Button' }>['spec'],
+  // Phase 951 — the node's a11y projection, emitted on the <button> itself.
+  semanticAttrs: readonly Attr[] = [],
 ): string => {
   const unwired = containsUnwiredAction(spec.onClick);
   const variantClass = spec.variant.toLowerCase();
@@ -1141,6 +1184,8 @@ const renderButton = (
     spec.disabled !== undefined ? tryResolve(ctx.sources, spec.disabled) === true : false;
   const attrs: Attr[] = [['class', className]];
   if (tooltip !== undefined) attrs.push(['title', tooltip]);
+  // Phase 951 — before `disabled`, matching the F# server renderer's order.
+  attrs.push(...semanticAttrs);
   if (isDisabled) attrs.push(['disabled', true]);
   const label = renderText(ctx.sources, spec.label);
   // Icon-bearing buttons lead with the uniform icon hook; icon-less buttons

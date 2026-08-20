@@ -17,7 +17,11 @@ import type { ReactElement, ReactNode } from 'react';
 import type { Node, NodeKind, StateBehaviour } from '@fuaran-ui/schema';
 
 import { resolve } from '../bindings.js';
-import { accessibilityAttributes } from '../accessibility.js';
+import {
+  accessibilityAttributes,
+  forwardsToSemanticElement,
+  partitionExtraAttributes,
+} from '../accessibility.js';
 import { motionVar, nodeClassName } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { sanitizeExtraAttributes } from '../sanitize.js';
@@ -67,14 +71,17 @@ export const renderKind = <TMsg,>(
   parentNodeId: string,
   state: StateBehaviour<TMsg>,
   kind: NodeKind<TMsg>,
+  // Phase 951 — the node's a11y projection, for the kinds that carry it on
+  // their own semantic element. `{}` for every other kind.
+  semanticAttrs: Record<string, string> = {},
 ): ReactNode => {
   switch (kind.kind) {
     case 'Layout':
       return renderLayout(ctx, parentNodeId, kind.layout);
     case 'Display':
-      return renderDisplay(ctx, state, kind.display);
+      return renderDisplay(ctx, state, kind.display, semanticAttrs);
     case 'Input':
-      return renderInput(ctx, kind.input);
+      return renderInput(ctx, kind.input, semanticAttrs);
     case 'Visualisation':
       return renderVis(ctx, parentNodeId, state, kind.visualisation);
     case 'ErrorBoundary':
@@ -137,15 +144,31 @@ export const renderNode = <TMsg,>(
   let className = nodeClassName(node.kind, node.style);
   if (node.motion !== undefined) className += ` fuaran-motion-${motionVar(node.motion)}`;
 
+  // Phase 951 — route the projection. A kind whose body IS the node's semantic
+  // element takes the a11y attributes (plus the `aria-*` half of
+  // extraAttributes) onto that element; the wrapper keeps only the `data-*`
+  // addressing half, beside data-fuaran-node-id. Every other kind is unchanged:
+  // a11y first, then extras (extras override), on the wrapper. Parity-locked
+  // with the F# tiers via the same predicate — see forwardsToSemanticElement.
   const attrs: Record<string, string> = {};
-  for (const [k, v] of accessibilityAttributes(ctx.sources, node.accessibility)) attrs[k] = v;
+  const semanticAttrs: Record<string, string> = {};
+  const forwards = forwardsToSemanticElement(node.kind);
+  const target = forwards ? semanticAttrs : attrs;
+  for (const [k, v] of accessibilityAttributes(ctx.sources, node.accessibility)) target[k] = v;
   if (node.extraAttributes !== undefined) {
-    Object.assign(attrs, sanitizeExtraAttributes(node.extraAttributes));
+    const extras = sanitizeExtraAttributes(node.extraAttributes);
+    if (forwards) {
+      const [dataHalf, ariaHalf] = partitionExtraAttributes(extras);
+      Object.assign(attrs, dataHalf);
+      Object.assign(semanticAttrs, ariaHalf);
+    } else {
+      Object.assign(attrs, extras);
+    }
   }
 
   let kindBody: ReactNode;
   try {
-    kindBody = renderKind(ctx, id, node.state, node.kind);
+    kindBody = renderKind(ctx, id, node.state, node.kind, semanticAttrs);
   } catch (ex) {
     if (ctx.inErrorBoundary) throw ex;
     const message = ex instanceof Error ? ex.message : String(ex);

@@ -71,6 +71,9 @@ export const renderDisplay = <TMsg,>(
   ctx: RenderContext<TMsg>,
   state: StateBehaviour<TMsg>,
   display: DisplayKind,
+  // Phase 951 — the node's a11y projection, for the kinds whose body IS the
+  // node's semantic element (here: Link and Image). `{}` everywhere else.
+  semanticAttrs: Record<string, string> = {},
 ): ReactNode => {
   switch (display.kind) {
     case 'Heading':
@@ -158,6 +161,9 @@ export const renderDisplay = <TMsg,>(
     }
 
     case 'Link': {
+      // Phase 951 — this arm's element IS the node, so the node's a11y
+      // projection (and the aria-* half of its extraAttributes) spreads onto it
+      // rather than onto the wrapper div.
       // A real <a href> — crawlable + works with JS disabled. href resolves the
       // binding then passes through sanitizeUrlOrBlank (rejected URLs collapse
       // to about:blank). rel/target emit when set; download emits a bare attr.
@@ -168,8 +174,12 @@ export const renderDisplay = <TMsg,>(
         // document did not already reveal), so the real href is set directly;
         // the wrapper span + protected class mirror the server structure so
         // the post-entity-decode DOMs are identical.
+        // Phase 951 — the projection lands on the wrap <span>, not the inner
+        // anchor: the server tier builds that anchor as an entity-encoded
+        // opaque string and cannot reach inside it, and client/server parity
+        // outranks reaching one tier's anchor.
         return (
-          <span className="fuaran-link-protected-wrap">
+          <span className="fuaran-link-protected-wrap" {...semanticAttrs}>
             <a className="fuaran-link fuaran-link-protected" href={href}>
               {renderText(ctx.sources, display.spec.label)}
             </a>
@@ -183,6 +193,7 @@ export const renderDisplay = <TMsg,>(
           {...(display.spec.rel !== undefined ? { rel: display.spec.rel } : {})}
           {...(display.spec.target !== undefined ? { target: display.spec.target } : {})}
           {...(display.spec.download ? { download: '' } : {})}
+          {...semanticAttrs}
         >
           {renderText(ctx.sources, display.spec.label)}
         </a>
@@ -200,8 +211,14 @@ export const renderDisplay = <TMsg,>(
           : display.spec.variant === 'Rounded'
             ? 'fuaran-image fuaran-image-rounded'
             : 'fuaran-image';
+      // Phase 951 — the a11y projection lands on the <img> itself.
       return (
-        <img className={variantClass} src={src} alt={renderText(ctx.sources, display.spec.alt)} />
+        <img
+          className={variantClass}
+          src={src}
+          alt={renderText(ctx.sources, display.spec.alt)}
+          {...semanticAttrs}
+        />
       );
     }
 
