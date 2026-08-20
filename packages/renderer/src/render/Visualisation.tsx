@@ -39,7 +39,7 @@ import {
 } from '../bindings.js';
 import { toneVar } from '../classNames.js';
 import type { RenderContext } from '../context.js';
-import { runAction } from '../context.js';
+import { runAction, writeBackTo } from '../context.js';
 import { drawingSvg } from '../drawingSvg.js';
 import { sanitizeUrlOrBlank } from '../sanitize.js';
 import { renderNode } from './core.js';
@@ -142,10 +142,15 @@ const renderGrid = <TMsg,>(
           };
         })()
       : undefined;
+  // The rows this render actually paints. `rowOffset` is what makes the
+  // page-relative index the cell loop hands back addressable in the FULL set —
+  // without it a page-2 edit would commit to the matching row of page 1 (the
+  // Phase-663 write-back indexes `rows`).
   const pageRows =
     paging !== undefined && !paging.hostPages
       ? sliceRowsToPage(paging.size, paging.page, rows)
       : rows;
+  const rowOffset = paging !== undefined && !paging.hostPages ? (paging.page - 1) * paging.size : 0;
   // Phase 427 — the default row-click write (the 423/426 archetype for the
   // Selection channel): a data-bearing grid whose `onRowClick` is omitted
   // writes the clicked row to the host selection seam (`runtime.setSelection`)
@@ -177,6 +182,116 @@ const renderGrid = <TMsg,>(
     rawSelectedKey !== undefined && rawSelectedKey !== '' && rawSelectedKey !== '<closure>'
       ? rawSelectedKey
       : undefined;
+
+  // Phase 663 — the grid write-back floor (the Phase 426 control default
+  // replayed for the grid): an editable grid commits an edited cell as the
+  // WHOLE updated rows value, so every other reader of that key (a Chart
+  // sourced on the same `$state` entry) re-renders with the edit.
+  // Phase 863 — WHERE it commits is `editDestination`: a declared
+  // `editStateKey` wins, else the 663 floor, else no destination and no input.
+  // Parity-locked with the F# renderer's `editCommit`.
+  const editTarget = editDestination(spec.editable, spec.editStateKey, spec.source);
+  const editCommit: ((rowIndex: number, field: string, value: unknown) => void) | undefined =
+    editTarget === undefined
+      ? undefined
+      : (rowIndex, field, value) => {
+          const absolute = rowOffset + rowIndex;
+          const newRows = rows.map((row, i) =>
+            i === absolute ? updateRowField(row, field, value) : row,
+          );
+          writeBackTo(ctx, editTarget, newRows as unknown as JsonValue);
+        };
+
+  // Phase 934 — declarative row reorder, resolving through the same
+  // destination the edit path uses, so one collection has one destination.
+  // Suppressed while a sort descriptor is IN EFFECT (user-written or
+  // `defaultSort`): the sort re-imposes its order on the next render, so a drag
+  // would visibly snap back — an affordance that lies. Clear the sort, and the
+  // handles return. Parity-locked with the F# renderer.
+  const reorderTarget =
+    sortDescriptor !== undefined
+      ? undefined
+      : reorderDestination(spec.reorderable, spec.editStateKey, spec.source);
+  const reorderCommit: ((fromAbs: number, toAbs: number) => void) | undefined =
+    reorderTarget === undefined
+      ? undefined
+      : (fromAbs, toAbs) => {
+          const moved = moveRow(fromAbs, toAbs, rows);
+          // `moveRow` hands back the SAME array instance for an out-of-range or
+          // no-op move; writing it back would churn every reader for nothing.
+          if (moved !== rows) writeBackTo(ctx, reorderTarget, moved as unknown as JsonValue);
+        };
+
+  // The handle is a real <button>: focusable, keyboard-activatable and screen-
+  // reader announced with no ARIA re-plumbing. Keyboard is arrow keys on the
+  // focused handle — the current pattern for list reorder (`aria-grabbed` is
+  // deprecated and deliberately absent); pointer is native HTML5 drag onto any
+  // row. The reference CSS already ships these class names (the Phase 77
+  // byte-copy), so the affordance lands styled.
+  const reorderCell = (rowIndex: number): ReactElement | undefined => {
+    if (reorderCommit === undefined) return undefined;
+    const commit = reorderCommit;
+    const absolute = rowOffset + rowIndex;
+    const total = rows.length;
+    return (
+      <td className="fuaran-grid-reorder-cell">
+        <button
+          className="fuaran-grid-reorder-handle"
+          type="button"
+          data-reorder-handle={String(absolute)}
+          draggable
+          aria-label={`Reorder row ${absolute + 1} of ${total} — drag, or press an arrow key to move it`}
+          aria-keyshortcuts="ArrowUp ArrowDown"
+          onDragStart={() => {
+            gridDragSource = [parentNodeId, absolute];
+          }}
+          onDragEnd={() => {
+            gridDragSource = undefined;
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              commit(absolute, absolute - 1);
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              commit(absolute, absolute + 1);
+            }
+          }}
+        >
+          {'⣿'}
+        </button>
+      </td>
+    );
+  };
+
+  const reorderHeaderCell = (): ReactElement | undefined =>
+    reorderCommit === undefined ? undefined : (
+      <th key="reorder" className="fuaran-grid-reorder-header" scope="col" aria-label="Reorder" />
+    );
+
+  // The drop-target props a row gains while a reorder is possible.
+  // `preventDefault` on dragover is what marks the row droppable to the
+  // browser, and the drop consumes only a drag begun on THIS grid.
+  const reorderRowProps = (
+    rowIndex: number,
+  ): {
+    onDragOver?: (e: { preventDefault: () => void }) => void;
+    onDrop?: (e: { preventDefault: () => void }) => void;
+  } => {
+    if (reorderCommit === undefined) return {};
+    const commit = reorderCommit;
+    return {
+      onDragOver: (e) => e.preventDefault(),
+      onDrop: (e) => {
+        if (gridDragSource !== undefined && gridDragSource[0] === parentNodeId) {
+          const sourceIndex = gridDragSource[1];
+          e.preventDefault();
+          gridDragSource = undefined;
+          commit(sourceIndex, rowOffset + rowIndex);
+        }
+      },
+    };
+  };
 
   // Phase 818 — the sortable-header affordance for a `sortStateKey` grid. A
   // header whose column declares a `field` renders as a sortable affordance
@@ -273,10 +388,33 @@ const renderGrid = <TMsg,>(
     );
   };
 
+  // Phase 863 — the per-cell commit. Editable write-back applies only on the
+  // declarative path: a `field`-projected Text/Numeric cell with no `value`
+  // closure (a closure's projection need not correspond to any row field, so
+  // there is nothing sound to write). The column flag NARROWS the grid-level
+  // capability — an explicit `false` is read-only, the declaration that
+  // read-only-by-omission could not make.
+  const cellCommit = (
+    rowIndex: number,
+    col: ColumnErased<TMsg>,
+  ): ((v: CellValue) => void) | undefined => {
+    if (editCommit === undefined || col.editable === false) return undefined;
+    if (col.value !== undefined || col.field === undefined) return undefined;
+    if (col.kind.kind !== 'Text' && col.kind.kind !== 'Numeric') return undefined;
+    const commit = editCommit;
+    const field = col.field;
+    return (v: CellValue) => {
+      if (v.kind === 'Numeric' || v.kind === 'Text') commit(rowIndex, field, v.value);
+    };
+  };
+
   const gridTable = (
     <table className="fuaran-grid">
       <thead>
-        <tr>{spec.columns.map((col, i) => sortableHeader(i, col))}</tr>
+        <tr>
+          {reorderHeaderCell()}
+          {spec.columns.map((col, i) => sortableHeader(i, col))}
+        </tr>
       </thead>
       <tbody>
         {pageRows.map((row, ri) => {
@@ -291,10 +429,12 @@ const renderGrid = <TMsg,>(
               onClick={() =>
                 onRowClick !== undefined ? runAction(ctx, onRowClick(row)) : writeSelection(row)
               }
+              {...reorderRowProps(ri)}
             >
+              {reorderCell(ri)}
               {spec.columns.map((col, ci) => (
                 <td key={ci} className="fuaran-grid-cell">
-                  {renderGridCell(ctx, col, row)}
+                  {renderGridCell(ctx, cellCommit(ri, col), col, row)}
                 </td>
               ))}
             </tr>
@@ -375,6 +515,92 @@ const sliceRowsToPage = (
   const start = (clamped - 1) * pageSize;
   return rows.slice(start, start + pageSize);
 };
+
+// ─── The grid's whole-rows write destination (Phase 863 / Phase 934) ─────────
+//
+// Parity-locked with F# `BindingResolver.gridWriteDestination` /
+// `editDestination` / `reorderDestination` / `moveRow`.
+//
+// A grid has TWO whole-rows writers — an edited cell and a reordered row — and
+// they write the same collection, so the destination is resolved in ONE place:
+// a declared `editStateKey` wins (Phase 863 added it so a *decoded* grid could
+// say where its writes land at all — the only previous spelling was a host
+// closure, which crosses the wire as `"<closure>"`); else the Phase-663 floor,
+// the grid's own `source` when that source is a direct `State` binding; else
+// NOTHING, and the caller draws no input and no handle. A Transform pipeline is
+// not invertible and Static/Query rows are host data, so an affordance over
+// them would be a gesture with no destination — the fake-affordance class the
+// grid-behaviour charter refuses, and the reason this returns `undefined`
+// rather than a no-op writer.
+
+/** The structurally-minimal binding view `writeBackTo` reads. */
+type WriteTarget = { readonly kind: string; readonly key?: string; readonly name?: string };
+
+const gridWriteDestination = (
+  editStateKey: string | undefined,
+  source: Binding<readonly unknown[]>,
+): WriteTarget | undefined => {
+  if (editStateKey !== undefined) return { kind: 'State', key: editStateKey };
+  return source.kind === 'State' ? (source as WriteTarget) : undefined;
+};
+
+const editDestination = (
+  editable: boolean,
+  editStateKey: string | undefined,
+  source: Binding<readonly unknown[]>,
+): WriteTarget | undefined => (editable ? gridWriteDestination(editStateKey, source) : undefined);
+
+const reorderDestination = (
+  reorderable: boolean,
+  editStateKey: string | undefined,
+  source: Binding<readonly unknown[]>,
+): WriteTarget | undefined =>
+  reorderable ? gridWriteDestination(editStateKey, source) : undefined;
+
+/**
+ * Move the row at `fromIndex` to `toIndex` (both absolute in the full set).
+ * Out-of-range either side, or a no-move, returns the SAME array instance —
+ * the caller writes the result back wholesale, so "invalid move writes nothing
+ * new" and "invalid move is refused" are one behaviour with no partial state in
+ * between. Parity-locked with F# `BindingResolver.moveRow`, which refuses
+ * rather than clamping for the same reason.
+ */
+const moveRow = (
+  fromIndex: number,
+  toIndex: number,
+  rows: readonly unknown[],
+): readonly unknown[] => {
+  const count = rows.length;
+  if (
+    fromIndex === toIndex ||
+    fromIndex < 0 ||
+    fromIndex >= count ||
+    toIndex < 0 ||
+    toIndex >= count
+  ) {
+    return rows;
+  }
+  const item = rows[fromIndex];
+  const without = rows.filter((_, i) => i !== fromIndex);
+  return [...without.slice(0, toIndex), item, ...without.slice(toIndex)];
+};
+
+/**
+ * Set one field on one row, returning a NEW row object (Phase 663's
+ * `updateRowField`). A row that is not an object is handed back untouched —
+ * there is no field to write.
+ */
+const updateRowField = (row: unknown, field: string, value: unknown): unknown => {
+  if (row === null || typeof row !== 'object' || Array.isArray(row)) return row;
+  return { ...(row as Record<string, unknown>), [field]: value };
+};
+
+// The in-flight drag, module-level for the same reason the F# renderer keeps it
+// there: HTML5 `dataTransfer` is unreadable during `dragover`, so the drop
+// target cannot decide whether it is a legitimate target from the event alone.
+// Keyed by grid node id, so a drop only ever consumes a drag begun on the SAME
+// grid — dragging between two grids does nothing rather than something wrong.
+let gridDragSource: readonly [string, number] | undefined;
 
 // Phase 861 — the three-way slot. `readSortDescriptor` collapses "nothing
 // written" and "written but not a sort" into undefined, which was right while
@@ -508,6 +734,7 @@ const tonedPillOf = (
 
 const renderGridCell = <TMsg,>(
   ctx: RenderContext<TMsg>,
+  commit: ((v: CellValue) => void) | undefined,
   col: ColumnErased<TMsg>,
   row: unknown,
 ): ReactNode => {
@@ -523,6 +750,52 @@ const renderGridCell = <TMsg,>(
     case 'Text':
     case 'Numeric':
     case 'Date':
+      // Phase 663 — a `commit` (threaded from `renderGrid` only for
+      // field-projected Text/Numeric cells on an editable grid with a reachable
+      // destination) turns the display cell into the same input shapes as the
+      // `Editable` cell kind, committing the RAW value, never the formatted
+      // rendering. Absent `commit`, the cell is the pre-663 span, unchanged.
+      if (commit !== undefined) {
+        if (kind.kind === 'Numeric' && value.kind === 'Numeric') {
+          return (
+            <input
+              className="fuaran-grid-cell-editable"
+              type="number"
+              value={value.value}
+              onChange={(e) => {
+                // An empty / mid-edit number input parses NaN — never commit it
+                // (a NaN cell would silently flatten every chart on the key).
+                const n = Number(e.target.value);
+                if (!Number.isNaN(n)) commit({ kind: 'Numeric', value: n });
+              }}
+            />
+          );
+        }
+        if (kind.kind === 'Numeric') {
+          // An Empty (or non-numeric) cell in a Numeric column: text input,
+          // committed only when the entry parses numerically.
+          return (
+            <input
+              className="fuaran-grid-cell-editable"
+              type="text"
+              value={renderCellValue({ kind: 'None' }, value)}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (e.target.value.trim() !== '' && !Number.isNaN(n))
+                  commit({ kind: 'Numeric', value: n });
+              }}
+            />
+          );
+        }
+        return (
+          <input
+            className="fuaran-grid-cell-editable"
+            type="text"
+            value={value.kind === 'Text' ? value.value : renderCellValue({ kind: 'None' }, value)}
+            onChange={(e) => commit({ kind: 'Text', value: e.target.value })}
+          />
+        );
+      }
       return <span>{renderCellValue(col.format, value)}</span>;
     case 'Editable': {
       const onEdit = kind.onEdit;
