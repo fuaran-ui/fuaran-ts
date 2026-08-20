@@ -315,6 +315,7 @@ describe('apply engine — nested paths (Phase 364)', () => {
         spec: {
           source: { kind: 'Static', value: [] },
           rowKey: () => '',
+          reorderable: false,
           columns: [
             {
               label: 'Channel',

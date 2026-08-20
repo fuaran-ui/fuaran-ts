@@ -107,6 +107,7 @@ describe('kindName — matches F# Introspect.kindName', () => {
             rowKey: () => '',
             columns: [],
             editable: false,
+            reorderable: false,
           },
         },
       },

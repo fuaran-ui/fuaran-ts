@@ -27,6 +27,7 @@ const gridWith = (binding: Binding<unknown>): Node<unknown> => ({
         rowKey: () => '',
         columns: [],
         editable: false,
+        reorderable: false,
       },
     },
   },
