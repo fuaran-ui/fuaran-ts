@@ -108,6 +108,11 @@ export {
 export { accessibilityAttributes } from './accessibility.js';
 export { drawingSvg } from './drawingSvg.js';
 export { mathMl } from './mathMl.js';
+// The `Chart` node → chart-lowering bridge. Exported for the same reason
+// `drawingSvg` is: the string server renderer must lower from the SAME declared
+// fields this renderer does, and a second copy of that decision is how the two
+// surfaces come to draw different pictures from one tree.
+export { chartLowerSpecOf } from './chartLowerSpec.js';
 
 // Isomorphic hydration: in-browser decode (@fuaran-ui/ops) + React hydrateRoot.
 export {

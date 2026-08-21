@@ -69,7 +69,7 @@ import {
   tryResolve,
   tryResolveScalarFloat,
 } from './bindings.js';
-import { drawingSvg, mathMl } from '@fuaran-ui/renderer';
+import { chartLowerSpecOf, drawingSvg, mathMl } from '@fuaran-ui/renderer';
 import { isLowered, lower, type ChartRow } from '@fuaran-ui/charts';
 
 import { motionVar, nodeClassName, toneVar } from './classNames.js';
@@ -1985,22 +1985,12 @@ const renderChart = (
   // SAME inline SVG string the client emits. Anything unresolved /
   // not-yet-lowered falls through to the placeholder below.
   if (isLowered(spec.kind) && rows.length > 0 && rows.every(isChartRow)) {
-    // Only a literal title carries into the lowered drawing (mirrors the client gate).
-    const loweredTitle =
-      spec.title !== undefined && spec.title.kind === 'Literal' ? spec.title.value : undefined;
-    const drawing = lower(
-      {
-        kind: spec.kind,
-        xField: spec.xField,
-        yFields: spec.yFields,
-        stacked: spec.stacked,
-        ...(loweredTitle !== undefined ? { title: loweredTitle } : {}),
-        // Phase 876 — the declared value-axis number format travels with the
-        // spec into the lowering (the style stays the host's default).
-        ...(spec.valueFormat !== undefined ? { valueFormat: spec.valueFormat } : {}),
-      },
-      rows as readonly ChartRow[],
-    );
+    // Parity by construction rather than by copying: the SAME bridge the client
+    // renderer uses decides which declared fields cross into the lowering, and
+    // carries the Literal-only `TextSource` rule. This arm threaded `title` +
+    // `valueFormat` and dropped the other five semantic fields; the client arm
+    // dropped six. Two copies, two different answers — hence one helper.
+    const drawing = lower(chartLowerSpecOf(spec), rows as readonly ChartRow[]);
     return el('div', [], drawingSvg(ctx.sources, drawing));
   }
 

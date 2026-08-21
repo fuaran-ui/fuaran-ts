@@ -37,6 +37,7 @@ import {
   tryResolve,
   type BindingSources,
 } from '../bindings.js';
+import { chartLowerSpecOf } from '../chartLowerSpec.js';
 import { toneVar } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { runAction, writeBackTo } from '../context.js';
@@ -928,19 +929,10 @@ const renderChart = <TMsg,>(
   // sibling of the existing `Display.Drawing` arm). Anything unresolved / not-yet-lowered
   // falls through to the client-hydration placeholder below.
   if (isLowered(spec.kind) && rows.length > 0 && rows.every(isChartRow)) {
-    // Only a literal title carries into the lowered drawing (mirrors the Python gate).
-    const title =
-      spec.title !== undefined && spec.title.kind === 'Literal' ? spec.title.value : undefined;
-    const drawing = lower(
-      {
-        kind: spec.kind,
-        xField: spec.xField,
-        yFields: spec.yFields,
-        stacked: spec.stacked,
-        ...(title !== undefined ? { title } : {}),
-      },
-      rows as readonly ChartRow[],
-    );
+    // Every declared semantic field crosses the bridge — see `chartLowerSpec.ts`,
+    // which is the ONE place that decision is made (the server twin reads the
+    // same helper) and which states the Literal-only `TextSource` rule.
+    const drawing = lower(chartLowerSpecOf(spec), rows as readonly ChartRow[]);
     return <div dangerouslySetInnerHTML={{ __html: drawingSvg(ctx.sources, drawing) }} />;
   }
 
