@@ -116,5 +116,17 @@ export const formatReport = (report: ConformanceReport): string => {
   lines.push(
     `  Certification is per corpus version — re-certify when the corpus advances (WIRE_FORMAT.md §11).`,
   );
+  // What a green report does NOT say. Every leg above is a codec or byte-parity
+  // check, so it certifies the SOURCE and FALLBACK tiers; the declared
+  // client-only rich tier sits outside every parity comparison by contract, and
+  // a host that ships none of it is degraded-by-declaration rather than
+  // non-conformant. Naming the artefact here is the difference between a reader
+  // knowing that and inferring it.
+  lines.push(
+    `  Scope: the parity legs certify the fallback tier. Which kinds declare a client-only`,
+  );
+  lines.push(
+    `  rich tier outside it is in the corpus artefact render-fidelity.json (WIRE_FORMAT.md §13).`,
+  );
   return lines.join('\n');
 };
