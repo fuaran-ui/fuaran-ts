@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/mcp",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "MCP server exposing Fuaran to coding agents â€” generate a canonical UI tree from a prompt, validate wire JSON against the canonical schema, and scaffold a working integration. The endpoint URL and paid access token are the commercial gate; this server is a thin, open-source tool layer over public surfaces.",
   "keywords": [
     "fuaran",

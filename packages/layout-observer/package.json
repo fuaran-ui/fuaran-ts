@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/layout-observer",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Browser-default layout-flag observer for the Fuaran UI typed Node tree — watches a rendered tree via ResizeObserver and derives a fixed vocabulary of layout flags (overflow, zero-dimension, squeezed-to-min, clipped-by-ancestor, aspect-ratio-off) the semantic-state channel is blind to. The TypeScript port of Fuaran.UI.LayoutObserver.{Abstractions,Default}; flag JSON is byte-identical to the F# tier.",
   "keywords": [
     "fuaran",

@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/spec-hash",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "description": "Reference implementation of the canonical-json-sha256-v1 minting canonicalisation — recursive ordinal member ordering, ECMAScript number serialisation, and the sha256:{hex} content address minted over the resulting bytes. Workspace-internal: it gates this tier against the specification's own corpus and against an independent implementation of the same registered rule, and is deliberately not published.",
   "keywords": [
