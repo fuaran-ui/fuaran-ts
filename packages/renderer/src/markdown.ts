@@ -16,11 +16,84 @@
 //   DEFERRED — emoji / footnotes / heading anchors / sub-sup / definition lists /
 //         the full named-entity table render escaped-literal until added.
 //
-//  Escapes by construction (no raw-HTML passthrough; URLs via sanitizeUrlOrBlank);
-//  the result still passes through sanitizeMarkdownHtml as defence in depth.
+//  Escapes by construction (no raw-HTML passthrough; URLs pass the scheme
+//  floor); the result still passes through sanitizeMarkdownHtml as defence in
+//  depth.
+//
+//  DESTINATION POLICY (WIRE_FORMAT 14.1). The scheme floor answers "is this URL
+//  safe to have"; it does not answer "is this destination one the composition
+//  declared". `toHtmlWithEgress` consults an `EgressPolicy` for every link
+//  (`hyperlink`) and image (`media`) destination, and a refused one renders the
+//  refusal shape: the inert `about:blank#fuaran-egress-refused` plus a
+//  `data-fuaran-egress-refused` marker naming the class and the host, never the
+//  path or the query.
+//
+//  `toHtml` SURVIVES AS THE PERMISSIVE CASE — `toHtmlWithEgress(permissiveEgress,
+//  source)`, byte-for-byte. The corpus is a cross-host byte-parity contract, so
+//  flipping the pure function's default would rewrite existing fixtures in five
+//  hosts in one act, and a mass churn is exactly where a real divergence hides.
+//  What makes the guarantee ambient is the RENDERER call sites passing a policy
+//  whose default denies — not this function's default.
+//
+//  THE SCHEME FLOOR'S OWN ANSWER IS UNCHANGED. A URL the floor rejects still
+//  renders the bare `about:blank` it rendered before, with no marker — see
+//  `markdownDestination`.
 // ============================================================================
 
-import { sanitizeMarkdownHtml, sanitizeUrlOrBlank } from './sanitize.js';
+import {
+  checkDestination,
+  egressRefusalAttribute,
+  egressRefusalMarker,
+  egressRefusalUrl,
+  permissiveEgress,
+  type EgressClass,
+  type EgressPolicy,
+} from './egress.js';
+import { sanitizeMarkdownHtml } from './sanitize.js';
+
+/**
+ * The `href` / `src` a markdown destination emits under `policy`, plus the
+ * refusal markers to splice in as trailing attributes.
+ *
+ * Three verdict groups, and the middle one is a decision rather than an
+ * oversight:
+ *
+ *  - ALLOWED — the normalised URL, no marker. Identical to what
+ *    `sanitizeUrlOrBlank` returned before this seam existed, so a permissive
+ *    render is byte-for-byte what it always was.
+ *  - UNSAFE (the SCHEME FLOOR refused) — the bare `about:blank`, no marker. The
+ *    floor's answer is a different fact from a policy refusal, it has been
+ *    spelled that way in every conformant host since Phase 292, and it is pinned
+ *    by the shared sanitization corpus. Re-spelling it here would churn that
+ *    corpus inside a change about EGRESS, which is where a genuine divergence
+ *    hides.
+ *  - REFUSED BY POLICY — the inert `about:blank#fuaran-egress-refused` plus a
+ *    marker naming the class and, where there is one, the host. Never the path
+ *    or the query: the query string of a refused exfiltration attempt is the
+ *    payload itself.
+ */
+const markdownDestination = (
+  policy: EgressPolicy,
+  cls: EgressClass,
+  url: string,
+): [string, Array<[string, string]>] => {
+  const verdict = checkDestination(policy, cls, url);
+  if (verdict.kind === 'allowed') return [verdict.url, []];
+  if (verdict.kind === 'unsafeUrl') return ['about:blank', []];
+  const marker = egressRefusalMarker(verdict);
+  return [egressRefusalUrl, marker === undefined ? [] : [marker]];
+};
+
+/**
+ * Render refusal markers as trailing HTML attributes. Emitted LAST on the
+ * element so an adopting host's diff against the previous bytes is a pure
+ * suffix — every attribute that was there is still where it was.
+ */
+const egressAttrs = (markers: Array<[string, string]>): string => {
+  let out = '';
+  for (const [k, v] of markers) out += ' ' + k + '="' + escapeHtml(v) + '"';
+  return out;
+};
 
 // ─── Host-parity primitives ──────────────────────────────────────────────────
 // Explicit whitespace/digit classes (NOT \s / isDigit) so F#, TS, and Python
@@ -207,7 +280,7 @@ const isSchemeChar = (c: string): boolean =>
   c === '.' ||
   c === '-';
 
-const scanAutolink = (text: string, i: number): [Inline, number] | null => {
+const scanAutolink = (policy: EgressPolicy, text: string, i: number): [Inline, number] | null => {
   const close = text.indexOf('>', i);
   if (close < 0) return null;
   const body = text.slice(i + 1, close);
@@ -221,17 +294,49 @@ const scanAutolink = (text: string, i: number): [Inline, number] | null => {
   const looksEmail =
     !looksUri && body.includes('@') && !body.includes(':') && body.indexOf('@') > 0;
   if (looksUri) {
-    const safe = sanitizeUrlOrBlank(body);
+    const [safe, markers] = markdownDestination(policy, 'hyperlink', body);
     return [
-      { k: 'raw', v: '<a href="' + escapeHtml(safe) + '">' + escapeHtml(body) + '</a>' },
+      {
+        k: 'raw',
+        v:
+          '<a href="' +
+          escapeHtml(safe) +
+          '"' +
+          egressAttrs(markers) +
+          '>' +
+          escapeHtml(body) +
+          '</a>',
+      },
       close + 1,
     ];
   }
-  if (looksEmail)
+  if (looksEmail) {
+    // An email autolink has no URL of its own — the `mailto:` is the
+    // renderer's, so the policy is asked about the destination the renderer is
+    // about to emit. On acceptance the ORIGINAL bytes are emitted rather than
+    // the normalised form, so a permissive render is unchanged to the byte.
+    const verdict = checkDestination(policy, 'hyperlink', 'mailto:' + body);
+    if (verdict.kind === 'allowed')
+      return [
+        { k: 'raw', v: '<a href="mailto:' + escapeHtml(body) + '">' + escapeHtml(body) + '</a>' },
+        close + 1,
+      ];
+    const marker = egressRefusalMarker(verdict);
     return [
-      { k: 'raw', v: '<a href="mailto:' + escapeHtml(body) + '">' + escapeHtml(body) + '</a>' },
+      {
+        k: 'raw',
+        v:
+          '<a href="' +
+          escapeHtml(egressRefusalUrl) +
+          '"' +
+          egressAttrs(marker === undefined ? [] : [marker]) +
+          '>' +
+          escapeHtml(body) +
+          '</a>',
+      },
       close + 1,
     ];
+  }
   return null;
 };
 
@@ -361,7 +466,11 @@ function plainText(nodes: Inline[]): string {
   return out;
 }
 
-const scanBareAutolink = (text: string, i: number): [Inline, number] | null => {
+const scanBareAutolink = (
+  policy: EgressPolicy,
+  text: string,
+  i: number,
+): [Inline, number] | null => {
   const n = text.length;
   const starts = (p: string): boolean => text.slice(i, i + p.length) === p;
   if (!starts('https://') && !starts('http://') && !starts('www.')) return null;
@@ -371,8 +480,21 @@ const scanBareAutolink = (text: string, i: number): [Inline, number] | null => {
   if (j <= i + 4) return null;
   const raw = text.slice(i, j);
   const href = raw.startsWith('www.') ? 'http://' + raw : raw;
-  const safe = sanitizeUrlOrBlank(href);
-  return [{ k: 'raw', v: '<a href="' + escapeHtml(safe) + '">' + escapeHtml(raw) + '</a>' }, j];
+  const [safe, markers] = markdownDestination(policy, 'hyperlink', href);
+  return [
+    {
+      k: 'raw',
+      v:
+        '<a href="' +
+        escapeHtml(safe) +
+        '"' +
+        egressAttrs(markers) +
+        '>' +
+        escapeHtml(raw) +
+        '</a>',
+    },
+    j,
+  ];
 };
 
 type Tok =
@@ -386,7 +508,7 @@ type Tok =
       active: boolean;
     };
 
-function tokenize(refs: Refs, text: string): Tok[] {
+function tokenize(refs: Refs, policy: EgressPolicy, text: string): Tok[] {
   const toks: Tok[] = [];
   const n = text.length;
   let i = 0;
@@ -402,27 +524,43 @@ function tokenize(refs: Refs, text: string): Tok[] {
 
   const makeImage = (labelText: string, url: string, titleOpt: string | null): void => {
     flush();
-    const alt = plainText(parseInlines(refs, labelText));
-    const safe = sanitizeUrlOrBlank(url);
+    const alt = plainText(parseInlines(refs, policy, labelText));
+    const [safe, markers] = markdownDestination(policy, 'media', url);
     const titleAttr = titleOpt !== null ? ' title="' + escapeHtml(titleOpt) + '"' : '';
     toks.push({
       kind: 'node',
       node: {
         k: 'raw',
-        v: '<img src="' + escapeHtml(safe) + '" alt="' + escapeHtml(alt) + '"' + titleAttr + ' />',
+        v:
+          '<img src="' +
+          escapeHtml(safe) +
+          '" alt="' +
+          escapeHtml(alt) +
+          '"' +
+          titleAttr +
+          egressAttrs(markers) +
+          ' />',
       },
     });
   };
   const makeLink = (labelText: string, url: string, titleOpt: string | null): void => {
     flush();
-    const inner = renderInlines(parseInlines(refs, labelText));
-    const safe = sanitizeUrlOrBlank(url);
+    const inner = renderInlines(parseInlines(refs, policy, labelText));
+    const [safe, markers] = markdownDestination(policy, 'hyperlink', url);
     const titleAttr = titleOpt !== null ? ' title="' + escapeHtml(titleOpt) + '"' : '';
     toks.push({
       kind: 'node',
       node: {
         k: 'raw',
-        v: '<a href="' + escapeHtml(safe) + '"' + titleAttr + '>' + inner + '</a>',
+        v:
+          '<a href="' +
+          escapeHtml(safe) +
+          '"' +
+          titleAttr +
+          egressAttrs(markers) +
+          '>' +
+          inner +
+          '</a>',
       },
     });
   };
@@ -456,7 +594,7 @@ function tokenize(refs: Refs, text: string): Tok[] {
         i++;
       }
     } else if (c === '<') {
-      const al = scanAutolink(text, i);
+      const al = scanAutolink(policy, text, i);
       if (al) {
         flush();
         toks.push({ kind: 'node', node: al[0] });
@@ -579,7 +717,7 @@ function tokenize(refs: Refs, text: string): Tok[] {
       (c === 'h' || c === 'w') &&
       (i === 0 || isWs(prevChar()) || '(*_~'.includes(prevChar()))
     ) {
-      const ba = scanBareAutolink(text, i);
+      const ba = scanBareAutolink(policy, text, i);
       if (ba) {
         flush();
         toks.push({ kind: 'node', node: ba[0] });
@@ -674,11 +812,12 @@ function processEmphasis(toks: Tok[]): Inline[] {
   return result;
 }
 
-function parseInlines(refs: Refs, text: string): Inline[] {
-  return processEmphasis(tokenize(refs, text));
+function parseInlines(refs: Refs, policy: EgressPolicy, text: string): Inline[] {
+  return processEmphasis(tokenize(refs, policy, text));
 }
 
-const renderInline = (refs: Refs, text: string): string => renderInlines(parseInlines(refs, text));
+const renderInline = (refs: Refs, policy: EgressPolicy, text: string): string =>
+  renderInlines(parseInlines(refs, policy, text));
 
 // ─── Block parsing ─────────────────────────────────────────────────────────
 
@@ -1048,20 +1187,20 @@ const alignAttr = (a: string): string =>
         ? ' align="right"'
         : '';
 
-function renderBlocks(refs: Refs, blocks: Block[]): string {
+function renderBlocks(refs: Refs, policy: EgressPolicy, blocks: Block[]): string {
   let out = '';
-  for (const b of blocks) out += renderBlock(refs, b);
+  for (const b of blocks) out += renderBlock(refs, policy, b);
   return out;
 }
 
-function renderBlock(refs: Refs, b: Block): string {
+function renderBlock(refs: Refs, policy: EgressPolicy, b: Block): string {
   switch (b.t) {
     case 'hr':
       return '<hr />\n';
     case 'heading':
-      return '<h' + b.level + '>' + renderInline(refs, b.text) + '</h' + b.level + '>\n';
+      return '<h' + b.level + '>' + renderInline(refs, policy, b.text) + '</h' + b.level + '>\n';
     case 'paragraph':
-      return '<p>' + renderInline(refs, b.text) + '</p>\n';
+      return '<p>' + renderInline(refs, policy, b.text) + '</p>\n';
     case 'fenced': {
       const cls = b.lang === '' ? '' : ' class="language-' + escapeHtml(b.lang) + '"';
       return '<pre><code' + cls + '>' + escapeHtml(b.content) + '\n</code></pre>\n';
@@ -1069,13 +1208,17 @@ function renderBlock(refs: Refs, b: Block): string {
     case 'indented':
       return '<pre><code>' + escapeHtml(b.content) + '\n</code></pre>\n';
     case 'blockquote':
-      return '<blockquote>\n' + renderBlocks(refs, b.blocks) + '</blockquote>\n';
+      return '<blockquote>\n' + renderBlocks(refs, policy, b.blocks) + '</blockquote>\n';
     case 'table': {
       let out = '<table class="fuaran-table"><thead><tr>';
       b.headers.forEach((h, idx) => {
         const a = idx < b.aligns.length ? b.aligns[idx]! : 'none';
         out +=
-          '<th class="fuaran-table-header"' + alignAttr(a) + '>' + renderInline(refs, h) + '</th>';
+          '<th class="fuaran-table-header"' +
+          alignAttr(a) +
+          '>' +
+          renderInline(refs, policy, h) +
+          '</th>';
       });
       out += '</tr></thead><tbody>';
       for (const row of b.rows) {
@@ -1087,7 +1230,7 @@ function renderBlock(refs: Refs, b: Block): string {
             '<td class="fuaran-table-cell"' +
             alignAttr(a) +
             '>' +
-            renderInline(refs, cell) +
+            renderInline(refs, policy, cell) +
             '</td>';
         }
         out += '</tr>';
@@ -1096,15 +1239,15 @@ function renderBlock(refs: Refs, b: Block): string {
       return out;
     }
     case 'bullet':
-      return '<ul>\n' + renderItems(refs, b.tight, b.items) + '</ul>\n';
+      return '<ul>\n' + renderItems(refs, policy, b.tight, b.items) + '</ul>\n';
     case 'ordered': {
       const startAttr = b.start === 1 ? '' : ' start="' + b.start + '"';
-      return '<ol' + startAttr + '>\n' + renderItems(refs, b.tight, b.items) + '</ol>\n';
+      return '<ol' + startAttr + '>\n' + renderItems(refs, policy, b.tight, b.items) + '</ol>\n';
     }
   }
 }
 
-function renderItems(refs: Refs, tight: boolean, items: ListItem[]): string {
+function renderItems(refs: Refs, policy: EgressPolicy, tight: boolean, items: ListItem[]): string {
   let out = '';
   for (const item of items) {
     let checkbox: string;
@@ -1117,12 +1260,13 @@ function renderItems(refs: Refs, tight: boolean, items: ListItem[]): string {
     if (tight) {
       let inner = '';
       for (const blk of item.blocks) {
-        if (blk.t === 'paragraph') inner += renderInline(refs, blk.text);
-        else inner += '\n' + renderBlock(refs, blk);
+        if (blk.t === 'paragraph') inner += renderInline(refs, policy, blk.text);
+        else inner += '\n' + renderBlock(refs, policy, blk);
       }
       out += '<li' + liClass + '>' + checkbox + inner + '</li>\n';
     } else {
-      out += '<li' + liClass + '>\n' + checkbox + renderBlocks(refs, item.blocks) + '</li>\n';
+      out +=
+        '<li' + liClass + '>\n' + checkbox + renderBlocks(refs, policy, item.blocks) + '</li>\n';
     }
   }
   return out;
@@ -1131,16 +1275,35 @@ function renderItems(refs: Refs, tight: boolean, items: ListItem[]): string {
 // ─── Public entry point ─────────────────────────────────────────────────────
 
 /**
- * Render GFM markdown `source` to deterministic, cross-host HTML — byte-identical
- * to the F# and Python hosts (verified against the shared markdown corpus).
- * Escaped by construction; the result still passes through `sanitizeMarkdownHtml`.
+ * Render GFM markdown `source` to deterministic, cross-host HTML, consulting
+ * `policy` for every link (`hyperlink`) and image (`media`) destination.
+ *
+ * Byte-identical to every other conformant host under the same policy (verified
+ * against the shared markdown corpus). Escaped by construction; the result still
+ * passes through `sanitizeMarkdownHtml`.
+ *
+ * **This is the entry point a host rendering a DECODED tree wants**, with
+ * `denyNonLocalEgress` or its own declaration.
  */
-export const toHtml = (source: string): string => {
+export const toHtmlWithEgress = (policy: EgressPolicy, source: string): string => {
   if (!source) return '';
   const normalized = source.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
   const rawLines = normalized.split('\n');
   const [refs, lines] = extractRefDefs(rawLines);
   const blocks = parseBlocks(lines);
-  const html = renderBlocks(refs, blocks);
+  const html = renderBlocks(refs, policy, blocks);
   return sanitizeMarkdownHtml(html);
 };
+
+/**
+ * Render GFM markdown `source` under the PERMISSIVE destination policy — every
+ * destination the scheme floor accepts is emitted as authored.
+ *
+ * This is the pure `source -> html` function the corpus has pinned since Phase
+ * 292, unchanged to the byte, and it is the correct entry point for a
+ * HAND-AUTHORED body where the author is the trust boundary. For a DECODED body
+ * it is not: reach `toHtmlWithEgress` with a policy. Naming the permissive
+ * posture rather than defaulting to it is what makes an unpolicied render
+ * visible in the host's own source.
+ */
+export const toHtml = (source: string): string => toHtmlWithEgress(permissiveEgress, source);

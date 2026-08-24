@@ -149,6 +149,30 @@ export {
   isSafeExtraAttributeValue,
 } from './sanitize.js';
 
+// The destination policy (WIRE_FORMAT §14.1) — the second, orthogonal gate the
+// scheme floor above does not provide: a scheme allowlist says what a URL may
+// BE, an origin allowlist says where it may GO. Host-constructed only; there is
+// deliberately no decoder, because a policy that can arrive as data is a policy
+// a hostile emission can widen.
+export {
+  allowOrigin,
+  checkDestination,
+  classifyDestination,
+  denyNonLocalEgress,
+  egressClasses,
+  egressRefusalAttribute,
+  egressRefusalMarker,
+  egressRefusalUrl,
+  isDeclaredOrigin,
+  permissiveEgress,
+  type Destination,
+  type EgressClass,
+  type EgressOrigin,
+  type EgressPolicy,
+  type EgressRule,
+  type EgressVerdict,
+} from './egress.js';
+
 // Phase 293 — the client-only KaTeX math enhancement (also at the
 // `@fuaran-ui/renderer/enhance-math` subpath for React-free consumers).
 export { enhanceMath, parseMathSegments } from './enhanceMath.js';
