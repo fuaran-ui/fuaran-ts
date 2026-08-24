@@ -9,7 +9,9 @@
 // fuaran-dotnet/docs/WIRE_FORMAT.md — renders any tree @fuaran-ui/ui authors or
 // @fuaran-ui/ops decodes, with class-name + ARIA parity to the F# renderer.
 // The sanitisation seam is also published as the @fuaran-ui/renderer/sanitize
-// subpath.
+// subpath, and the deterministic markdown renderer as @fuaran-ui/renderer/markdown
+// — both React-free, so a pure-string host can reach them without pulling React
+// in through this entry point.
 
 export { FuaranRenderer, type FuaranRendererProps } from './Renderer.js';
 

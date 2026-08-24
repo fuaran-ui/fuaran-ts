@@ -46,9 +46,6 @@
     "@fuaran-ui/renderer": "workspace:^",
     "@fuaran-ui/schema": "workspace:^"
   },
-  "dependencies": {
-    "marked": "^15.0.0"
-  },
   "devDependencies": {
     "@fuaran-ui/charts": "workspace:*",
     "@fuaran-ui/ops": "workspace:*",

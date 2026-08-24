@@ -10,7 +10,7 @@ A **pure-string renderer** — no React, no DOM. It walks a typed tree and emits
 npm install @fuaran-ui/renderer-server
 ```
 
-`@fuaran-ui/schema` and `@fuaran-ui/renderer` are peer dependencies (the latter only for its React-free `/sanitize` subpath + the packaged reference CSS). `react` / `react-dom` are **not** required at runtime.
+`@fuaran-ui/schema` and `@fuaran-ui/renderer` are peer dependencies (the latter for its React-free `/sanitize` and `/markdown` subpaths + the packaged reference CSS). `react` / `react-dom` are **not** required at runtime, and this package now has **no runtime dependencies of its own** — markdown renders through the same deterministic renderer the client uses, so the server and the client cannot disagree about a markdown body.
 
 ## Server semantics
 

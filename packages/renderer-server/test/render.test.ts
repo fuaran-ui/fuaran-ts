@@ -62,7 +62,8 @@ describe('server semantics', () => {
   it('renders Markdown to real HTML, not a degraded fallback', () => {
     const html = render('markdown-1.json');
     expect(html).toContain('fuaran-markdown');
-    // marked emits block elements — at least one real tag inside the wrapper.
+    // The deterministic renderer emits block elements — at least one real tag
+    // inside the wrapper. Byte-parity with the client is `markdownCorpus`'s job.
     expect(html).toMatch(/fuaran-markdown">[\s\S]*<(p|h[1-6]|ul|ol|pre|blockquote)/);
   });
 

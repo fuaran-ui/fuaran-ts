@@ -45,4 +45,4 @@ export { accessibilityAttributes } from './accessibility.js';
 
 export { escapeText, escapeAttr, el, voidEl, textEl, type Attr } from './html.js';
 
-export { toHtml } from './markdown.js';
+export { toHtml, toHtmlWithEgress } from './markdown.js';

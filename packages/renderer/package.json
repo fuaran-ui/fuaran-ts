@@ -38,6 +38,11 @@
       "import": "./dist/enhanceMath.js",
       "require": "./dist/enhanceMath.cjs"
     },
+    "./markdown": {
+      "types": "./dist/markdown.d.ts",
+      "import": "./dist/markdown.js",
+      "require": "./dist/markdown.cjs"
+    },
     "./css": "./css/fuaran.css"
   },
   "files": [
