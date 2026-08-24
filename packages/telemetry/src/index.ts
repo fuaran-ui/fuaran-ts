@@ -66,3 +66,30 @@ export const noOpTelemetrySink: FuaranTelemetrySink = {
     /* intentionally empty */
   },
 };
+
+// ── The DevTools-console narration sink ──────────────────────────────────────
+//
+// A presentational sink that renders the records above as grouped,
+// severity-tagged console output. Mirrors F# `ConsoleDevToolsSink`. It consumes
+// only the contract declared above — no new record type, no new telemetry
+// contract — so it is a pure read-projection of the canonical stream.
+
+export type {
+  DevToolsLevel,
+  DevToolsRow,
+  DevToolsRecord,
+  DevToolsConsoleWriter,
+  DevToolsConsoleTarget,
+  ConsoleDevToolsOptions,
+} from './consoleDevToolsSink.js';
+
+export {
+  ConsoleDevToolsSink,
+  createConsoleDevToolsSink,
+  createConsoleDevToolsWriter,
+  consoleDevToolsDefaults,
+  consoleDevToolsDenialsAndFailuresOnly,
+  devToolsLevelRank,
+  devToolsHeaderLine,
+  formatDeny,
+} from './consoleDevToolsSink.js';

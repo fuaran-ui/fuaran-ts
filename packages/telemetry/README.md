@@ -52,6 +52,62 @@ sink.clear();
 `noOpTelemetrySink` drops everything — the backward-compatible default for a host
 that has not wired telemetry.
 
+## Narrating the stream in the DevTools console
+
+`ConsoleDevToolsSink` is the passive half of a live-debug console: it renders
+every beacon as a collapsible, severity-tagged console group as it fires, so you
+watch a running log of what the AI (or an in-page `apply`) just did and whether
+it was allowed. The pull counterpart is the renderer's `window.__fuaran` debug
+global; this is the push side.
+
+```ts
+import { createConsoleDevToolsSink } from '@fuaran-ui/telemetry';
+
+const sink = createConsoleDevToolsSink(); // dev defaults: everything, every severity
+```
+
+It introduces no new record type — it is a read-projection of the contract
+above. Denials narrate at `warn`; `info` and `error` are in the severity model
+for the legs that land alongside their records.
+
+**Filter knobs.** Toggle a record type off, or raise the severity floor, so the
+sink runs noisily in dev and quietly in a near-prod diagnostic build:
+
+```ts
+import {
+  createConsoleDevToolsSink,
+  consoleDevToolsDenialsAndFailuresOnly,
+} from '@fuaran-ui/telemetry';
+
+const quiet = createConsoleDevToolsSink(consoleDevToolsDenialsAndFailuresOnly);
+const custom = createConsoleDevToolsSink({ showDeny: true, minSeverity: 'warn' });
+```
+
+**The writer seam.** All output goes through an injectable `DevToolsConsoleWriter`
+— never a raw `console.*` call from the sink — so a host swaps the rendering
+without touching the record-to-format logic:
+
+```ts
+const sink = createConsoleDevToolsSink(consoleDevToolsDefaults, {
+  group: (record) => myPanel.append(record), // { level, header, rows }
+});
+
+// Or keep the default rendering, pointed at a console other than the global:
+createConsoleDevToolsWriter(myConsole);
+```
+
+The default writer opens a `console.groupCollapsed`, tables the detail rows, and
+closes the group; where a console offers neither grouping nor tables it prints
+the same content as an indented `[fuaran.devtools]`-prefixed line block. Both
+paths are best-effort — a console that throws never reaches the caller, and a
+group is always closed.
+
+**Parity.** `formatDeny` is exported because it _is_ the cross-host contract: the
+severity, the header text and the detail-row order are parity-locked with the F#
+`ConsoleDevToolsSink`, so the same denial reads identically whichever tier
+narrated it and a drift detector can correlate console output across hosts.
+Rewording a header is a cross-host break, not a cosmetic edit.
+
 ## Who emits
 
 `@fuaran-ui/renderer`'s debug global records a deny when a console-driven
