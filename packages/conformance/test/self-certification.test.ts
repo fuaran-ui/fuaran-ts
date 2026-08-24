@@ -88,6 +88,33 @@ describe('self-certification — @fuaran-ui/ops through the public kit', () => {
     },
   );
 
+  it('certifies the deepest legal tree without the schema leg blowing up', () => {
+    // A guard against a specific regression, not a general timing assertion.
+    //
+    // The canonical schema is recursive with an `anyOf` over the kind
+    // vocabulary, so an ajv instance built with `allErrors: true` explores every
+    // alternative at every level and its cost is EXPONENTIAL in node depth —
+    // measured at 653ms for a 6-deep tree, 5.9s at 7, 46s at 8, and no return by
+    // 24. This suite hung outright until `runConformance` switched to
+    // `allErrors: false`.
+    //
+    // It went unnoticed for as long as it did because the corpus's deepest tree
+    // was three levels. WIRE_FORMAT §21 changed that: max node depth is 24 and
+    // rule 1 requires every conformant host to accept a document at the limit,
+    // so the corpus now carries `limit-node-depth-at-max` and this kit has to be
+    // able to validate it.
+    //
+    // The budget is deliberately loose. It is not measuring performance — it is
+    // separating "sub-second" from "exponential", and those differ by orders of
+    // magnitude, so a slow machine cannot make this flake.
+    const started = Date.now();
+    const report = runConformance(tsHostAdapter, { implementation });
+    const elapsed = Date.now() - started;
+
+    expect(report.legs.find((l) => l.leg === 'schema-validation')!.status).toBe('pass');
+    expect(elapsed).toBeLessThan(60_000);
+  });
+
   it('exercises every accept fixture through byte-identity + schema validation', () => {
     const report = runConformance(tsHostAdapter, { implementation });
     const leg = (id: string) => report.legs.find((l) => l.leg === id)!;

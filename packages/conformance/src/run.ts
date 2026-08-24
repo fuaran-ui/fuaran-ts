@@ -123,7 +123,34 @@ export const runConformance = (
     options.corpusRoot === undefined ? undefined : { corpusRoot: options.corpusRoot },
   );
 
-  const ajv = new Ajv2020({ strict: false, allErrors: true });
+  // `allErrors: false` is load-bearing, not a default left unset.
+  //
+  // The canonical schema is recursive (a node's children are nodes) and its node
+  // position is an `anyOf` over the whole kind vocabulary. Under `allErrors:
+  // true` ajv explores every alternative at every level instead of stopping at
+  // the first match, so validation cost is EXPONENTIAL in node depth: measured
+  // against this schema at 653ms for a 6-deep tree, 5.9s at 7, 46s at 8, and
+  // no return at all by 24. With `allErrors: false` the same documents validate
+  // in under a millisecond at every depth to 24.
+  //
+  // That matters here specifically because WIRE_FORMAT §21 sets max node depth
+  // at 24 and rule 1 requires every conformant host to ACCEPT a document at the
+  // limit — so the corpus now carries one, and a kit that cannot validate the
+  // deepest legal document is a kit that cannot certify conformance. It went
+  // unnoticed until then because the corpus's previous deepest tree was three
+  // levels, where the cost is about 5ms.
+  //
+  // ajv's own guidance says the same thing for the same reason: `allErrors` is
+  // not recommended when validating untrusted input, because it is a
+  // denial-of-service vector. This kit validates whatever a corpus hands it,
+  // which is exactly that case — and a hang in the tool that certifies
+  // hostile-input handling is the least acceptable place for it.
+  //
+  // The cost is that a schema failure reports its FIRST error rather than all
+  // of them. That is the right trade: the leg's job is a pass/fail verdict on
+  // whether a host emits schema-valid wire, and one accurate error locates the
+  // defect as well as twenty do.
+  const ajv = new Ajv2020({ strict: false, allErrors: false });
   const schemaValid = ajv.compile(corpus.schema);
 
   const accepts = (decoder: 'node' | 'op'): readonly CorpusFixture[] =>
