@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/theme-manifest",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Machine-readable theme contract for Fuaran UI — a DTCG-compatible token model extended with semantic role bindings (which token a Tone resolves to) and quantified invariants (per-role contrast floors, 60-30-10 colour-usage budgets, motion voice). The TypeScript twin of Fuaran.UI.ThemeManifest; what the computed-style observer verifies resolved style against.",
   "keywords": [
     "fuaran",

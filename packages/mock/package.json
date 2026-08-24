@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/mock",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "A local, offline stand-in for the Fuaran generation endpoint — serves the same TurnRequest/TurnResult contract but returns canonical trees by prompt match. Deterministic, zero-secret (no access token, no BYOK key), CI/sandbox-safe. Build + test an SDK integration loop offline, then swap to the real endpoint with a single base-URL change.",
   "keywords": [
     "fuaran",
