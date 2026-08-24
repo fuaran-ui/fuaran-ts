@@ -20,7 +20,12 @@
 //     and decode.ts maps them to the IEEE-754 specials at float slots.
 // ============================================================================
 
-import type { Result } from '@fuaran-ui/schema';
+import {
+  MAX_ARRAY_LENGTH,
+  MAX_JSON_DEPTH,
+  MAX_STRING_LENGTH,
+  type Result,
+} from '@fuaran-ui/schema';
 
 /** Local JSON AST. Shape-for-shape port of the F# decoder's private `Json` DU. */
 export type JsonAst =
@@ -35,6 +40,15 @@ export type JsonAst =
 export interface ParseError {
   readonly message: string;
   readonly offset: number;
+  /**
+   * True when this failure is a WIRE_FORMAT.md §21 resource-limit breach rather
+   * than a syntax error. It exists because the two must not be reported the
+   * same way: §21.2 rule 2 forbids reporting a limit breach as `INVALID_JSON`,
+   * since the input is well-formed and merely too large to walk, and calling it
+   * malformed sends the author to repair the wrong thing. `decodeNode` reads
+   * this flag to choose between `INVALID_JSON` and `LIMIT_EXCEEDED`.
+   */
+  readonly limit?: boolean;
 }
 
 // ─── Mutable cursor over the source text ─────────────────────────────────────
@@ -42,6 +56,14 @@ export interface ParseError {
 interface ParseState {
   readonly text: string;
   pos: number;
+  /**
+   * Current SYNTACTIC nesting depth (§21.1 max JSON depth). Incremented on the
+   * way DOWN — before the recursion that would breach it, per §21.2 rule 4 —
+   * never measured afterwards from the structure that was built. A check that
+   * runs after the walk it is meant to bound has already paid the cost it
+   * exists to refuse, and on a host with a hard stack limit it never runs.
+   */
+  depth: number;
 }
 
 const peek = (s: ParseState): string => (s.pos < s.text.length ? s.text[s.pos]! : ' ');
@@ -60,6 +82,16 @@ const skipWs = (s: ParseState): void => {
     }
   }
 };
+
+/**
+ * A §21 resource-limit refusal. Distinct from `fail` only in carrying the
+ * `limit` flag, which is what stops the breach being reported as a syntax
+ * error two layers up.
+ */
+const failLimit = (s: ParseState, message: string): Result<never, ParseError> => ({
+  ok: false,
+  error: { message, offset: s.pos, limit: true },
+});
 
 const fail = (s: ParseState, message: string): Result<never, ParseError> => ({
   ok: false,
@@ -90,7 +122,20 @@ const parseStringRaw = (s: ParseState): Result<string, ParseError> => {
 
     if (c === '"') {
       return { ok: true, value: out };
-    } else if (c === '\\') {
+    }
+
+    // §21.1 max string length. Checked inside the accumulation loop rather
+    // than on the finished string, so a hostile 100 MB literal is refused
+    // partway through rather than after it has been built in memory — the
+    // same on-the-way-down principle rule 4 states for depth.
+    if (out.length > MAX_STRING_LENGTH) {
+      return failLimit(
+        s,
+        `string is longer than the wire limit MAX_STRING_LENGTH = ${MAX_STRING_LENGTH}`,
+      );
+    }
+
+    if (c === '\\') {
       if (s.pos >= s.text.length) return fail(s, 'unterminated escape');
       const esc = s.text[s.pos]!;
       advance(s);
@@ -202,6 +247,13 @@ const parseValue = (s: ParseState): Result<JsonAst, ParseError> => {
 };
 
 const parseObjectValue = (s: ParseState): Result<JsonAst, ParseError> => {
+  // §21.2 rule 4 — refuse BEFORE descending, not after.
+  if (s.depth >= MAX_JSON_DEPTH) {
+    return failLimit(
+      s,
+      `JSON nesting deeper than the wire limit MAX_JSON_DEPTH = ${MAX_JSON_DEPTH}`,
+    );
+  }
   const open = expectChar(s, '{');
   if (!open.ok) return open;
   skipWs(s);
@@ -212,15 +264,35 @@ const parseObjectValue = (s: ParseState): Result<JsonAst, ParseError> => {
     return { ok: true, value: { kind: 'JObject', fields } };
   }
 
+  s.depth += 1;
+  let count = 0;
+
   for (;;) {
     skipWs(s);
     const keyR = parseStringRaw(s);
-    if (!keyR.ok) return keyR;
+    if (!keyR.ok) {
+      s.depth -= 1;
+      return keyR;
+    }
     skipWs(s);
     const colon = expectChar(s, ':');
-    if (!colon.ok) return colon;
+    if (!colon.ok) {
+      s.depth -= 1;
+      return colon;
+    }
     const valR = parseValue(s);
-    if (!valR.ok) return valR;
+    if (!valR.ok) {
+      s.depth -= 1;
+      return valR;
+    }
+    count += 1;
+    if (count > MAX_ARRAY_LENGTH) {
+      s.depth -= 1;
+      return failLimit(
+        s,
+        `object has more members than the wire limit MAX_ARRAY_LENGTH = ${MAX_ARRAY_LENGTH}`,
+      );
+    }
     fields.set(keyR.value, valR.value);
     skipWs(s);
     const c = peek(s);
@@ -228,14 +300,23 @@ const parseObjectValue = (s: ParseState): Result<JsonAst, ParseError> => {
       advance(s);
     } else if (c === '}') {
       advance(s);
+      s.depth -= 1;
       return { ok: true, value: { kind: 'JObject', fields } };
     } else {
+      s.depth -= 1;
       return fail(s, `expected ',' or '}' but found '${c}'`);
     }
   }
 };
 
 const parseArrayValue = (s: ParseState): Result<JsonAst, ParseError> => {
+  // §21.2 rule 4 — refuse BEFORE descending, not after.
+  if (s.depth >= MAX_JSON_DEPTH) {
+    return failLimit(
+      s,
+      `JSON nesting deeper than the wire limit MAX_JSON_DEPTH = ${MAX_JSON_DEPTH}`,
+    );
+  }
   const open = expectChar(s, '[');
   if (!open.ok) return open;
   skipWs(s);
@@ -246,18 +327,32 @@ const parseArrayValue = (s: ParseState): Result<JsonAst, ParseError> => {
     return { ok: true, value: { kind: 'JArray', items } };
   }
 
+  s.depth += 1;
+
   for (;;) {
     const valR = parseValue(s);
-    if (!valR.ok) return valR;
+    if (!valR.ok) {
+      s.depth -= 1;
+      return valR;
+    }
     items.push(valR.value);
+    if (items.length > MAX_ARRAY_LENGTH) {
+      s.depth -= 1;
+      return failLimit(
+        s,
+        `array is longer than the wire limit MAX_ARRAY_LENGTH = ${MAX_ARRAY_LENGTH}`,
+      );
+    }
     skipWs(s);
     const c = peek(s);
     if (c === ',') {
       advance(s);
     } else if (c === ']') {
       advance(s);
+      s.depth -= 1;
       return { ok: true, value: { kind: 'JArray', items } };
     } else {
+      s.depth -= 1;
       return fail(s, `expected ',' or ']' but found '${c}'`);
     }
   }
@@ -270,7 +365,7 @@ const parseArrayValue = (s: ParseState): Result<JsonAst, ParseError> => {
  * matching the F# parser).
  */
 export const parse = (input: string): Result<JsonAst, ParseError> => {
-  const s: ParseState = { text: input, pos: 0 };
+  const s: ParseState = { text: input, pos: 0, depth: 0 };
   skipWs(s);
   if (s.pos >= s.text.length) {
     return { ok: false, error: { message: 'input is empty', offset: 0 } };

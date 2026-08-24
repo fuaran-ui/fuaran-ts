@@ -14,3 +14,4 @@ export * from './bounded.js';
 export * from './defaults.js';
 export * from './binding.js';
 export * from './renderFidelity.js';
+export * from './limits.js';

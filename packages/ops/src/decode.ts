@@ -22,6 +22,8 @@ import {
   NODE_KIND_GROUPS,
   controlValueDefaults,
   projectSelectionField,
+  MAX_NODES,
+  MAX_NODE_DEPTH,
 } from '@fuaran-ui/schema';
 import type {
   Accessibility,
@@ -166,7 +168,14 @@ export type DecodeErrorCode =
   | 'WRONG_TYPE'
   | 'UNKNOWN_DU_CASE'
   | 'WRONG_NODE_KIND'
-  | 'EMPTY_NODE_ID';
+  | 'EMPTY_NODE_ID'
+  /**
+   * A WIRE_FORMAT.md §21 resource limit was exceeded — the document is
+   * well-formed and merely too large to walk. Deliberately distinct from
+   * `INVALID_JSON`, which §21.2 rule 2 forbids using for this: calling a
+   * well-formed document malformed sends the author to repair the wrong thing.
+   */
+  | 'LIMIT_EXCEEDED';
 
 /** AI-recoverable decode-time failure. Mirrors the F# `DecodeError` record. */
 export interface DecodeError {
@@ -5533,7 +5542,59 @@ const placeholderClosureNode: Node<unknown> = {
   },
 };
 
+// ─── §21 walk bounds for the structural + op decoders ──────────────────────
+//
+// Bounding the PARSER is not sufficient, and this is the trap §21.5 records
+// against the reference host. The syntactic bound only LOOKS like cover for the
+// two walks below: it is a different axis with a different constant per level,
+// and on the reference host 2.6 KB of nested `Batch` killed the process with
+// every node-side guard already in place. So each walk counts its own axis.
+//
+// Module-level mutable state rather than a threaded parameter, because
+// `decodeNodeAst` is reached from roughly a dozen call sites inside the
+// per-kind dispatch and threading a counter through all of them would be a
+// large diff whose every omission is a silent hole. It is sound here because
+// decoding is synchronous and JavaScript is single-threaded: no two decodes
+// interleave, so the counters cannot be observed mid-walk by another caller.
+// Both public entry points reset them, so a walk that returned early on an
+// error never leaves a counter poisoned for the next call.
+let walkDepth = 0;
+let walkNodes = 0;
+let opDepth = 0;
+
+const resetWalk = (): void => {
+  walkDepth = 0;
+  walkNodes = 0;
+  opDepth = 0;
+};
+
+const limitError = (path: string, message: string, expected: string): R<never> =>
+  makeError('LIMIT_EXCEEDED', path, message, expected);
+
 const decodeNodeAst = (path: string, j: JsonAst): R<Node<unknown>> => {
+  // §21.2 rule 4 — on the way DOWN, before the recursion that would breach it.
+  if (walkDepth >= MAX_NODE_DEPTH) {
+    return limitError(
+      path,
+      `node nesting deeper than the wire limit MAX_NODE_DEPTH = ${MAX_NODE_DEPTH}`,
+      `a tree nesting nodes no more than ${MAX_NODE_DEPTH} levels deep`,
+    );
+  }
+  walkNodes += 1;
+  if (walkNodes > MAX_NODES) {
+    return limitError(
+      path,
+      `the document holds more than the wire limit MAX_NODES = ${MAX_NODES} nodes`,
+      `a tree of no more than ${MAX_NODES} nodes in total`,
+    );
+  }
+  walkDepth += 1;
+  const r = decodeNodeAstInner(path, j);
+  walkDepth -= 1;
+  return r;
+};
+
+const decodeNodeAstInner = (path: string, j: JsonAst): R<Node<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -5572,6 +5633,25 @@ const decodeNodeAst = (path: string, j: JsonAst): R<Node<unknown>> => {
 // ─── TreeOp ──────────────────────────────────────────────────────────────────
 
 const decodeTreeOpAst = (path: string, j: JsonAst): R<TreeOp<unknown>> => {
+  // The op axis, counted separately from the node axis and held to the same
+  // ceiling. `Batch` makes this function self-recursive, and §21.5's note for
+  // implementers is explicit that the syntactic bound is NOT adequate cover for
+  // it — enumerate every recursive entry point, including the ones whose
+  // recursion is over ops rather than nodes.
+  if (opDepth >= MAX_NODE_DEPTH) {
+    return limitError(
+      path,
+      `op nesting deeper than the wire limit MAX_NODE_DEPTH = ${MAX_NODE_DEPTH}`,
+      `a Batch nesting ops no more than ${MAX_NODE_DEPTH} levels deep`,
+    );
+  }
+  opDepth += 1;
+  const r = decodeTreeOpAstInner(path, j);
+  opDepth -= 1;
+  return r;
+};
+
+const decodeTreeOpAstInner = (path: string, j: JsonAst): R<TreeOp<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -5784,14 +5864,28 @@ const invalidJson = (parseMessage: string): R<never> =>
     'well-formed JSON object per the canonical-JSON shape',
   );
 
+/**
+ * Turn a parse failure into a decode error, honouring §21.2 rule 2: a resource
+ * limit breach is `LIMIT_EXCEEDED`, never `INVALID_JSON`. The parser flags the
+ * distinction because only the parser knows which of the two happened.
+ */
+const parseFailure = (e: { readonly message: string; readonly limit?: boolean }): R<never> =>
+  e.limit === true
+    ? makeError('LIMIT_EXCEEDED', '$', e.message, 'a document within the WIRE_FORMAT §21 limits')
+    : invalidJson(e.message);
+
 /** Decode a canonical-JSON `Node` payload into the storage-shape `Node<unknown>`. */
 export const decodeNode = (json: string): R<Node<unknown>> => {
   const parsed = parse(json);
-  return parsed.ok ? decodeNodeAst('$', parsed.value) : invalidJson(parsed.error.message);
+  if (!parsed.ok) return parseFailure(parsed.error);
+  resetWalk();
+  return decodeNodeAst('$', parsed.value);
 };
 
 /** Decode a canonical-JSON `TreeOp` payload into the storage-shape `TreeOp<unknown>`. */
 export const decodeOp = (json: string): R<TreeOp<unknown>> => {
   const parsed = parse(json);
-  return parsed.ok ? decodeTreeOpAst('$', parsed.value) : invalidJson(parsed.error.message);
+  if (!parsed.ok) return parseFailure(parsed.error);
+  resetWalk();
+  return decodeTreeOpAst('$', parsed.value);
 };
