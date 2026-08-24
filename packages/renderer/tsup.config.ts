@@ -1,7 +1,13 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/sanitize.ts', 'src/enhanceMath.ts', 'src/markdown.ts'],
+  entry: [
+    'src/index.ts',
+    'src/sanitize.ts',
+    'src/egress.ts',
+    'src/enhanceMath.ts',
+    'src/markdown.ts',
+  ],
   format: ['esm', 'cjs'],
   dts: true,
   clean: true,

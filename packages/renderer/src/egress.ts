@@ -318,3 +318,47 @@ export const egressRefusalMarker = (v: EgressVerdict): [string, string] | undefi
       return [egressRefusalAttribute, v.cls + ':' + v.scheme];
   }
 };
+
+/**
+ * Log-safe description of a verdict. Carries the HOST and the CLASS, never the
+ * URL — the same discipline the refusal marker keeps, and for the same reason:
+ * a refusal record outlives the session, and the query string of a refused
+ * exfiltration attempt is the payload itself.
+ */
+export const describeEgressVerdict = (v: EgressVerdict): string => {
+  switch (v.kind) {
+    case 'allowed':
+      return 'destination allowed';
+    case 'unsafeUrl':
+      return 'destination refused: the URL is not safe to render';
+    case 'undeclaredOrigin':
+      return `destination refused: origin '${v.host}' is not declared for '${v.cls}' egress`;
+    case 'localDenied':
+      return `destination refused: this policy denies same-origin '${v.cls}' egress`;
+    case 'nonNetworkDenied':
+      return `destination refused: scheme '${v.scheme}' has no origin to declare for '${v.cls}' egress`;
+  }
+};
+
+/**
+ * The one-call render seam: the URL to emit, plus the attributes that record a
+ * refusal in the document itself. An emission site adopts this by replacing its
+ * `sanitizeUrlOrBlank` call and splicing the returned attribute list — which is
+ * the whole adoption, per call site.
+ *
+ * A refusal returns `egressRefusalUrl`, never the bare `about:blank` the scheme
+ * floor emits: "nothing happened" and "this was refused" are different facts,
+ * and only one of them is debuggable. That INCLUDES the `unsafeUrl` verdict,
+ * whose marker value is the bare `unsafe-url` — the floor rejected the URL
+ * before there was any destination to name a class or host for.
+ */
+export const sanitizeUrlForEgress = (
+  policy: EgressPolicy,
+  cls: EgressClass,
+  url: string,
+): [string, readonly [string, string][]] => {
+  const verdict = checkDestination(policy, cls, url);
+  if (verdict.kind === 'allowed') return [verdict.url, []];
+  const marker = egressRefusalMarker(verdict);
+  return [egressRefusalUrl, marker === undefined ? [] : [marker]];
+};

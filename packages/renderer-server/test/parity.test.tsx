@@ -25,6 +25,7 @@ import { describe, expect, it } from 'vitest';
 
 import { decodeNode } from '@fuaran-ui/ops';
 import { FuaranRenderer } from '@fuaran-ui/renderer';
+import { permissiveEgress } from '@fuaran-ui/renderer/egress';
 
 import { renderToHtml } from '../src/index.js';
 
@@ -104,7 +105,13 @@ const referenceVocabulary = (): { exact: Set<string>; prefixes: string[] } => {
 
 describe('protected email link — no plaintext address in server output', () => {
   it('link-protected-1 emits the entity-encoded anchor and no scrapeable address', () => {
-    const html = renderToHtml(decode('link-protected-1.json'));
+    // Phase 1037 — `permissiveEgress` by name: the DEFAULT policy refuses
+    // `mailto:` (`allowNonNetwork: false`), so the protected arm is
+    // unreachable under it. This lock is about the entity-encoded emission,
+    // not the policy; the policy has its own corpus in `egressAmbient.test.ts`.
+    const html = renderToHtml(decode('link-protected-1.json'), {
+      egressPolicy: permissiveEgress,
+    });
     // The wrapper + protected classes, with every href/label character a
     // decimal entity (&#109;… = 'mailto:'). Byte-locked to the F# server
     // renderer's emission.

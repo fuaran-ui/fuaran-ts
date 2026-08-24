@@ -19,6 +19,7 @@ import type { Node } from '@fuaran-ui/schema';
 import { FuaranRenderer } from './Renderer.js';
 import type { BindingSources } from './bindings.js';
 import type { FuaranRuntime } from './customRegistry.js';
+import type { EgressPolicy } from './egress.js';
 
 /** The bundle's own stamp. Served by the .NET package's fingerprint endpoint and
  *  compared against the authoring package's wire profile, so a drifted embedded
@@ -53,6 +54,15 @@ export interface MountOptions<TMsg = unknown> {
   readonly runtime?: FuaranRuntime;
   /** Called when the wire JSON cannot be decoded, instead of throwing. */
   readonly onError?: (message: string) => void;
+  /**
+   * Phase 1037 — the ambient destination policy (WIRE_FORMAT §14.1). OMITTING
+   * IT MEANS `denyNonLocalEgress`, and that default matters most here: this
+   * entry point exists to render canonical wire JSON, which is precisely the
+   * case where the tree cannot be trusted to declare its own egress. A host
+   * that knows its own trust boundary passes `permissiveEgress` or an
+   * `allowOrigin`-built declaration by name.
+   */
+  readonly egressPolicy?: EgressPolicy;
 }
 
 /** A live mount. Keep it to update or tear down the rendered tree. */
@@ -160,6 +170,8 @@ export function mount<TMsg = unknown>(
         ...(options?.dispatch !== undefined ? { dispatch: options.dispatch } : {}),
         ...(options?.sources !== undefined ? { sources: options.sources } : {}),
         ...(runtime !== undefined ? { runtime } : {}),
+        // Absent, `<FuaranRenderer>` defaults to `denyNonLocalEgress`.
+        ...(options?.egressPolicy !== undefined ? { egressPolicy: options.egressPolicy } : {}),
       }),
     );
   };

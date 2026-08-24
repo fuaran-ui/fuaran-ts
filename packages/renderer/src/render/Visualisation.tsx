@@ -42,7 +42,7 @@ import { toneVar } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { runAction, writeBackTo } from '../context.js';
 import { drawingSvg } from '../drawingSvg.js';
-import { sanitizeUrlOrBlank } from '../sanitize.js';
+import { sanitizeUrlForEgress } from '../egress.js';
 import { renderNode } from './core.js';
 
 // Phase 534 tail / Phase 636–638 — the render dispatch consults the lowering's
@@ -865,12 +865,23 @@ const renderGridCell = <TMsg,>(
           ))}
         </span>
       );
-    case 'Link':
+    case 'Link': {
+      // Phase 1037 — the ambient destination policy, same as the `Link` node.
+      // Worth stating that this call site is not an afterthought: the href here
+      // comes from a ROW ACCESSOR over bound data, so a single decoded tree
+      // emits one per row, and a grid pointed at attacker-influenced rows is
+      // the highest-volume egress surface the renderer has.
+      const [href, egressAttrs] = sanitizeUrlForEgress(
+        ctx.egressPolicy,
+        'hyperlink',
+        kind.href(row),
+      );
       return (
-        <a className="fuaran-grid-cell-link" href={sanitizeUrlOrBlank(kind.href(row))}>
+        <a className="fuaran-grid-cell-link" href={href} {...Object.fromEntries(egressAttrs)}>
           {renderText(ctx.sources, kind.label(row))}
         </a>
       );
+    }
     case 'Pill':
       return (
         <span className={`fuaran-grid-cell-pill fuaran-pill-${toneVar(kind.tone(row))}`}>

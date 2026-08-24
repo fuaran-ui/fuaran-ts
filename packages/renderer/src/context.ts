@@ -22,6 +22,7 @@ import {
   describeActionDescriptor,
   type FuaranRuntime,
 } from './customRegistry.js';
+import { checkDestination, describeEgressVerdict, type EgressPolicy } from './egress.js';
 
 /**
  * Renderer-wide dependencies threaded through every recursive render call.
@@ -37,6 +38,32 @@ export interface RenderContext<TMsg> {
   readonly expandingFragments: ReadonlySet<string>;
   /** Phase 60: true under an active ErrorBoundary child subtree (suspends the per-node guard). */
   readonly inErrorBoundary: boolean;
+  /**
+   * Phase 1037 — the AMBIENT destination policy (WIRE_FORMAT §14.1). Every
+   * emission site that reaches a destination — a `Link` href, an `Image` src, a
+   * DataGrid link column, an `Action.Navigate` route, the markdown body —
+   * consults THIS field rather than a per-call argument, so a host cannot get
+   * the policy by forgetting to pass one.
+   *
+   * **The default is `denyNonLocalEgress` at every convenience entry point**:
+   * an emission cannot declare its own egress, so absent a host's declaration
+   * it gets none. `permissiveEgress` is reached BY NAME, so a grep for
+   * `permissive` finds every host that has opted back out — the permissive
+   * choice is visible in the host's own source instead of inherited silently.
+   *
+   * Two consequences a host meets on adoption, both deliberate. A `mailto:` /
+   * `tel:` href is REFUSED under the default (`allowNonNetwork: false`): those
+   * are egress channels with no host for a rule to name, so they can only be
+   * permitted wholesale, and permitting them by omission is the failure this
+   * default exists to prevent. And same-origin destinations are ALLOWED
+   * (`allowLocal: true`), so ordinary in-app links and assets render unchanged
+   * — the default denies leaving, not linking.
+   *
+   * A refused destination RENDERS as a refusal (`egressRefusalUrl` +
+   * `egressRefusalAttribute`), never as a silent neuter: "nothing happened" and
+   * "this was refused" are different facts, and only one of them is debuggable.
+   */
+  readonly egressPolicy: EgressPolicy;
 }
 
 // ─── Unwired-action detection (UX hint only) ─────────────────────────────────
@@ -88,6 +115,34 @@ const applyDispatchGate = <TMsg>(
     return;
   }
   effect();
+};
+
+/**
+ * Phase 1037 — consult the ambient destination policy for a route before any
+ * navigation happens. Exported so a host (and this package's tests) can pin the
+ * decision without a browser render; the TS port of the F#
+ * `Render.treeNavigateOutcome`.
+ *
+ * Returns `undefined` when the route was allowed and `navigate` ran with the
+ * SANITISED route, or the log-safe refusal reason when it did not. The reason
+ * names the class and — where there is one — the host, never the path or query,
+ * which is exactly where an exfiltrated payload would be sitting. The `warn`
+ * may carry the raw route because a diagnostic a developer reads in their own
+ * console is a different surface from a record that outlives the session.
+ */
+export const treeNavigate = <TMsg>(
+  ctx: RenderContext<TMsg>,
+  route: string,
+  navigate: (safeRoute: string) => void,
+): string | undefined => {
+  const verdict = checkDestination(ctx.egressPolicy, 'route', route);
+  if (verdict.kind === 'allowed') {
+    navigate(verdict.url);
+    return undefined;
+  }
+  const reason = describeEgressVerdict(verdict);
+  warn(ctx as RenderContext<unknown>, `Action.Navigate refused — ${reason}: ${route}`);
+  return reason;
 };
 
 /** Interpret an action: Dispatch/Chain/CommitLocal are native; the rest route through the runtime. */
@@ -150,13 +205,20 @@ export const runAction = <TMsg>(ctx: RenderContext<TMsg>, action: Action<TMsg>):
         );
       return;
     case 'Navigate':
-      applyDispatchGate(ctx, { kind: 'Navigate', route: action.route }, () => {
-        if (ctx.runtime.navigate) ctx.runtime.navigate(action.route);
-        else
-          warn(
-            ctx as RenderContext<unknown>,
-            `Action.Navigate to '${action.route}' — no runtime.navigate wired.`,
-          );
+      // Phase 1037 — the ambient destination policy runs BEFORE the dispatch
+      // gate, in the `Route` class. A refusal performs NO navigation at all and
+      // warns: unlike an `href`, where the anchor must stay structurally valid,
+      // a navigation the author never asked for is not an improvement on a
+      // refused one. Port of the F# `treeNavigateOutcome`.
+      treeNavigate(ctx, action.route, (safe) => {
+        applyDispatchGate(ctx, { kind: 'Navigate', route: safe }, () => {
+          if (ctx.runtime.navigate) ctx.runtime.navigate(safe);
+          else
+            warn(
+              ctx as RenderContext<unknown>,
+              `Action.Navigate to '${safe}' — no runtime.navigate wired.`,
+            );
+        });
       });
       return;
     case 'SetState': {

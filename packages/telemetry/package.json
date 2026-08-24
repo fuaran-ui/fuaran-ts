@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/telemetry",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Telemetry record contract for Fuaran hosts — the structured records a sink receives (starting with the deny record) plus the fire-and-forget sink interface. The TypeScript mirror of the F# Fuaran.UI.Telemetry.Abstractions package.",
   "keywords": [
     "fuaran",

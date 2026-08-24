@@ -23,10 +23,15 @@
 //     node rendered by `<FuaranRenderer>` through `renderToStaticMarkup`. Leg 1
 //     alone would pass on a server that routed its Markdown display somewhere
 //     else entirely; this leg is the one that pins the PATH, not just the
-//     function. It runs permissively on both sides because neither render call
-//     site passes a policy — making that ambient is a separate change, and a
-//     test that reached past the call sites would assert a parity the shipped
-//     renderers do not have.
+//     function.
+//
+//     Phase 1037 — it now runs under the policy each fixture NAMES, on both
+//     sides, because the policy became ambient on both render contexts. Before
+//     1037 it ran permissively for a stated reason: neither call site passed a
+//     policy, so asserting a policied parity would have asserted a property the
+//     shipped renderers did not have. That is no longer true, and the parity is
+//     stronger for it — two tiers agreeing on the permissive path say nothing
+//     about whether they agree on a refusal.
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
@@ -130,13 +135,26 @@ describe('Leg 1 — the server markdown surface IS the deterministic corpus rend
 });
 
 describe('Leg 2 — a rendered Markdown node is byte-identical to the client renderer', () => {
-  it.each(corpus.fixtures.map((f) => [f.id, f.source] as const))(
+  it.each(corpus.fixtures.map((f) => [f.id, f] as const))(
     '%s — renderToHtml equals <FuaranRenderer> through renderToStaticMarkup',
-    (_id, source) => {
-      const tree = markdownNode(source);
-      expect(renderToHtml(tree)).toBe(renderToStaticMarkup(<FuaranRenderer tree={tree} />));
+    (_id, f) => {
+      const tree = markdownNode(f.source);
+      const policy = policyByName(f.policy);
+      expect(renderToHtml(tree, { egressPolicy: policy })).toBe(
+        renderToStaticMarkup(<FuaranRenderer tree={tree} egressPolicy={policy} />),
+      );
     },
   );
+
+  it('the two tiers agree on the DEFAULT policy too, with neither told what it is', () => {
+    // The pair above names a policy on both sides, so it would still pass if
+    // the two tiers had picked different DEFAULTS. This one does not name one.
+    const tree = markdownNode('[r](https://collector.example/x?s=secret)');
+    expect(renderToHtml(tree)).toBe(renderToStaticMarkup(<FuaranRenderer tree={tree} />));
+    expect(renderToHtml(tree)).toContain(
+      'data-fuaran-egress-refused="hyperlink:collector.example"',
+    );
+  });
 });
 
 describe('the retired `marked` path stays retired', () => {

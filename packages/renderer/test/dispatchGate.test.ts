@@ -20,6 +20,7 @@ import { type Action, apiEndpoint } from '@fuaran-ui/schema';
 
 import type { BindingSources } from '../src/bindings.js';
 import { runAction, type RenderContext } from '../src/context.js';
+import { denyNonLocalEgress } from '../src/egress.js';
 import {
   type ActionDescriptor,
   describeActionDescriptor,
@@ -36,6 +37,12 @@ const mkCtx = (
   fragments: new Map(),
   expandingFragments: new Set(),
   inErrorBoundary: false,
+  // Phase 1037 — the honest default. Every `Navigate` route in this file is
+  // same-origin, which `denyNonLocalEgress` permits (`allowLocal: true`), so
+  // the egress check is transparent here and the dispatch gate is what these
+  // assertions measure. Egress-specific navigation refusal is pinned in
+  // `egressAmbient.test.tsx`.
+  egressPolicy: denyNonLocalEgress,
 });
 
 const navigate: Action<string> = { kind: 'Navigate', route: '/admin' };

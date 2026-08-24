@@ -24,7 +24,12 @@
 //  packaged `@fuaran-ui/renderer/css`); this renderer emits the body fragment.
 // ============================================================================
 
-import { sanitizeExtraAttributes, sanitizeUrlOrBlank } from '@fuaran-ui/renderer/sanitize';
+import {
+  denyNonLocalEgress,
+  type EgressPolicy,
+  sanitizeUrlForEgress,
+} from '@fuaran-ui/renderer/egress';
+import { sanitizeExtraAttributes } from '@fuaran-ui/renderer/sanitize';
 import type {
   Action,
   Binding,
@@ -74,7 +79,7 @@ import { isLowered, lower, type ChartRow } from '@fuaran-ui/charts';
 
 import { motionVar, nodeClassName, toneVar } from './classNames.js';
 import { type Attr, el, escapeText, textEl, voidEl } from './html.js';
-import { toHtml } from './markdown.js';
+import { toHtmlWithEgress } from './markdown.js';
 
 const EM_DASH = '—';
 
@@ -110,6 +115,14 @@ interface ServerContext {
   readonly sources: BindingSources;
   readonly fragments: ReadonlyMap<string, Node<unknown>>;
   readonly expandingFragments: ReadonlySet<string>;
+  /**
+   * Phase 1037 — the ambient destination policy (WIRE_FORMAT §14.1), the server
+   * twin of the client's `RenderContext.egressPolicy`. Same default
+   * (`denyNonLocalEgress`), same reason: an emission cannot declare its own
+   * egress, and the server tier renders a decoded tree into a document a
+   * browser fetches before any script runs.
+   */
+  readonly egressPolicy: EgressPolicy;
 }
 
 // ─── Fragment collection + namespacing (port of @fuaran-ui/renderer/context) ──
@@ -729,11 +742,16 @@ const renderDisplay = (
     }
 
     case 'Markdown':
-      // toHtml returns already-sanitised HTML — inserted raw (the innerHTML seam).
+      // Returns already-sanitised HTML — inserted raw (the innerHTML seam).
+      // Phase 1037 — rendered under the SAME ambient policy the `Link` / `Image`
+      // arms consult, so a markdown body's own links and images are policed
+      // exactly as the tree's own destinations are. Byte-parity with the client
+      // arm holds because both tiers call the one deterministic renderer with
+      // the same policy.
       return el(
         'div',
         [['class', 'fuaran-markdown']],
-        toHtml(renderText(ctx.sources, display.spec.text)),
+        toHtmlWithEgress(ctx.egressPolicy, renderText(ctx.sources, display.spec.text)),
       );
 
     case 'Metric':
@@ -816,7 +834,16 @@ const renderDisplay = (
     }
 
     case 'Link': {
-      const href = sanitizeUrlOrBlank(tryResolve(ctx.sources, display.spec.href) ?? '');
+      // Phase 1037 — the ambient destination policy; the client tier's `Link`
+      // arm makes the identical call with the identical class, which is what
+      // keeps the two emitted hrefs parity-locked. `download` is deliberately
+      // NOT the class even when set: the class names the SINK the browser
+      // reaches, and flipping a tree boolean must not change which rule applies.
+      const [href, egressAttrs] = sanitizeUrlForEgress(
+        ctx.egressPolicy,
+        'hyperlink',
+        tryResolve(ctx.sources, display.spec.href) ?? '',
+      );
       if (display.spec.protection === 'email' && href.startsWith('mailto:')) {
         // Phase 812 — protected email link. Every character of the sanitised
         // href AND the label is emitted as a decimal HTML entity: the browser
@@ -848,11 +875,19 @@ const renderDisplay = (
       if (display.spec.download) attrs.push(['download', true]);
       // Phase 951 — the node's a11y projection lands on the anchor.
       attrs.push(...semanticAttrs);
+      // Phase 1037 — the refusal marker rides the element carrying the refused
+      // href. Empty on an allow.
+      attrs.push(...egressAttrs);
       return textEl('a', attrs, renderText(ctx.sources, display.spec.label));
     }
 
     case 'Image': {
-      const src = sanitizeUrlOrBlank(tryResolve(ctx.sources, display.spec.src) ?? '');
+      // Phase 1037 — `media`: the class the browser fetches with no user act.
+      const [src, egressAttrs] = sanitizeUrlForEgress(
+        ctx.egressPolicy,
+        'media',
+        tryResolve(ctx.sources, display.spec.src) ?? '',
+      );
       const variantClass =
         display.spec.variant === 'Avatar'
           ? 'fuaran-image fuaran-image-avatar'
@@ -865,6 +900,7 @@ const renderDisplay = (
         ['src', src],
         ['alt', renderText(ctx.sources, display.spec.alt)],
         ...semanticAttrs,
+        ...egressAttrs,
       ]);
     }
 
@@ -1920,15 +1956,21 @@ const renderGridCell = (ctx: ServerContext, col: ColumnErased<unknown>, row: unk
           )
           .join(''),
       );
-    case 'Link':
+    case 'Link': {
+      // Phase 1037 — the ambient policy, per row. The highest-volume egress
+      // surface the renderer has: one href per row, all from a row accessor
+      // over bound data.
+      const [href, egressAttrs] = sanitizeUrlForEgress(
+        ctx.egressPolicy,
+        'hyperlink',
+        kind.href(row),
+      );
       return textEl(
         'a',
-        [
-          ['class', 'fuaran-grid-cell-link'],
-          ['href', sanitizeUrlOrBlank(kind.href(row))],
-        ],
+        [['class', 'fuaran-grid-cell-link'], ['href', href], ...egressAttrs],
         renderText(ctx.sources, kind.label(row)),
       );
+    }
     case 'Pill':
       return textEl(
         'span',
@@ -2141,6 +2183,19 @@ const renderFragmentRef = (ctx: ServerContext, parentNodeId: string, name: strin
 export interface RenderToHtmlOptions {
   /** Host-supplied binding sources used to resolve non-`Static` bindings. Defaults to empty. */
   readonly sources?: BindingSources;
+  /**
+   * Phase 1037 — the ambient destination policy (WIRE_FORMAT §14.1) consulted
+   * for every `Link` href, `Image` src, DataGrid link column and markdown body
+   * in the tree.
+   *
+   * **Omitting it means `denyNonLocalEgress`.** An emission cannot declare its
+   * own egress, so absent a host's declaration it gets none — and the server
+   * tier is where that matters most, because a refused `<img src>` in a
+   * server-rendered document is fetched by the browser before any script runs.
+   * Pass `permissiveEgress` for a hand-authored tree, or an `allowOrigin`-built
+   * policy to declare specific destinations; both are reached BY NAME.
+   */
+  readonly egressPolicy?: EgressPolicy;
 }
 
 /**
@@ -2155,6 +2210,8 @@ export const renderToHtml = <TMsg>(tree: Node<TMsg>, options: RenderToHtmlOption
     sources: options.sources ?? emptySources,
     fragments: collectFragments(new Map<string, Node<unknown>>(), node),
     expandingFragments: new Set<string>(),
+    // Phase 1037 — default-deny. A host widens it BY NAME via `egressPolicy`.
+    egressPolicy: options.egressPolicy ?? denyNonLocalEgress,
   };
   return renderNode(ctx, node);
 };

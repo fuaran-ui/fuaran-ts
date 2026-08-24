@@ -33,8 +33,8 @@ import { toneVar } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { drawingSvg } from '../drawingSvg.js';
 import { mathMl } from '../mathMl.js';
-import { toHtml } from '../markdown.js';
-import { sanitizeUrlOrBlank } from '../sanitize.js';
+import { sanitizeUrlForEgress } from '../egress.js';
+import { toHtmlWithEgress } from '../markdown.js';
 import { renderNode } from './core.js';
 import { iconHook } from './iconHook.js';
 
@@ -80,10 +80,17 @@ export const renderDisplay = <TMsg,>(
       return renderHeading(ctx, display.spec);
 
     case 'Markdown':
+      // Phase 1037 — the markdown body's own links and images are destinations
+      // like any other, so the body is rendered under the SAME ambient policy
+      // the `Link` / `Image` arms below consult. The pure `toHtml` survives as
+      // the permissive case; reaching it from here would have left a decoded
+      // markdown body as the one unpoliced egress surface in the renderer.
       return (
         <div
           className="fuaran-markdown"
-          dangerouslySetInnerHTML={{ __html: toHtml(renderText(ctx.sources, display.spec.text)) }}
+          dangerouslySetInnerHTML={{
+            __html: toHtmlWithEgress(ctx.egressPolicy, renderText(ctx.sources, display.spec.text)),
+          }}
         />
       );
 
@@ -164,10 +171,27 @@ export const renderDisplay = <TMsg,>(
       // Phase 951 — this arm's element IS the node, so the node's a11y
       // projection (and the aria-* half of its extraAttributes) spreads onto it
       // rather than onto the wrapper div.
-      // A real <a href> — crawlable + works with JS disabled. href resolves the
-      // binding then passes through sanitizeUrlOrBlank (rejected URLs collapse
-      // to about:blank). rel/target emit when set; download emits a bare attr.
-      const href = sanitizeUrlOrBlank(tryResolve(ctx.sources, display.spec.href) ?? '');
+      // A real <a href> — crawlable + works with JS disabled. rel/target emit
+      // when set; download emits a bare attr.
+      //
+      // Phase 1037 — href resolves the binding then passes through the AMBIENT
+      // destination policy in the `hyperlink` class. The scheme floor still
+      // runs (it is the first thing `checkDestination` does), but it only
+      // decides whether this URL is safe to HAVE; the policy decides whether
+      // this tree may point at that host AT ALL. A refused href renders as
+      // `about:blank#fuaran-egress-refused` carrying the class + host, so the
+      // refusal is visible in the document rather than only in the logs.
+      //
+      // `download` is deliberately NOT the class here even when
+      // `spec.download` is set: the class names the SINK the browser reaches,
+      // and a `download` anchor is still a hyperlink the user must act on.
+      // Scoping it separately would let a policy that denied hyperlinks admit
+      // the same destination by flipping one boolean on the tree.
+      const [href, egressAttrs] = sanitizeUrlForEgress(
+        ctx.egressPolicy,
+        'hyperlink',
+        tryResolve(ctx.sources, display.spec.href) ?? '',
+      );
       if (display.spec.protection === 'email' && href.startsWith('mailto:')) {
         // Phase 812 — protected email link, client side. The client DOM is
         // assembled at runtime (nothing scrapes a hydrated DOM that the server
@@ -186,6 +210,9 @@ export const renderDisplay = <TMsg,>(
           </span>
         );
       }
+      // The refusal marker rides the element that carries the refused href, so
+      // a reader of the DOM sees WHY this anchor points at about:blank. Empty
+      // on an allow.
       return (
         <a
           className="fuaran-link"
@@ -194,6 +221,7 @@ export const renderDisplay = <TMsg,>(
           {...(display.spec.target !== undefined ? { target: display.spec.target } : {})}
           {...(display.spec.download ? { download: '' } : {})}
           {...semanticAttrs}
+          {...Object.fromEntries(egressAttrs)}
         >
           {renderText(ctx.sources, display.spec.label)}
         </a>
@@ -201,10 +229,21 @@ export const renderDisplay = <TMsg,>(
     }
 
     case 'Image': {
-      // A real <img> (Phase 287). src resolves the binding then passes through
-      // sanitizeUrlOrBlank (blocks javascript:/vbscript:/file:); alt is
-      // mandatory; variant appends an Avatar / Rounded class.
-      const src = sanitizeUrlOrBlank(tryResolve(ctx.sources, display.spec.src) ?? '');
+      // A real <img> (Phase 287). alt is mandatory; variant appends an Avatar /
+      // Rounded class.
+      //
+      // Phase 1037 — `src` is the `media` class, and it is the one that matters
+      // most: the browser fetches it with NO user act, so RENDERING the tree IS
+      // the request. `https://collector.example/?s=<bound state>` passes every
+      // scheme check in `sanitize.ts` — allowlisted scheme, well-formed host,
+      // no script anywhere — and exfiltrates on sight. Only the origin
+      // allowlist closes it, which is why the ambient default denies rather
+      // than waiting to be asked.
+      const [src, egressAttrs] = sanitizeUrlForEgress(
+        ctx.egressPolicy,
+        'media',
+        tryResolve(ctx.sources, display.spec.src) ?? '',
+      );
       const variantClass =
         display.spec.variant === 'Avatar'
           ? 'fuaran-image fuaran-image-avatar'
@@ -218,6 +257,7 @@ export const renderDisplay = <TMsg,>(
           src={src}
           alt={renderText(ctx.sources, display.spec.alt)}
           {...semanticAttrs}
+          {...Object.fromEntries(egressAttrs)}
         />
       );
     }

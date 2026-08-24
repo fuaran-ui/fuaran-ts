@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest';
 
 import { decodeNode } from '@fuaran-ui/ops';
 
-import { FuaranRenderer } from '../src/index.js';
+import { FuaranRenderer, permissiveEgress } from '../src/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // packages/renderer/test → workspace-root/wire-format-fixtures
@@ -28,11 +28,28 @@ const fixtureFiles = readdirSync(nodesDir)
   .filter((f) => f.endsWith('.json'))
   .sort();
 
+/**
+ * Render for THIS corpus (Phase 1037).
+ *
+ * The corpus asks a question about the class + ARIA vocabulary, so it renders
+ * under a policy that admits every destination. That is not a weakening: the
+ * ambient default-deny has its own dedicated corpus in `egressAmbient.test.tsx`,
+ * and leaving it switched on here would mean a class-name regression and an
+ * egress-policy change produced the same failure output — a corpus that cannot
+ * say which of two things broke is worth much less than two that can.
+ *
+ * `link-protected-1.json` is a `mailto:` link, which the DEFAULT policy refuses
+ * (`allowNonNetwork: false`); rendering under `permissiveEgress` is what keeps
+ * it testing the anchor shape rather than the policy. Mirrors the F# SSR parity
+ * corpus's `renderHtml`, which made the identical call for the identical reason.
+ */
 const renderFixture = (file: string): string => {
   const json = readFileSync(join(nodesDir, file), 'utf8');
   const decoded = decodeNode(json);
   if (!decoded.ok) throw new Error(`decode failed for ${file}: ${JSON.stringify(decoded.error)}`);
-  return renderToStaticMarkup(<FuaranRenderer tree={decoded.value} />);
+  return renderToStaticMarkup(
+    <FuaranRenderer tree={decoded.value} egressPolicy={permissiveEgress} />,
+  );
 };
 
 describe('fixture-corpus — decode + render every node fixture', () => {

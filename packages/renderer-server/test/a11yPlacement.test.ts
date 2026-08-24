@@ -16,6 +16,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Node } from '@fuaran-ui/schema';
+import { permissiveEgress } from '@fuaran-ui/renderer/egress';
 import { fuaran, node } from '@fuaran-ui/ui';
 
 import { renderToHtml } from '../src/index.js';
@@ -85,10 +86,16 @@ describe('Phase 951 — the a11y projection targets the semantic element (server
   // string, so the projection lands on the wrap <span> — the only element that
   // arm owns in every tier. A stated limit, pinned so it stays deliberate.
   it('protected-email Link — the projection lands on the wrap span', () => {
+    // Phase 1037 — `permissiveEgress` by name: `mailto:` has no host for a rule
+    // to name, so the DEFAULT policy refuses it (`allowNonNetwork: false`) and
+    // the protected arm is unreachable. This test asks where the a11y
+    // projection lands, not what the policy decides — the policy has its own
+    // corpus in `egressAmbient.test.ts`.
     const markup = renderToHtml(
       withA11y(
         fuaran.link({ id: 'plk', href: 'mailto:u@e.com', label: 'u@e.com', protection: 'email' }),
       ),
+      { egressPolicy: permissiveEgress },
     );
 
     expect(wrapperTag(markup)).not.toContain('aria-label');

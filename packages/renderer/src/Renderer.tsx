@@ -21,6 +21,7 @@ import type { BindingSources } from './bindings.js';
 import type { RenderContext } from './context.js';
 import { collectFragments } from './context.js';
 import type { FuaranRuntime } from './customRegistry.js';
+import { denyNonLocalEgress, type EgressPolicy } from './egress.js';
 import { pageChangeHub } from './changeHub.js';
 import {
   buildDebugGlobal,
@@ -43,6 +44,19 @@ export interface FuaranRendererProps<TMsg = unknown> {
   readonly runtime?: FuaranRuntime;
   /** Optional theme — injects CSS custom properties as inline variables at the render root. */
   readonly theme?: Theme;
+  /**
+   * Phase 1037 — the ambient destination policy (WIRE_FORMAT §14.1) every
+   * emission site consults for a `Link` href, an `Image` src, a DataGrid link
+   * column, an `Action.Navigate` route and the markdown body.
+   *
+   * **Omitting it means `denyNonLocalEgress`** — a decoded (wire) tree cannot
+   * declare its own egress, so absent a host's declaration it gets none. Pass
+   * `permissiveEgress` for a HAND-AUTHORED tree, where the author is the trust
+   * boundary; pass an `allowOrigin`-built policy to declare specific
+   * destinations. Naming the permissive policy is deliberate: a grep for
+   * `permissive` finds every host that opted back out.
+   */
+  readonly egressPolicy?: EgressPolicy;
   /**
    * When `true`, registers the in-page introspection REPL on `window.__fuaran`
    * for the duration this renderer is mounted (see `debugGlobal.ts`). The global
@@ -120,6 +134,8 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
     fragments: collectFragments(new Map<string, Node<TMsg>>(), props.tree),
     expandingFragments: new Set<string>(),
     inErrorBoundary: false,
+    // Phase 1037 — default-deny. A host widens it BY NAME via `egressPolicy`.
+    egressPolicy: props.egressPolicy ?? denyNonLocalEgress,
   };
 
   const rendered = renderNode(ctx, props.tree);
