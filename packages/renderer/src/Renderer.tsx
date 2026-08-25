@@ -15,7 +15,7 @@
 
 import { type CSSProperties, type ReactElement, useEffect } from 'react';
 
-import type { Node } from '@fuaran-ui/schema';
+import type { HashStrictness, Node } from '@fuaran-ui/schema';
 
 import type { BindingSources } from './bindings.js';
 import type { RenderContext } from './context.js';
@@ -57,6 +57,19 @@ export interface FuaranRendererProps<TMsg = unknown> {
    * `permissive` finds every host that opted back out.
    */
   readonly egressPolicy?: EgressPolicy;
+  /**
+   * Phase 1021 — the host's MINIMUM `NodeKind.Custom` content-hash strictness. A
+   * tree's own declared strictness may raise it, never lower it; under an
+   * enforcing floor (`'StrictReplay'` / `'Enforced'`) a `Custom` node whose hash
+   * cannot be verified — the tree declared none, or the registry recorded none —
+   * is refused rather than rendered.
+   *
+   * **Omitting it means `'AdvisoryWarning'`** — the pre-1021 behaviour,
+   * byte-for-byte. Unlike `egressPolicy` the safe default here is the lenient
+   * one (a `Custom` node with no hash is the common legitimate case), so
+   * enforcement is the act a host takes by name.
+   */
+  readonly customHashFloor?: HashStrictness;
   /**
    * When `true`, registers the in-page introspection REPL on `window.__fuaran`
    * for the duration this renderer is mounted (see `debugGlobal.ts`). The global
@@ -136,6 +149,9 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
     inErrorBoundary: false,
     // Phase 1037 — default-deny. A host widens it BY NAME via `egressPolicy`.
     egressPolicy: props.egressPolicy ?? denyNonLocalEgress,
+    // Phase 1021 — absent means the lenient default floor. `exactOptionalPropertyTypes`:
+    // omit rather than pass an explicit `undefined`.
+    ...(props.customHashFloor !== undefined ? { customHashFloor: props.customHashFloor } : {}),
   };
 
   const rendered = renderNode(ctx, props.tree);

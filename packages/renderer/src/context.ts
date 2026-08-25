@@ -9,6 +9,7 @@ import type {
   Binding,
   FileReadEncoding,
   FragmentId,
+  HashStrictness,
   JsonValue,
   LayoutKind,
   Node,
@@ -64,6 +65,23 @@ export interface RenderContext<TMsg> {
    * "this was refused" are different facts, and only one of them is debuggable.
    */
   readonly egressPolicy: EgressPolicy;
+  /**
+   * Phase 1021 — the host's MINIMUM `NodeKind.Custom` content-hash strictness
+   * (the Phase 783 posture, ported). A tree's own declared strictness may raise
+   * this, never lower it; under an enforcing floor a hash that cannot be
+   * verified — because the tree declared none, or the registry recorded none —
+   * is a refusal rather than a silent render.
+   *
+   * **Optional, unlike `egressPolicy`, and that asymmetry is deliberate.** The
+   * safe posture for egress is the restrictive one, so forgetting to pass a
+   * policy must not be permitted to be the permissive case. The safe posture
+   * here is the LENIENT one: a `Custom` node with no hash is the common
+   * legitimate case, and an enforcing default would refuse most existing trees
+   * on upgrade. So an absent declaration reads as `AdvisoryWarning` — the
+   * pre-1021 behaviour, byte-for-byte — and enforcement is an act a host takes
+   * by name. Read it through `customHashFloorOf`, never directly.
+   */
+  readonly customHashFloor?: HashStrictness;
 }
 
 // ─── Unwired-action detection (UX hint only) ─────────────────────────────────

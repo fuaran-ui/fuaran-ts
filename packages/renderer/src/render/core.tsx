@@ -17,6 +17,8 @@ import type { ReactElement, ReactNode } from 'react';
 import type { Node, NodeKind, StateBehaviour } from '@fuaran-ui/schema';
 
 import { resolve } from '../bindings.js';
+import { collectFragments } from '../context.js';
+import { deriveGuestPrivilege } from '../guestPrivilege.js';
 import {
   accessibilityAttributes,
   forwardsToSemanticElement,
@@ -120,16 +122,63 @@ export const renderKind = <TMsg,>(
       return null;
     case 'FragmentRef':
       return renderFragmentRef(ctx, parentNodeId, kind.spec);
-    case 'Mount':
-      // Isolation/embedding boundary (§4o) — declared empty state until the
-      // guest loader attaches (Phase 266); mirrors the F# renderer's Mount arm
-      // (never a throw). The scope id is carried as a data attribute so the
-      // boundary stays addressable across the isolation seam.
+    case 'Mount': {
+      // Isolation/embedding boundary (§4o), mirroring the reference renderer's
+      // Mount arm (never a throw). The scope id is carried as a data attribute
+      // so the boundary stays addressable across the isolation seam.
+      //
+      // Phase 1021 — THIS IS THE ONLY CALL TO `loadGuest` IN THE RENDERER, and
+      // it derives the guest's privilege in the same expression that resolves
+      // the guest. A host supplies a loader; it never constructs the guest's
+      // context, so it cannot construct a privileged one. With no `guestSeam`
+      // wired the guest is UNPRIVILEGED and its channel is clamped to `OutOnly`
+      // — see `guestPrivilege.ts` for the whole contract and why the clamp
+      // precedes every read.
+      const spec = kind.spec;
+      const guestTree = ctx.runtime.loadGuest?.(spec.scopeId);
+      if (guestTree === undefined) {
+        // No loader wired (the default / standalone / server case): a Mount is
+        // inert. Byte-identical to the pre-1021 placeholder — the string
+        // renderer emits the same one and the fixture snapshots pin both.
+        return (
+          <div className="fuaran-mount-placeholder" data-fuaran-mount-scope={spec.scopeId}>
+            {`[fuaran:mount '${spec.scopeId}' — guest loader not attached]`}
+          </div>
+        );
+      }
+
+      const privilege = deriveGuestPrivilege(
+        spec,
+        ctx.runtime,
+        // The raw bubble: a guest dispatch reaches the host ONLY here, tagged
+        // with its scope, so the host's own TMsg stays behind the boundary. An
+        // unwired port swallows it — inert, exactly like an unwired `onBubble`.
+        (action) => ctx.runtime.bubbleGuestAction?.(spec.scopeId, action),
+        ctx.runtime.guestSeam,
+      );
+
+      const guestCtx: RenderContext<unknown> = {
+        sources: ctx.sources,
+        runtime: privilege.runtime,
+        dispatch: privilege.dispatch,
+        fragments: collectFragments(new Map<string, Node<unknown>>(), guestTree),
+        expandingFragments: new Set<string>(),
+        inErrorBoundary: false,
+        // The guest INHERITS the host's egress policy and hash floor. A guest
+        // tree is composed by a host-side loader but is not thereby more trusted
+        // than the tree that mounted it, and a guest able to WIDEN either would
+        // make the ambient default reachable around. Narrowing for a guest is a
+        // host act, available through `GuestSeam.wrapRuntime`.
+        egressPolicy: ctx.egressPolicy,
+        ...(ctx.customHashFloor !== undefined ? { customHashFloor: ctx.customHashFloor } : {}),
+      };
+
       return (
-        <div className="fuaran-mount-placeholder" data-fuaran-mount-scope={kind.spec.scopeId}>
-          {`[fuaran:mount '${kind.spec.scopeId}' — guest loader not attached]`}
+        <div className="fuaran-mount-boundary" data-fuaran-mount-scope={spec.scopeId}>
+          {renderNode(guestCtx, guestTree)}
         </div>
       );
+    }
   }
 };
 

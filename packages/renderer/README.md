@@ -41,6 +41,48 @@ registerCustomRenderer(registry, 'charts', 'sparkline', ({ props }) => (
 <FuaranRenderer tree={tree} runtime={{ registry }} />;
 ```
 
+## Custom / Mount hardening posture — the named contract
+
+`NodeKind.Custom` and `NodeKind.Mount` are the two surfaces that sit **outside**
+the dispatch gate structurally, so `runtime.canDispatch` does not reach them.
+Their posture is specified once, language-neutrally, in the
+[sanitization contract](../../../fuaran-dotnet/SANITIZATION.md) — sections
+_"What the registry scoping and `ContentHash` do and do NOT protect"_ and
+_"The `Mount` boundary"_. **A new host ports from that contract, not by reading
+another host's source**; what follows is only how this host binds it.
+
+**`ContentHash` is drift detection, never authentication.** The tree supplies its
+own hash record, so a match proves only that whoever wrote the tree knew the
+registered renderer's hash. Strictness is therefore a **host floor a tree may
+only tighten**, and under an enforcing floor a hash that cannot be verified —
+because the tree declared none, or the registry recorded none — is a refusal
+rather than a silent render:
+
+```tsx
+<FuaranRenderer tree={tree} runtime={{ registry }} customHashFloor="StrictReplay" />
+```
+
+Omitting `customHashFloor` means `'AdvisoryWarning'`: a `Custom` node with no
+hash is the common legitimate case, so the default is the lenient one and
+enforcement is an act a host takes by name. `classifyCustomHashUnder` is exported
+as the pure join, so the rule is testable without a render.
+
+**`Mount` is unprivileged by default.** `runtime.loadGuest` is the guest loader
+seam; the renderer's `Mount` arm owns the only call to it and derives the guest's
+privilege in the same expression, so a loader cannot construct a privileged guest
+context. With no `runtime.guestSeam` wired the guest receives a **deny-all
+runtime** — every capability refused through the host's `warn`, `canDispatch`
+false, no custom-renderer registry, no nested guest loading. And because
+`channel.direction` is a required wire field a decoded tree fills in itself, the
+channel is **clamped to `OutOnly` before anything reads it**; `TwoWay` is a host
+grant (`GuestSeam.grantTwoWay`) and a refused upgrade is warned, never dropped
+silently. The clamp is at the renderer rather than the decoder, deliberately: the
+decoder preserves what the wire said, so canonical round-trip and the shared
+conformance corpus are untouched.
+
+A `Mount` in a host that wires no loader renders an inert placeholder, exactly as
+before.
+
 ## Theme bridge
 
 ```tsx

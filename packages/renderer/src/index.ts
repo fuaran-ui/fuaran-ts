@@ -79,6 +79,32 @@ export {
   type ActionDescriptor,
 } from './customRegistry.js';
 
+// The `NodeKind.Custom` content-hash FLOOR (Phase 1021, porting the Phase 783
+// posture). `ContentHash` is drift detection, never authentication — the tree
+// supplies its own record — so strictness is a host floor a tree may only
+// TIGHTEN, and under an enforcing floor an unverifiable hash is a refusal.
+export {
+  classifyCustomHashUnder,
+  customHashFloorOf,
+  defaultCustomHashFloor,
+  isEnforcingHashStrictness,
+  type CustomHashOutcome,
+} from './customHash.js';
+
+// The `NodeKind.Mount` guest-privilege contract (Phase 1021). No seam means
+// UNPRIVILEGED, the channel is clamped to `OutOnly` before anything reads it,
+// and `TwoWay` is a host grant with a warned downgrade. The renderer's Mount arm
+// owns the only call to `FuaranRuntime.loadGuest`, so a future loader inherits
+// this rather than bypassing it.
+export {
+  deriveGuestPrivilege,
+  unprivilegedGuestRuntime,
+  type GuestMountDeclaration,
+  type GuestPrivilege,
+  type GuestSeam,
+  type GuestSeamContext,
+} from './guestPrivilege.js';
+
 export {
   type BindingSources,
   type Resolution,

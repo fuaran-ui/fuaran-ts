@@ -18,7 +18,10 @@ import type {
   FileRef,
   InvokeArg,
   JsonValue,
+  Node,
 } from '@fuaran-ui/schema';
+
+import type { GuestSeam } from './guestPrivilege.js';
 
 /** Props a registered custom React component receives. */
 export interface CustomRendererProps {
@@ -191,6 +194,39 @@ export interface FuaranRuntime {
    * A host wires real capability dispatch + Phase-27 replay here.
    */
   readonly invokeCapability?: (capabilityId: string, args: readonly InvokeArg[]) => void;
+  /**
+   * Phase 1021 — the `NodeKind.Mount` GUEST LOADER seam. Return the guest tree
+   * for a scope id, or `undefined` for "nothing mounted here" (the default: a
+   * `Mount` in a host that wires no loader renders the inert placeholder, never
+   * a throw).
+   *
+   * **A host supplies this and nothing else about the guest.** The `Mount` arm
+   * owns the single call to it and derives the guest's runtime + channel from
+   * `deriveGuestPrivilege` in the same expression, so a loader cannot construct
+   * a privileged guest context — with no {@link guestSeam} wired the guest is
+   * unprivileged and its channel is clamped to `OutOnly`. See
+   * `guestPrivilege.ts` for the whole contract.
+   *
+   * The guest space is `unknown`-typed by design: the host's `TMsg` stays behind
+   * the boundary, and a guest dispatch reaches the host only through
+   * {@link bubbleGuestAction}.
+   */
+  readonly loadGuest?: (scopeId: string) => Node<unknown> | undefined;
+  /**
+   * Phase 1021 — where a mounted guest's dispatch surfaces in the host. The
+   * out-channel of the `Mount` boundary: the guest's `Action.Dispatch` payload
+   * arrives here, tagged with the scope it came from, after the host's
+   * `GuestSeam.gateBubble` (when one is wired). An ABSENT port swallows guest
+   * dispatches — inert, matching an unwired `onBubble` on the reference host.
+   */
+  readonly bubbleGuestAction?: (scopeId: string, action: unknown) => void;
+  /**
+   * Phase 1021 — the host's guest capability policy. **Absent means the guest is
+   * UNPRIVILEGED**, not that it is ungated: it receives a deny-all runtime and an
+   * `OutOnly` channel. Wire one to grant a mounted guest any capability, or a
+   * `TwoWay` channel. See `guestPrivilege.ts`.
+   */
+  readonly guestSeam?: GuestSeam;
   readonly warn?: (message: string) => void;
 }
 
