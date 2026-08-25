@@ -43,7 +43,7 @@ This repo sits in the Fuaran workspace alongside the F# `fuaran` language tier (
 fuaran-ts/
 ├── packages/           # @fuaran-ui/* package shells (+ unscoped `fuaran` defensive placeholder)
 │   ├── ui/             # Phase 74 placeholder for @fuaran-ui/ui; Phase 75 ships the smart-ctor surface
-│   ├── fuaran-dotnet/         # Phase 74 placeholder for @fuaran-ui/fuaran; convenience entry-point shell
+│   ├── fuaran/                # Phase 74 placeholder for @fuaran-ui/fuaran; convenience entry-point shell
 │   └── placeholder/    # Phase 74 unscoped-name defensive placeholder (the bare `fuaran` npm name); never gains substance
 ├── samples/            # Workspace-internal samples (not published to npm)
 │   └── demo/           # Phase 78 — Vite + React canonical sample
