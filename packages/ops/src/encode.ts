@@ -69,6 +69,8 @@ import type {
   FragmentScalar,
   Format,
   FormField,
+  FieldRule,
+  CompareRule,
   FormFieldKind,
   FormSpec,
   LocaleSource,
@@ -1438,6 +1440,31 @@ const formFieldKind = (autoBind: ControlAutoBind, k: FormFieldKind<unknown>): st
   }
 };
 
+// Phase 864 — the cross-field operand. `against` is an ordinary `Binding`, so
+// it goes through the same encoder every other bound slot uses; the operand
+// payload is untyped (the comparison is ordinal on whatever the slot holds), so
+// the default `objValue` static encoder applies.
+const compareRule = (c: CompareRule): string =>
+  jObject([
+    ['against', binding(c.against)],
+    ['op', str(c.op)],
+  ]);
+
+// Every slot is optional, so the whole record is built by push. A field with no
+// rule emits no `rule` key at all — `rule` is Optional rather than omit-default,
+// so absence is absence, which is what keeps every pre-864 form fixture
+// byte-unchanged.
+const fieldRule = (r: FieldRule): string => {
+  const fields: Field[] = [];
+  if (r.compare !== undefined) fields.push(['compare', compareRule(r.compare)]);
+  if (r.format !== undefined) fields.push(['format', str(r.format)]);
+  if (r.maxLength !== undefined) fields.push(['maxLength', intLit(r.maxLength)]);
+  if (r.message !== undefined) fields.push(['message', textSource(r.message)]);
+  if (r.minLength !== undefined) fields.push(['minLength', intLit(r.minLength)]);
+  if (r.pattern !== undefined) fields.push(['pattern', str(r.pattern)]);
+  return jObject(fields);
+};
+
 const formField = (f: FormField<unknown>): string => {
   const fields: Field[] = [
     ['id', str(f.id)],
@@ -1446,6 +1473,7 @@ const formField = (f: FormField<unknown>): string => {
     ['required', bool(f.required)],
   ];
   if (f.help !== undefined) fields.push(['help', textSource(f.help)]);
+  if (f.rule !== undefined) fields.push(['rule', fieldRule(f.rule)]);
   return jObject(fields);
 };
 

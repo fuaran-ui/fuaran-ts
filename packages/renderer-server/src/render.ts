@@ -42,6 +42,7 @@ import type {
   ErrorPayload,
   FilterSpec,
   FormField,
+  FieldRule,
   InputKind,
   JsonValue,
   LayoutKind,
@@ -1321,6 +1322,34 @@ const renderFormField = (ctx: ServerContext, field: FormField<unknown>): string 
   return el('div', [['class', 'fuaran-form-field']], label + control + help);
 };
 
+// Phase 864 — the static/SSR obligation from WIRE_FORMAT's rule table: project
+// the declared rule into the platform's OWN constraint attributes so the browser
+// enforces it. This tier emits no script and drives no document, so the browser
+// is the only enforcer it has, which makes the projection the whole obligation
+// rather than a convenience.
+//
+// RECORDED KNOWN LIMIT — `rule.compare` has NO HTML equivalent. There is no
+// attribute that says "this field must be >= that field", so a static page
+// cannot enforce a cross-field predicate at all. It is emitted as a
+// `data-fuaran-field-compare` DECLARATION, matching the F# reference host's
+// spelling exactly, so a reader can see the constraint was not silently
+// dropped — and it is explicitly NOT claimed as coverage: no platform machinery
+// reads that attribute. `compare` is enforced by a rendering host's submit gate
+// and, non-bypassably, by the server-side re-check on submit.
+const ruleAttrs = (rule: FieldRule | undefined, includePattern: boolean): Attr[] => {
+  if (rule === undefined) return [];
+  const attrs: Attr[] = [];
+  if (includePattern && rule.pattern !== undefined) attrs.push(['pattern', rule.pattern]);
+  if (rule.minLength !== undefined) attrs.push(['minlength', rule.minLength]);
+  if (rule.maxLength !== undefined) attrs.push(['maxlength', rule.maxLength]);
+  if (rule.compare !== undefined)
+    attrs.push([
+      'data-fuaran-field-compare',
+      `${rule.compare.op}:${rule.compare.against.kind === 'State' ? rule.compare.against.key : ''}`,
+    ]);
+  return attrs;
+};
+
 const renderFormControl = (ctx: ServerContext, field: FormField<unknown>): string => {
   const k = field.kind;
   switch (k.kind) {
@@ -1328,9 +1357,12 @@ const renderFormControl = (ctx: ServerContext, field: FormField<unknown>): strin
       const current = String(tryResolve(ctx.sources, k.value) ?? '');
       return voidEl('input', [
         ['class', 'fuaran-form-input'],
-        ['type', 'text'],
+        // `rule.format` chooses the input TYPE — the accepted set's HTML
+        // projection, not a second declaration of the same thing.
+        ['type', field.rule?.format ?? 'text'],
         ['id', field.id],
         ['required', field.required],
+        ...ruleAttrs(field.rule, true),
         ['value', current],
       ]);
     }
@@ -1437,6 +1469,10 @@ const renderFormControl = (ctx: ServerContext, field: FormField<unknown>): strin
           ['id', field.id],
           ['required', field.required],
           ['rows', k.rows],
+          // A textarea has a length and no input type, and HTML gives it no
+          // `pattern` either — so the length pair only. FUARAN100 warns an
+          // author who declares the others on this control.
+          ...ruleAttrs(field.rule, false),
         ],
         current,
       );
@@ -1457,6 +1493,19 @@ const renderFormControl = (ctx: ServerContext, field: FormField<unknown>): strin
       if (k.constraints.min !== undefined) attrs.push(['min', k.constraints.min]);
       if (k.constraints.max !== undefined) attrs.push(['max', k.constraints.max]);
       if (k.constraints.step !== undefined) attrs.push(['step', k.constraints.step]);
+      // Phase 864 — the control's own bounds are above; the rule slot mints
+      // none of its own for a date, so only the `compare` DECLARATION reaches
+      // the markup here. A date field is where cross-field comparison actually
+      // arrives, so the marker matches the reference host rather than being
+      // silently absent on the one control that most needs it. It claims
+      // nothing: a static page cannot enforce a cross-field predicate at all,
+      // and the server-side re-check on submit is what does.
+      attrs.push(
+        ...ruleAttrs(
+          field.rule?.compare === undefined ? undefined : { compare: field.rule.compare },
+          false,
+        ),
+      );
       return voidEl('input', attrs);
     }
     case 'DateRange': {

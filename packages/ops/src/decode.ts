@@ -103,6 +103,10 @@ import type {
   FormField,
   FormFieldKind,
   FormSpec,
+  FieldRule,
+  CompareRule,
+  CompareOp,
+  TextFormat,
   FragmentId,
   GridSpec,
   HashStrictness,
@@ -3732,6 +3736,138 @@ const decodeFormFieldKind = (
   }
 };
 
+// ─── Phase 864 — the declared per-field constraint ───────────────────────────
+//
+// `FormFieldKind` names the CONTROL; `FormField.rule` names the ACCEPTED SET.
+// Everything here is the POLICY layer above the structural shape: the enum
+// didactics, the two well-formedness refusals, and the near-miss set.
+// Parity-locked with the F# `decodeFieldRule` / `formFieldNearMisses`.
+
+const TEXT_FORMATS = ['email', 'url', 'tel'] as const;
+const COMPARE_OPS = ['eq', 'neq', 'lt', 'lte', 'gt', 'gte'] as const;
+
+const decodeTextFormat = (path: string, j: JsonAst): R<TextFormat> =>
+  bareEnum(path, j, TEXT_FORMATS, 'TextFormat');
+
+const decodeCompareOp = (path: string, j: JsonAst): R<CompareOp> =>
+  bareEnum(path, j, COMPARE_OPS, 'CompareOp');
+
+/**
+ * The cross-field operand. `against` is a `Binding` — that is the entire
+ * cross-field mechanism rather than an accident of typing: any read slot may
+ * take a Binding, and the auto-bind rule already puts every form field's value
+ * in State under the field's own id, so `{"$type":"State","key":"<sibling id>"}`
+ * reads the sibling with no coordination vocabulary at all.
+ */
+const decodeCompareRule = (path: string, j: JsonAst): R<CompareRule> => {
+  const fo = requireObject(path, j);
+  if (!fo.ok) return fo;
+  const f = fo.value;
+  const op = reqField(path, f, 'op', 'CompareOp', decodeCompareOp);
+  if (!op.ok) return op;
+  const against = reqField(path, f, 'against', 'Binding', (p, v) => decodeBinding(p, v));
+  if (!against.ok) return against;
+  return ok({ op: op.value, against: against.value });
+};
+
+/**
+ * A field's declared constraint. Every slot is optional structurally, and two
+ * shapes are refused here as POLICY:
+ *
+ *  - a rule with every slot absent. A rule that constrains nothing is a defect,
+ *    not a no-op: it decodes, validates and renders while declaring nothing,
+ *    which is the fake-affordance shape the near-miss rule also forecloses,
+ *    arriving through an empty object instead of a wrong key. `message` alone
+ *    does not rescue it — the message is the prose shown when some OTHER slot
+ *    is unmet, so a message-only rule is the help-text failure wearing the new
+ *    vocabulary's clothes.
+ *  - `minLength` above `maxLength`. The `DateRange` ordered-pair rule applied to
+ *    a length pair: an inverted bound admits no value at all, so the field can
+ *    never be submitted and the form is dead on arrival.
+ *
+ * Neither is a shape — both are relations BETWEEN slots — which is why they
+ * live here beside the `from <= to` check rather than in the structural layer.
+ */
+const decodeFieldRule = (path: string, j: JsonAst): R<FieldRule> => {
+  const fo = requireObject(path, j);
+  if (!fo.ok) return fo;
+  const f = fo.value;
+  const format = optField(path, f, 'format', decodeTextFormat);
+  if (!format.ok) return format;
+  const pattern = optField(path, f, 'pattern', requireString);
+  if (!pattern.ok) return pattern;
+  const minLength = optField(path, f, 'minLength', requireInt);
+  if (!minLength.ok) return minLength;
+  const maxLength = optField(path, f, 'maxLength', requireInt);
+  if (!maxLength.ok) return maxLength;
+  const compare = optField(path, f, 'compare', decodeCompareRule);
+  if (!compare.ok) return compare;
+  const message = optField(path, f, 'message', decodeTextSource);
+  if (!message.ok) return message;
+
+  const constrains =
+    format.value !== undefined ||
+    pattern.value !== undefined ||
+    minLength.value !== undefined ||
+    maxLength.value !== undefined ||
+    compare.value !== undefined;
+  if (!constrains)
+    return makeError(
+      'WRONG_TYPE',
+      path,
+      "a rule that constrains nothing is a defect, not a no-op — declare at least one of format / pattern / minLength / maxLength / compare, or omit 'rule' entirely",
+      'FieldRule with at least one constraint slot',
+    );
+
+  if (
+    minLength.value !== undefined &&
+    maxLength.value !== undefined &&
+    minLength.value > maxLength.value
+  )
+    return makeError(
+      'WRONG_TYPE',
+      path,
+      `minLength ${minLength.value} is above maxLength ${maxLength.value} — an inverted length bound admits no value at all, so the field could never be submitted`,
+      'minLength <= maxLength',
+    );
+
+  return ok({
+    ...(format.value !== undefined ? { format: format.value } : {}),
+    ...(pattern.value !== undefined ? { pattern: pattern.value } : {}),
+    ...(minLength.value !== undefined ? { minLength: minLength.value } : {}),
+    ...(maxLength.value !== undefined ? { maxLength: maxLength.value } : {}),
+    ...(compare.value !== undefined ? { compare: compare.value } : {}),
+    ...(message.value !== undefined ? { message: message.value } : {}),
+  });
+};
+
+// The `FormField` near-miss set (Phase 863's discipline applied to the rule
+// slot). Small and enumerated for the same reason the grid's is: rule 2's
+// tolerance of unknown keys is right for a field a future profile may add and
+// wrong for a near miss of one that exists, because the tree then decodes and
+// renders while the constraint does nothing. That silence is worse here than
+// anywhere else in the vocabulary — the failure this phase exists to fix is
+// authors putting the rule in help text, and a guessed key that no-ops is a
+// direct route back to it.
+const FORM_FIELD_NEAR_MISSES = [
+  ['validation', 'rule'],
+  ['constraints', 'rule'],
+  ['validate', 'rule'],
+] as const;
+
+const checkFormFieldNearMisses = (path: string, f: Fields): R<void> => {
+  for (const [name, canonical] of FORM_FIELD_NEAR_MISSES) {
+    if (tryField(f, name) !== undefined)
+      return makeError(
+        'WRONG_TYPE',
+        `${path}.${name}`,
+        `'${name}' is not part of the form vocabulary — it would be ignored, not honoured, and the field would accept anything`,
+        canonical,
+      );
+  }
+  return ok(undefined);
+};
+
 const decodeFormField = (path: string, j: JsonAst): R<FormField<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
@@ -3752,12 +3888,20 @@ const decodeFormField = (path: string, j: JsonAst): R<FormField<unknown>> => {
   if (!required.ok) return required;
   const help = optField(path, f, 'help', decodeTextSource);
   if (!help.ok) return help;
+  // Phase 864 — the near-miss check runs BEFORE the rule decode, so a field
+  // carrying both `validation` and a well-formed `rule` still names the ignored
+  // key rather than passing silently.
+  const nm = checkFormFieldNearMisses(path, f);
+  if (!nm.ok) return nm;
+  const rule = optField(path, f, 'rule', decodeFieldRule);
+  if (!rule.ok) return rule;
   return ok({
     id: id.value,
     kind: kind.value,
     label: label.value,
     required: required.value,
     ...(help.value !== undefined ? { help: help.value } : {}),
+    ...(rule.value !== undefined ? { rule: rule.value } : {}),
   });
 };
 

@@ -684,6 +684,14 @@
       "description": "Phase 719 — the compact authoring twin of `scalar-transform-composition`: all-valid columns as bare arrays (Core#88) and the inferable schema omitted; the canonical envelope stays the encoder's output. The pack teaches this form by example — the exemplar/prose contradiction measurably taught the envelope (claude-opus 81% envelope share, 2026-07-28 census)."
     },
     {
+      "id": "lenient-shape-a11y-label-bare-scalar",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-shape-a11y-label-bare-scalar.json",
+      "expectedFile": "lenient/lenient-shape-a11y-label-bare-scalar.expected.json",
+      "description": "fuaran#957 ruling — the Accessibility trait's `label` (Binding<string>) and `hidden` (Binding<bool>) are ordinary Binding slots: a bare string / bool coerces to `Static` per the general §3.6 scalar rule (decode-only, canonical envelope on re-encode). Pinned at this position because two hosts once implemented the slot as bare-string-ONLY — the opposite error."
+    },
+    {
       "id": "lenient-shape-binding-scalar-fraction",
       "kind": "lenient-accept",
       "decoder": "node",
@@ -1226,6 +1234,14 @@
       "inputFile": "nodes/form-declarative-minimal.json",
       "expectedFile": "nodes/form-declarative-minimal.json",
       "description": "Input/Form (Phase 596 — symmetric auto-bind, omitted-value fields)"
+    },
+    {
+      "id": "form-field-rules",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/form-field-rules.json",
+      "expectedFile": "nodes/form-field-rules.json",
+      "description": "Input/Form (Phase 864 — declared field rules: format / pattern / length pair / cross-field compare)"
     },
     {
       "id": "form-local-1",
@@ -1996,6 +2012,33 @@
       "expectedErrorCode": "EMPTY_NODE_ID",
       "expectedPath": "$.id",
       "description": "Empty top-level id"
+    },
+    {
+      "id": "reject-fieldrule-empty",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-fieldrule-empty.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.fields[0].rule",
+      "description": "FieldRule declaring no constraint — a message alone is not a rule (Phase 864)"
+    },
+    {
+      "id": "reject-fieldrule-length-unordered",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-fieldrule-length-unordered.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.fields[0].rule",
+      "description": "FieldRule minLength above maxLength — the ordered-pair rule on a length pair (Phase 864)"
+    },
+    {
+      "id": "reject-formfield-near-miss-validation",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-formfield-near-miss-validation.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.fields[0].validation",
+      "description": "'validation' near-miss on a FormField — the canonical key is 'rule' (Phase 864)"
     },
     {
       "id": "reject-invalid-empty",

@@ -21,6 +21,9 @@ import type {
   FileUploadSpec,
   FilterSpec,
   FormField,
+  FieldRule,
+  TextFormat,
+  CompareOp,
   FormSpec,
   InputKind,
   JsonValue,
@@ -174,6 +177,96 @@ const renderSelect = <TMsg,>(ctx: RenderContext<TMsg>, spec: SelectSpec<TMsg>): 
 
 // ─── Form ──────────────────────────────────────────────────────────────────────
 
+// Phase 864 — the SUBMIT GATE, and it is deliberately small because the browser
+// already owns most of it. This form is a native `<form>` with a
+// `<button type="submit">`, so constraint validation runs BEFORE `onSubmit`
+// fires: `required`, `type=email|url|tel`, `pattern`, `minlength` and `maxlength`
+// are enforced by the platform and the offending field is named by the platform,
+// which is exactly what WIRE_FORMAT asks a rendering host for. The one slot with
+// no HTML equivalent is `compare`, so that is the only thing this gate adds.
+//
+// It reports through `setCustomValidity` rather than a bespoke error surface for
+// the same reason: the platform's own mechanism blocks the submit, shows the
+// message, and clears itself, and it composes with the native failures above
+// instead of racing them. No new class vocabulary is minted (the reference
+// stylesheet is parity-locked with the F# tier).
+
+/** One comparison, per WIRE_FORMAT's ordering rules. */
+const compareMet = (op: CompareOp, left: unknown, right: unknown): boolean => {
+  // "A comparison between values of different shapes is UNMET, not an error" —
+  // a half-filled form is a normal state, so an absent operand simply does not
+  // satisfy the predicate rather than throwing or passing.
+  let cmp: number;
+  if (typeof left === 'number' && typeof right === 'number')
+    cmp = left < right ? -1 : left > right ? 1 : 0;
+  else if (typeof left === 'string' && typeof right === 'string')
+    // Same-variant ISO-8601 strings sort lexicographically in chronological
+    // order, so a date comparison is an ordinal string compare — no parsing, no
+    // locale, total for every variant.
+    cmp = left < right ? -1 : left > right ? 1 : 0;
+  else return false;
+  switch (op) {
+    case 'eq':
+      return cmp === 0;
+    case 'neq':
+      return cmp !== 0;
+    case 'lt':
+      return cmp < 0;
+    case 'lte':
+      return cmp <= 0;
+    case 'gt':
+      return cmp > 0;
+    case 'gte':
+      return cmp >= 0;
+  }
+};
+
+/**
+ * Apply every declared `compare` over the form's live values. Returns true when
+ * the form may submit. The field's own value is read from the DOM (that is the
+ * live value the user sees); the operand is read through the declared binding,
+ * which is the whole point of the operand being a Binding.
+ */
+const compareGate = <TMsg,>(
+  ctx: RenderContext<TMsg>,
+  spec: FormSpec<TMsg>,
+  form: HTMLFormElement,
+): boolean => {
+  let allMet = true;
+  for (const field of spec.fields) {
+    const cmp = field.rule?.compare;
+    const el = form.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+      `#${CSS.escape(field.id)}`,
+    );
+    if (el === null || typeof el.setCustomValidity !== 'function') continue;
+    if (cmp === undefined) {
+      el.setCustomValidity('');
+      continue;
+    }
+    const raw = el.value;
+    // A numeric control's DOM value is a string; compare numerically when both
+    // ends genuinely are numbers, and leave everything else as text.
+    const against = tryResolve(ctx.sources, cmp.against);
+    const left: unknown =
+      typeof against === 'number' && raw !== '' && !Number.isNaN(Number(raw)) ? Number(raw) : raw;
+    const met = compareMet(cmp.op, left, against);
+    if (met) el.setCustomValidity('');
+    else {
+      allMet = false;
+      // `message` is the author's own sentence, and this is the moment it was
+      // written for: shown when the rule is unmet rather than permanently, which
+      // is the whole argument for declaring the rule instead of putting it in
+      // help text.
+      el.setCustomValidity(
+        field.rule?.message !== undefined
+          ? renderText(ctx.sources, field.rule.message)
+          : 'This value does not satisfy the declared rule.',
+      );
+    }
+  }
+  return allMet;
+};
+
 const renderForm = <TMsg,>(ctx: RenderContext<TMsg>, spec: FormSpec<TMsg>): ReactElement => {
   const body = (
     <>
@@ -206,6 +299,14 @@ const renderForm = <TMsg,>(ctx: RenderContext<TMsg>, spec: FormSpec<TMsg>): Reac
       className="fuaran-form"
       onSubmit={(e) => {
         e.preventDefault();
+        // Phase 864 — the compare gate runs BEFORE the commit event and before
+        // the action. A form whose declared rule is unmet must not submit, and
+        // "must not submit" means the action does not run and the local commit
+        // does not fire, not merely that a message appears beside it.
+        if (!compareGate(ctx, spec, e.currentTarget)) {
+          e.currentTarget.reportValidity();
+          return;
+        }
         if (typeof window !== 'undefined')
           window.dispatchEvent(new CustomEvent('fuaran-form-commit'));
         runAction(ctx, spec.onSubmit);
@@ -239,6 +340,47 @@ function FormFieldView<TMsg>({
     </div>
   );
 }
+
+// Phase 864 — the declared rule, projected into the platform's own constraint
+// attributes so the BROWSER enforces it. That is the static/SSR obligation in
+// WIRE_FORMAT's rule table and it is the right shape here too: an attribute the
+// browser already understands beats a hand-rolled check on every axis that
+// matters, including the ones we would get wrong.
+//
+// `compare` has NO HTML equivalent, and the specification requires a host to
+// record that as a known limit rather than imply coverage — so it is deliberately
+// absent from both helpers below and is carried by the submit gate instead.
+const textFormatType = (f: TextFormat | undefined): 'text' | 'email' | 'url' | 'tel' =>
+  f === undefined ? 'text' : f;
+
+/**
+ * The length + pattern attributes a text-shaped control can carry. Emitted ONLY
+ * when the slot is present, so a field with no rule produces byte-identical
+ * markup to the pre-864 renderer — which is what makes the server tier's
+ * deterministic-render hash unchanged for every existing tree.
+ */
+const ruleAttrs = (
+  rule: FieldRule | undefined,
+  includePattern: boolean,
+): Record<string, string | number> =>
+  rule === undefined
+    ? {}
+    : {
+        ...(includePattern && rule.pattern !== undefined ? { pattern: rule.pattern } : {}),
+        ...(rule.minLength !== undefined ? { minLength: rule.minLength } : {}),
+        ...(rule.maxLength !== undefined ? { maxLength: rule.maxLength } : {}),
+        // The `compare` DECLARATION, spelled exactly as the F# reference host
+        // spells it. Nothing in the platform reads it; the submit gate below is
+        // what enforces the predicate. It is emitted so a reader — and a
+        // devtools inspector — can see the constraint was not silently dropped.
+        ...(rule.compare !== undefined
+          ? {
+              'data-fuaran-field-compare': `${rule.compare.op}:${
+                rule.compare.against.kind === 'State' ? rule.compare.against.key : ''
+              }`,
+            }
+          : {}),
+      };
 
 const renderFormControl = <TMsg,>(ctx: RenderContext<TMsg>, field: FormField<TMsg>): ReactNode => {
   const k = field.kind;
@@ -276,9 +418,13 @@ const renderFormControl = <TMsg,>(ctx: RenderContext<TMsg>, field: FormField<TMs
       return (
         <input
           className="fuaran-form-input"
-          type="text"
+          // Phase 864 — `rule.format` chooses the input TYPE, because the type
+          // IS the accepted set's HTML projection rather than a second place
+          // the wire says the same thing.
+          type={textFormatType(field.rule?.format)}
           id={field.id}
           required={field.required}
+          {...ruleAttrs(field.rule, true)}
           {...valueProps(k.value, current)}
           onChange={(e: ChangeEvent<HTMLInputElement>) =>
             handle(onChange, k.value, e.target.value, e.target.value)
@@ -450,6 +596,11 @@ const renderFormControl = <TMsg,>(ctx: RenderContext<TMsg>, field: FormField<TMs
           id={field.id}
           required={field.required}
           rows={k.rows}
+          // Phase 864 — a textarea has a LENGTH and no input type, so it takes
+          // the length pair and not `format`; `pattern` is likewise not an
+          // attribute HTML gives a textarea. FUARAN100 warns an author who
+          // declares either on this control.
+          {...ruleAttrs(field.rule, false)}
           {...valueProps(k.value, current)}
           onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
             handle(onChange, k.value, e.target.value, e.target.value)
@@ -487,6 +638,17 @@ const renderFormControl = <TMsg,>(ctx: RenderContext<TMsg>, field: FormField<TMs
           required={field.required}
           {...valueProps(k.value, current)}
           {...constraintAttrs}
+          // Phase 864 — a date control takes NO constraint attribute from the
+          // rule slot: `min`/`max` above are the control's own bounds, and the
+          // reuse rule forbids the rule duplicating them. What it can carry is
+          // the `compare` DECLARATION, and a date field is where cross-field
+          // comparison actually arrives ("end date after start date"), so the
+          // marker is emitted here to match the reference host. It claims
+          // nothing — the submit gate is what enforces the predicate.
+          {...ruleAttrs(
+            field.rule?.compare === undefined ? undefined : { compare: field.rule.compare },
+            false,
+          )}
           onChange={(e: ChangeEvent<HTMLInputElement>) =>
             handle(onChange, k.value, e.target.value, e.target.value)
           }

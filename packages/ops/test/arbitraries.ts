@@ -431,8 +431,31 @@ const formFieldsArb: fc.Arbitrary<readonly FormField<unknown>[]> = fc
       ...(r.mx !== undefined ? { max: r.mx } : {}),
       ...(r.st !== undefined ? { step: r.st } : {}),
     };
+    // Phase 864 — the declared-rule slot. Attached to two of the seven fields on
+    // purpose: the fuzzer has to see BOTH a field carrying a rule and a field
+    // carrying none, because `rule` is Optional rather than omit-default and the
+    // byte-stability claim is about the absence as much as the presence. Both
+    // shapes below are well-formed (the decoder refuses an empty rule and an
+    // inverted length pair, so a generated defect would be a decode error rather
+    // than a round-trip failure — those two live in the corpus reject family).
+    const formatRule = { format: 'email' as const };
+    const compareRule = {
+      compare: {
+        op: 'gte' as const,
+        against: { kind: 'State' as const, key: 'f-text', defaultValue: undefined },
+      },
+      message: r.label,
+    };
     return [
       mk('f-text', { kind: 'Text', value: r.sText, onChange: noopAction }),
+      {
+        ...mk('f-email', { kind: 'Text', value: r.sText, onChange: noopAction }),
+        rule: formatRule,
+      },
+      {
+        ...mk('f-compare', { kind: 'Text', value: r.sText, onChange: noopAction }),
+        rule: compareRule,
+      },
       mk('f-number', { kind: 'Number', value: r.sNum, onChange: noopAction }),
       mk('f-checkbox', { kind: 'Checkbox', value: r.sBool, onToggle: noopAction }),
       mk('f-choice', { kind: 'Choice', options: r.sOpts, value: r.sVal, onChange: noopAction }),

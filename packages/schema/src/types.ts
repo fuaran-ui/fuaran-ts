@@ -1504,12 +1504,72 @@ export interface FormSpec<TMsg> {
   readonly disabled?: Binding<boolean>;
 }
 
+/**
+ * The named input format a `FieldRule` accepts (Phase 864) — lower-case on the wire.
+ * Three cases and no more: the other HTML input types (`password`, `search`, `number`,
+ * `color`) carry no demand evidence, and `number` would collide with `RangedNumber`.
+ *
+ * Distinct from `Format`, which is a `Binding` case about OUTPUT presentation. This is
+ * about which values are ACCEPTED on input.
+ */
+export type TextFormat = 'email' | 'url' | 'tel';
+
+/** The comparison a cross-field `CompareRule` makes (Phase 864) — lower-case on the wire. */
+export type CompareOp = 'eq' | 'neq' | 'lt' | 'lte' | 'gt' | 'gte';
+
+/**
+ * The cross-field predicate (Phase 864), and the reason it needed almost no new
+ * vocabulary. `against` is a `Binding` — that is the whole mechanism rather than an
+ * accident of typing: any read slot may take a Binding, and the auto-bind rule already
+ * puts every form field's value in State under the field's own id, so
+ * `{"$type":"State","key":"<sibling id>"}` reads the sibling with no addressing syntax.
+ *
+ * Six operators, one operand, and deliberately nothing else — no boolean combinators, no
+ * arithmetic, no nesting. Ordering follows the `DateRange` precedent: same-variant
+ * ISO-8601 strings compare lexicographically in chronological order, so a date comparison
+ * is an ordinal string compare with no parsing and no locale. A comparison between values
+ * of different shapes is UNMET rather than an error — a half-filled form is a normal state.
+ */
+export interface CompareRule {
+  readonly op: CompareOp;
+  readonly against: Binding<unknown>;
+}
+
+/**
+ * A field's declared constraint (Phase 864): the ACCEPTED SET, where `FormFieldKind` names
+ * the CONTROL. Every slot is optional and the whole record is optional on `FormField`, so
+ * a form authored before the addition is byte-identical on the wire.
+ *
+ * **It carries no numeric or temporal bound.** `RangedNumber` already carries `min`/`max`
+ * and `Date` already carries `min`/`max`; the rule slot never duplicates a bound the
+ * control already carries, because two sources for one bound are free to disagree.
+ *
+ * What a declared rule OBLIGES is a normative host obligation stated as a semantic
+ * invariant rather than DOM parity: a host that draws a submit affordance must not submit
+ * while a rule is unmet, and must show which field is unmet. It is **not** a security
+ * boundary — client enforcement is an affordance, and a server re-check is where the trust
+ * floor sits.
+ *
+ * A rule that constrains nothing is refused at decode: `message` alone is the prose shown
+ * when some other slot is unmet, not a constraint of its own.
+ */
+export interface FieldRule {
+  readonly format?: TextFormat;
+  readonly pattern?: string;
+  readonly minLength?: number;
+  readonly maxLength?: number;
+  readonly compare?: CompareRule;
+  readonly message?: TextSource;
+}
+
 export interface FormField<TMsg> {
   readonly id: string;
   readonly label: TextSource;
   readonly kind: FormFieldKind<TMsg>;
   readonly required: boolean;
   readonly help?: TextSource;
+  /** Phase 864 — the declared constraint. Absent means unconstrained beyond `required`. */
+  readonly rule?: FieldRule;
 }
 
 // Every handler is optional (Phase 426 — the control write-back default,
