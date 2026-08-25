@@ -1630,6 +1630,38 @@ const renderVis = (
   }
 };
 
+// ─── The grid's whole-rows write destination (Phase 663 / 863 / 934) ─────────
+//
+// Parity-locked with the client renderer's `gridWriteDestination` /
+// `editDestination` / `reorderDestination` and F# `BindingResolver`'s three of
+// the same names. A declared `editStateKey` wins; else the Phase-663 floor, the
+// grid's own `source` when that source is a direct `State` binding; else there
+// is NO destination, and neither affordance is drawn — a Transform pipeline is
+// not invertible and Static/Query rows are host data, so a handle or an input
+// over them would be a gesture with nowhere to land.
+//
+// The server collapses the three to a predicate: it never writes, so WHICH
+// destination is reachable does not change a byte of its output, only whether
+// one is.
+const hasGridWriteDestination = (
+  declared: boolean,
+  editStateKey: string | undefined,
+  source: Binding<readonly unknown[]>,
+): boolean => declared && (editStateKey !== undefined || source.kind === 'State');
+
+// Phase 863 — the per-cell predicate behind the client's `cellCommit`, which
+// returns a committer exactly where this returns `true`: editable write-back
+// applies only on the declarative path — a `field`-projected Text/Numeric cell
+// with no `value` closure, since a closure's projection need not correspond to
+// any row field and there would be nothing sound to write. The column flag
+// NARROWS the grid-level capability: an explicit `false` is read-only.
+const cellEditable = (gridEditable: boolean, col: ColumnErased<unknown>): boolean =>
+  gridEditable &&
+  col.editable !== false &&
+  col.value === undefined &&
+  col.field !== undefined &&
+  (col.kind.kind === 'Text' || col.kind.kind === 'Numeric');
+
 const renderGrid = (
   ctx: ServerContext,
   state: StateBehaviour<unknown>,
@@ -1689,16 +1721,74 @@ const renderGrid = (
     paging !== undefined && !paging.hostPages
       ? sliceRowsToPage(paging.size, paging.page, sorted)
       : sorted;
-  const headerCells = spec.columns
-    .map((col) => textEl('th', [['class', 'fuaran-grid-header']], col.label))
-    .join('');
+  // Phase 663 / 863 / 934 — the two whole-rows affordances, under exactly the
+  // conditions the client renderer draws them (`editDestination` /
+  // `reorderDestination`, parity-locked with F# `BindingResolver`). The server
+  // needs only whether a destination EXISTS, never which one: it performs no
+  // write, and the client's `writeBackTo` is what resolves the target.
+  //
+  // Both are emitted INERT, on Phase 818's rule as the pager below applies it:
+  // the STRUCTURE is emitted (the extra leading column, the input in place of
+  // the span) because the class set and the column count are what a clean
+  // hydration handoff and Lock A both key on, while the INTERACTION SURFACE is
+  // omitted — no `draggable`, no `data-reorder-handle`, no `aria-keyshortcuts`,
+  // exactly as the sortable header's `data-sortable` / `aria-sort` are omitted
+  // above. A surface never advertises an interaction it cannot perform; it also
+  // never lays out a table one column narrower than the one it hands over to.
+  const reorderable =
+    sortDescriptor === undefined &&
+    hasGridWriteDestination(spec.reorderable, spec.editStateKey, spec.source);
+  const editable = hasGridWriteDestination(spec.editable, spec.editStateKey, spec.source);
+  const rowOffset = paging !== undefined && !paging.hostPages ? (paging.page - 1) * paging.size : 0;
+  const reorderHeaderCell = reorderable
+    ? el('th', [
+        ['class', 'fuaran-grid-reorder-header'],
+        ['scope', 'col'],
+        ['aria-label', 'Reorder'],
+      ])
+    : '';
+  // The handle is a real `<button>` carrying the reference CSS's own class, so
+  // the slim leading column lands styled and identically sized either side of
+  // hydration. It is NOT `disabled`: the pager's steps are, because the
+  // stylesheet ships a `:disabled` rule sizing that state deliberately, and
+  // this class ships none — a dimmed handle that un-dims on hydration would be
+  // a flash the reader has no way to read. Inert by absence of a handler, the
+  // posture every other server-rendered button takes.
+  const reorderCell = (rowIndex: number): string =>
+    !reorderable
+      ? ''
+      : el(
+          'td',
+          [['class', 'fuaran-grid-reorder-cell']],
+          textEl(
+            'button',
+            [
+              ['class', 'fuaran-grid-reorder-handle'],
+              ['type', 'button'],
+              // The client's label promises drag and arrow keys; this one names
+              // the row and stops there, because that is all a static document
+              // can honour.
+              ['aria-label', `Reorder row ${rowOffset + rowIndex + 1} of ${rows.length}`],
+            ],
+            '⣿',
+          ),
+        );
+  const headerCells =
+    reorderHeaderCell +
+    spec.columns.map((col) => textEl('th', [['class', 'fuaran-grid-header']], col.label)).join('');
   const head = el('thead', [], el('tr', [], headerCells));
   const bodyRows = rows
-    .map((row) => {
+    .map((row, rowIndex) => {
       const cells = spec.columns
-        .map((col) => el('td', [['class', 'fuaran-grid-cell']], renderGridCell(ctx, col, row)))
+        .map((col) =>
+          el(
+            'td',
+            [['class', 'fuaran-grid-cell']],
+            renderGridCell(ctx, col, row, cellEditable(editable, col)),
+          ),
+        )
         .join('');
-      return el('tr', [['class', 'fuaran-grid-row']], cells);
+      return el('tr', [['class', 'fuaran-grid-row']], reorderCell(rowIndex) + cells);
     })
     .join('');
   const body = el('tbody', [], bodyRows);
@@ -1900,7 +1990,12 @@ const tonedPillOf = (
   return [label, map[label] ?? defaultTone];
 };
 
-const renderGridCell = (ctx: ServerContext, col: ColumnErased<unknown>, row: unknown): string => {
+const renderGridCell = (
+  ctx: ServerContext,
+  col: ColumnErased<unknown>,
+  row: unknown,
+  editable = false,
+): string => {
   // Phase 425 — the closure wins; else the declarative `field` projects the
   // row property; else the cell is empty (a decoded grid renders from `field`).
   const value: CellValue =
@@ -1914,6 +2009,36 @@ const renderGridCell = (ctx: ServerContext, col: ColumnErased<unknown>, row: unk
     case 'Text':
     case 'Numeric':
     case 'Date':
+      // Phase 663 — an editable grid turns its field-projected Text/Numeric
+      // display cells into the same input shapes the `Editable` cell kind
+      // below emits, holding the RAW value rather than the formatted
+      // rendering (the client commits the raw value, so the two must agree
+      // about what is in the box at the handover). `editable` is false for a
+      // `Date` column, so this branch reaches only the two kinds the client's
+      // `cellCommit` admits.
+      if (editable) {
+        if (kind.kind === 'Numeric' && value.kind === 'Numeric') {
+          return voidEl('input', [
+            ['class', 'fuaran-grid-cell-editable'],
+            ['type', 'number'],
+            ['value', String(value.value)],
+          ]);
+        }
+        if (kind.kind === 'Numeric') {
+          // An Empty (or non-numeric) cell in a Numeric column: a text input,
+          // which the client commits only when the entry parses numerically.
+          return voidEl('input', [
+            ['class', 'fuaran-grid-cell-editable'],
+            ['type', 'text'],
+            ['value', renderCellValue({ kind: 'None' }, value)],
+          ]);
+        }
+        return voidEl('input', [
+          ['class', 'fuaran-grid-cell-editable'],
+          ['type', 'text'],
+          ['value', value.kind === 'Text' ? value.value : renderCellValue({ kind: 'None' }, value)],
+        ]);
+      }
       return textEl('span', [], renderCellValue(col.format, value));
     case 'Editable':
       if (value.kind === 'Numeric') {
