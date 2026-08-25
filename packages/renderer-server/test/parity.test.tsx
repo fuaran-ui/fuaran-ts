@@ -77,15 +77,75 @@ describe('Lock A — server output matches the React client renderer (class + no
 
 // ─── Lock B — F# reference-renderer vocabulary ───────────────────────────────
 
-const referenceRendererFiles = [
-  join(estateRoot, 'fuaran', 'src', 'Fuaran.UI.Renderer.Server', 'Render.fs'),
-  join(estateRoot, 'fuaran', 'src', 'Fuaran.UI.Renderer', 'Render.fs'),
-  join(estateRoot, 'fuaran', 'src', 'Fuaran.UI.Renderer.Core', 'Theme.fs'),
+// The spellings the F# reference host has shipped under. It was renamed once
+// (`fuaran` → `fuaran-dotnet`) and this file's paths were not updated, so Lock B
+// silently skipped its entire fixture sweep for as long as the rename was old —
+// a gate reporting success while checking nothing. Accepting both spellings
+// means a rename in either direction cannot disable it again.
+const REFERENCE_HOST_NAMES = ['fuaran-dotnet', 'fuaran'];
+
+// Sibling hosts whose presence proves this is a cross-host checkout (the shape
+// the conformance gate builds) rather than a standalone clone. Deliberately
+// excludes this host and the reference host.
+const OTHER_HOST_NAMES = ['fuaran-py', 'fuaran-rs', 'fuaran-go', 'fuaran-kt', 'fuaran-swift'];
+
+// The renderer sources the class vocabulary is extracted from, relative to the
+// reference host root.
+const REFERENCE_RENDERER_SOURCES = [
+  join('src', 'Fuaran.UI.Renderer.Server', 'Render.fs'),
+  join('src', 'Fuaran.UI.Renderer', 'Render.fs'),
+  join('src', 'Fuaran.UI.Renderer.Core', 'Theme.fs'),
   // Phase 525 — the Drawing SVG class vocabulary (fuaran-drawing*) lives here.
-  join(estateRoot, 'fuaran', 'src', 'Fuaran.UI.Renderer.Core', 'DrawingSvg.fs'),
+  join('src', 'Fuaran.UI.Renderer.Core', 'DrawingSvg.fs'),
 ];
 
-const referenceAvailable = referenceRendererFiles.every((p) => existsSync(p));
+/**
+ * Locate the F# reference host beside the corpus.
+ *
+ * The skip is correct for someone who genuinely cloned this repo (plus the
+ * corpus) alone — that is why it exists, and why nobody noticed it firing
+ * everywhere else. What is NOT correct is skipping in a cross-host checkout,
+ * where a missing reference host means Lock B has been silently disabled. So the
+ * two cases are separated: any other host present ⇒ hard failure naming what was
+ * tried; nothing else present ⇒ the honest standalone skip.
+ */
+const referenceHostRoot = (): string | null => {
+  for (const name of REFERENCE_HOST_NAMES) {
+    if (existsSync(join(estateRoot, name, 'src'))) return join(estateRoot, name);
+  }
+  for (const sibling of OTHER_HOST_NAMES) {
+    if (existsSync(join(estateRoot, sibling))) {
+      throw new Error(
+        `cross-host checkout detected (${sibling}/ is present under ${estateRoot}) but the F# ` +
+          `reference host is at none of ${JSON.stringify(REFERENCE_HOST_NAMES)} — Lock B cannot ` +
+          `run. This is the failure mode this check exists for: if the sibling was renamed again, ` +
+          `add the new spelling to REFERENCE_HOST_NAMES rather than letting the lock skip.`,
+      );
+    }
+  }
+  return null;
+};
+
+const referenceRoot = referenceHostRoot();
+
+const referenceRendererFiles = referenceRoot
+  ? REFERENCE_RENDERER_SOURCES.map((rel) => join(referenceRoot, rel))
+  : [];
+
+// A located reference host whose sources have MOVED would silently empty the
+// vocabulary, which makes every Lock B assertion below vacuously true. That is a
+// failure naming the file, not a skip — the same posture the sibling hosts' own
+// parity oracles take.
+const missingReferenceSources = referenceRendererFiles.filter((p) => !existsSync(p));
+if (referenceRoot !== null && missingReferenceSources.length > 0) {
+  throw new Error(
+    `reference renderer source(s) missing inside the located reference host ` +
+      `(${referenceRoot}): ${missingReferenceSources.join(', ')} — Lock B would extract an empty ` +
+      `vocabulary and pass vacuously.`,
+  );
+}
+
+const referenceAvailable = referenceRoot !== null;
 
 const referenceVocabulary = (): { exact: Set<string>; prefixes: string[] } => {
   const exact = new Set<string>();
