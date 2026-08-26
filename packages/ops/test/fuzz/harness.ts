@@ -99,44 +99,14 @@ export type Verdict =
   /** Invariant 4 broken — the decoder's own canonical output is refused. */
   | { readonly tag: 'canonical-refused'; readonly code: string }
   /** Invariant 4 broken — the canonical form is not a fixed point. */
-  | { readonly tag: 'fixed-point-broken'; readonly first: string; readonly second: string }
-  /**
-   * The ONE observed-and-excluded defect class. Named rather than numbered, so a
-   * reader meets the reason at the point of the exclusion.
-   *
-   * The wire specification's §5 requires every host to EMIT the quoted `"NaN"` /
-   * `"Infinity"` / `"-Infinity"` sentinels for a non-finite number, and its §7
-   * requires a decoder to ACCEPT them at a float slot. Not every host accepts
-   * them at every such slot, so `decode → encode → decode` does not close on a
-   * document carrying a non-finite number — and a generated stream reaches one
-   * within a few thousand inputs. The specification already records this as a §7
-   * conformance defect rather than an open question.
-   *
-   * Excluded here, not because it is unimportant, but because it spans more than
-   * one host: fixing it in one alone would manufacture a new divergence of
-   * precisely the kind the cross-host parity work exists to close. It is COUNTED
-   * and PRINTED on every run, and it disappears on its own the moment the decoder
-   * accepts what it emits.
-   *
-   * Keyed on the CAUSE — a sentinel in the canonical form — never on a fixture id
-   * or an iteration number: the seed pool is the shared corpus, so the generated
-   * stream renumbers whenever the corpus moves, and an exclusion keyed to an
-   * iteration would silence a different defect next week.
-   */
-  | { readonly tag: 'known-nonfinite-roundtrip-hole'; readonly code: string };
-
-const NON_FINITE_SENTINELS = ['"NaN"', '"Infinity"', '"-Infinity"'];
-
-export const isKnownNonFiniteHole = (canonical: string): boolean =>
-  NON_FINITE_SENTINELS.some((s) => canonical.includes(s));
+  | { readonly tag: 'fixed-point-broken'; readonly first: string; readonly second: string };
 
 /**
  * Did this verdict violate the refusal contract? `rejected` and `clean` are both
  * PASSES — a fuzz harness that treated refusal as failure would be asserting the
  * opposite of the claim under test.
  */
-export const isCounterexample = (v: Verdict): boolean =>
-  v.tag !== 'rejected' && v.tag !== 'clean' && v.tag !== 'known-nonfinite-roundtrip-hole';
+export const isCounterexample = (v: Verdict): boolean => v.tag !== 'rejected' && v.tag !== 'clean';
 
 /**
  * A coarse class, used to hold a failure steady while minimising. Deliberately
@@ -172,8 +142,6 @@ export const describeVerdict = (v: Verdict): string => {
       return `CANONICAL FORM REFUSED: the decoder's own output re-decodes as ${v.code}`;
     case 'fixed-point-broken':
       return `FIXED POINT BROKEN: first canonical form (${v.first.length} chars) <> second (${v.second.length})`;
-    case 'known-nonfinite-roundtrip-hole':
-      return `KNOWN (EXCLUDED) §7 non-finite round-trip hole: the canonical form re-decodes as ${v.code}`;
   }
 };
 
@@ -264,11 +232,7 @@ export const check = (subject: Subject, budgets: Budgets, input: string): Measur
   }
   if (result.reDecoded === null) {
     const code = result.reDecodedCode ?? 'UNKNOWN';
-    return at(
-      isKnownNonFiniteHole(result.canonical)
-        ? { tag: 'known-nonfinite-roundtrip-hole', code }
-        : { tag: 'canonical-refused', code },
-    );
+    return at({ tag: 'canonical-refused', code });
   }
   return at(
     result.canonical === result.reDecoded
@@ -337,11 +301,6 @@ export interface RunStats {
   seedCount: number;
   rejectCodes: Record<string, number>;
   accepted: number;
-  /**
-   * The one EXCLUDED defect class, counted and published rather than dropped: an
-   * exclusion nobody can see reads as "found nothing".
-   */
-  knownNonFiniteHoles: number;
   maxDecodeMs: number;
   maxAmplification: number;
   elapsedSeconds: number;
@@ -372,7 +331,6 @@ export const run = (
     seedCount: seeds.length,
     rejectCodes: {},
     accepted: 0,
-    knownNonFiniteHoles: 0,
     maxDecodeMs: 0,
     maxAmplification: 0,
     elapsedSeconds: 0,
@@ -413,8 +371,6 @@ export const run = (
         stats.rejectCodes[verdict.code] = (stats.rejectCodes[verdict.code] ?? 0) + 1;
       } else if (verdict.tag === 'clean') {
         stats.accepted++;
-      } else if (verdict.tag === 'known-nonfinite-roundtrip-hole') {
-        stats.knownNonFiniteHoles++;
       } else {
         const target = verdictClass(verdict);
         const minimised = minimiseFinds
@@ -453,8 +409,8 @@ export const summarise = (stats: RunStats): string => {
   return (
     `${stats.inputs} inputs (${stats.iterations} iterations x ${perIteration} entry points) ` +
     `in ${stats.elapsedSeconds.toFixed(1)} s — accepted ${stats.accepted}, refused [${codes}], ` +
-    `${stats.counterexamples.length} counterexamples, ${stats.knownNonFiniteHoles} known ` +
-    `non-finite round-trip holes (§7, EXCLUDED); max decode ${stats.maxDecodeMs.toFixed(0)} ms; ` +
+    `${stats.counterexamples.length} counterexamples; ` +
+    `max decode ${stats.maxDecodeMs.toFixed(0)} ms; ` +
     `max canonical amplification ${stats.maxAmplification.toFixed(1)} x`
   );
 };

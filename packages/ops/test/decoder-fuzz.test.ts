@@ -105,7 +105,6 @@ describe('decoder robustness fuzz', () => {
               accepted: stats.accepted,
               rejectCodes: stats.rejectCodes,
               counterexamples: stats.counterexamples.length,
-              knownNonFiniteRoundTripHoles: stats.knownNonFiniteHoles,
               maxDecodeMs: Number(stats.maxDecodeMs.toFixed(3)),
               maxCanonicalAmplification: Number(stats.maxAmplification.toFixed(3)),
               elapsedSeconds: Number(stats.elapsedSeconds.toFixed(3)),
