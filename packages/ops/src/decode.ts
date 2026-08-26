@@ -2311,10 +2311,20 @@ const decodeBindingArgs = (path: string, j: JsonAst): R<Record<string, Binding<J
   return ok(out);
 };
 
+// The typed SCALAR Static payloads. These two were CASTS over the untyped
+// `decodeBinding` — they named a type and checked none, so `{"hidden": "yes"}`
+// and `{"href": 7}` decoded as `Static` carrying the wrong-typed scalar. That
+// is not the §3.6 leniency: the scalar coercion is about SHAPE (a bare scalar
+// can only mean `Static`), and the slot's own `'T` still governs the VALUE.
+// The reference host has always passed `requireString` / `requireBool` here
+// (`bindingGeneric<string> path requireString ""`), which is why it alone
+// refused `reject-a11y-hidden-nonbool`; the placeholders match its typed
+// fallbacks for an absent / unparseable `State.defaultValue`, so the two hosts
+// agree byte-for-byte on that arm too.
 const decodeBindingString = (p: string, j: JsonAst): R<Binding<string>> =>
-  decodeBinding(p, j) as R<Binding<string>>;
+  decodeBinding(p, j, requireString, '') as R<Binding<string>>;
 const decodeBindingBool = (p: string, j: JsonAst): R<Binding<boolean>> =>
-  decodeBinding(p, j) as R<Binding<boolean>>;
+  decodeBinding(p, j, requireBool, false) as R<Binding<boolean>>;
 
 // ─── Typed Static payload decoders (Phase 429) ───────────────────────────────
 //
