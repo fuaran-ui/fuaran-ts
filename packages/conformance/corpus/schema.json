@@ -4819,6 +4819,15 @@
             "$type",
             "child",
             "parentId"
+          ],
+          "allOf": [
+            {
+              "not": {
+                "required": [
+                  "position"
+                ]
+              }
+            }
           ]
         },
         {
@@ -4853,6 +4862,15 @@
             "$type",
             "newParentId",
             "target"
+          ],
+          "allOf": [
+            {
+              "not": {
+                "required": [
+                  "newPosition"
+                ]
+              }
+            }
           ]
         },
         {

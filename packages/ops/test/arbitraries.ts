@@ -875,17 +875,13 @@ function opArbAt(depth: number): fc.Arbitrary<TreeOp<unknown>> {
       .tuple(nodeIdArb, stateBehaviourArb(1))
       .map(([target, state]) => ({ kind: 'UpdateState', target, state }) as TreeOp<unknown>),
     fc
-      .tuple(nodeIdArb, fc.integer({ min: 0, max: 10 }), nodeArb(2))
-      .map(
-        ([parentId, position, child]) =>
-          ({ kind: 'InsertChild', parentId, position, child }) as TreeOp<unknown>,
-      ),
+      .tuple(nodeIdArb, nodeArb(2))
+      .map(([parentId, child]) => ({ kind: 'InsertChild', parentId, child }) as TreeOp<unknown>),
     nodeIdArb.map((target) => ({ kind: 'RemoveNode', target }) as TreeOp<unknown>),
     fc
-      .tuple(nodeIdArb, nodeIdArb, fc.integer({ min: 0, max: 10 }))
+      .tuple(nodeIdArb, nodeIdArb)
       .map(
-        ([target, newParentId, newPosition]) =>
-          ({ kind: 'MoveNode', target, newParentId, newPosition }) as TreeOp<unknown>,
+        ([target, newParentId]) => ({ kind: 'MoveNode', target, newParentId }) as TreeOp<unknown>,
       ),
     fc
       .tuple(nodeIdArb, smallArr(nodeIdArb))

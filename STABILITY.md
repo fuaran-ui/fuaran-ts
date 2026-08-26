@@ -228,6 +228,16 @@ The wire format is **stable**. Breaking changes (major-version events): changing
 
 **Forward-coupling rule (load-bearing).** Per [`WIRE_FORMAT.md` §11](../fuaran-dotnet/docs/WIRE_FORMAT.md), adding a new `NodeKind` / `Spec` / `TreeOp` / `Binding` / `Action` case in any future phase MUST, in the same commit, update the F# encoder + decoder + the `wire-format-fixtures/` corpus **and** bump the `@fuaran-ui/schema` shape + the `@fuaran-ui/ui` smart-ctor (when applicable) + the TS encoder/decoder (Phase 76 onward). The TypeScript and F# implementations move in lockstep against the shared spec + corpus.
 
+### Recorded breaking change — 0.12.0, the retired positional slot becomes a decode error (Phase 687)
+
+The close of the migration window `0.4.0` of the wire format opened. `decodeOp` now **REFUSES** a legacy `position` on `InsertChild` and `newPosition` on `MoveNode`, returning `WRONG_TYPE` at `$.position` / `$.newPosition` with a didactic naming `ReorderChildren`. Through the window the field was accepted and ignored so the hosts could adopt independently; every host is now positionless and no emitter produces it, so the tolerance is withdrawn.
+
+**Breaking by the wire test — "changing a `DecodeError` code" in the list above, in its widest form: an input that decoded now does not.** No exported type or signature moves. A persisted op-stream that was still replaying through the tolerance stops replaying, which is the point: it was applying as an append, so it was already not doing what its ordinal asked.
+
+**Closing the window meant ADDING a refusal, not removing an acceptance.** This decoder reads named fields and ignores the rest, so _not reading_ `position` was the tolerance — there was never a read to delete, and a host that merely stopped mentioning the field would have gone on accepting it forever, indistinguishable from one that had never adopted. The refusal is therefore explicit and BY NAME, on the enumerated-near-miss pattern, so §2 rule 2's tolerance of genuinely-unknown keys survives for a slot a future profile may add. It is ordered ahead of the required-field decodes, identically in all five hosts, so which defect surfaces first is deterministic.
+
+Certified by `reject-op-insertchild-retired-position` / `reject-op-movenode-retired-newposition`; both payloads are otherwise well-formed, deliberately, so a host that merely fails them earlier for some other reason certifies nothing.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:

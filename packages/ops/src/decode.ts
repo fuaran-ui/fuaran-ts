@@ -5795,6 +5795,34 @@ const decodeTreeOpAst = (path: string, j: JsonAst): R<TreeOp<unknown>> => {
   return r;
 };
 
+// The RETIRED positional slot on `InsertChild` / `MoveNode` (Phase 687, closing
+// the window Phase 681 opened).
+//
+// Phase 681 removed the field and the hosts then ACCEPTED AND IGNORED it so
+// each could adopt independently. Silence was the whole mechanism: this decoder
+// takes named fields and ignores the rest, so *not reading it* was the
+// tolerance. That is also why closing the window cannot be done by deletion —
+// there was never a read to delete, and the field would go on decoding silently
+// forever. The close is an explicit refusal BY NAME, on the `checkNearMisses`
+// pattern and for its reason: a key that no-ops is worse than one that fails,
+// because the op decodes, applies, and puts the node somewhere other than where
+// the ordinal asked.
+//
+// Evaluated BEFORE the required-field decodes, mirroring the FormField
+// near-miss ordering, so an op carrying both a retired ordinal and some other
+// defect names the ordinal. Parity-locked with F# `retiredPositionalField` and
+// the Go / Rust / Python equivalents — the ordering is identical in all five, so
+// which defect surfaces first is deterministic.
+const retiredPositionalField = (path: string, f: Fields, name: string, opKind: string): R<void> =>
+  tryField(f, name) !== undefined
+    ? makeError(
+        'WRONG_TYPE',
+        `${path}.${name}`,
+        `'${name}' was removed from the wire format — ${opKind} appends, and order is stated by naming ids with ReorderChildren`,
+        'a Batch of the structural op followed by ReorderChildren',
+      )
+    : ok(undefined);
+
 const decodeTreeOpAstInner = (path: string, j: JsonAst): R<TreeOp<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
@@ -5854,16 +5882,12 @@ const decodeTreeOpAstInner = (path: string, j: JsonAst): R<TreeOp<unknown>> => {
       return state.ok ? ok({ kind: 'UpdateState', target: t.value, state: state.value }) : state;
     }
     case 'InsertChild': {
+      // Phase 687 CLOSED the migration window Phase 681 opened: a legacy
+      // `position` is a decode error. See `retiredPositionalField`.
+      const retired = retiredPositionalField(path, f, 'position', 'InsertChild');
+      if (!retired.ok) return retired;
       const parentJ = reqField(path, f, 'parentId', 'parent NodeId', requireString);
       if (!parentJ.ok) return parentJ;
-      // A legacy `position` is ACCEPTED AND IGNORED for the migration window
-      // (phase 683, mirroring 681 on the F# side): the hosts adopt
-      // independently, and a stored v1 emission must still apply — as an
-      // append, since order is now ReorderChildren's. Simply not reading the
-      // field is the tolerance; this decoder takes named fields and ignores
-      // the rest. It is a migration mechanism, not a form offered to an
-      // author: nothing that teaches the wire mentions it. Phase 687 closes
-      // the window and makes it a decode error.
       const child = reqField(path, f, 'child', 'child Node object', decodeNodeAst);
       return child.ok
         ? ok({
@@ -5878,9 +5902,11 @@ const decodeTreeOpAstInner = (path: string, j: JsonAst): R<TreeOp<unknown>> => {
       return t.ok ? ok({ kind: 'RemoveNode', target: t.value }) : t;
     }
     case 'MoveNode': {
+      // Legacy `newPosition` is a decode error — see InsertChild above.
+      const retired = retiredPositionalField(path, f, 'newPosition', 'MoveNode');
+      if (!retired.ok) return retired;
       const t = target();
       if (!t.ok) return t;
-      // Legacy `newPosition` accepted and ignored — see InsertChild above.
       const newParent = reqField(path, f, 'newParentId', 'new parent NodeId', requireString);
       return newParent.ok
         ? ok({
