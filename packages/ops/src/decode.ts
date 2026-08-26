@@ -2326,6 +2326,28 @@ const decodeBindingString = (p: string, j: JsonAst): R<Binding<string>> =>
 const decodeBindingBool = (p: string, j: JsonAst): R<Binding<boolean>> =>
   decodeBinding(p, j, requireBool, false) as R<Binding<boolean>>;
 
+// The typed NUMERIC scalar Static payloads (Phase 1064) — the other half of the
+// defect the two above fixed. These slots had no typed decoder at all: every
+// numeric position (`Metric.value` / `.trend`, `LabelValueRow.value`,
+// `Progress.fraction`, `Drawing.strokeWidth` / `.opacity`, the Number and
+// RangedNumber control values, `Tabs.activeIndex`, `Stepper.activeStep`) passed
+// the bare `decodeBinding` and then CAST the result to `Binding<number>`, so
+// `{"fraction": true}` decoded as a Static carrying a boolean and the cast made
+// it a lie the type system could not see.
+//
+// The two parsers already encode §7 correctly and are simply routed here: a
+// float slot takes a JSON number or exactly `"NaN"` / `"Infinity"` /
+// `"-Infinity"`, an integer slot takes a number alone and truncates. That
+// asymmetry is the whole reason these are two functions and not one — pinned by
+// `reject-binding-int-sentinel-string`, which carries a correctly-spelled
+// sentinel at an integer slot. The placeholders mirror the reference host's
+// typed fallbacks for an absent or unparseable `State.defaultValue` (`0.0` /
+// `0`), so the two hosts agree byte-for-byte on that arm too.
+const decodeBindingFloat = (p: string, j: JsonAst): R<Binding<number>> =>
+  decodeBinding(p, j, requireFloat, 0) as R<Binding<number>>;
+const decodeBindingInt = (p: string, j: JsonAst): R<Binding<number>> =>
+  decodeBinding(p, j, requireInt, 0) as R<Binding<number>>;
+
 // ─── Typed Static payload decoders (Phase 429) ───────────────────────────────
 //
 // Mirrors of the F# `decodeBinding*` family: the typed wire form is preferred
@@ -2780,7 +2802,14 @@ const decodeMetricSpec = (path: string, j: JsonAst): R<MetricSpec> => {
   if (!label.ok) return label;
   // 0.2.0 rename law: the scalar displayed value is `value` (clean break —
   // the old `source` name is NOT an accepted alias; `data` is the web prior).
-  const source = reqFieldAliased(path, f, 'value', ['data'], 'Metric value binding', decodeBinding);
+  const source = reqFieldAliased(
+    path,
+    f,
+    'value',
+    ['data'],
+    'Metric value binding',
+    decodeBindingFloat,
+  );
   if (!source.ok) {
     // DIDACTIC ERROR (2026-07-17): a text value here is the top observed
     // emission error — name the right kind so the structured repair channel
@@ -2808,7 +2837,7 @@ const decodeMetricSpec = (path: string, j: JsonAst): R<MetricSpec> => {
   if (!weight.ok) return weight;
   const emphasis = optField(path, f, 'emphasis', decodeEmphasis);
   if (!emphasis.ok) return emphasis;
-  const trend = optField(path, f, 'trend', decodeBinding);
+  const trend = optField(path, f, 'trend', decodeBindingFloat);
   if (!trend.ok) return trend;
   const trendFormat = optField(path, f, 'trendFormat', decodeCellFormat);
   if (!trendFormat.ok) return trendFormat;
@@ -2855,7 +2884,7 @@ const decodeLabelValueRowSpec = (path: string, j: JsonAst): R<LabelValueRowSpec>
     'value',
     ['data'],
     'row Binding<float> value',
-    decodeBinding,
+    decodeBindingFloat,
   );
   if (!source.ok) return source;
   // Phase 460 — `format` omitted-when-default. 0.2.2 — `emphasis` is
@@ -3134,7 +3163,7 @@ const decodeProgressSpec = (path: string, j: JsonAst): R<ProgressSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
-  const fraction = reqField(path, f, 'fraction', 'Progress fraction binding', decodeBinding);
+  const fraction = reqField(path, f, 'fraction', 'Progress fraction binding', decodeBindingFloat);
   if (!fraction.ok) return fraction;
   // The Static-envelope unwrap now lives in requireBool itself (generalised
   // 2026-07-18 after the pilot found `emphasis` wrapped the same way).
@@ -3194,9 +3223,9 @@ const decodeDrawStyle = (path: string, j: JsonAst): R<DrawStyle> => {
   if (!fill.ok) return fill;
   const stroke = optField(path, f, 'stroke', decodeBindingString);
   if (!stroke.ok) return stroke;
-  const strokeWidth = optField(path, f, 'strokeWidth', decodeBinding);
+  const strokeWidth = optField(path, f, 'strokeWidth', decodeBindingFloat);
   if (!strokeWidth.ok) return strokeWidth;
-  const opacity = optField(path, f, 'opacity', decodeBinding);
+  const opacity = optField(path, f, 'opacity', decodeBindingFloat);
   if (!opacity.ok) return opacity;
   // Text-only fields (Phase 528.1) — all optional, omitted when unset.
   const textAnchor = optField(path, f, 'textAnchor', decodeTextAnchor);
@@ -3587,7 +3616,16 @@ const decodeFormFieldKind = (
       return v.ok ? ok({ kind: 'Text', value: v.value as Binding<string>, ...onChangeField }) : v;
     }
     case 'Number': {
-      const v = valueOr(decodeBinding, controlValueDefaults.number, 'Number value binding');
+      // The decoder is cast to the erased slot signature, as `Choice` and
+      // `Range` below already do: `Binding<'T>` is INVARIANT in TypeScript
+      // (`Local.onCommit` takes a `'T`), so a `Binding<number>`-returning
+      // decoder is not assignable to a `Binding<unknown>` parameter. The cast
+      // is on the way IN, and the result is re-narrowed on the way out.
+      const v = valueOr(
+        decodeBindingFloat as (p: string, v: JsonAst) => R<Binding<unknown>>,
+        controlValueDefaults.number,
+        'Number value binding',
+      );
       return v.ok ? ok({ kind: 'Number', value: v.value as Binding<number>, ...onChangeField }) : v;
     }
     case 'Checkbox': {
@@ -3644,7 +3682,7 @@ const decodeFormFieldKind = (
     }
     case 'RangedNumber': {
       const value = valueOr(
-        decodeBinding,
+        decodeBindingFloat as (p: string, v: JsonAst) => R<Binding<unknown>>,
         controlValueDefaults.number,
         'RangedNumber value binding',
       );
@@ -4942,7 +4980,7 @@ const decodeTabsSpec = (path: string, j: JsonAst): R<TabsSpec<unknown>> => {
   // Static 0. onSelect / onSelectTag (Phase 426): a present `"<closure>"`
   // sentinel → the inert placeholder; an absent key → omitted, arming the
   // renderer's ActiveIndex/ActiveTag write-back default.
-  const activeIndex = optField(path, f, 'activeIndex', decodeBinding);
+  const activeIndex = optField(path, f, 'activeIndex', decodeBindingInt);
   if (!activeIndex.ok) return activeIndex;
   return ok({
     children: children.value,
@@ -4960,7 +4998,7 @@ const decodeStepperSpec = (path: string, j: JsonAst): R<StepperSpec<unknown>> =>
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
-  const activeStep = reqField(path, f, 'activeStep', 'activeStep binding', decodeBinding);
+  const activeStep = reqField(path, f, 'activeStep', 'activeStep binding', decodeBindingInt);
   if (!activeStep.ok) return activeStep;
   const children = decodeChildren(path, f);
   if (!children.ok) return children;
