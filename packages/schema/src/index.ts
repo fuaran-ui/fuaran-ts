@@ -15,3 +15,4 @@ export * from './defaults.js';
 export * from './binding.js';
 export * from './renderFidelity.js';
 export * from './limits.js';
+export * from './kindPolicy.js';

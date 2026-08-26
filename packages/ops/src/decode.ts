@@ -20,10 +20,19 @@
 import {
   FORM_FIELD_KIND_NAMES,
   NODE_KIND_GROUPS,
+  NODE_KIND_NAMES,
   controlValueDefaults,
   projectSelectionField,
   MAX_NODES,
   MAX_NODE_DEPTH,
+  // WIRE_FORMAT §23 — the host-declared kind admission policy. The type and its
+  // combinators live in `@fuaran-ui/schema` because `ops` and `ui` are peers
+  // that both need them; see `kindPolicy.ts` for the placement argument.
+  admitAll,
+  admits,
+  narrows,
+  policyHint,
+  type DecodePolicy,
 } from '@fuaran-ui/schema';
 import type {
   Accessibility,
@@ -179,7 +188,21 @@ export type DecodeErrorCode =
    * `INVALID_JSON`, which §21.2 rule 2 forbids using for this: calling a
    * well-formed document malformed sends the author to repair the wrong thing.
    */
-  | 'LIMIT_EXCEEDED';
+  | 'LIMIT_EXCEEDED'
+  /**
+   * The document names a kind the HOST'S DECLARED decode policy does not admit
+   * (WIRE_FORMAT.md §23).
+   *
+   * Deliberately distinct from `WRONG_NODE_KIND`, which says the vocabulary has
+   * no such kind. This one says the kind exists and THIS DEPLOYMENT does not
+   * take it — a different fact with a different remedy, and conflating them
+   * would send a repairing author to invent a spelling that is already correct.
+   *
+   * Raised ONLY when a caller supplied a narrowing policy. With no policy the
+   * code is unreachable, which is what keeps §22's "a decoder owes nothing"
+   * true of the default decoder.
+   */
+  | 'KIND_NOT_ADMITTED';
 
 /** AI-recoverable decode-time failure. Mirrors the F# `DecodeError` record. */
 export interface DecodeError {
@@ -5291,6 +5314,21 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
   const f = fo.value;
   const d = requireDiscriminator(path, f);
   if (!d.ok) return d;
+  // WIRE_FORMAT §23 — the host's declared admission policy is consulted FIRST,
+  // before any family decoder runs, which is the whole economy of the mechanism:
+  // a refused kind costs the discriminator read and nothing else. Narrowed to
+  // kinds the vocabulary RECOGNISES so an unknown discriminator still reports
+  // WRONG_NODE_KIND below — under a policy as without one — because "no such
+  // kind" and "not admitted here" are different facts the author repairs
+  // differently. Guarded on `narrows` so the default costs one comparison.
+  if (narrows(walkPolicy) && NODE_KIND_NAMES.includes(d.value) && !admits(walkPolicy, d.value)) {
+    return makeError(
+      'KIND_NOT_ADMITTED',
+      `${path}.$type`,
+      `node kind '${d.value}' is not admitted by decode policy '${walkPolicy.identity}'`,
+      policyHint(walkPolicy),
+    );
+  }
   switch (d.value) {
     // The four behavioural categories are flat on the wire (WIRE_FORMAT §3.2):
     // the `kind` object carries the primitive discriminator directly, so route
@@ -5702,14 +5740,22 @@ const placeholderClosureNode: Node<unknown> = {
 // interleave, so the counters cannot be observed mid-walk by another caller.
 // Both public entry points reset them, so a walk that returned early on an
 // error never leaves a counter poisoned for the next call.
+// The §23 admission policy rides the same carrier, for the same reason and with
+// one difference worth naming: it is per-decode INPUT rather than a counter, so
+// `resetWalk` restores the default instead of zeroing it. The default is
+// `admitAll`, so a decode that forgot to set it behaves exactly as the
+// policy-less decoder does — the failure mode of this carrier is the shipped
+// behaviour rather than an arbitrary narrowing.
 let walkDepth = 0;
 let walkNodes = 0;
 let opDepth = 0;
+let walkPolicy: DecodePolicy = admitAll;
 
-const resetWalk = (): void => {
+const resetWalk = (policy: DecodePolicy = admitAll): void => {
   walkDepth = 0;
   walkNodes = 0;
   opDepth = 0;
+  walkPolicy = policy;
 };
 
 const limitError = (path: string, message: string, expected: string): R<never> =>
@@ -6044,18 +6090,42 @@ const parseFailure = (e: { readonly message: string; readonly limit?: boolean })
     ? makeError('LIMIT_EXCEEDED', '$', e.message, 'a document within the WIRE_FORMAT §21 limits')
     : invalidJson(e.message);
 
-/** Decode a canonical-JSON `Node` payload into the storage-shape `Node<unknown>`. */
-export const decodeNode = (json: string): R<Node<unknown>> => {
+/**
+ * Decode a canonical-JSON `Node` payload into the storage-shape `Node<unknown>`.
+ *
+ * `policy` is the OPTIONAL WIRE_FORMAT §23 host-declared admission policy: a
+ * tree naming a kind outside it is refused with `KIND_NOT_ADMITTED` at the
+ * offending `kind.$type`, naming the kind and the policy. **Omitted, the decoder
+ * has exactly the obligations it had before** — every valid document decodes and
+ * the code is unreachable, which is what keeps §22 unqualified. Build a policy
+ * with `@fuaran-ui/schema`'s `CLOSED_PROFILE`, `excluding` or `admitting`.
+ *
+ * The reference host spells this as a sibling entry point rather than an
+ * optional argument, because F# optional parameters exist only on type members
+ * and defaulting in place would reshape its whole decoder surface. What the two
+ * hosts owe each other is the same behaviour on the same bytes, not the same
+ * arity — the `decode-policy/` corpus family is where that is asserted.
+ */
+export const decodeNode = (json: string, policy?: DecodePolicy): R<Node<unknown>> => {
   const parsed = parse(json);
   if (!parsed.ok) return parseFailure(parsed.error);
-  resetWalk();
+  resetWalk(policy);
   return decodeNodeAst('$', parsed.value);
 };
 
-/** Decode a canonical-JSON `TreeOp` payload into the storage-shape `TreeOp<unknown>`. */
-export const decodeOp = (json: string): R<TreeOp<unknown>> => {
+/**
+ * Decode a canonical-JSON `TreeOp` payload into the storage-shape
+ * `TreeOp<unknown>`.
+ *
+ * `policy` is the optional §23 admission policy. A node kind reaches an op two
+ * ways — inside a node-bearing operation, and as `EditNode`'s replacement kind —
+ * and both are gated, because an op stream that could introduce a refused kind
+ * into an admitted tree would make the policy a property of the first decode
+ * only rather than a closure.
+ */
+export const decodeOp = (json: string, policy?: DecodePolicy): R<TreeOp<unknown>> => {
   const parsed = parse(json);
   if (!parsed.ok) return parseFailure(parsed.error);
-  resetWalk();
+  resetWalk(policy);
   return decodeTreeOpAst('$', parsed.value);
 };
