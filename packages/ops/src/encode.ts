@@ -1030,12 +1030,20 @@ const linkSpec = (s: LinkSpec): string => {
   return jObject(fields);
 };
 
-const imageSpec = (s: ImageSpec): string =>
-  jObject([
+const imageSpec = (s: ImageSpec): string => {
+  const fields: Field[] = [
     ['alt', textSource(s.alt)],
     ['src', binding(s.src)],
     ['variant', str(s.variant)],
-  ]);
+  ];
+  // Phase 1077 — omitted at the identity default (byte parity with the F#
+  // encoder). `Natural` / `Natural` / `Eager` ARE today's behaviour, so a
+  // default-presentation image emits exactly the pre-phase three fields.
+  if (s.fit !== 'Natural') fields.push(['fit', str(s.fit)]);
+  if (s.aspectRatio !== 'Natural') fields.push(['aspectRatio', str(s.aspectRatio)]);
+  if (s.loading !== 'Eager') fields.push(['loading', str(s.loading)]);
+  return jObject(fields);
+};
 
 const listSpec = (s: ListSpec): string =>
   jObject([

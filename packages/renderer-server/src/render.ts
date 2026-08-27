@@ -81,7 +81,13 @@ import { chartLowerSpecOf, drawingSvg, mathMl } from '@fuaran-ui/renderer';
 import { withStateSeeds } from '@fuaran-ui/ops';
 import { isLowered, lower, type ChartRow } from '@fuaran-ui/charts';
 
-import { motionVar, nodeClassName, toneVar, trendSentiment } from './classNames.js';
+import {
+  imageAspectClass,
+  motionVar,
+  nodeClassName,
+  toneVar,
+  trendSentiment,
+} from './classNames.js';
 import { type Attr, el, escapeText, textEl, voidEl } from './html.js';
 import { toHtmlWithEgress } from './markdown.js';
 
@@ -898,11 +904,27 @@ const renderDisplay = (
           : display.spec.variant === 'Rounded'
             ? 'fuaran-image fuaran-image-rounded'
             : 'fuaran-image';
+      // Phase 1077 — the presentation tokens map to classes and nothing else:
+      // no value from the tree ever reaches a style attribute. `Natural` emits
+      // NO class on either axis, so a pre-phase tree's class attribute is
+      // byte-identical to what it was.
+      const fitClass =
+        display.spec.fit === 'Cover'
+          ? ' fuaran-image-fit-cover'
+          : display.spec.fit === 'Contain'
+            ? ' fuaran-image-fit-contain'
+            : '';
+      const aspectClass = imageAspectClass(display.spec.aspectRatio);
+      // Phase 1077 — `Eager` emits no attribute at all (the browser default);
+      // only `Lazy` is a declaration.
+      const loadingAttrs: (readonly [string, string])[] =
+        display.spec.loading === 'Lazy' ? [['loading', 'lazy']] : [];
       // Phase 951 — the a11y projection lands on the <img> itself.
       return voidEl('img', [
-        ['class', variantClass],
+        ['class', variantClass + fitClass + aspectClass],
         ['src', src],
         ['alt', renderText(ctx.sources, display.spec.alt)],
+        ...loadingAttrs,
         ...semanticAttrs,
         ...egressAttrs,
       ]);

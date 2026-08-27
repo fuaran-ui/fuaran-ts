@@ -51,6 +51,9 @@ import type {
   DateStyle,
   DateVariant,
   EffectClass,
+  ImageAspect,
+  ImageFit,
+  ImageLoading,
   ImageVariant,
   LinkProtection,
   MathDisplay,
@@ -955,6 +958,12 @@ export interface ImageOptions {
   readonly src: StringInput;
   readonly alt: TextInput;
   readonly variant?: ImageVariant;
+  /** Phase 1077 — how the pixels fill the box; omitted ⇒ `'Natural'` (no `object-fit`). */
+  readonly fit?: ImageFit;
+  /** Phase 1077 — the box reserved before the image loads; omitted ⇒ `'Natural'` (no reservation). */
+  readonly aspectRatio?: ImageAspect;
+  /** Phase 1077 — fetch timing; omitted ⇒ `'Eager'` (no attribute, the browser default). */
+  readonly loading?: ImageLoading;
 }
 
 export interface ListOptions {
@@ -1458,7 +1467,14 @@ export const fuaran = {
       kind: 'Display',
       display: {
         kind: 'Image',
-        spec: { src: stringBinding(o.src), alt: text(o.alt), variant: o.variant ?? 'Default' },
+        spec: {
+          src: stringBinding(o.src),
+          alt: text(o.alt),
+          variant: o.variant ?? 'Default',
+          fit: o.fit ?? 'Natural',
+          aspectRatio: o.aspectRatio ?? 'Natural',
+          loading: o.loading ?? 'Eager',
+        },
       },
     });
   },

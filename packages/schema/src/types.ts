@@ -92,6 +92,32 @@ export type HeadingVariant = 'Standard' | 'Eyebrow' | 'Caption' | 'Lead';
 /** `DisplayKind.Image` presentation variant (Phase 287). Bare-string enum. */
 export type ImageVariant = 'Default' | 'Avatar' | 'Rounded';
 
+/**
+ * `DisplayKind.Image.fit` — how the decoded pixels fill the box the layout
+ * gives the element (Phase 1077). `Natural` is the pre-phase behaviour: the
+ * intrinsic aspect with no `object-fit` rule at all. Bare-string enum,
+ * omitted-when-`Natural` on both boundaries.
+ */
+export type ImageFit = 'Natural' | 'Cover' | 'Contain';
+
+/**
+ * `DisplayKind.Image.aspectRatio` — the box the element reserves BEFORE the
+ * image arrives (Phase 1077); the cumulative-layout-shift slot. A closed set of
+ * TOKENS, never a CSS ratio: a numeric pair would reach a style attribute,
+ * which is the free-form escape this language does not have. Bare-string enum,
+ * omitted-when-`Natural` on both boundaries.
+ */
+export type ImageAspect = 'Natural' | 'Square' | 'FourThree' | 'ThreeTwo' | 'SixteenNine';
+
+/**
+ * `DisplayKind.Image.loading` — whether the browser fetches during the initial
+ * load or defers until the element nears the viewport (Phase 1077). `Eager` is
+ * the default deliberately: deferring an above-the-fold image is a regression,
+ * and only the author knows where the image sits. Bare-string enum,
+ * omitted-when-`Eager` on both boundaries.
+ */
+export type ImageLoading = 'Eager' | 'Lazy';
+
 /** `LayoutKind.ScrollArea` scroll axis (Phase 289). Bare-string enum. */
 export type ScrollOrientation = 'Vertical' | 'Horizontal' | 'Both';
 
@@ -1150,10 +1176,17 @@ export type LinkProtection = 'email';
 // A crawlable `<img>` primitive (Phase 287). `src` is a `Binding<string>`
 // routed through the URL sanitizer at render time (like `Link.href`); `alt` is
 // mandatory; `variant` appends an Avatar / Rounded class.
+// Phase 1077 adds the three presentation slots. Each is omitted-when-default
+// on both boundaries, so a pre-phase document decodes and re-encodes to the
+// bytes it already had; together they close the two real defects of an
+// image-heavy page — layout shift and eager-loading everything.
 export interface ImageSpec {
   readonly src: Binding<string>;
   readonly alt: TextSource;
   readonly variant: ImageVariant;
+  readonly fit: ImageFit;
+  readonly aspectRatio: ImageAspect;
+  readonly loading: ImageLoading;
 }
 
 // An ordered (`<ol>`) / unordered (`<ul>`) list of item texts (Phase 287).

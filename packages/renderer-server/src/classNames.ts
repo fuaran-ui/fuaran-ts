@@ -12,6 +12,7 @@ import type {
   ToneVariant,
   StyleWeight,
   Emphasis,
+  ImageAspect,
   StyleRole,
   FontVoice,
   LayoutKind,
@@ -77,6 +78,30 @@ export const trendSentiment = (
   if (sentiment > 0) return ['improving', '▲'] as const;
   if (sentiment < 0) return ['regressing', '▼'] as const;
   return ['unchanged', '→'] as const;
+};
+
+/**
+ * Phase 1077 — map an `ImageAspect` token to its `fuaran-image-aspect-{suffix}`
+ * class fragment, leading space included. `'Natural'` returns `''`: the default
+ * emits NO class, so a pre-phase tree's class attribute is byte-identical.
+ *
+ * The token is deliberately not the CSS ratio. The stylesheet owns the
+ * `aspect-ratio` value; the wire owns only which of the four boxes was asked
+ * for, which is what keeps an author-supplied number out of a style attribute.
+ */
+export const imageAspectClass = (aspect: ImageAspect): string => {
+  switch (aspect) {
+    case 'Square':
+      return ' fuaran-image-aspect-square';
+    case 'FourThree':
+      return ' fuaran-image-aspect-four-three';
+    case 'ThreeTwo':
+      return ' fuaran-image-aspect-three-two';
+    case 'SixteenNine':
+      return ' fuaran-image-aspect-sixteen-nine';
+    case 'Natural':
+      return '';
+  }
 };
 
 /** Map a `StyleWeight` to its CSS-variable name root (padding / density). */

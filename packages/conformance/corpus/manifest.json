@@ -628,6 +628,14 @@
       "description": "Phase 719 — the compact authoring twin of `grid-transform-param`: all-valid columns as bare arrays (Core#88) and the inferable schema omitted; the canonical envelope stays the encoder's output. The pack teaches this form by example — the exemplar/prose contradiction measurably taught the envelope (claude-opus 81% envelope share, 2026-07-28 census)."
     },
     {
+      "id": "lenient-image-explicit-defaults",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-image-explicit-defaults.json",
+      "expectedFile": "lenient/lenient-image-explicit-defaults.expected.json",
+      "description": "Image — explicit-default `fit`/`aspectRatio`/`loading` decode and canonicalise away (omitted-when-default on both boundaries from day one, Phase 1077), and the bare-string TextSource shorthand applies to `alt`. The canonical minimal Image is exactly the pre-phase three-field form."
+    },
+    {
       "id": "lenient-master-detail-preselected-compact",
       "kind": "lenient-accept",
       "decoder": "node",
@@ -1658,6 +1666,14 @@
       "inputFile": "nodes/image-1.json",
       "expectedFile": "nodes/image-1.json",
       "description": "Display/Image (Avatar variant)"
+    },
+    {
+      "id": "image-presentation-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/image-presentation-1.json",
+      "expectedFile": "nodes/image-presentation-1.json",
+      "description": "Display/Image (Phase 1077 — fit / aspectRatio / loading all off-default)"
     },
     {
       "id": "limit-node-depth-at-max",
@@ -2723,6 +2739,15 @@
       "expectedErrorCode": "UNKNOWN_DU_CASE",
       "expectedPath": "$.kind.shapes[0].$type",
       "description": "Drawing Shape $type 'Blob' — the closed-shape default-deny (Phase 524)"
+    },
+    {
+      "id": "reject-unknown-image-aspect",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-unknown-image-aspect.json",
+      "expectedErrorCode": "UNKNOWN_DU_CASE",
+      "expectedPath": "$.kind.aspectRatio",
+      "description": "ImageAspect value '16/9' — the CSS ratio spelling, refused: the slot is a closed token vocabulary (Square | FourThree | ThreeTwo | SixteenNine), and admitting a numeric pair would reintroduce the free-form escape the tokens replace"
     },
     {
       "id": "reject-unknown-link-protection",

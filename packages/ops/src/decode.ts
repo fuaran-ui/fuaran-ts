@@ -84,6 +84,9 @@ import type {
   DisplayKind,
   EffectClass,
   Emphasis,
+  ImageAspect,
+  ImageFit,
+  ImageLoading,
   ImageSpec,
   ImageVariant,
   ListSpec,
@@ -554,6 +557,22 @@ const decodeHeadingVariant = (p: string, j: JsonAst): R<HeadingVariant> => {
 
 const decodeImageVariant = (p: string, j: JsonAst): R<ImageVariant> =>
   bareEnum(p, j, ['Default', 'Avatar', 'Rounded'] as const, 'ImageVariant');
+
+// Phase 1077 — the three `Image` presentation vocabularies. Bare enums, so an
+// unrecognised case reports at the field's own path with no `.$type` suffix.
+const decodeImageFit = (p: string, j: JsonAst): R<ImageFit> =>
+  bareEnum(p, j, ['Natural', 'Cover', 'Contain'] as const, 'ImageFit');
+
+const decodeImageAspect = (p: string, j: JsonAst): R<ImageAspect> =>
+  bareEnum(
+    p,
+    j,
+    ['Natural', 'Square', 'FourThree', 'ThreeTwo', 'SixteenNine'] as const,
+    'ImageAspect',
+  );
+
+const decodeImageLoading = (p: string, j: JsonAst): R<ImageLoading> =>
+  bareEnum(p, j, ['Eager', 'Lazy'] as const, 'ImageLoading');
 
 const decodeScrollOrientation = (p: string, j: JsonAst): R<ScrollOrientation> =>
   bareEnum(p, j, ['Vertical', 'Horizontal', 'Both'] as const, 'ScrollOrientation');
@@ -3062,7 +3081,31 @@ const decodeImageSpec = (path: string, j: JsonAst): R<ImageSpec> => {
   if (!src.ok) return src;
   const variant = reqField(path, f, 'variant', 'ImageVariant', decodeImageVariant);
   if (!variant.ok) return variant;
-  return ok({ alt: alt.value, src: src.value, variant: variant.value });
+  // Phase 1077 — omitted-when-default; absent restores today's behaviour, which
+  // is what keeps every pre-phase document decoding unchanged.
+  const fitJ = tryField(f, 'fit');
+  const fit = fitJ === undefined ? ok<ImageFit>('Natural') : decodeImageFit(`${path}.fit`, fitJ);
+  if (!fit.ok) return fit;
+  const aspectJ = tryField(f, 'aspectRatio');
+  const aspectRatio =
+    aspectJ === undefined
+      ? ok<ImageAspect>('Natural')
+      : decodeImageAspect(`${path}.aspectRatio`, aspectJ);
+  if (!aspectRatio.ok) return aspectRatio;
+  const loadingJ = tryField(f, 'loading');
+  const loading =
+    loadingJ === undefined
+      ? ok<ImageLoading>('Eager')
+      : decodeImageLoading(`${path}.loading`, loadingJ);
+  if (!loading.ok) return loading;
+  return ok({
+    alt: alt.value,
+    src: src.value,
+    variant: variant.value,
+    fit: fit.value,
+    aspectRatio: aspectRatio.value,
+    loading: loading.value,
+  });
 };
 
 const decodeListSpec = (path: string, j: JsonAst): R<ListSpec> => {

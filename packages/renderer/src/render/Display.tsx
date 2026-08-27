@@ -29,7 +29,7 @@ import {
   tryResolve,
   tryResolveScalarFloat,
 } from '../bindings.js';
-import { toneVar, trendSentiment } from '../classNames.js';
+import { imageAspectClass, toneVar, trendSentiment } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { drawingSvg } from '../drawingSvg.js';
 import { mathMl } from '../mathMl.js';
@@ -250,12 +250,29 @@ export const renderDisplay = <TMsg,>(
           : display.spec.variant === 'Rounded'
             ? 'fuaran-image fuaran-image-rounded'
             : 'fuaran-image';
+      // Phase 1077 — the presentation tokens map to classes and nothing else:
+      // no value from the tree ever reaches a style attribute. `Natural` emits
+      // NO class on either axis, so a pre-phase tree's class attribute is
+      // byte-identical. Byte-parity with the server arm is the contract — keep
+      // the two mappings in step.
+      const fitClass =
+        display.spec.fit === 'Cover'
+          ? ' fuaran-image-fit-cover'
+          : display.spec.fit === 'Contain'
+            ? ' fuaran-image-fit-contain'
+            : '';
+      const aspectClass = imageAspectClass(display.spec.aspectRatio);
+      // Phase 1077 — `Eager` emits no attribute at all (the browser default);
+      // only `Lazy` is a declaration. Deferring an above-the-fold image is a
+      // regression, which is why the default is not the "optimised" value.
+      const loadingAttrs = display.spec.loading === 'Lazy' ? { loading: 'lazy' as const } : {};
       // Phase 951 — the a11y projection lands on the <img> itself.
       return (
         <img
-          className={variantClass}
+          className={variantClass + fitClass + aspectClass}
           src={src}
           alt={renderText(ctx.sources, display.spec.alt)}
+          {...loadingAttrs}
           {...semanticAttrs}
           {...Object.fromEntries(egressAttrs)}
         />

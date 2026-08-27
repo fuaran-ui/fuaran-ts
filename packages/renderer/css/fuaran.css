@@ -2071,6 +2071,58 @@ html[data-fuaran-disconnected]::before {
   border-radius: var(--fuaran-radius-lg, 8px);
 }
 
+/* ── Image presentation (Phase 1077) ──────────────────────────────
+   `fit` and `aspectRatio` are closed token vocabularies mapped to classes —
+   no value from the tree ever reaches a style attribute. `Natural` emits no
+   class on either axis, so the rules below are strictly additive and a
+   pre-phase image is untouched.
+
+   `aspect-ratio` is the cumulative-layout-shift fix: the box is reserved in
+   the FIRST layout pass, before the image bytes arrive, so nothing below it
+   moves when they do. It works with CSS alone — no script, no measurement,
+   and therefore identically in the server-rendered output.
+
+   The width rule is load-bearing. `.fuaran-image` ships `height: auto`, which
+   would otherwise win over the reserved ratio for a loaded image; pinning the
+   height to the ratio box and letting the width fill the container is what
+   makes the reservation survive the load. */
+.fuaran-image-aspect-square,
+.fuaran-image-aspect-four-three,
+.fuaran-image-aspect-three-two,
+.fuaran-image-aspect-sixteen-nine {
+  width: 100%;
+  height: auto;
+}
+
+.fuaran-image-aspect-square {
+  aspect-ratio: 1 / 1;
+}
+
+.fuaran-image-aspect-four-three {
+  aspect-ratio: 4 / 3;
+}
+
+.fuaran-image-aspect-three-two {
+  aspect-ratio: 3 / 2;
+}
+
+.fuaran-image-aspect-sixteen-nine {
+  aspect-ratio: 16 / 9;
+}
+
+/* `Cover` fills the reserved box and crops; `Contain` fits the whole image
+   inside it and letterboxes. Neither says anything without a box to fill,
+   which is why they read as a pair with `aspectRatio` — but each is
+   independently declarable, because a host stylesheet may size the element
+   some other way. */
+.fuaran-image-fit-cover {
+  object-fit: cover;
+}
+
+.fuaran-image-fit-contain {
+  object-fit: contain;
+}
+
 /* ── List (Phase 287) ──────────────────────────────────────────── */
 .fuaran-list {
   margin: 0;

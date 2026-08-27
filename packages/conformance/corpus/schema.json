@@ -62,6 +62,31 @@
         "Rounded"
       ]
     },
+    "ImageFit": {
+      "type": "string",
+      "enum": [
+        "Natural",
+        "Cover",
+        "Contain"
+      ]
+    },
+    "ImageAspect": {
+      "type": "string",
+      "enum": [
+        "Natural",
+        "Square",
+        "FourThree",
+        "ThreeTwo",
+        "SixteenNine"
+      ]
+    },
+    "ImageLoading": {
+      "type": "string",
+      "enum": [
+        "Eager",
+        "Lazy"
+      ]
+    },
     "ScrollOrientation": {
       "type": "string",
       "enum": [
@@ -4408,6 +4433,15 @@
       "properties": {
         "alt": {
           "$ref": "#/$defs/TextSource"
+        },
+        "aspectRatio": {
+          "$ref": "#/$defs/ImageAspect"
+        },
+        "fit": {
+          "$ref": "#/$defs/ImageFit"
+        },
+        "loading": {
+          "$ref": "#/$defs/ImageLoading"
         },
         "src": {
           "$ref": "#/$defs/Binding_str"
