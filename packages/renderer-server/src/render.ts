@@ -78,7 +78,7 @@ import {
 import { chartLowerSpecOf, drawingSvg, mathMl } from '@fuaran-ui/renderer';
 import { isLowered, lower, type ChartRow } from '@fuaran-ui/charts';
 
-import { motionVar, nodeClassName, toneVar } from './classNames.js';
+import { motionVar, nodeClassName, toneVar, trendSentiment } from './classNames.js';
 import { type Attr, el, escapeText, textEl, voidEl } from './html.js';
 import { toHtmlWithEgress } from './markdown.js';
 
@@ -1017,9 +1017,30 @@ const renderMetric = (
     textEl('div', [['class', 'fuaran-metric-value']], resolvedValueText(resolution, spec.format)),
   ];
   if (spec.trend !== undefined) {
+    // Phase 867 — mirrors the client renderer byte-for-byte: the trend element
+    // carries a SENTIMENT (sign, and from Part B the declared polarity), not an
+    // unconditional success class. `tone` still colours the tile alone.
     const t = tryResolveScalarFloat(ctx.sources, spec.trend);
-    const trendText = t !== undefined ? formatNumber(spec.trendFormat ?? { kind: 'None' }, t) : '';
-    parts.push(textEl('div', [['class', 'fuaran-metric-trend']], trendText));
+    if (t === undefined) {
+      parts.push(textEl('div', [['class', 'fuaran-metric-trend']], ''));
+    } else {
+      const [sentiment, glyph] = trendSentiment(t);
+      parts.push(
+        el(
+          'div',
+          [['class', `fuaran-metric-trend fuaran-metric-trend-${sentiment}`]],
+          textEl(
+            'span',
+            [
+              ['class', 'fuaran-metric-trend-glyph'],
+              ['role', 'img'],
+              ['aria-label', sentiment],
+            ],
+            glyph,
+          ) + escapeText(formatNumber(spec.trendFormat ?? { kind: 'None' }, t)),
+        ),
+      );
+    }
   }
   if (spec.subtext !== undefined) {
     parts.push(

@@ -29,7 +29,7 @@ import {
   tryResolve,
   tryResolveScalarFloat,
 } from '../bindings.js';
-import { toneVar } from '../classNames.js';
+import { toneVar, trendSentiment } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { drawingSvg } from '../drawingSvg.js';
 import { mathMl } from '../mathMl.js';
@@ -430,14 +430,24 @@ const renderMetric = <TMsg,>(
       {spec.icon !== undefined ? iconHook('fuaran-metric-icon', spec.icon) : null}
       <div className="fuaran-metric-label">{renderText(ctx.sources, spec.label)}</div>
       <div className="fuaran-metric-value">{resolvedValueText(resolution, spec.format)}</div>
-      {spec.trend !== undefined && (
-        <div className="fuaran-metric-trend">
-          {(() => {
-            const t = tryResolveScalarFloat(ctx.sources, spec.trend);
-            return t !== undefined ? formatNumber(spec.trendFormat ?? { kind: 'None' }, t) : '';
-          })()}
-        </div>
-      )}
+      {spec.trend !== undefined &&
+        (() => {
+          // Phase 867 — the trend element carries a SENTIMENT, not a constant.
+          // `tone` above still colours the tile; this says which way the quantity
+          // moved, and nothing derives one from the other. The numeric text —
+          // sign included — is unchanged.
+          const t = tryResolveScalarFloat(ctx.sources, spec.trend);
+          if (t === undefined) return <div className="fuaran-metric-trend"></div>;
+          const [sentiment, glyph] = trendSentiment(t);
+          return (
+            <div className={`fuaran-metric-trend fuaran-metric-trend-${sentiment}`}>
+              <span className="fuaran-metric-trend-glyph" role="img" aria-label={sentiment}>
+                {glyph}
+              </span>
+              {formatNumber(spec.trendFormat ?? { kind: 'None' }, t)}
+            </div>
+          );
+        })()}
       {spec.subtext !== undefined && (
         <div className="fuaran-metric-subtext">{renderText(ctx.sources, spec.subtext)}</div>
       )}

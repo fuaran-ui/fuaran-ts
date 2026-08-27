@@ -40,6 +40,29 @@ export const toneVar = (tone: ToneVariant): string => {
   }
 };
 
+/**
+ * Phase 867 — the `Metric` trend element's SENTIMENT, as the class-modifier
+ * fragment (which is also the accessible label) paired with its visible glyph.
+ *
+ * Until this shipped, `.fuaran-metric-trend` carried exactly one class and the
+ * reference stylesheet painted it `--fuaran-tone-success-fg` unconditionally,
+ * so EVERY trend rendered as an improvement — in both directions, on every
+ * host. Sentiment is a function of the RESOLVED trend's sign: rising is an
+ * improvement, falling a regression, zero neither. `tone` is untouched — it
+ * colours the TILE and says how the reading STANDS; this says which way the
+ * quantity MOVED. A host derives neither from the other.
+ *
+ * The glyphs are U+25B2, U+25BC and U+2192. They carry the sentiment on a
+ * NON-COLOUR channel (WCAG 1.4.1 — colour alone fails), and the renderers hang
+ * the fragment on the glyph as an `aria-label` so assistive technology hears
+ * the sentiment without the numeric text being replaced by it.
+ */
+export const trendSentiment = (trend: number): readonly [string, string] => {
+  if (trend > 0) return ['improving', '▲'] as const;
+  if (trend < 0) return ['regressing', '▼'] as const;
+  return ['unchanged', '→'] as const;
+};
+
 /** Map a `StyleWeight` to its CSS-variable name root (padding / density). */
 export const weightVar = (weight: StyleWeight): string => {
   switch (weight) {
