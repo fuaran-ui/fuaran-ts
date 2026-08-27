@@ -970,6 +970,24 @@ export interface ImageOptions {
    * emission is the bare `<img>`. A full `TextSource`, so it is i18n-capable.
    */
   readonly caption?: TextInput;
+  /**
+   * Phase 1080 — alternate renditions of the same picture at declared intrinsic
+   * pixel widths. Omitted (or empty) emits no `srcset` at all. Authored order is
+   * free: the renderers emit candidates ascending by width, and the wire keeps
+   * whatever order you wrote.
+   */
+  readonly srcSet?: readonly SrcSetEntryInput[];
+}
+
+/**
+ * Phase 1080 — one candidate rendition in `ImageOptions.srcSet`. `width` is the
+ * `w` descriptor and must be a positive integer; the wire refuses zero and
+ * negative widths. `src` passes the same URL floor the primary source does — a
+ * candidate that fails it is dropped from the emitted list rather than served.
+ */
+export interface SrcSetEntryInput {
+  readonly src: StringInput;
+  readonly width: number;
 }
 
 export interface ListOptions {
@@ -1480,6 +1498,10 @@ export const fuaran = {
           fit: o.fit ?? 'Natural',
           aspectRatio: o.aspectRatio ?? 'Natural',
           loading: o.loading ?? 'Eager',
+          // Phase 1080 — ALWAYS present on the spec, even when empty: the wire
+          // says an absent `srcSet` is `[]`, so a constructed spec that left the
+          // field off would disagree with what a decoded one carries.
+          srcSet: (o.srcSet ?? []).map((e) => ({ src: stringBinding(e.src), width: e.width })),
           ...(o.caption !== undefined ? { caption: text(o.caption) } : {}),
         },
       },

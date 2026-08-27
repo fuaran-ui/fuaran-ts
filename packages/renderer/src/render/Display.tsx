@@ -266,12 +266,38 @@ export const renderDisplay = <TMsg,>(
       // only `Lazy` is a declaration. Deferring an above-the-fold image is a
       // regression, which is why the default is not the "optimised" value.
       const loadingAttrs = display.spec.loading === 'Lazy' ? { loading: 'lazy' as const } : {};
+      // Phase 1080 — the responsive candidate list, byte-parity with the server
+      // arm. Every candidate goes through the SAME `media`-class egress seam the
+      // primary `src` does: a srcset candidate is a URL the browser fetches with
+      // no user act, which is the exact class this floor exists for, so routing
+      // only the primary through it would make the slot a documented way around
+      // the one rule this node has. A refused candidate is DROPPED rather than
+      // neutered — the primary `src` must exist so it collapses to the refusal
+      // URL, but a candidate has no such obligation, and a rendition that cannot
+      // load is worse than one fewer. Ascending by width is the RENDERER's
+      // canonicalisation; the wire keeps authored order.
+      const srcSetCandidates = [...display.spec.srcSet]
+        .sort((a, b) => a.width - b.width)
+        .flatMap((entry) => {
+          const [safe, refusal] = sanitizeUrlForEgress(
+            ctx.egressPolicy,
+            'media',
+            tryResolve(ctx.sources, entry.src) ?? '',
+          );
+          return safe === '' || refusal.length > 0 ? [] : [`${safe} ${entry.width}w`];
+        });
+      // `sizes` is the one bounded value the tree can justify: nothing in the
+      // document says how wide this element will be laid out, and the language
+      // has no media-query slot for an author to say so.
+      const srcSetAttrs =
+        srcSetCandidates.length > 0 ? { srcSet: srcSetCandidates.join(', '), sizes: '100vw' } : {};
       // Phase 951 — the a11y projection lands on the <img> itself.
       const img = (
         <img
           className={variantClass + fitClass + aspectClass}
           src={src}
           alt={renderText(ctx.sources, display.spec.alt)}
+          {...srcSetAttrs}
           {...loadingAttrs}
           {...semanticAttrs}
           {...Object.fromEntries(egressAttrs)}

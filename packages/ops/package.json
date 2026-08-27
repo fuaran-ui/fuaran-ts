@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/ops",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Canonical-JSON codec (encoder + structural decoder) and tree-op apply engine for the Fuaran UI wire format — a conformant TypeScript host of the language-neutral contract in fuaran-dotnet/docs/WIRE_FORMAT.md, verified byte-for-byte against the workspace wire-format-fixtures corpus.",
   "keywords": [
     "fuaran",

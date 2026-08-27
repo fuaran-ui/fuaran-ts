@@ -919,11 +919,37 @@ const renderDisplay = (
       // only `Lazy` is a declaration.
       const loadingAttrs: (readonly [string, string])[] =
         display.spec.loading === 'Lazy' ? [['loading', 'lazy']] : [];
+      // Phase 1080 — the responsive candidate list. Every candidate goes through
+      // the SAME `media`-class egress seam the primary `src` does; a refused one
+      // is DROPPED rather than neutered into the list, leaving the primary `src`
+      // as the fallback the whole mechanism rests on. Ascending by width is the
+      // RENDERER's canonicalisation — the wire keeps authored order — and the
+      // sort is stable, so equal widths keep theirs.
+      const srcSetCandidates = [...display.spec.srcSet]
+        .sort((a, b) => a.width - b.width)
+        .flatMap((entry) => {
+          const [safe, refusal] = sanitizeUrlForEgress(
+            ctx.egressPolicy,
+            'media',
+            tryResolve(ctx.sources, entry.src) ?? '',
+          );
+          return safe === '' || refusal.length > 0 ? [] : [`${safe} ${entry.width}w`];
+        });
+      // `sizes` is bounded to the one value the tree can justify — nothing in
+      // the document says how wide the element will be laid out.
+      const srcSetAttrs: (readonly [string, string])[] =
+        srcSetCandidates.length > 0
+          ? [
+              ['srcset', srcSetCandidates.join(', ')],
+              ['sizes', '100vw'],
+            ]
+          : [];
       // Phase 951 — the a11y projection lands on the <img> itself.
       const img = voidEl('img', [
         ['class', variantClass + fitClass + aspectClass],
         ['src', src],
         ['alt', renderText(ctx.sources, display.spec.alt)],
+        ...srcSetAttrs,
         ...loadingAttrs,
         ...semanticAttrs,
         ...egressAttrs,

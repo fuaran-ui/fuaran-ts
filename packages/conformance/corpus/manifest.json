@@ -636,6 +636,14 @@
       "description": "Image — the enveloped `{\"$type\":\"Literal\"}` TextSource form on `caption` decodes and canonicalises to the bare string, exactly as it does on `alt` (Phase 1078). The slot is a full `TextSource`, so a host that narrowed it to a plain string cannot decode this input at all."
     },
     {
+      "id": "lenient-image-empty-srcset",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-image-empty-srcset.json",
+      "expectedFile": "lenient/lenient-image-empty-srcset.expected.json",
+      "description": "Image — an explicitly EMPTY `srcSet` decodes and canonicalises away to the omitted form (Phase 1080). Absent and `[]` denote the same document, so an image that declares no alternate renditions costs no key on the wire"
+    },
+    {
       "id": "lenient-image-explicit-defaults",
       "kind": "lenient-accept",
       "decoder": "node",
@@ -1700,6 +1708,14 @@
       "description": "Display/Image (Phase 1077 — fit / aspectRatio / loading all off-default)"
     },
     {
+      "id": "image-srcset-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/image-srcset-1.json",
+      "expectedFile": "nodes/image-srcset-1.json",
+      "description": "Display/Image (Phase 1080 — three-candidate srcSet, authored descending)"
+    },
+    {
       "id": "limit-node-depth-at-max",
       "kind": "node-round-trip",
       "decoder": "node",
@@ -2394,6 +2410,24 @@
       "expectedErrorCode": "WRONG_TYPE",
       "expectedPath": "$.kind.fields[0].validation",
       "description": "'validation' near-miss on a FormField — the canonical key is 'rule' (Phase 864)"
+    },
+    {
+      "id": "reject-image-srcset-nonpositive-width",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-image-srcset-nonpositive-width.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.srcSet[1].width",
+      "description": "SrcSetEntry width 0 — refused: a `w` descriptor names the intrinsic pixel width a browser selects on, so a non-positive value describes a candidate that can never be selected. The first entry is well-formed on purpose, so the path has to identify the second"
+    },
+    {
+      "id": "reject-image-srcset-null",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-image-srcset-null.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.srcSet",
+      "description": "Image srcSet `null` — refused. Absent means the EMPTY LIST (the missing-list-field decode class); a present null is a second spelling for an absence that already has one, and admitting it would let two hosts disagree about the canonical bytes of the same document"
     },
     {
       "id": "reject-invalid-empty",

@@ -4449,6 +4449,12 @@
         "src": {
           "$ref": "#/$defs/Binding_str"
         },
+        "srcSet": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SrcSetEntry"
+          }
+        },
         "variant": {
           "$ref": "#/$defs/ImageVariant"
         }
@@ -4457,6 +4463,22 @@
         "alt",
         "src",
         "variant"
+      ]
+    },
+    "SrcSetEntry": {
+      "type": "object",
+      "properties": {
+        "src": {
+          "$ref": "#/$defs/Binding_str"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "src",
+        "width"
       ]
     },
     "ListSpec": {

@@ -1185,6 +1185,11 @@ export type LinkProtection = 'email';
 // rather than an identity default: there is no default caption the way there is
 // a default fit. Present, the renderers wrap the `<img>` in `<figure>` /
 // `<figcaption>`; absent, the emission is the bare `<img>` it always was.
+// Phase 1080 adds `srcSet`, the first REPEATED slot here. It is omitted-at-
+// default like the presentation tokens, but its identity is the EMPTY ARRAY
+// rather than a token — so an ABSENT `srcSet` decodes to `[]`, never to
+// `undefined` or `null` (the missing-list-field decode class), and an empty one
+// encodes to no key at all.
 export interface ImageSpec {
   readonly src: Binding<string>;
   readonly alt: TextSource;
@@ -1199,6 +1204,28 @@ export interface ImageSpec {
    * needs a locale.
    */
   readonly caption?: TextSource;
+  /**
+   * Phase 1080 — alternate renditions of the same picture at declared intrinsic
+   * pixel widths, from which a client picks one.
+   *
+   * NOT optional in the type, and that is deliberate: an absent `srcSet` on the
+   * wire decodes to `[]`, so making the field `?` here would let a decoder
+   * legally hand a consumer `undefined` for a slot the wire says is empty. The
+   * encoder omits the key when the array is empty, which is the same fact from
+   * the other side.
+   */
+  readonly srcSet: readonly SrcSetEntry[];
+}
+
+// Phase 1080 — one candidate rendition in `ImageSpec.srcSet`. `width` is the
+// intrinsic pixel width of THIS candidate (the `w` descriptor a client selects
+// on) and MUST be positive — a floor the decoder and the published schema state,
+// because the type system cannot. `src` is a full `Binding<string>` for the same
+// reason the primary `src` is, and it passes the same URL floor: a srcset entry
+// is not a sanitization bypass.
+export interface SrcSetEntry {
+  readonly src: Binding<string>;
+  readonly width: number;
 }
 
 // An ordered (`<ol>`) / unordered (`<ul>`) list of item texts (Phase 287).

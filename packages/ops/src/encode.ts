@@ -93,6 +93,7 @@ import type {
   ProgressSpec,
   SelectOption,
   SelectSpec,
+  SrcSetEntry,
   SemanticStyle,
   SkeletonSpec,
   IconSpec,
@@ -1030,6 +1031,14 @@ const linkSpec = (s: LinkSpec): string => {
   return jObject(fields);
 };
 
+// Phase 1080 — one `srcSet` candidate. `jObject` sorts the members, so `src`
+// precedes `width` on the wire whatever order they are pushed in here.
+const srcSetEntry = (e: SrcSetEntry): string =>
+  jObject([
+    ['src', binding(e.src)],
+    ['width', num(e.width)],
+  ]);
+
 const imageSpec = (s: ImageSpec): string => {
   const fields: Field[] = [
     ['alt', textSource(s.alt)],
@@ -1045,6 +1054,13 @@ const imageSpec = (s: ImageSpec): string => {
   // Phase 1078 — omitted when absent (rule 4), not at a default. `jObject`
   // sorts, so the key lands in its canonical position wherever it is pushed.
   if (s.caption !== undefined) fields.push(['caption', textSource(s.caption)]);
+  // Phase 1080 — omitted when EMPTY, which is the encode half of the
+  // missing-list-field rule: an image with no alternate renditions and one with
+  // an empty list are the same document, so both emit no key. The candidate
+  // ORDER is the author's and is emitted verbatim — a JSON array is ordered
+  // data, and re-sorting it here would make this encoder produce bytes it did
+  // not decode. Ascending-by-width is the RENDERER's canonicalisation.
+  if (s.srcSet.length > 0) fields.push(['srcSet', jArray(s.srcSet.map(srcSetEntry))]);
   return jObject(fields);
 };
 

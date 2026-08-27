@@ -147,6 +147,7 @@ import type {
   Result,
   SelectOption,
   SelectSpec,
+  SrcSetEntry,
   SemanticStyle,
   SkeletonSpec,
   IconSpec,
@@ -3071,6 +3072,31 @@ const decodeLinkSpec = (path: string, j: JsonAst): R<LinkSpec> => {
 const decodeLinkProtection = (p: string, j: JsonAst): R<LinkProtection> =>
   bareEnum(p, j, ['email'] as const, 'LinkProtection');
 
+// Phase 1080 — one `srcSet` candidate. `width` is the intrinsic pixel width of
+// this rendition and MUST be a positive integer; zero and negative values are a
+// WRONG_TYPE at `<path>.width`, which is what the published schema's
+// `minimum: 1` says too, so the two expressions of the contract agree. Zero is
+// refused as firmly as a negative and that is the interesting half: a `0w`
+// descriptor is not a small image, it is a candidate a client can never select,
+// so admitting it would let the wire carry a rendition no host can use.
+const decodeSrcSetEntry = (path: string, j: JsonAst): R<SrcSetEntry> => {
+  const fo = requireObject(path, j);
+  if (!fo.ok) return fo;
+  const src = reqField(
+    path,
+    fo.value,
+    'src',
+    'srcSet entry Binding<string> src',
+    decodeBindingString,
+  );
+  if (!src.ok) return src;
+  const widthJ = tryField(fo.value, 'width');
+  if (widthJ === undefined) return missingField(path, 'width', 'positive intrinsic pixel width');
+  if (widthJ.kind !== 'JNumber' || widthJ.value <= 0 || !Number.isInteger(widthJ.value))
+    return wrongType(`${path}.width`, 'JSON number (positive integer pixel width)');
+  return ok<SrcSetEntry>({ src: src.value, width: widthJ.value });
+};
+
 const decodeImageSpec = (path: string, j: JsonAst): R<ImageSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
@@ -3104,6 +3130,27 @@ const decodeImageSpec = (path: string, j: JsonAst): R<ImageSpec> => {
   // `TextSource` case reach the slot without a caption-specific rule.
   const caption = optField(path, f, 'caption', decodeTextSource);
   if (!caption.ok) return caption;
+  // Phase 1080 — the MISSING-LIST-FIELD decode class, and the one line in this
+  // decoder most worth reading. An ABSENT `srcSet` is the EMPTY ARRAY: not
+  // `undefined`, not `null`, not an error. This is `optField` deliberately NOT
+  // used — `optField` produces `undefined`, and a slot that came back
+  // `undefined` here would hand a consumer a value the wire does not describe
+  // and that this package's own encoder could not round-trip. A PRESENT `null`
+  // is refused rather than read as absence: absence already has a spelling, and
+  // a second one lets two conformant hosts emit different canonical bytes for
+  // the same document.
+  const srcSetJ = tryField(f, 'srcSet');
+  const srcSet: R<readonly SrcSetEntry[]> =
+    srcSetJ === undefined
+      ? ok<readonly SrcSetEntry[]>([])
+      : (() => {
+          const arr = requireArray(`${path}.srcSet`, srcSetJ);
+          if (!arr.ok) return arr;
+          return traverseIndexed(arr.value, (i, el) =>
+            decodeSrcSetEntry(`${path}.srcSet[${i}]`, el),
+          );
+        })();
+  if (!srcSet.ok) return srcSet;
   return ok({
     alt: alt.value,
     src: src.value,
@@ -3111,6 +3158,7 @@ const decodeImageSpec = (path: string, j: JsonAst): R<ImageSpec> => {
     fit: fit.value,
     aspectRatio: aspectRatio.value,
     loading: loading.value,
+    srcSet: srcSet.value,
     ...(caption.value !== undefined ? { caption: caption.value } : {}),
   });
 };
