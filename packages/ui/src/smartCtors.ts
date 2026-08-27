@@ -998,6 +998,47 @@ export interface SrcSetEntryInput {
   readonly width: number;
 }
 
+/**
+ * Phase 1076 — a video playback surface. `label` is a REQUIRED option, not an
+ * optional tail: it is the accessible name, a transport has no decorative case,
+ * and a constructor that let it be omitted would make the easiest thing to write
+ * the thing the pre-emit validator refuses.
+ */
+export interface VideoOptions {
+  readonly id: NodeId | string;
+  readonly src: StringInput;
+  readonly label: TextInput;
+  /** Omitted ⇒ `true` — the accessible value. Only `false` costs a wire key. */
+  readonly controls?: boolean;
+  /** Omitted ⇒ `false`. */
+  readonly loop?: boolean;
+  /**
+   * Omitted ⇒ `false`. Set, the renderers emit `autoplay` together with
+   * `muted`, always — there is no separate muted option because the pairing is
+   * not a default to override.
+   */
+  readonly autoplay?: boolean;
+  /**
+   * An optional poster frame. It passes the same URL floor the source does, and
+   * a refused one is dropped rather than emitted.
+   */
+  readonly poster?: StringInput;
+}
+
+/**
+ * Phase 1076 — an audio playback surface. Note what is ABSENT: no autoplay and
+ * no poster, because `MediaKind.Audio` carries neither slot. That is the design
+ * rather than an omission — a slot that defaults to off is one a caller can
+ * switch on, and a page that begins making sound unbidden is a defect shape.
+ */
+export interface AudioOptions {
+  readonly id: NodeId | string;
+  readonly src: StringInput;
+  readonly label: TextInput;
+  readonly controls?: boolean;
+  readonly loop?: boolean;
+}
+
 export interface ListOptions {
   readonly id: NodeId | string;
   readonly items: readonly TextInput[];
@@ -1515,6 +1556,44 @@ export const fuaran = {
           // spec that left the field off would disagree with a decoded one.
           expandable: o.expandable ?? false,
           ...(o.caption !== undefined ? { caption: text(o.caption) } : {}),
+        },
+      },
+    });
+  },
+  video<TMsg>(o: VideoOptions): Node<TMsg> {
+    return buildNode(o.id, {
+      kind: 'Display',
+      display: {
+        kind: 'Media',
+        spec: {
+          src: stringBinding(o.src),
+          label: text(o.label),
+          // ALWAYS present on the spec, and note the DEFAULT IS TRUE: the wire
+          // says an absent `controls` is `true`, so a constructed spec that
+          // omitted it — or defaulted it to false — would disagree with what a
+          // decoded one carries.
+          controls: o.controls ?? true,
+          loop: o.loop ?? false,
+          kind: {
+            $type: 'Video',
+            autoplay: o.autoplay ?? false,
+            ...(o.poster !== undefined ? { poster: stringBinding(o.poster) } : {}),
+          },
+        },
+      },
+    });
+  },
+  audio<TMsg>(o: AudioOptions): Node<TMsg> {
+    return buildNode(o.id, {
+      kind: 'Display',
+      display: {
+        kind: 'Media',
+        spec: {
+          src: stringBinding(o.src),
+          label: text(o.label),
+          controls: o.controls ?? true,
+          loop: o.loop ?? false,
+          kind: { $type: 'Audio' },
         },
       },
     });

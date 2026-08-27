@@ -2214,6 +2214,35 @@ html[data-fuaran-disconnected]::before {
   right: var(--fuaran-space-md, 12px);
 }
 
+/* ── Media (Phase 1076) ────────────────────────────────────────────
+   Deliberately minimal. A `<video>` / `<audio>` with `controls` is drawn by the
+   browser's own player chrome, which is the one control surface a user already
+   knows how to operate and which follows their platform's accessibility
+   settings; restyling it means replacing it, and a replaced transport is a
+   custom control this vocabulary explicitly does not ship.
+
+   So the rules here do exactly two things: make the element behave like the
+   block-level media it is (`display: block`, never overflowing its column), and
+   give `<audio>` a full-width default, because a UA `<audio>` sits at an
+   arbitrary intrinsic width that looks accidental beside anything else.
+
+   The shared `.fuaran-media` class carries the layout; the per-variant classes
+   exist so a host stylesheet can target one surface without targeting both —
+   the same reason `.fuaran-image-avatar` sits beside `.fuaran-image`. */
+.fuaran-media {
+  display: block;
+  max-width: 100%;
+}
+
+.fuaran-media-video {
+  height: auto;
+  border-radius: var(--fuaran-radius-md, 6px);
+}
+
+.fuaran-media-audio {
+  width: 100%;
+}
+
 /* ── List (Phase 287) ──────────────────────────────────────────── */
 .fuaran-list {
   margin: 0;

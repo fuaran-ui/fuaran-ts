@@ -89,6 +89,8 @@ import type {
   ImageLoading,
   ImageSpec,
   ImageVariant,
+  MediaKind,
+  MediaSpec,
   ListSpec,
   ModalSpec,
   ScrollAreaSpec,
@@ -3174,6 +3176,75 @@ const decodeImageSpec = (path: string, j: JsonAst): R<ImageSpec> => {
   });
 };
 
+// Phase 1076 — which media surface this is. A `$type`-DISCRIMINATED union, so
+// an unknown case reports at `<path>.$type` (the `Binding` / `TextSource`
+// position) rather than at the bare slot.
+//
+// `Audio` reads no fields and refuses none either — unknown-member tolerance is
+// a decoder-wide posture, not this case's business. What matters is that there
+// is no autoplay slot to read: `{"$type":"Audio","autoplay":true}` decodes to
+// an audio surface that does not autoplay, because the value has nowhere to
+// land.
+const decodeMediaKind = (path: string, j: JsonAst): R<MediaKind> => {
+  const fo = requireObject(path, j);
+  if (!fo.ok) return fo;
+  const f = fo.value;
+  const d = requireDiscriminator(path, f);
+  if (!d.ok) return d;
+  switch (d.value) {
+    case 'Video': {
+      // Omit-at-default bool, refused rather than coerced when present and
+      // non-boolean — the `Image.expandable` ruling, on the slot where getting
+      // it wrong starts playing a video the document says not to.
+      const autoplayJ = tryField(f, 'autoplay');
+      const autoplay =
+        autoplayJ === undefined ? ok<boolean>(false) : requireBool(`${path}.autoplay`, autoplayJ);
+      if (!autoplay.ok) return autoplay;
+      const poster = optField(path, f, 'poster', decodeBindingString);
+      if (!poster.ok) return poster;
+      return ok<MediaKind>({
+        $type: 'Video',
+        autoplay: autoplay.value,
+        ...(poster.value !== undefined ? { poster: poster.value } : {}),
+      });
+    }
+    case 'Audio':
+      return ok<MediaKind>({ $type: 'Audio' });
+    default:
+      return unknownDuCase(path, d.value, 'Video | Audio');
+  }
+};
+
+// Phase 1076 — the media spec. `label` is REQUIRED, which is the a11y floor
+// expressed where a decoder can enforce it; `controls` is the second
+// omit-at-TRUE slot in the vocabulary, so an absent key is the ACCESSIBLE value
+// and the document only spends a key to take the transport away.
+const decodeMediaSpec = (path: string, j: JsonAst): R<MediaSpec> => {
+  const fo = requireObject(path, j);
+  if (!fo.ok) return fo;
+  const f = fo.value;
+  const src = reqField(path, f, 'src', 'Media Binding<string> Src', decodeBindingString);
+  if (!src.ok) return src;
+  const label = reqField(path, f, 'label', 'Media accessible label TextSource', decodeTextSource);
+  if (!label.ok) return label;
+  const kind = reqField(path, f, 'kind', 'MediaKind (Video | Audio)', decodeMediaKind);
+  if (!kind.ok) return kind;
+  const controlsJ = tryField(f, 'controls');
+  const controls =
+    controlsJ === undefined ? ok<boolean>(true) : requireBool(`${path}.controls`, controlsJ);
+  if (!controls.ok) return controls;
+  const loopJ = tryField(f, 'loop');
+  const loop = loopJ === undefined ? ok<boolean>(false) : requireBool(`${path}.loop`, loopJ);
+  if (!loop.ok) return loop;
+  return ok({
+    src: src.value,
+    label: label.value,
+    controls: controls.value,
+    loop: loop.value,
+    kind: kind.value,
+  });
+};
+
 const decodeListSpec = (path: string, j: JsonAst): R<ListSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
@@ -3691,6 +3762,10 @@ const decodeDisplayKind = (path: string, j: JsonAst): R<DisplayKind> => {
     case 'Image': {
       const r = decodeImageSpec(path, j);
       return r.ok ? ok({ kind: 'Image', spec: r.value }) : r;
+    }
+    case 'Media': {
+      const r = decodeMediaSpec(path, j);
+      return r.ok ? ok({ kind: 'Media', spec: r.value }) : r;
     }
     case 'List': {
       const r = decodeListSpec(path, j);
@@ -5574,6 +5649,7 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
     case 'Fact':
     case 'Link':
     case 'Image':
+    case 'Media':
     case 'List':
     case 'Toast':
     case 'CodeBlock':

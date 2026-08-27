@@ -999,6 +999,61 @@ const renderDisplay = (
       );
     }
 
+    case 'Media': {
+      // Phase 1076 — the media transport, structural parity with the React arm
+      // and with both F# renderers. The four contract points are stated at
+      // length in WIRE_FORMAT §3.6.6; in brief, and in the order they appear
+      // below: `aria-label` unconditionally (the label is mandatory and has no
+      // decorative case); both URLs through the same `media` egress seam, with
+      // a refused poster DROPPED where a refused `src` collapses; `autoplay`
+      // never emitted without `muted`; and no autoplay pathway on `Audio` at
+      // all, because the case declares no slot to read.
+      const [src, egressAttrs] = sanitizeUrlForEgress(
+        ctx.egressPolicy,
+        'media',
+        tryResolve(ctx.sources, display.spec.src) ?? '',
+      );
+      const shared: Attr[] = [
+        ['src', src],
+        ['aria-label', renderText(ctx.sources, display.spec.label)],
+        ...(display.spec.controls ? ([['controls', true]] as Attr[]) : []),
+        ...(display.spec.loop ? ([['loop', true]] as Attr[]) : []),
+        ...semanticAttrs,
+        ...egressAttrs,
+      ];
+      if (display.spec.kind.$type === 'Audio') {
+        // `el`, not `voidEl`: `<video>` / `<audio>` are NOT void elements. A
+        // self-closed `<video …/>` leaves the parser inside the element and
+        // swallows the rest of the document as its fallback content — the one
+        // mistake here that produces a page that looks broken everywhere
+        // EXCEPT the node that caused it.
+        return el('audio', [['class', 'fuaran-media fuaran-media-audio'], ...shared]);
+      }
+      const posterBinding = display.spec.kind.poster;
+      const posterAttrs: Attr[] = [];
+      if (posterBinding !== undefined) {
+        const [safePoster, posterRefusal] = sanitizeUrlForEgress(
+          ctx.egressPolicy,
+          'media',
+          tryResolve(ctx.sources, posterBinding) ?? '',
+        );
+        if (safePoster !== '' && posterRefusal.length === 0)
+          posterAttrs.push(['poster', safePoster]);
+      }
+      const autoplayAttrs: Attr[] = display.spec.kind.autoplay
+        ? [
+            ['autoplay', true],
+            ['muted', true],
+          ]
+        : [];
+      return el('video', [
+        ['class', 'fuaran-media fuaran-media-video'],
+        ...shared,
+        ...posterAttrs,
+        ...autoplayAttrs,
+      ]);
+    }
+
     case 'List': {
       const items = display.spec.items
         .map((item) => textEl('li', [['class', 'fuaran-list-item']], renderText(ctx.sources, item)))

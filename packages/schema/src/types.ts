@@ -733,6 +733,7 @@ export const NODE_KIND_GROUPS: readonly {
       'Fact',
       'Link',
       'Image',
+      'Media',
       'List',
       'Toast',
       'CodeBlock',
@@ -1112,6 +1113,7 @@ export type DisplayKind =
   | { readonly kind: 'Fact'; readonly spec: FactSpec }
   | { readonly kind: 'Link'; readonly spec: LinkSpec }
   | { readonly kind: 'Image'; readonly spec: ImageSpec }
+  | { readonly kind: 'Media'; readonly spec: MediaSpec }
   | { readonly kind: 'List'; readonly spec: ListSpec }
   | { readonly kind: 'Toast'; readonly spec: ToastSpec }
   | { readonly kind: 'CodeBlock'; readonly spec: CodeBlockSpec }
@@ -1248,6 +1250,72 @@ export interface SrcSetEntry {
   readonly src: Binding<string>;
   readonly width: number;
 }
+
+// Phase 1076 — the media playback surface. ONE kind carrying a `MediaKind`
+// variant, never a `Video` kind beside an `Audio` kind: everything the two
+// surfaces share lives here, and only the video-only slots live in the variant.
+//
+// `label` is REQUIRED, and that is where this record parts company with
+// `ImageSpec`. An image can be decorative and say so with an empty `alt`; a
+// media element is a TRANSPORT, so it is always an interactive control, and an
+// unnamed one is announced as "video" and nothing more.
+export interface MediaSpec {
+  readonly src: Binding<string>;
+  /**
+   * The accessible name, emitted as `aria-label`. Mandatory — there is no
+   * decorative case for a transport, so unlike `ImageSpec.alt` there is no
+   * branch a renderer takes when it resolves to nothing.
+   */
+  readonly label: TextSource;
+  /**
+   * Whether the browser's own transport is shown.
+   *
+   * NOT optional in the type, and the DEFAULT IS `true` — the second
+   * omit-at-TRUE slot in the vocabulary (`ToastSpec.dismissable` is the first).
+   * An absent key on the wire decodes to `true`, so a `?` here would let a
+   * decoder hand a consumer `undefined` for a slot the wire says is on. The
+   * encoder omits the key at `true`, which is the same fact from the other
+   * side, and the polarity is deliberate: a media element with no transport
+   * cannot be paused or muted by a keyboard user, so taking it away is what
+   * costs a key.
+   */
+  readonly controls: boolean;
+  /** Whether playback repeats. Omitted from the wire at `false`. */
+  readonly loop: boolean;
+  readonly kind: MediaKind;
+}
+
+/**
+ * Phase 1076 — which media surface a `MediaSpec` is. `$type`-discriminated on
+ * the wire, so an unknown case reports at `<path>.$type`.
+ *
+ * `Audio` carries NO fields, and that is the design rather than a stub. A
+ * poster frame is a still of a moving picture, and an audio surface that starts
+ * itself is a defect shape — so the autoplay knob DOES NOT EXIST on that case
+ * rather than existing and defaulting to off. A slot that defaults to off is
+ * one a document can switch on.
+ */
+export type MediaKind =
+  | {
+      readonly $type: 'Video';
+      /**
+       * Whether playback starts by itself. Omitted from the wire at `false`,
+       * and NOT optional in the type for the reason `controls` is not.
+       *
+       * A rendering host emits `autoplay` ONLY together with a muted
+       * attribute. There is deliberately no separate `muted` slot: the pairing
+       * is not a default a caller overrides, it is what the declaration means,
+       * and a second knob would be free to disagree with the first.
+       */
+      readonly autoplay: boolean;
+      /**
+       * An optional poster frame. It passes the same URL floor `src` does, and
+       * a refused one is DROPPED rather than emitted — a `<video>` with no
+       * poster shows its first frame, which is a working rendering.
+       */
+      readonly poster?: Binding<string>;
+    }
+  | { readonly $type: 'Audio' };
 
 // An ordered (`<ol>`) / unordered (`<ul>`) list of item texts (Phase 287).
 export interface ListSpec {

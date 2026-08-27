@@ -30,6 +30,7 @@
     "Map",
     "Markdown",
     "Math",
+    "Media",
     "Metric",
     "Modal",
     "Mount",
@@ -1828,6 +1829,38 @@
       "description": "Display/Math (block LaTeX)"
     },
     {
+      "id": "media-audio-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/media-audio-1.json",
+      "expectedFile": "nodes/media-audio-1.json",
+      "description": "Display/Media (Phase 1076 — the Audio variant, whose payload is the discriminator alone)"
+    },
+    {
+      "id": "media-video-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/media-video-1.json",
+      "expectedFile": "nodes/media-video-1.json",
+      "description": "Display/Media (Phase 1076 — video at its minimum, both bool defaults omitted)"
+    },
+    {
+      "id": "media-video-autoplay-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/media-video-autoplay-1.json",
+      "expectedFile": "nodes/media-video-autoplay-1.json",
+      "description": "Display/Media (Phase 1076 — autoplay declared, both shared bools off-default)"
+    },
+    {
+      "id": "media-video-poster-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/media-video-poster-1.json",
+      "expectedFile": "nodes/media-video-poster-1.json",
+      "description": "Display/Media (Phase 1076 — video with a poster frame in the case payload)"
+    },
+    {
       "id": "metric-1",
       "kind": "node-round-trip",
       "decoder": "node",
@@ -2526,6 +2559,24 @@
       "description": "§21.5 the op axis — 25 nested TreeOp.Batch. Counted separately from the node axis; the syntactic bound only LOOKS like cover for it"
     },
     {
+      "id": "reject-media-autoplay-nonbool",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-media-autoplay-nonbool.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.kind.autoplay",
+      "description": "Media autoplay `\"true\"` — the stringified boolean, refused rather than coerced. A truthiness rule would have to rule on `\"false\"` and `\"\"` too, and two hosts ruling differently would disagree about whether a page starts playing by itself"
+    },
+    {
+      "id": "reject-media-missing-label",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-media-missing-label.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.kind.label",
+      "description": "Media with no `label` — refused. The accessible name is mandatory because a transport has no decorative case, and there is no value to default to that would not be a fabricated name for someone else's recording"
+    },
+    {
       "id": "reject-missing-binding-type",
       "kind": "reject",
       "decoder": "node",
@@ -2848,6 +2899,15 @@
       "expectedErrorCode": "UNKNOWN_DU_CASE",
       "expectedPath": "$.kind.protection",
       "description": "LinkProtection value 'rot13' — the closed protection DU default-denies (Phase 812)"
+    },
+    {
+      "id": "reject-unknown-media-kind",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-unknown-media-kind.json",
+      "expectedErrorCode": "UNKNOWN_DU_CASE",
+      "expectedPath": "$.kind.kind.$type",
+      "description": "MediaKind case 'Stream' — refused. The variant set is closed at Video | Audio; a third surface is an admission, not a spelling a decoder may guess at. The path carries `.$type` because MediaKind is discriminated, unlike the bare-enum slots"
     },
     {
       "id": "reject-unknown-mount-direction",

@@ -348,6 +348,73 @@ export const renderDisplay = <TMsg,>(
       );
     }
 
+    case 'Media': {
+      // Phase 1076 — the media transport. Four things here are contract rather
+      // than choice, and each is stated normatively in WIRE_FORMAT §3.6.6
+      // because a host that got any of them wrong would still round-trip the
+      // bytes perfectly:
+      //
+      //   * `aria-label` ALWAYS. The label is mandatory on the wire and a
+      //     transport has no decorative case, so unlike `Image`'s `alt` there
+      //     is no branch — the attribute is emitted whatever it resolves to.
+      //   * `autoplay` NEVER WITHOUT `muted`. The pairing is what the
+      //     declaration MEANS, not a default a caller overrides, which is why
+      //     the wire carries no separate muted slot to fall out of step with
+      //     it. Every browser blocks unmuted autoplay, so an unmuted emission
+      //     is a player that silently never starts.
+      //   * NO AUTOPLAY PATHWAY ON AUDIO, at all. Not "off by default" — the
+      //     `Audio` case carries no slot to read, so this arm has nothing to
+      //     branch on and cannot acquire one by a later edit here.
+      //   * BOTH URLS THROUGH THE `media` EGRESS SEAM. A refused `src`
+      //     collapses (an element must have a source); a refused `poster` is
+      //     DROPPED, because a <video> with no poster shows its first frame
+      //     while a poster at the refusal URL is a broken image over the
+      //     player. Same rule as a refused srcSet candidate.
+      //
+      // Nothing is attached at hydration: a `<video controls>` is already a
+      // complete interactive control, so there is no enhancement tier here as
+      // there is for `Image.expandable`.
+      const [src, egressAttrs] = sanitizeUrlForEgress(
+        ctx.egressPolicy,
+        'media',
+        tryResolve(ctx.sources, display.spec.src) ?? '',
+      );
+      const shared = {
+        src,
+        'aria-label': renderText(ctx.sources, display.spec.label),
+        ...(display.spec.controls ? { controls: true } : {}),
+        ...(display.spec.loop ? { loop: true } : {}),
+        ...semanticAttrs,
+        ...Object.fromEntries(egressAttrs),
+      };
+      if (display.spec.kind.$type === 'Audio') {
+        return <audio className="fuaran-media fuaran-media-audio" {...shared} />;
+      }
+      const posterBinding = display.spec.kind.poster;
+      let posterAttrs: { poster?: string } = {};
+      if (posterBinding !== undefined) {
+        const [safePoster, posterRefusal] = sanitizeUrlForEgress(
+          ctx.egressPolicy,
+          'media',
+          tryResolve(ctx.sources, posterBinding) ?? '',
+        );
+        if (safePoster !== '' && posterRefusal.length === 0) posterAttrs = { poster: safePoster };
+      }
+      // The pairing, on the tier where it governs playback. Both flags together
+      // or neither — a `muted` emitted without `autoplay` would silence a video
+      // the reader pressed play on, which is the same defect in the other
+      // direction.
+      const autoplayAttrs = display.spec.kind.autoplay ? { autoPlay: true, muted: true } : {};
+      return (
+        <video
+          className="fuaran-media fuaran-media-video"
+          {...shared}
+          {...posterAttrs}
+          {...autoplayAttrs}
+        />
+      );
+    }
+
     case 'List': {
       // <ol> (ordered) / <ul> (unordered) of <li> items (Phase 287).
       const items = display.spec.items.map((item, i) => (

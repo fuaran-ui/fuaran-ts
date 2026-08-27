@@ -50,6 +50,8 @@ import type {
   DisplayKind,
   EffectClass,
   ImageSpec,
+  MediaKind,
+  MediaSpec,
   ListSpec,
   ModalSpec,
   ScrollAreaSpec,
@@ -1068,6 +1070,32 @@ const imageSpec = (s: ImageSpec): string => {
   return jObject(fields);
 };
 
+// Phase 1076 — the media variant. `Video`'s two slots take the two ordinary
+// shapes: `autoplay` omitted at `false`, `poster` omitted when absent. `Audio`
+// is the bare discriminator, and has no autoplay key to omit because the case
+// declares no such slot.
+const mediaKind = (k: MediaKind): string => {
+  if (k.$type === 'Audio') return caseObj('Audio', []);
+  const fields: Field[] = [];
+  if (k.autoplay) fields.push(['autoplay', bool(true)]);
+  if (k.poster !== undefined) fields.push(['poster', binding(k.poster)]);
+  return caseObj('Video', fields);
+};
+
+// Phase 1076 — byte parity with the F# encoder, including the two OPPOSITE
+// omit polarities: `controls` omits at TRUE (the accessible value is the free
+// one), `loop` at false. `jObject` sorts, so the keys land canonically wherever
+// they are pushed.
+const mediaSpec = (s: MediaSpec): string => {
+  const fields: Field[] = [];
+  if (!s.controls) fields.push(['controls', bool(false)]);
+  fields.push(['kind', mediaKind(s.kind)]);
+  fields.push(['label', textSource(s.label)]);
+  if (s.loop) fields.push(['loop', bool(true)]);
+  fields.push(['src', binding(s.src)]);
+  return jObject(fields);
+};
+
 const listSpec = (s: ListSpec): string =>
   jObject([
     ['items', jArray(s.items.map(textSource))],
@@ -1314,6 +1342,8 @@ const displayKind = (d: DisplayKind): string => {
       return hoistSpec('Link', linkSpec(d.spec));
     case 'Image':
       return hoistSpec('Image', imageSpec(d.spec));
+    case 'Media':
+      return hoistSpec('Media', mediaSpec(d.spec));
     case 'List':
       return hoistSpec('List', listSpec(d.spec));
     case 'Toast':

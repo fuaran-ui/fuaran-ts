@@ -4484,6 +4484,63 @@
         "width"
       ]
     },
+    "MediaSpec": {
+      "type": "object",
+      "properties": {
+        "controls": {
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/MediaKind"
+        },
+        "label": {
+          "$ref": "#/$defs/TextSource"
+        },
+        "loop": {
+          "type": "boolean"
+        },
+        "src": {
+          "$ref": "#/$defs/Binding_str"
+        }
+      },
+      "required": [
+        "kind",
+        "label",
+        "src"
+      ]
+    },
+    "MediaKind": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "Video"
+            },
+            "autoplay": {
+              "type": "boolean"
+            },
+            "poster": {
+              "$ref": "#/$defs/Binding_str"
+            }
+          },
+          "required": [
+            "$type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "Audio"
+            }
+          },
+          "required": [
+            "$type"
+          ]
+        }
+      ]
+    },
     "ListSpec": {
       "type": "object",
       "properties": {
@@ -5667,6 +5724,24 @@
             },
             {
               "$ref": "#/$defs/ImageSpec"
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "type": "object",
+              "properties": {
+                "$type": {
+                  "const": "Media"
+                }
+              },
+              "required": [
+                "$type"
+              ]
+            },
+            {
+              "$ref": "#/$defs/MediaSpec"
             }
           ]
         },
