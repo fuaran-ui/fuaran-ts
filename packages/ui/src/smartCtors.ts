@@ -964,6 +964,12 @@ export interface ImageOptions {
   readonly aspectRatio?: ImageAspect;
   /** Phase 1077 — fetch timing; omitted ⇒ `'Eager'` (no attribute, the browser default). */
   readonly loading?: ImageLoading;
+  /**
+   * Phase 1078 — an optional caption. Present, the image renders inside a
+   * `<figure>` with the resolved text in a `<figcaption>`; omitted, the
+   * emission is the bare `<img>`. A full `TextSource`, so it is i18n-capable.
+   */
+  readonly caption?: TextInput;
 }
 
 export interface ListOptions {
@@ -1474,6 +1480,7 @@ export const fuaran = {
           fit: o.fit ?? 'Natural',
           aspectRatio: o.aspectRatio ?? 'Natural',
           loading: o.loading ?? 'Eager',
+          ...(o.caption !== undefined ? { caption: text(o.caption) } : {}),
         },
       },
     });

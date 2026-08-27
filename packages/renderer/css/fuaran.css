@@ -2123,6 +2123,26 @@ html[data-fuaran-disconnected]::before {
   object-fit: contain;
 }
 
+/* ── Image figure / caption (Phase 1078) ─────────────────────────
+   Present only when the image declares a `caption`; an uncaptioned image emits
+   no `<figure>` at all, so these rules cannot reach it. The reset is the
+   load-bearing part: a UA stylesheet gives `<figure>` a 1em block margin and a
+   40px inline margin, which would silently indent every captioned image
+   relative to the uncaptioned one beside it. Zeroing it makes the wrapper
+   semantic rather than visual — the caption is the only thing that appears. */
+.fuaran-image-figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--fuaran-space-xs, 4px);
+}
+
+.fuaran-image-figure-caption {
+  font-size: var(--fuaran-text-sm, 13px);
+  line-height: var(--fuaran-line-height-normal, 1.5);
+  color: var(--fuaran-tone-muted-fg, #6b7280);
+}
+
 /* ── List (Phase 287) ──────────────────────────────────────────── */
 .fuaran-list {
   margin: 0;

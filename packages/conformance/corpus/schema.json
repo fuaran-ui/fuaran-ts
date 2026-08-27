@@ -4437,6 +4437,9 @@
         "aspectRatio": {
           "$ref": "#/$defs/ImageAspect"
         },
+        "caption": {
+          "$ref": "#/$defs/TextSource"
+        },
         "fit": {
           "$ref": "#/$defs/ImageFit"
         },

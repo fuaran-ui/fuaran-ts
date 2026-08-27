@@ -267,7 +267,7 @@ export const renderDisplay = <TMsg,>(
       // regression, which is why the default is not the "optimised" value.
       const loadingAttrs = display.spec.loading === 'Lazy' ? { loading: 'lazy' as const } : {};
       // Phase 951 — the a11y projection lands on the <img> itself.
-      return (
+      const img = (
         <img
           className={variantClass + fitClass + aspectClass}
           src={src}
@@ -276,6 +276,21 @@ export const renderDisplay = <TMsg,>(
           {...semanticAttrs}
           {...Object.fromEntries(egressAttrs)}
         />
+      );
+      // Phase 1078 — the caption. Absent returns the <img> UNTOUCHED, which is
+      // the acceptance criterion expressed as control flow rather than as a
+      // claim: there is no wrapper to be byte-identical to, because there is no
+      // wrapper. Present wraps it in the semantic pair — an ad-hoc sibling text
+      // node carried the same pixels and no binding, so assistive technology
+      // read it as the next paragraph. Nothing moves onto the <figure>.
+      if (display.spec.caption === undefined) return img;
+      return (
+        <figure className="fuaran-image-figure">
+          {img}
+          <figcaption className="fuaran-image-figure-caption">
+            {renderText(ctx.sources, display.spec.caption)}
+          </figcaption>
+        </figure>
       );
     }
 

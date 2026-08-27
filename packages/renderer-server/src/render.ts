@@ -920,7 +920,7 @@ const renderDisplay = (
       const loadingAttrs: (readonly [string, string])[] =
         display.spec.loading === 'Lazy' ? [['loading', 'lazy']] : [];
       // Phase 951 — the a11y projection lands on the <img> itself.
-      return voidEl('img', [
+      const img = voidEl('img', [
         ['class', variantClass + fitClass + aspectClass],
         ['src', src],
         ['alt', renderText(ctx.sources, display.spec.alt)],
@@ -928,6 +928,23 @@ const renderDisplay = (
         ...semanticAttrs,
         ...egressAttrs,
       ]);
+      // Phase 1078 — the caption. Absent returns the <img> UNTOUCHED: there is
+      // no wrapper to be byte-identical to, because there is no wrapper.
+      // Present wraps it in the semantic pair, which is the binding an ad-hoc
+      // sibling text node never had. Nothing moves onto the <figure> — the a11y
+      // projection, the egress marker and the sanitised src stay on the
+      // element they describe.
+      if (display.spec.caption === undefined) return img;
+      return el(
+        'figure',
+        [['class', 'fuaran-image-figure']],
+        img +
+          textEl(
+            'figcaption',
+            [['class', 'fuaran-image-figure-caption']],
+            renderText(ctx.sources, display.spec.caption),
+          ),
+      );
     }
 
     case 'List': {

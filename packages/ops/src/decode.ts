@@ -3098,6 +3098,12 @@ const decodeImageSpec = (path: string, j: JsonAst): R<ImageSpec> => {
       ? ok<ImageLoading>('Eager')
       : decodeImageLoading(`${path}.loading`, loadingJ);
   if (!loading.ok) return loading;
+  // Phase 1078 — `caption` is optional CONTENT, so absent means absent (rule 4),
+  // not absent-means-a-default. `decodeTextSource` is the same function `alt`
+  // uses, which is what makes the §16 bare-string shorthand and every
+  // `TextSource` case reach the slot without a caption-specific rule.
+  const caption = optField(path, f, 'caption', decodeTextSource);
+  if (!caption.ok) return caption;
   return ok({
     alt: alt.value,
     src: src.value,
@@ -3105,6 +3111,7 @@ const decodeImageSpec = (path: string, j: JsonAst): R<ImageSpec> => {
     fit: fit.value,
     aspectRatio: aspectRatio.value,
     loading: loading.value,
+    ...(caption.value !== undefined ? { caption: caption.value } : {}),
   });
 };
 

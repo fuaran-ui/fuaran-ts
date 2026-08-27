@@ -1042,6 +1042,9 @@ const imageSpec = (s: ImageSpec): string => {
   if (s.fit !== 'Natural') fields.push(['fit', str(s.fit)]);
   if (s.aspectRatio !== 'Natural') fields.push(['aspectRatio', str(s.aspectRatio)]);
   if (s.loading !== 'Eager') fields.push(['loading', str(s.loading)]);
+  // Phase 1078 — omitted when absent (rule 4), not at a default. `jObject`
+  // sorts, so the key lands in its canonical position wherever it is pushed.
+  if (s.caption !== undefined) fields.push(['caption', textSource(s.caption)]);
   return jObject(fields);
 };
 

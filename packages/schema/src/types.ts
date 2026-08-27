@@ -1180,6 +1180,11 @@ export type LinkProtection = 'email';
 // on both boundaries, so a pre-phase document decodes and re-encodes to the
 // bytes it already had; together they close the two real defects of an
 // image-heavy page — layout shift and eager-loading everything.
+// Phase 1078 adds `caption`, the one slot here that is CONTENT rather than
+// presentation — so it is an ordinary optional field (absent when unauthored)
+// rather than an identity default: there is no default caption the way there is
+// a default fit. Present, the renderers wrap the `<img>` in `<figure>` /
+// `<figcaption>`; absent, the emission is the bare `<img>` it always was.
 export interface ImageSpec {
   readonly src: Binding<string>;
   readonly alt: TextSource;
@@ -1187,6 +1192,13 @@ export interface ImageSpec {
   readonly fit: ImageFit;
   readonly aspectRatio: ImageAspect;
   readonly loading: ImageLoading;
+  /**
+   * Phase 1078 — an optional caption. A full `TextSource`, NOT a string: a
+   * caption is i18n-capable on exactly the terms every other authored text slot
+   * is, and narrowing it here is the shortcut that costs nothing until somebody
+   * needs a locale.
+   */
+  readonly caption?: TextSource;
 }
 
 // An ordered (`<ol>`) / unordered (`<ul>`) list of item texts (Phase 287).

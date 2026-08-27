@@ -628,6 +628,14 @@
       "description": "Phase 719 — the compact authoring twin of `grid-transform-param`: all-valid columns as bare arrays (Core#88) and the inferable schema omitted; the canonical envelope stays the encoder's output. The pack teaches this form by example — the exemplar/prose contradiction measurably taught the envelope (claude-opus 81% envelope share, 2026-07-28 census)."
     },
     {
+      "id": "lenient-image-caption-envelope",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-image-caption-envelope.json",
+      "expectedFile": "lenient/lenient-image-caption-envelope.expected.json",
+      "description": "Image — the enveloped `{\"$type\":\"Literal\"}` TextSource form on `caption` decodes and canonicalises to the bare string, exactly as it does on `alt` (Phase 1078). The slot is a full `TextSource`, so a host that narrowed it to a plain string cannot decode this input at all."
+    },
+    {
       "id": "lenient-image-explicit-defaults",
       "kind": "lenient-accept",
       "decoder": "node",
@@ -1666,6 +1674,22 @@
       "inputFile": "nodes/image-1.json",
       "expectedFile": "nodes/image-1.json",
       "description": "Display/Image (Avatar variant)"
+    },
+    {
+      "id": "image-caption-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/image-caption-1.json",
+      "expectedFile": "nodes/image-caption-1.json",
+      "description": "Display/Image (Phase 1078 — literal caption)"
+    },
+    {
+      "id": "image-caption-i18n-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/image-caption-i18n-1.json",
+      "expectedFile": "nodes/image-caption-i18n-1.json",
+      "description": "Display/Image (Phase 1078 — i18n caption with args)"
     },
     {
       "id": "image-presentation-1",
