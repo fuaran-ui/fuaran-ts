@@ -149,6 +149,27 @@ describe('wire-format corpus — reject fixtures surface the F# error code + pat
     if (!decoded.ok) {
       expect(decoded.error.code).toBe(f.expectedErrorCode);
       expect(decoded.error.path.startsWith(f.expectedPath ?? '$')).toBe(true);
+
+      // Phase 1073 — the ruled bare-enum reject-path spelling, pinned.
+      //
+      // The prefix assertion above cannot catch a spurious `.$type`: a host that
+      // reports `$.style.tone.$type` where the corpus says `$.style.tone` passes
+      // it, and this host did exactly that for the corpus's whole life. Prefix
+      // matching stays (the six fixtures where a host is legitimately MORE precise
+      // than the corpus's stated slot would otherwise red on arrival), so this is
+      // the guard that makes the ruling enforceable.
+      //
+      // WIRE_FORMAT.md §6: `$type` appears in a path only when the DISCRIMINATOR is
+      // at fault. A bare enum carries no discriminator on the wire, so a `.$type`
+      // suffix there names a JSON member the document does not contain and an
+      // author cannot repair at. The corpus already distinguishes the two
+      // populations, so its own expectation is the oracle.
+      if (!(f.expectedPath ?? '$').endsWith('.$type')) {
+        expect(
+          decoded.error.path.endsWith('.$type'),
+          `${f.id}: corpus expects '${f.expectedPath}' (a bare-enum position, no discriminator on the wire) but the decoder reported '${decoded.error.path}'. Use unknownEnumCase, not unknownDuCase — see WIRE_FORMAT.md §6.`,
+        ).toBe(false);
+      }
     }
   });
 });

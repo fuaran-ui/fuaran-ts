@@ -234,8 +234,31 @@ const missingField = (path: string, key: string, expected: string): R<never> =>
 const wrongType = (path: string, expected: string): R<never> =>
   makeError('WRONG_TYPE', path, `expected ${expected}`, expected);
 
+/**
+ * An unrecognised case at a `$type`-DISCRIMINATED position: the document carries a
+ * literal `"$type"` member and its value is not a known case. WIRE_FORMAT.md §6 —
+ * "`$type` appears literally in the path when the discriminator is at fault" — so
+ * the reported path names that member.
+ */
 const unknownDuCase = (path: string, got: string, expected: string): R<never> =>
   makeError('UNKNOWN_DU_CASE', `${path}.$type`, `unknown discriminator '${got}'`, expected);
+
+/**
+ * An unrecognised case at a BARE ENUM position: a plain JSON string in a named
+ * field, with no `$type` member anywhere in the document (`style.tone`,
+ * `kind.trendPolarity`, `accessibility.liveRegion`, …). Same code — §6's
+ * `UNKNOWN_DU_CASE` covers "a `$type` discriminator (or bare-enum string)" — but
+ * the path is the FIELD's own, with no suffix.
+ *
+ * Phase 1073: this helper did not exist, so every bare enum reported
+ * `$.style.tone.$type`, naming a JSON member the document does not contain and
+ * cannot be repaired at. It went unnoticed because the conformance harness
+ * prefix-matches `expectedPath`, so the corpus's (correct) bare expectation matched
+ * the (wrong) suffixed emission. Do not route a bare enum through `unknownDuCase` —
+ * the two positions are different and the corpus distinguishes them.
+ */
+const unknownEnumCase = (path: string, got: string, expected: string): R<never> =>
+  makeError('UNKNOWN_DU_CASE', path, `unknown discriminator '${got}'`, expected);
 
 const CLOSURE = '<closure>';
 const OPAQUE = '<opaque>';
@@ -483,7 +506,7 @@ const bareEnum = <T extends string>(
 ): R<T> => {
   if (j.kind !== 'JString') return wrongType(path, `JSON string (${label})`);
   if ((valid as readonly string[]).includes(j.value)) return ok(j.value as T);
-  return unknownDuCase(path, j.value, valid.join(' | '));
+  return unknownEnumCase(path, j.value, valid.join(' | '));
 };
 
 const ORIENTATION_ALIASES: Readonly<Record<string, Orientation>> = {
@@ -2088,16 +2111,43 @@ const decodeBinding = (
         const b = decodeBinding(`${path}.source`, srcJ.value, decodeJVal, undefined);
         if (!b.ok) return b;
         if (liveTag === 'State') {
-          // The carried data IS the initial snapshot; a decode failure
-          // (ragged / mixed-type rows) surfaces the same didactic the 815
-          // snapshot decode raised.
-          const snap = decodeDataSource(normaliseTransformSource(srcJ.value));
-          if (!snap.ok) return makeError('WRONG_TYPE', `${path}.source`, snap.error);
-          source = {
-            kind: 'Live',
-            binding: b.value as Binding<JsonValue>,
-            initial: snap.value,
-          };
+          // An EMPTY array default is the empty table, exactly as a
+          // Selection / Query live source starts. An initially-empty live
+          // collection ("count the requests in an empty log") is a correct,
+          // complete intent with zero rows and no columns to infer, and the
+          // columnar codec's "expected object, got array" didactic was
+          // refusing a shape with nothing wrong in it.
+          //
+          // The F# reference host has read it this way since 0.23.1; this tier
+          // never did, and nothing in the corpus or the specification said so,
+          // so one document decoded on one host and was refused on the other.
+          // Found by Phase 1075 — `"defaultValue":[]` is how a Transform's
+          // source slot spells "I read this key and carry no data of my own",
+          // which is precisely the shape the seeding rule exists to make work.
+          // `WIRE_FORMAT.md` §16 now carries the rule and the corpus pins it.
+          const carriedJ =
+            srcJ.value.kind === 'JObject' ? srcJ.value.fields.get('defaultValue') : undefined;
+          const carriedIsEmptyArray =
+            carriedJ !== undefined && carriedJ.kind === 'JArray' && carriedJ.items.length === 0;
+
+          if (carriedIsEmptyArray) {
+            source = {
+              kind: 'Live',
+              binding: b.value as Binding<JsonValue>,
+              initial: { kind: 'Embedded', table: { schema: [], columns: [] } },
+            };
+          } else {
+            // The carried data IS the initial snapshot; a decode failure
+            // (ragged / mixed-type rows) surfaces the same didactic the 815
+            // snapshot decode raised.
+            const snap = decodeDataSource(normaliseTransformSource(srcJ.value));
+            if (!snap.ok) return makeError('WRONG_TYPE', `${path}.source`, snap.error);
+            source = {
+              kind: 'Live',
+              binding: b.value as Binding<JsonValue>,
+              initial: snap.value,
+            };
+          }
         } else {
           // Selection / Query — a tabular carried default seeds the initial
           // snapshot; anything else starts from the empty table (runtime
@@ -4896,7 +4946,7 @@ const decodeBoxRole = (path: string, j: JsonAst): R<BoxRole> => {
     case 'Separator':
       return ok(s.value);
     default:
-      return unknownDuCase(path, s.value, 'Group | Card | Dashboard | Separator');
+      return unknownEnumCase(path, s.value, 'Group | Card | Dashboard | Separator');
   }
 };
 
@@ -5186,7 +5236,7 @@ const decodeContentHash = (path: string, j: JsonAst): R<ContentHash> => {
   if (!strictnessR.ok) return strictnessR;
   const s = strictnessR.value;
   if (s !== 'StrictReplay' && s !== 'AdvisoryWarning' && s !== 'Enforced') {
-    return unknownDuCase(`${path}.strictness`, s, 'StrictReplay | AdvisoryWarning | Enforced');
+    return unknownEnumCase(`${path}.strictness`, s, 'StrictReplay | AdvisoryWarning | Enforced');
   }
   return ok({ algorithm: algorithm.value, hash: hash.value, strictness: s as HashStrictness });
 };
@@ -5322,7 +5372,7 @@ const decodeEffectClass = (path: string, j: JsonAst): R<EffectClass> => {
   const host = reqField(path, fo.value, 'hostEffect', 'EffectClass hostEffect', requireString);
   if (!host.ok) return host;
   if (host.value !== 'Pure' && host.value !== 'ReadsHost' && host.value !== 'WritesHost')
-    return unknownDuCase(`${path}.hostEffect`, host.value, 'Pure | ReadsHost | WritesHost');
+    return unknownEnumCase(`${path}.hostEffect`, host.value, 'Pure | ReadsHost | WritesHost');
   const det = reqField(path, fo.value, 'determinism', 'EffectClass determinism', requireString);
   if (!det.ok) return det;
   if (
@@ -5331,7 +5381,7 @@ const decodeEffectClass = (path: string, j: JsonAst): R<EffectClass> => {
     det.value !== 'Random' &&
     det.value !== 'Network'
   )
-    return unknownDuCase(
+    return unknownEnumCase(
       `${path}.determinism`,
       det.value,
       'Deterministic | Clock | Random | Network',
