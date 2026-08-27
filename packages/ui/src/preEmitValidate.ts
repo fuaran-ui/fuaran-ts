@@ -16,8 +16,16 @@
 //  cross-implementation eval suite scores uniformly.
 // ============================================================================
 
-import type { Node } from '@fuaran-ui/schema';
+import type {
+  Accessibility,
+  AriaRole,
+  Binding,
+  InputKind,
+  Node,
+  TextSource,
+} from '@fuaran-ui/schema';
 import type { Result } from '@fuaran-ui/schema';
+import { defaults } from '@fuaran-ui/schema';
 
 /** A pre-emit defect surfaced by `validate`. Discriminated by `code`. */
 export type PreEmitDefect =
@@ -66,7 +74,52 @@ export type PreEmitDefect =
    * never resolve a case and is stuck on its default; name the state key it
    * selects on.
    */
-  | { readonly code: 'UNGROUNDED_SWITCH_STATE_KEY'; readonly nodeId: string };
+  | { readonly code: 'UNGROUNDED_SWITCH_STATE_KEY'; readonly nodeId: string }
+  /**
+   * FUARAN109 (warning) — an INTERACTIVE node that reaches a screen reader with
+   * no name: its structural naming slot is an empty literal and the node
+   * declares neither `accessibility.label` nor `accessibility.labelledBy`, so
+   * its accessible name would have to come from its own text content and there
+   * is none.
+   *
+   * Which kinds are interactive is READ from `defaults.accessibility.*` — the
+   * per-kind trait the smart constructors pass — rather than tabled here: give
+   * a kind a non-interactive default and it stops being audited in the same
+   * edit. The lock is one-directional, so a newly interactive kind whose naming
+   * slot is not wired below goes un-audited rather than falsely flagged.
+   */
+  | {
+      readonly code: 'INTERACTIVE_WITHOUT_ACCESSIBLE_NAME';
+      readonly nodeId: string;
+      readonly kind: string;
+      readonly slot: string;
+    }
+  /**
+   * FUARAN110 (warning) — an `accessibility.labelledBy` / `describedBy` naming
+   * a node id this tree does not carry. The renderer emits the reference
+   * unconditionally, so the DOM gets an `aria-labelledby` pointing at nothing
+   * and the browser ignores it: the element is announced as though the
+   * reference had never been written.
+   */
+  | {
+      readonly code: 'DANGLING_ACCESSIBILITY_REFERENCE';
+      readonly nodeId: string;
+      readonly slot: string;
+      readonly target: string;
+    }
+  /**
+   * FUARAN111 (warning) — an accessibility slot the node DECLARES and leaves
+   * empty. Worse than an absent one in both directions: the renderer drops an
+   * empty `aria-label`, so the declared name reaches nobody; and a declared
+   * `label` is what tells FUARAN109 the node is named, so an empty one silences
+   * the rule that would otherwise have caught it — the defect suppresses its
+   * own detection. That is why the two ship together.
+   */
+  | {
+      readonly code: 'EMPTY_ACCESSIBILITY_DECLARATION';
+      readonly nodeId: string;
+      readonly slot: string;
+    };
 
 /**
  * A `Node` proven to have passed `validate`. The phantom brand makes "I have
@@ -100,8 +153,158 @@ export function preEmitValidate<TMsg>(
   const isWriteBackTarget = (binding: { readonly kind: string }): boolean =>
     binding.kind === 'State' || binding.kind === 'Filter' || binding.kind === 'Local';
 
+  // ── The accessibility family (FUARAN109/110/111) ───────────────────────────
+  //
+  // Ported alongside the reference rules rather than after them, so the two
+  // hosts do not disagree about what an emission means the moment the rules
+  // exist. Three things are worth reading before changing any of it.
+  //
+  //  · The interactive KIND SET is read from `defaults.accessibility.*` — the
+  //    per-kind trait the smart constructors pass — not tabled here. The
+  //    language's own statement about a kind is the gate.
+  //  · The accessible NAME is the browser's computation, in the browser's
+  //    order: the declared trait label, then an `aria-labelledby` target, then
+  //    the element's text content. Not "what the renderer emits": a button's
+  //    structural label becomes the button's TEXT CONTENT and no `aria-label`,
+  //    so a filled label with no trait at all is correctly named.
+  //  · All three ERR TOWARDS SILENCE. Only literal text and static bindings are
+  //    judged; anything that resolves at render time is left alone, because
+  //    calling it empty would be a guess. An un-audited node is affordable; a
+  //    false accusation against a correct tree is not.
+  //
+  // ONE DIVERGENCE from the reference, named rather than left to be discovered:
+  // TypeScript's `AriaRole` is an OPEN string union (`(string & {})` tail), so
+  // the exhaustive match that makes the reference's role classification fail to
+  // compile when the vocabulary grows has no analogue here. The admitted set
+  // below is the same one the reference admits; keeping it so is a discipline,
+  // not something the compiler enforces on this side.
+  const interactiveRoles: ReadonlySet<string> = new Set([
+    'button',
+    'link',
+    'form',
+    'tab',
+    // The one widget role reached by any default the language ships (`select`).
+    // The rest of the open role space is deliberately not judged.
+    'combobox',
+  ]);
+
+  const declaresInteractive = (a11yDefault: Accessibility | undefined): boolean =>
+    a11yDefault?.role !== undefined && interactiveRoles.has(a11yDefault.role as AriaRole & string);
+
+  /** Text statically known to render nothing. Whitespace counts as empty. */
+  const isEmptyTextSource = (t: TextSource): boolean =>
+    t.kind === 'Literal' && t.value.trim() === '';
+
+  /** A binding statically known to carry nothing — an empty or absent static. */
+  const isEmptyStaticText = (b: Binding<string>): boolean =>
+    b.kind === 'Static' && (b.value === undefined || b.value.trim() === '');
+
+  /**
+   * The naming slot of a kind the language pairs with an interactive default.
+   * The interactivity verdict comes from the default; this only says WHICH slot
+   * names the element — `submitLabel` for a form (through its submit button),
+   * `label` for the other three.
+   */
+  const interactiveNaming = (
+    input: InputKind<TMsg>,
+  ):
+    | {
+        readonly a11yDefault: Accessibility | undefined;
+        readonly naming: TextSource;
+        readonly slot: string;
+      }
+    | undefined => {
+    switch (input.kind) {
+      case 'Button':
+        return {
+          a11yDefault: defaults.accessibility.button,
+          naming: input.spec.label,
+          slot: 'label',
+        };
+      case 'Select':
+        return {
+          a11yDefault: defaults.accessibility.select,
+          naming: input.spec.label,
+          slot: 'label',
+        };
+      case 'Form':
+        return {
+          a11yDefault: defaults.accessibility.form,
+          naming: input.spec.submitLabel,
+          slot: 'submitLabel',
+        };
+      case 'FileUpload':
+        return {
+          a11yDefault: defaults.accessibility.fileUpload,
+          naming: input.spec.label,
+          slot: 'label',
+        };
+      default:
+        return undefined;
+    }
+  };
+
+  // FUARAN110's evidence. Judged after the walk for the same reason the
+  // reference judges it there: "names a node in this tree" is only answerable
+  // once the whole tree has been seen.
+  const accessibilityRefUses: { nodeId: string; slot: string; target: string }[] = [];
+
+  const checkAccessibility = (n: Node<TMsg>): void => {
+    const a11y = n.accessibility;
+
+    // FUARAN109. Tested on the DECLARATION, not the emission: a bound label
+    // resolves to nothing in a pre-emit walk and is still a name. An empty
+    // declaration is FUARAN111's finding, not this one's — which is exactly the
+    // hole the two rules close between them.
+    if (n.kind.kind === 'Input') {
+      const naming = interactiveNaming(n.kind.input);
+      const declaresName = a11y?.label !== undefined || a11y?.labelledBy !== undefined;
+      if (
+        naming !== undefined &&
+        declaresInteractive(naming.a11yDefault) &&
+        isEmptyTextSource(naming.naming) &&
+        !declaresName
+      ) {
+        defects.push({
+          code: 'INTERACTIVE_WITHOUT_ACCESSIBLE_NAME',
+          nodeId: n.id,
+          kind: n.kind.input.kind,
+          slot: naming.slot,
+        });
+      }
+    }
+
+    if (a11y === undefined) {
+      return;
+    }
+
+    // FUARAN111 for the label slot, then both reference slots. A reference that
+    // is present-but-empty is FUARAN111's, and is NOT also collected as a
+    // dangling reference — reporting one value under two codes is noise rather
+    // than coverage.
+    if (a11y.label !== undefined && isEmptyStaticText(a11y.label)) {
+      defects.push({ code: 'EMPTY_ACCESSIBILITY_DECLARATION', nodeId: n.id, slot: 'label' });
+    }
+
+    for (const slot of ['labelledBy', 'describedBy'] as const) {
+      const target = a11y[slot];
+      if (target === undefined) {
+        continue;
+      }
+      if (target.trim() === '') {
+        defects.push({ code: 'EMPTY_ACCESSIBILITY_DECLARATION', nodeId: n.id, slot });
+      } else {
+        accessibilityRefUses.push({ nodeId: n.id, slot, target });
+      }
+    }
+  };
+
   const walk = (n: Node<TMsg>): void => {
     recordNodeId(n.id);
+    // Sited before the per-kind switch because the trait it reads lives on the
+    // NODE: one call covers every kind, and a kind the language newly declares
+    // interactive is reached with no arm to remember.
+    checkAccessibility(n);
     const k = n.kind;
     switch (k.kind) {
       case 'Layout': {
@@ -258,6 +461,26 @@ export function preEmitValidate<TMsg>(
   for (const [id, count] of nodeIdCounts) {
     if (count >= 2) {
       defects.push({ code: 'DUPLICATE_NODE_ID', id, count });
+    }
+  }
+
+  // FUARAN110 — a reference naming a node the tree does not carry.
+  //
+  // Judged against the ids THIS walk recorded. A second named divergence from
+  // the reference, which judges against its cross-tree binding walk's node map:
+  // that walk is machinery this host does not have, and the two universes agree
+  // on everything a reference can honestly name. Where they could differ is a
+  // boundary neither walk crosses (a fragment reference's body), and there both
+  // answer "not in this tree", which is the correct answer for a host-tree
+  // reference into a separate id space.
+  for (const use of accessibilityRefUses) {
+    if (!nodeIdCounts.has(use.target)) {
+      defects.push({
+        code: 'DANGLING_ACCESSIBILITY_REFERENCE',
+        nodeId: use.nodeId,
+        slot: use.slot,
+        target: use.target,
+      });
     }
   }
 

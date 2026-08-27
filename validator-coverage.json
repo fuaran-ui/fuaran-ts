@@ -5,7 +5,17 @@
   "vocabulary": "wire-format-fixtures/validator/defect-vocabulary.json",
   "posture": "subset",
   "postureReason": "A full authoring + rendering tier, so every rule here is in principle in scope. The subset is historical, not designed.",
-  "implemented": ["FUARAN047", "FUARAN048", "FUARAN049", "FUARAN069", "FUARAN082", "FUARAN083"],
+  "implemented": [
+    "FUARAN047",
+    "FUARAN048",
+    "FUARAN049",
+    "FUARAN069",
+    "FUARAN082",
+    "FUARAN083",
+    "FUARAN109",
+    "FUARAN110",
+    "FUARAN111"
+  ],
   "abstentionDefault": "Not ported. This is an honest 'not yet', not a principled exclusion: the set above is whichever rules this host happened to need, and an unported rule is a gap.",
   "abstained": {
     "FUARAN106": "Not ported — declared rather than silent, and for the same structural reason FUARAN105 is. The rule reasons over EVERY `Binding.State` declaration in the tree, which needs the cross-tree binding walk this host does not have; a partial walk would see one of two conflicting declarations and report nothing, which reads as agreement. The seeding SEMANTICS this rule guards ARE implemented here (`@fuaran-ui/ops` `collectStateSeeds`, Phase 1075) — what is missing is the validator that names a disagreement, so this host renders the first declaration deterministically, exactly as the reference does, and does not tell the author the second was discarded.",

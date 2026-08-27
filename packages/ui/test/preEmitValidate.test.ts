@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   action,
   fuaran,
+  node,
   nodeId,
   preEmitValidate,
   type Node,
@@ -167,5 +168,152 @@ describe('preEmitValidate', () => {
       activeIndex: { kind: 'State', key: 'activePane', defaultValue: 0 },
     });
     expect(preEmitValidate(live).ok).toBe(true);
+  });
+
+  // ── The accessibility family (FUARAN109/110/111) ──────────────────────────
+  //
+  // Ported alongside the reference host's rules. Every fixture is built through
+  // the real smart constructors, so each node carries the language's own
+  // per-kind `defaults.accessibility.*` value — which is the rules' input, not
+  // a detail of the fixture.
+
+  const a11yCodesOf = (n: Node<Msg>): readonly PreEmitDefect['code'][] =>
+    codesOf(n).filter(
+      (c) =>
+        c === 'INTERACTIVE_WITHOUT_ACCESSIBLE_NAME' ||
+        c === 'DANGLING_ACCESSIBILITY_REFERENCE' ||
+        c === 'EMPTY_ACCESSIBILITY_DECLARATION',
+    );
+
+  it('surfaces INTERACTIVE_WITHOUT_ACCESSIBLE_NAME for a button with no name at all', () => {
+    const tree = fuaran.button<Msg>({ id: id('save'), label: '' });
+    const r = preEmitValidate(tree);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.find((d) => d.code === 'INTERACTIVE_WITHOUT_ACCESSIBLE_NAME')).toMatchObject({
+        nodeId: 'save',
+        kind: 'Button',
+        slot: 'label',
+      });
+    }
+  });
+
+  it('go-red: a named button is silent, and a whitespace-only name is still no name', () => {
+    expect(a11yCodesOf(fuaran.button<Msg>({ id: id('save'), label: 'Save' }))).toEqual([]);
+    expect(a11yCodesOf(fuaran.button<Msg>({ id: id('save'), label: '   ' }))).toEqual([
+      'INTERACTIVE_WITHOUT_ACCESSIBLE_NAME',
+    ]);
+  });
+
+  it('go-red: a BOUND label is never judged — an unresolvable name is not an absent one', () => {
+    const tree = fuaran.button<Msg>({
+      id: id('save'),
+      label: { kind: 'Bound', binding: { kind: 'State', key: 'caption', defaultValue: '' } },
+    });
+    expect(a11yCodesOf(tree)).toEqual([]);
+  });
+
+  it('trap: a blank label WITH a declared accessibility.label is not flagged', () => {
+    // The browser's name computation is trait label → aria-labelledby target →
+    // text content, and the first arm is satisfied. Flagging it would be
+    // exactly the false positive an audit cannot afford.
+    const tree = node.withAccessibility<Msg>(
+      { label: { kind: 'Static', value: 'Save' } },
+      fuaran.button<Msg>({ id: id('save'), label: '' }),
+    );
+    expect(a11yCodesOf(tree)).toEqual([]);
+  });
+
+  it('a Link is not audited — it carries no interactive default and is not an Input kind', () => {
+    // Two independent reasons, and both are the design: `fuaran.link` passes no
+    // accessibility default, and a Link is a Display kind so the naming table
+    // never reaches it. It has a structural label slot that is just as empty,
+    // and the rule stays silent — the one-directional lock in action.
+    const tree = fuaran.link<Msg>({ id: id('docs'), href: 'https://example.invalid', label: '' });
+    expect(a11yCodesOf(tree)).toEqual([]);
+  });
+
+  it('the interactivity verdict comes from the default, not from being an Input kind', () => {
+    // `Filters` is an Input kind the language pairs with no accessibility
+    // default. It reaches the naming table and is turned away there, which is
+    // the discriminator this test exists to pin: the table says WHICH slot
+    // names a kind, the default says WHETHER the kind is audited at all.
+    const tree = fuaran.filters<Msg>({ id: id('chips'), filters: [] });
+    expect(a11yCodesOf(tree)).toEqual([]);
+  });
+
+  it('surfaces DANGLING_ACCESSIBILITY_REFERENCE, and stays silent when the target exists', () => {
+    const dangling = fuaran.dashboard<Msg>({
+      id: id('root'),
+      children: [
+        node.withAccessibility<Msg>(
+          { labelledBy: id('no-such-node') },
+          fuaran.button<Msg>({ id: id('save'), label: 'Save' }),
+        ),
+      ],
+    });
+    const r = preEmitValidate(dangling);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.find((d) => d.code === 'DANGLING_ACCESSIBILITY_REFERENCE')).toMatchObject({
+        nodeId: 'save',
+        slot: 'labelledBy',
+        target: 'no-such-node',
+      });
+    }
+
+    const resolving = fuaran.dashboard<Msg>({
+      id: id('root'),
+      children: [
+        fuaran.metric<Msg>({ id: id('caption'), label: 'Save the document', value: 1 }),
+        node.withAccessibility<Msg>(
+          { describedBy: id('caption') },
+          fuaran.button<Msg>({ id: id('save'), label: 'Save' }),
+        ),
+      ],
+    });
+    expect(a11yCodesOf(resolving)).toEqual([]);
+  });
+
+  it('surfaces EMPTY_ACCESSIBILITY_DECLARATION for a declared-and-empty label', () => {
+    const empty = node.withAccessibility<Msg>(
+      { label: { kind: 'Static', value: '' } },
+      fuaran.button<Msg>({ id: id('save'), label: 'Save' }),
+    );
+    expect(a11yCodesOf(empty)).toEqual(['EMPTY_ACCESSIBILITY_DECLARATION']);
+
+    const valueless = node.withAccessibility<Msg>(
+      { label: { kind: 'Static', value: undefined } },
+      fuaran.button<Msg>({ id: id('save'), label: 'Save' }),
+    );
+    expect(a11yCodesOf(valueless)).toEqual(['EMPTY_ACCESSIBILITY_DECLARATION']);
+  });
+
+  it('EMPTY_ACCESSIBILITY_DECLARATION is what closes the hole the declared-name escape opens', () => {
+    // An empty declared label SILENCES the missing-name rule — the defect
+    // suppresses its own detection — while the renderer drops the empty
+    // aria-label and the element is named by nothing. Exactly one code fires,
+    // and it is the right one.
+    const tree = node.withAccessibility<Msg>(
+      { label: { kind: 'Static', value: ' ' } },
+      fuaran.button<Msg>({ id: id('save'), label: '' }),
+    );
+    expect(a11yCodesOf(tree)).toEqual(['EMPTY_ACCESSIBILITY_DECLARATION']);
+  });
+
+  it('an EMPTY reference slot is one finding, not two', () => {
+    const tree = node.withAccessibility<Msg>(
+      { labelledBy: id('') },
+      fuaran.button<Msg>({ id: id('save'), label: 'Save' }),
+    );
+    expect(a11yCodesOf(tree)).toEqual(['EMPTY_ACCESSIBILITY_DECLARATION']);
+  });
+
+  it('go-red: a non-Static label binding is never judged', () => {
+    const tree = node.withAccessibility<Msg>(
+      { label: { kind: 'State', key: 'caption', defaultValue: '' } },
+      fuaran.button<Msg>({ id: id('save'), label: 'Save' }),
+    );
+    expect(a11yCodesOf(tree)).toEqual([]);
   });
 });
