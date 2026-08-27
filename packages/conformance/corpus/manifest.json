@@ -1900,6 +1900,14 @@
       "description": "Input/Select"
     },
     {
+      "id": "shared-source-seeded-pair",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/shared-source-seeded-pair.json",
+      "expectedFile": "nodes/shared-source-seeded-pair.json",
+      "description": "Visualisation/Grid + Display/Badge (Phase 1075 — the seeded shared source: one declared table, two readers)"
+    },
+    {
       "id": "skel-1",
       "kind": "node-round-trip",
       "decoder": "node",

@@ -17,6 +17,10 @@ import { type CSSProperties, type ReactElement, useEffect } from 'react';
 
 import type { HashStrictness, Node } from '@fuaran-ui/schema';
 
+// Phase 1075 — the `Binding.State` seeding pass. One definition, shared with
+// the server renderer, so the two tiers cannot drift on the charter's §4/§5.
+import { withStateSeeds } from '@fuaran-ui/ops';
+
 import type { BindingSources } from './bindings.js';
 import type { RenderContext } from './context.js';
 import { collectFragments } from './context.js';
@@ -141,7 +145,11 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
   }, [props.debug, props.relay]);
 
   const ctx: RenderContext<TMsg> = {
-    sources: props.sources ?? {},
+    // Phase 1075 — the tree's `Binding.State` declarations are laid UNDER the
+    // host's own sources: a grid bound to `$state.members` and a `Transform`
+    // deriving over the same key read the same rows. The host's map wins on
+    // every key it names (charter §4).
+    sources: withStateSeeds(props.tree, props.sources ?? {}),
     runtime: props.runtime ?? {},
     dispatch: props.dispatch ?? noopDispatch,
     fragments: collectFragments(new Map<string, Node<TMsg>>(), props.tree),

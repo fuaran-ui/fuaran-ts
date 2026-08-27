@@ -76,6 +76,9 @@ import {
   tryResolveScalarFloat,
 } from './bindings.js';
 import { chartLowerSpecOf, drawingSvg, mathMl } from '@fuaran-ui/renderer';
+// Phase 1075 — the `Binding.State` seeding pass. One definition, shared with
+// the client renderer, so the two tiers cannot drift on the charter's §4/§5.
+import { withStateSeeds } from '@fuaran-ui/ops';
 import { isLowered, lower, type ChartRow } from '@fuaran-ui/charts';
 
 import { motionVar, nodeClassName, toneVar, trendSentiment } from './classNames.js';
@@ -2402,7 +2405,14 @@ export interface RenderToHtmlOptions {
 export const renderToHtml = <TMsg>(tree: Node<TMsg>, options: RenderToHtmlOptions = {}): string => {
   const node = tree as Node<unknown>;
   const ctx: ServerContext = {
-    sources: options.sources ?? emptySources,
+    // Phase 1075 — a `Binding.State` carrying a `defaultValue` DECLARES the
+    // value of its slot, so the tree's declarations are laid UNDER the host's
+    // own sources before anything resolves. The host wins on every key it
+    // names (charter §4); a seed is the value before anything else has said
+    // anything, never an override. Seeding here — at the one place this tier
+    // builds a context — is what keeps the SSR first frame identical to the
+    // client's, and hydration mismatch-free.
+    sources: withStateSeeds(node, options.sources ?? emptySources),
     fragments: collectFragments(new Map<string, Node<unknown>>(), node),
     expandingFragments: new Set<string>(),
     // Phase 1037 — default-deny. A host widens it BY NAME via `egressPolicy`.

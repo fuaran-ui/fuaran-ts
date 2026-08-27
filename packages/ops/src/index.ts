@@ -118,3 +118,8 @@ export {
   type ElicitationError,
   type ElicitationErrorCode,
 } from './elicitation.js';
+
+// Phase 1075 — the `Binding.State` seeding pass (the shared-data-source
+// charter's O1). Both renderers lay a tree's declared defaults under the
+// host's own sources through `withStateSeeds`.
+export { collectStateSeeds, withStateSeeds, HOST_RESERVED_PREFIX } from './seeds.js';
