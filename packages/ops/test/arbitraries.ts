@@ -110,6 +110,9 @@ const toneArb = fc.constantFrom(
 );
 const weightArb = fc.constantFrom('Compact', 'Standard', 'Spacious');
 const emphasisArb = fc.constantFrom('Quiet', 'Normal', 'Loud');
+// Phase 867 - both polarities, so the omitted-at-default encode leg AND the
+// emitted `LowerIsBetter` leg are exercised by the generative round-trip.
+const trendPolarityArb = fc.constantFrom('HigherIsBetter', 'LowerIsBetter');
 // Phase 147 — vary role/voice so the generative round-trip exercises the
 // optional-emit wire path (omitted at default, present otherwise).
 const styleRoleArb = fc.constantFrom('None', 'Eyebrow', 'Data', 'Lede', 'Caption');
@@ -290,10 +293,13 @@ const displayKindArb: fc.Arbitrary<DisplayKind> = fc.oneof(
         emphasis: emphasisArb,
         trend: bindingNumArb,
         trendFormat: cellFormatArb,
+        trendPolarity: trendPolarityArb,
         icon: nonEmptyStrArb.map(iconSource),
         subtext: textSourceArb,
       },
-      { requiredKeys: ['label', 'value', 'format', 'tone', 'weight', 'emphasis'] },
+      {
+        requiredKeys: ['label', 'value', 'format', 'tone', 'weight', 'emphasis', 'trendPolarity'],
+      },
     )
     .map((spec) => ({ kind: 'Metric', spec }) as DisplayKind),
   fc

@@ -206,6 +206,7 @@ const metric: MetricSpec = {
   tone: 'Default',
   weight: 'Standard',
   emphasis: 'Normal',
+  trendPolarity: 'HigherIsBetter',
 };
 
 const badge: BadgeSpec = { label: emptyLiteral, variant: 'Neutral' };

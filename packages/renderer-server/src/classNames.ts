@@ -18,6 +18,7 @@ import type {
   Motion,
   NodeKind,
   SemanticStyle,
+  TrendPolarity,
 } from '@fuaran-ui/schema';
 
 /** Map a `ToneVariant` to its CSS-variable name root. */
@@ -47,19 +48,34 @@ export const toneVar = (tone: ToneVariant): string => {
  * Until this shipped, `.fuaran-metric-trend` carried exactly one class and the
  * reference stylesheet painted it `--fuaran-tone-success-fg` unconditionally,
  * so EVERY trend rendered as an improvement — in both directions, on every
- * host. Sentiment is a function of the RESOLVED trend's sign: rising is an
- * improvement, falling a regression, zero neither. `tone` is untouched — it
- * colours the TILE and says how the reading STANDS; this says which way the
- * quantity MOVED. A host derives neither from the other.
+ * host. Sentiment is `sign(trend) x polarity`, where `HigherIsBetter` is `+1`
+ * and `LowerIsBetter` is `−1`: a positive product is an improvement, a negative
+ * product a regression, a zero trend neither. So a falling wait time reads as an
+ * improvement under `LowerIsBetter` and as a regression without it, and the
+ * numeric text — its sign included — is identical in both. Polarity changes how
+ * the number READS, never what it SAYS.
+ *
+ * `tone` is untouched — it colours the TILE and says how the reading STANDS;
+ * this says which way the quantity MOVED. A host derives neither from the other,
+ * and in particular NOTHING here writes back to `tone`: a renderer that inferred
+ * "improving ⇒ tile is Success" would re-create in the render the exact
+ * conflation the wire slot exists to remove.
  *
  * The glyphs are U+25B2, U+25BC and U+2192. They carry the sentiment on a
  * NON-COLOUR channel (WCAG 1.4.1 — colour alone fails), and the renderers hang
  * the fragment on the glyph as an `aria-label` so assistive technology hears
- * the sentiment without the numeric text being replaced by it.
+ * the sentiment without the numeric text being replaced by it. The glyph tracks
+ * SENTIMENT, not the number's direction: under an inverted polarity the triangle
+ * deliberately disagrees with the sign, and that disagreement is the visible
+ * evidence the declaration was honoured.
  */
-export const trendSentiment = (trend: number): readonly [string, string] => {
-  if (trend > 0) return ['improving', '▲'] as const;
-  if (trend < 0) return ['regressing', '▼'] as const;
+export const trendSentiment = (
+  polarity: TrendPolarity,
+  trend: number,
+): readonly [string, string] => {
+  const sentiment = trend * (polarity === 'LowerIsBetter' ? -1 : 1);
+  if (sentiment > 0) return ['improving', '▲'] as const;
+  if (sentiment < 0) return ['regressing', '▼'] as const;
   return ['unchanged', '→'] as const;
 };
 

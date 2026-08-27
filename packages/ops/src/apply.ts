@@ -273,6 +273,10 @@ const updateField = (
             return patch(coerce.cellFormat(value), (x) =>
               disp({ kind: 'Metric', spec: { ...s, trendFormat: x } }),
             );
+          case 'TrendPolarity':
+            return patch(coerce.trendPolarity(value), (x) =>
+              disp({ kind: 'Metric', spec: { ...s, trendPolarity: x } }),
+            );
           case 'Icon':
             return patch(coerce.iconSource(value), (x) =>
               disp({ kind: 'Metric', spec: { ...s, icon: x } }),

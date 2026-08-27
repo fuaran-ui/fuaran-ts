@@ -167,6 +167,7 @@ import type {
   TextSource,
   ToneVariant,
   VisKind,
+  TrendPolarity,
 } from '@fuaran-ui/schema';
 
 import { type JsonAst, parse } from './parse.js';
@@ -582,6 +583,11 @@ const decodeWeight = (p: string, j: JsonAst): R<StyleWeight> =>
   // StyleWeight deliberately not aliased — `Bold`/`Heavy` is font-weight intent, but
   // Compact|Standard|Spacious means density (WIRE_FORMAT.md §3.6).
   bareEnum(p, j, ['Compact', 'Standard', 'Spacious'] as const, 'StyleWeight');
+
+// Phase 867 - `Neutral` is RESERVED, not admitted, so it is refused here like
+// any other unknown case rather than silently reading as the default.
+const decodeTrendPolarity = (p: string, j: JsonAst): R<TrendPolarity> =>
+  bareEnum(p, j, ['HigherIsBetter', 'LowerIsBetter'] as const, 'TrendPolarity');
 
 const decodeEmphasis = (p: string, j: JsonAst): R<Emphasis> => {
   if (j.kind === 'JString' && j.value in EMPHASIS_ALIASES) return ok(EMPHASIS_ALIASES[j.value]!);
@@ -2841,6 +2847,8 @@ const decodeMetricSpec = (path: string, j: JsonAst): R<MetricSpec> => {
   if (!trend.ok) return trend;
   const trendFormat = optField(path, f, 'trendFormat', decodeCellFormat);
   if (!trendFormat.ok) return trendFormat;
+  const trendPolarity = optField(path, f, 'trendPolarity', decodeTrendPolarity);
+  if (!trendPolarity.ok) return trendPolarity;
   const icon = optField(path, f, 'icon', decodeIconSource);
   if (!icon.ok) return icon;
   const subtext = optField(path, f, 'subtext', decodeTextSource);
@@ -2854,6 +2862,7 @@ const decodeMetricSpec = (path: string, j: JsonAst): R<MetricSpec> => {
     emphasis: emphasis.value ?? 'Normal',
     ...(trend.value !== undefined ? { trend: trend.value as Binding<number> } : {}),
     ...(trendFormat.value !== undefined ? { trendFormat: trendFormat.value } : {}),
+    trendPolarity: trendPolarity.value ?? 'HigherIsBetter',
     ...(icon.value !== undefined ? { icon: icon.value } : {}),
     ...(subtext.value !== undefined ? { subtext: subtext.value } : {}),
   });
@@ -6102,6 +6111,8 @@ export const coerce = {
   tone: (v: JsonValue): Result<ToneVariant, string> => viaAst(v, decodeTone),
   weight: (v: JsonValue): Result<StyleWeight, string> => viaAst(v, decodeWeight),
   emphasis: (v: JsonValue): Result<Emphasis, string> => viaAst(v, decodeEmphasis),
+  /** `Metric.TrendPolarity` (Phase 867) - the UpdateProp twin of `decodeTrendPolarity`. */
+  trendPolarity: (v: JsonValue): Result<TrendPolarity, string> => viaAst(v, decodeTrendPolarity),
   /**
    * The behavioural `emphasis` BOOL on Fact / LabelValueRow — the UpdateProp
    * twin of `decodeEmphasisFlag`, so a TreeOp edit gets the same

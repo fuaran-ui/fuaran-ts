@@ -1024,7 +1024,7 @@ const renderMetric = (
     if (t === undefined) {
       parts.push(textEl('div', [['class', 'fuaran-metric-trend']], ''));
     } else {
-      const [sentiment, glyph] = trendSentiment(t);
+      const [sentiment, glyph] = trendSentiment(spec.trendPolarity, t);
       parts.push(
         el(
           'div',

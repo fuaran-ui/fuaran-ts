@@ -119,6 +119,16 @@ export type StyleWeight = 'Compact' | 'Standard' | 'Spacious';
 export type Emphasis = 'Quiet' | 'Normal' | 'Loud';
 
 /**
+ * Phase 867 - which direction of a `Metric`'s measured quantity is GOOD.
+ * A property of the QUANTITY (permanent, every reading), where `tone` is a
+ * property of THIS READING - so the two are never the same statement, and a
+ * host derives neither from the other. Defaults to `HigherIsBetter` and is
+ * omitted on the wire at that default, so every pre-867 document keeps the
+ * reading it already had. `Neutral` is reserved, not admitted.
+ */
+export type TrendPolarity = 'HigherIsBetter' | 'LowerIsBetter';
+
+/**
  * Phase 147 — the bounded, additive-only semantic content-role vocabulary.
  * The AI emits a role as intent; the renderer projects a stable
  * `fuaran-role-{role}` class. `'None'` (the default) emits nothing and is
@@ -1103,6 +1113,7 @@ export interface MetricSpec {
   readonly emphasis: Emphasis;
   readonly trend?: Binding<number>;
   readonly trendFormat?: CellFormat;
+  readonly trendPolarity: TrendPolarity;
   readonly icon?: IconSource;
   readonly subtext?: TextSource;
 }

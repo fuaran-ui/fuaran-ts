@@ -109,6 +109,7 @@ import type {
   TabsSpec,
   TextSource,
   VisKind,
+  TrendPolarity,
 } from '@fuaran-ui/schema';
 
 import type { JsonAst } from './parse.js';
@@ -945,6 +946,11 @@ const pushWeightOptional = (fields: Field[], w: StyleWeight): void => {
 const pushEmphasisOptional = (fields: Field[], e: Emphasis): void => {
   if (e !== 'Normal') fields.push(['emphasis', str(e)]);
 };
+// Phase 867 - omitted at `HigherIsBetter`, so every pre-867 document is
+// byte-unchanged and the slot costs nothing until it is used.
+const pushTrendPolarityOptional = (fields: Field[], p: TrendPolarity): void => {
+  if (p !== 'HigherIsBetter') fields.push(['trendPolarity', str(p)]);
+};
 const pushCellFormatOptional = (fields: Field[], key: string, f: CellFormat): void => {
   if (f.kind !== 'None') fields.push([key, cellFormat(f)]);
 };
@@ -963,6 +969,7 @@ const metricSpec = (s: MetricSpec): string => {
   pushEmphasisOptional(fields, s.emphasis);
   if (s.trend !== undefined) fields.push(['trend', binding(s.trend)]);
   if (s.trendFormat !== undefined) fields.push(['trendFormat', cellFormat(s.trendFormat)]);
+  pushTrendPolarityOptional(fields, s.trendPolarity);
   if (s.icon !== undefined) fields.push(['icon', str(s.icon)]);
   if (s.subtext !== undefined) fields.push(['subtext', textSource(s.subtext)]);
   return jObject(fields);

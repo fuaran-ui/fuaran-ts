@@ -438,7 +438,7 @@ const renderMetric = <TMsg,>(
           // sign included — is unchanged.
           const t = tryResolveScalarFloat(ctx.sources, spec.trend);
           if (t === undefined) return <div className="fuaran-metric-trend"></div>;
-          const [sentiment, glyph] = trendSentiment(t);
+          const [sentiment, glyph] = trendSentiment(spec.trendPolarity, t);
           return (
             <div className={`fuaran-metric-trend fuaran-metric-trend-${sentiment}`}>
               <span className="fuaran-metric-trend-glyph" role="img" aria-label={sentiment}>

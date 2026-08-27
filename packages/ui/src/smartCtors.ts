@@ -91,6 +91,7 @@ import type {
   TabsSpec,
   TextSource,
   ToneVariant,
+  TrendPolarity,
   Transform,
 } from '@fuaran-ui/schema';
 
@@ -901,6 +902,8 @@ export interface MetricOptions {
   readonly emphasis?: Emphasis;
   readonly trend?: NumberInput;
   readonly trendFormat?: CellFormat;
+  /** Phase 867 - which direction of this quantity is GOOD; defaults to `HigherIsBetter`. */
+  readonly trendPolarity?: TrendPolarity;
   readonly icon?: string;
   readonly subtext?: TextInput;
 }
@@ -1367,6 +1370,7 @@ export const fuaran = {
       ...(o.emphasis !== undefined ? { emphasis: o.emphasis } : {}),
       ...(o.trend !== undefined ? { trend: numberBinding(o.trend) } : {}),
       ...(o.trendFormat !== undefined ? { trendFormat: o.trendFormat } : {}),
+      ...(o.trendPolarity !== undefined ? { trendPolarity: o.trendPolarity } : {}),
       ...(o.icon !== undefined ? { icon: iconSource(o.icon) } : {}),
       ...(o.subtext !== undefined ? { subtext: text(o.subtext) } : {}),
     };
