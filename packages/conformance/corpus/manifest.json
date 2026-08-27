@@ -2770,6 +2770,15 @@
       "description": "ToneVariant value 'Magenta'"
     },
     {
+      "id": "reject-unknown-trend-polarity",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-unknown-trend-polarity.json",
+      "expectedErrorCode": "UNKNOWN_DU_CASE",
+      "expectedPath": "$.kind.trendPolarity",
+      "description": "TrendPolarity value 'Neutral' — RESERVED, not admitted (§3.6.1 clause 5); refused exactly like a name nobody has proposed, so a later admission is an ADDITION rather than a re-meaning of shipped bytes"
+    },
+    {
       "id": "reject-wrongnodekind-sparkler",
       "kind": "reject",
       "decoder": "node",
