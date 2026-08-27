@@ -7,7 +7,9 @@
   "postureReason": "A full authoring + rendering tier, so every rule here is in principle in scope. The subset is historical, not designed.",
   "implemented": ["FUARAN047", "FUARAN048", "FUARAN049", "FUARAN069", "FUARAN082", "FUARAN083"],
   "abstentionDefault": "Not ported. This is an honest 'not yet', not a principled exclusion: the set above is whichever rules this host happened to need, and an unported rule is a gap.",
-  "abstained": {},
+  "abstained": {
+    "FUARAN105": "Not ported, and named here rather than left to the default because Phase 865 considered it and declined. This host's pre-emit walker has no binding traversal at all — `Display` and `Visualisation` kinds are leaves, so a Transform in a badge's text slot is never reached — and no tree-wide write-key or opacity projection. The rule reasons from the ABSENCE of a writer, so a partial port would not merely miss findings: with no writer projection it would fire on every tree that legitimately writes the key, which is a false accusation on the most idiomatic shape in the language. Porting it means porting the reference's cross-tree binding walk first, which is its own work. Declared rather than silent, per this artefact's whole purpose."
+  },
   "otherFamilies": {},
   "otherFamiliesNote": "Codes this host raises that belong to the reference's BUILD-TIME source-AST walker, not the pre-emit family enumerated in the vocabulary. Recorded so the gate reads them as a different family rather than as a code this host invented. That second family is not yet enumerated; until it is, this list is a declaration of intent, not something the gate can verify.",
   "machineChecked": false,
