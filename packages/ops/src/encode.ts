@@ -1061,6 +1061,10 @@ const imageSpec = (s: ImageSpec): string => {
   // data, and re-sorting it here would make this encoder produce bytes it did
   // not decode. Ascending-by-width is the RENDERER's canonicalisation.
   if (s.srcSet.length > 0) fields.push(['srcSet', jArray(s.srcSet.map(srcSetEntry))]);
+  // Phase 1079 — omitted at `false`, the plainest instance of the same law:
+  // not declaring an expansion and declaring that there is none are the same
+  // document, so only `true` costs a key.
+  if (s.expandable) fields.push(['expandable', bool(true)]);
   return jObject(fields);
 };
 

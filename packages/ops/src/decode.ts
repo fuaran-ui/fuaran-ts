@@ -3151,6 +3151,16 @@ const decodeImageSpec = (path: string, j: JsonAst): R<ImageSpec> => {
           );
         })();
   if (!srcSet.ok) return srcSet;
+  // Phase 1079 — an ordinary omit-at-default bool: absent is `false`, and a
+  // present non-boolean is a WRONG_TYPE rather than a truthiness coercion.
+  // `"expandable":"true"` is an emitter guessing, and a decoder that guessed
+  // back would have to rule on `"false"` and `""` as well — at which point two
+  // conformant hosts can disagree about whether the document declares an
+  // affordance at all. `requireBool` is the same function `download` uses.
+  const expandableJ = tryField(f, 'expandable');
+  const expandable =
+    expandableJ === undefined ? ok<boolean>(false) : requireBool(`${path}.expandable`, expandableJ);
+  if (!expandable.ok) return expandable;
   return ok({
     alt: alt.value,
     src: src.value,
@@ -3159,6 +3169,7 @@ const decodeImageSpec = (path: string, j: JsonAst): R<ImageSpec> => {
     aspectRatio: aspectRatio.value,
     loading: loading.value,
     srcSet: srcSet.value,
+    expandable: expandable.value,
     ...(caption.value !== undefined ? { caption: caption.value } : {}),
   });
 };

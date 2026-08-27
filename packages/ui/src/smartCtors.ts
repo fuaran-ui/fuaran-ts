@@ -977,6 +977,14 @@ export interface ImageOptions {
    * whatever order you wrote.
    */
   readonly srcSet?: readonly SrcSetEntryInput[];
+  /**
+   * Phase 1079 — whether the full-size asset is reachable from the rendered
+   * image. Set, the renderers wrap the `<img>` in a real `<a href>` to the
+   * source and mark it `data-fuaran-expandable`: the link works with no script,
+   * and an enhancement tier upgrades it in place into an in-page overlay.
+   * Omitted ⇒ `false`, the bare `<img>`.
+   */
+  readonly expandable?: boolean;
 }
 
 /**
@@ -1502,6 +1510,10 @@ export const fuaran = {
           // says an absent `srcSet` is `[]`, so a constructed spec that left the
           // field off would disagree with what a decoded one carries.
           srcSet: (o.srcSet ?? []).map((e) => ({ src: stringBinding(e.src), width: e.width })),
+          // Phase 1079 — ALWAYS present on the spec, for the reason `srcSet` is:
+          // the wire says an absent `expandable` is `false`, so a constructed
+          // spec that left the field off would disagree with a decoded one.
+          expandable: o.expandable ?? false,
           ...(o.caption !== undefined ? { caption: text(o.caption) } : {}),
         },
       },

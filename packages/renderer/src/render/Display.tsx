@@ -309,10 +309,38 @@ export const renderDisplay = <TMsg,>(
       // wrapper. Present wraps it in the semantic pair — an ad-hoc sibling text
       // node carried the same pixels and no binding, so assistive technology
       // read it as the next paragraph. Nothing moves onto the <figure>.
-      if (display.spec.caption === undefined) return img;
+      // Phase 1079 — the expansion affordance, byte-parity with the server arm.
+      // The renderer emits an INERT anchor and attaches nothing: the overlay is
+      // a separate, opt-in, post-hydration pass over `[data-fuaran-expandable]`
+      // (`@fuaran-ui/renderer/enhance-expandable`), exactly the
+      // deterministic-floor / client-only-enhancement split `CodeBlock` and
+      // `Math` already run on. An `onClick` here instead would put behaviour in
+      // the parity-checked output AND give the no-JS reader nothing.
+      //
+      // A refused `src` emits NO anchor: the `<img>`'s `src` must exist so it
+      // collapses to the refusal URL, but an anchor has no such obligation, and
+      // `<a href="about:blank">` is exactly the dead control this design avoids.
+      //
+      // `data-fuaran-expandable` is VALUELESS (the empty string) because the
+      // slot is a bool whose `false` is the absence of the attribute — unlike
+      // `data-fuaran-sortable`, which carries a value because a table has three
+      // states under a host's broad default.
+      const expandable =
+        display.spec.expandable && src !== '' && egressAttrs.length === 0 ? (
+          <a className="fuaran-image-expand" href={src} data-fuaran-expandable="">
+            {img}
+          </a>
+        ) : (
+          img
+        );
+      // Phase 1079 — `<figure>` wraps `<a>` wraps `<img>`: the caption is
+      // OUTSIDE the link target. It is prose a reader selects and quotes, not a
+      // second click surface, and interactive content inside the element whose
+      // job is to LABEL the image inverts the figure/figcaption relationship.
+      if (display.spec.caption === undefined) return expandable;
       return (
         <figure className="fuaran-image-figure">
-          {img}
+          {expandable}
           <figcaption className="fuaran-image-figure-caption">
             {renderText(ctx.sources, display.spec.caption)}
           </figcaption>

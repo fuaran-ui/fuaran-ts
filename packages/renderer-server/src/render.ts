@@ -960,11 +960,37 @@ const renderDisplay = (
       // sibling text node never had. Nothing moves onto the <figure> — the a11y
       // projection, the egress marker and the sanitised src stay on the
       // element they describe.
-      if (display.spec.caption === undefined) return img;
+      // Phase 1079 — the expansion affordance. The BASELINE is a real link:
+      // `<a href="{the sanitised src}">` around the `<img>` means a reader with
+      // no JavaScript clicks the picture and gets the full-size asset in the
+      // browser's own viewer. `data-fuaran-expandable` is a marker ON a working
+      // link, never the mechanism — it is what the enhancement tier reads.
+      //
+      // A refused `src` emits NO anchor: the `<img>`'s `src` must exist so it
+      // collapses to the refusal URL, but an anchor has no such obligation, and
+      // a link to `about:blank` is the dead control this design avoids. The
+      // image still renders, carrying its refusal marker.
+      //
+      // Nothing crosses the dispatch gate: no action, no handler, no onclick.
+      const expandable =
+        display.spec.expandable && src !== '' && egressAttrs.length === 0
+          ? el(
+              'a',
+              [
+                ['class', 'fuaran-image-expand'],
+                ['href', src],
+                ['data-fuaran-expandable', ''],
+              ],
+              img,
+            )
+          : img;
+      // Phase 1079 — `<figure>` wraps `<a>` wraps `<img>`; the `<figcaption>` is
+      // the anchor's SIBLING, so the caption is outside the link target.
+      if (display.spec.caption === undefined) return expandable;
       return el(
         'figure',
         [['class', 'fuaran-image-figure']],
-        img +
+        expandable +
           textEl(
             'figcaption',
             [['class', 'fuaran-image-figure-caption']],

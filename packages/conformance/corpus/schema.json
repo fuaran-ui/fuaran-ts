@@ -4440,6 +4440,9 @@
         "caption": {
           "$ref": "#/$defs/TextSource"
         },
+        "expandable": {
+          "type": "boolean"
+        },
         "fit": {
           "$ref": "#/$defs/ImageFit"
         },

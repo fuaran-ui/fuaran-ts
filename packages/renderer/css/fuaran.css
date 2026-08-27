@@ -2143,6 +2143,77 @@ html[data-fuaran-disconnected]::before {
   color: var(--fuaran-tone-muted-fg, #6b7280);
 }
 
+/* ── Expandable image (Phase 1079) ───────────────────────────────
+   The anchor is emitted by BOTH renderers and is a real link to the full-size
+   asset — the no-JS path. `display: block` and the zeroed line box are the
+   whole visual contribution: an inline anchor around an `<img>` inherits the
+   text baseline and adds a descender's worth of space under the picture, which
+   would make a captioned expandable image sit differently from a captioned
+   plain one. The link is deliberately NOT underlined or recoloured — the
+   picture is the affordance, and a blue box around a photograph is chrome the
+   author did not ask for. */
+.fuaran-image-expand {
+  display: block;
+  line-height: 0;
+  color: inherit;
+  text-decoration: none;
+  cursor: zoom-in;
+}
+
+.fuaran-image-expand:focus-visible {
+  outline: var(--fuaran-focus-ring-width, 2px) var(--fuaran-focus-ring-style, solid)
+    var(--fuaran-focus-ring-color, #93c5fd);
+  outline-offset: var(--fuaran-focus-ring-offset, 2px);
+}
+
+/* The overlay is CLIENT-ONLY: no renderer emits it, so it appears in no parity
+   comparison. These rules exist here rather than in the enhancement script for
+   the reason every other class in this file exists — a consumer that retires
+   the typed library keeps the class vocabulary, and an enhancement that wrote
+   its own inline styles could not be themed by the tokens around it. The
+   structure mirrors `.fuaran-modal-overlay` / `.fuaran-modal-dialog`
+   deliberately: it IS a dialog, and it should stack, centre and dim exactly as
+   the declarative one does. */
+.fuaran-image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: var(--fuaran-z-modal, 1000);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--fuaran-space-md, 12px);
+  padding: var(--fuaran-space-lg, 16px);
+  background: var(--fuaran-modal-backdrop, rgba(0, 0, 0, 0.5));
+}
+
+.fuaran-image-lightbox[hidden] {
+  display: none;
+}
+
+.fuaran-image-lightbox-image {
+  max-width: 100%;
+  max-height: 85%;
+  object-fit: contain;
+  border-radius: var(--fuaran-radius-lg, 8px);
+  box-shadow: var(--fuaran-shadow-xl, 0 20px 25px -5px rgba(0, 0, 0, 0.1));
+}
+
+.fuaran-image-lightbox-caption {
+  margin: 0;
+  max-width: 60ch;
+  text-align: center;
+  font-size: var(--fuaran-text-sm, 13px);
+  line-height: var(--fuaran-line-height-normal, 1.5);
+  color: #f9fafb;
+}
+
+.fuaran-image-lightbox-close {
+  position: absolute;
+  top: var(--fuaran-space-md, 12px);
+  right: var(--fuaran-space-md, 12px);
+}
+
 /* ── List (Phase 287) ──────────────────────────────────────────── */
 .fuaran-list {
   margin: 0;

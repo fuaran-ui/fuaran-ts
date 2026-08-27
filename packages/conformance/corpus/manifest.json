@@ -652,6 +652,14 @@
       "description": "Image — explicit-default `fit`/`aspectRatio`/`loading` decode and canonicalise away (omitted-when-default on both boundaries from day one, Phase 1077), and the bare-string TextSource shorthand applies to `alt`. The canonical minimal Image is exactly the pre-phase three-field form."
     },
     {
+      "id": "lenient-image-explicit-expandable-false",
+      "kind": "lenient-accept",
+      "decoder": "node",
+      "inputFile": "lenient/lenient-image-explicit-expandable-false.json",
+      "expectedFile": "lenient/lenient-image-explicit-expandable-false.expected.json",
+      "description": "Image — an explicit `expandable: false` decodes and canonicalises away to the omitted form (Phase 1079). `false` is the identity: not declaring an expansion and declaring that there is none are the same document"
+    },
+    {
       "id": "lenient-master-detail-preselected-compact",
       "kind": "lenient-accept",
       "decoder": "node",
@@ -1700,6 +1708,22 @@
       "description": "Display/Image (Phase 1078 — i18n caption with args)"
     },
     {
+      "id": "image-expandable-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/image-expandable-1.json",
+      "expectedFile": "nodes/image-expandable-1.json",
+      "description": "Display/Image (Phase 1079 — expandable, the declaration alone)"
+    },
+    {
+      "id": "image-expandable-figure-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/image-expandable-figure-1.json",
+      "expectedFile": "nodes/image-expandable-figure-1.json",
+      "description": "Display/Image (Phase 1079 — expandable + caption + srcSet, the gallery thumbnail)"
+    },
+    {
       "id": "image-presentation-1",
       "kind": "node-round-trip",
       "decoder": "node",
@@ -2410,6 +2434,15 @@
       "expectedErrorCode": "WRONG_TYPE",
       "expectedPath": "$.kind.fields[0].validation",
       "description": "'validation' near-miss on a FormField — the canonical key is 'rule' (Phase 864)"
+    },
+    {
+      "id": "reject-image-expandable-nonbool",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-image-expandable-nonbool.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.expandable",
+      "description": "Image expandable `\"true\"` — the stringified boolean, refused rather than coerced. A truthiness rule would have to rule on `\"false\"` and `\"\"` too, and two hosts ruling differently would disagree about whether the document declares an affordance at all"
     },
     {
       "id": "reject-image-srcset-nonpositive-width",

@@ -1190,6 +1190,11 @@ export type LinkProtection = 'email';
 // rather than a token — so an ABSENT `srcSet` decodes to `[]`, never to
 // `undefined` or `null` (the missing-list-field decode class), and an empty one
 // encodes to no key at all.
+// Phase 1079 adds `expandable`, the plainest omit-at-default of the six and the
+// only one that declares an INTERACTION. It composes with the other two
+// additions rather than replacing them: `srcSet` sizes the THUMBNAIL, the
+// primary `src` behind the expansion is the full asset, and a `caption` sits
+// outside the link target.
 export interface ImageSpec {
   readonly src: Binding<string>;
   readonly alt: TextSource;
@@ -1215,6 +1220,22 @@ export interface ImageSpec {
    * the other side.
    */
   readonly srcSet: readonly SrcSetEntry[];
+  /**
+   * Phase 1079 — whether the full-size asset is reachable from the rendered
+   * image. The only slot on this record that declares an INTERACTION rather
+   * than a picture, and what it declares is REACHABILITY, not a lightbox: a
+   * rendering host wraps the `<img>` in a real `<a href>` to the source and
+   * marks it `data-fuaran-expandable`, so the affordance works with no script
+   * at all, and an enhancement tier may upgrade that link into an in-page
+   * overlay. Nothing crosses the dispatch gate.
+   *
+   * NOT optional in the type, for the reason `srcSet` is not: an absent
+   * `expandable` on the wire decodes to `false`, so a `?` here would let a
+   * decoder hand a consumer `undefined` for a slot the wire says is `false`.
+   * The encoder omits the key at `false`, which is the same fact from the
+   * other side.
+   */
+  readonly expandable: boolean;
 }
 
 // Phase 1080 — one candidate rendition in `ImageSpec.srcSet`. `width` is the

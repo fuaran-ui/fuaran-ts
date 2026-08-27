@@ -206,3 +206,10 @@ export {
 // Phase 293 — the client-only KaTeX math enhancement (also at the
 // `@fuaran-ui/renderer/enhance-math` subpath for React-free consumers).
 export { enhanceMath, parseMathSegments } from './enhanceMath.js';
+
+// Phase 1079 — the client-only expandable-image overlay (also at the
+// `@fuaran-ui/renderer/enhance-expandable` subpath for React-free consumers).
+// Unlike the math pass this one refines an affordance that ALREADY works: the
+// renderers emit a real `<a href>` to the full-size asset, so a reader with no
+// JavaScript reaches the picture regardless.
+export { enhanceExpandable, closeExpanded } from './enhanceExpandable.js';

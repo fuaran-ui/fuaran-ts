@@ -6,6 +6,7 @@ export default defineConfig({
     'src/sanitize.ts',
     'src/egress.ts',
     'src/enhanceMath.ts',
+    'src/enhanceExpandable.ts',
     'src/markdown.ts',
   ],
   format: ['esm', 'cjs'],
