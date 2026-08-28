@@ -230,12 +230,34 @@ export const formatFiniteDouble = (n: number): string => {
   return neg ? '-' + out : out;
 };
 
-/** Number rule (§2 rule 5): finite via .NET "R" layout; specials as quoted sentinels; −0 → 0. */
+/**
+ * Number rule (§2 rule 5): finite via .NET "R" layout; specials as quoted sentinels; −0 → 0.
+ *
+ * The leading coercion is a TOTALITY guard, not a convenience. A float slot's
+ * value can reach the encoder spelled the way the WIRE spells a non-finite —
+ * the quoted sentinel string of §5/§7 — because `Binding.Static` carries an
+ * untyped payload and a projected or hand-authored tree is never typechecked at
+ * the slot. Without the coercion those three spellings fall through to
+ * `formatFiniteDouble`, whose arithmetic on a string yields a BARE `NaN` /
+ * `Infinity` / `-Infinity` token: output that is not JSON at all, so nothing
+ * downstream can even parse it back. That is a correctness defect independent
+ * of any consumer, which is why this is a guard here rather than a rule imposed
+ * on callers.
+ *
+ * `Number` maps exactly the three sentinel spellings the DECODER accepts at a
+ * float slot onto exactly the three values encoded back to them, so the two
+ * halves are symmetric by construction. Any other unrepresentable value becomes
+ * `NaN` and is emitted as the quoted `"NaN"` sentinel — never a bare token —
+ * which keeps `encodeNode` total: it cannot emit invalid JSON. Note `Number` is
+ * the identity on a real number (`-0` included, which `formatFiniteDouble`
+ * still normalises to `0`), so the finite path is byte-unchanged.
+ */
 export const num = (n: number): string => {
-  if (Number.isNaN(n)) return '"NaN"';
-  if (n === Infinity) return '"Infinity"';
-  if (n === -Infinity) return '"-Infinity"';
-  return formatFiniteDouble(n);
+  const v = Number(n);
+  if (Number.isNaN(v)) return '"NaN"';
+  if (v === Infinity) return '"Infinity"';
+  if (v === -Infinity) return '"-Infinity"';
+  return formatFiniteDouble(v);
 };
 
 const bool = (b: boolean): string => (b ? 'true' : 'false');
