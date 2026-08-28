@@ -2102,9 +2102,15 @@ const decodeBinding = (
       // is PRESERVED as `TransformSource.Live`: the decoded binding re-encodes
       // verbatim (one wire dialect) and the runtime re-evaluates the pipeline
       // against it, with the decode-time `initial` snapshot derived from the
-      // binding's carried default data through the same 815 normalisation. A
-      // State wrapper carrying NO data still errors didactically through the
-      // columnar codec (the 815 posture).
+      // binding's carried default data through the same 815 normalisation.
+      // Phase 1085 — a State wrapper carrying NO data is a live source over the
+      // EMPTY initial snapshot, exactly as a Selection / Query source already
+      // was. It used to error through the columnar codec (the 815 posture,
+      // correct when nothing could fill the slot); under the 1075 seeding rule
+      // a sibling reader's declaration fills it, so the bare
+      // `{"$type":"State","key":k}` is the direct spelling of "I read this key
+      // and carry no data of my own" — and the one FUARAN106's remedy text
+      // tells an author to write.
       const srcJ = requireField(path, f, 'source', 'Transform DataSource object');
       if (!srcJ.ok) return srcJ;
       const pipeJ = requireField(path, f, 'pipeline', 'Transform pipeline array');
@@ -2118,12 +2124,10 @@ const decodeBinding = (
           liveTagAst.value === 'Query')
           ? liveTagAst.value
           : undefined;
-      const hasCarried = srcJ.value.kind === 'JObject' && srcJ.value.fields.has('defaultValue');
       let source: TransformSource;
-      if (liveTag === undefined || (liveTag === 'State' && !hasCarried)) {
-        // The pre-818 path: canonical columnar / `ref`, the 815 leniencies
-        // (Static/Bound wrapper unwrap; row-major transpose), and the
-        // no-data State wrapper's didactic.
+      if (liveTag === undefined) {
+        // The pre-818 path: canonical columnar / `ref` and the 815 leniencies
+        // (Static/Bound wrapper unwrap; row-major transpose).
         const src = decodeDataSource(normaliseTransformSource(srcJ.value));
         if (!src.ok) return makeError('WRONG_TYPE', `${path}.source`, src.error);
         source = { kind: 'Data', source: src.value };
@@ -2132,6 +2136,27 @@ const decodeBinding = (
         // so the preserved binding round-trips byte-for-byte.
         const b = decodeBinding(`${path}.source`, srcJ.value, decodeJVal, undefined);
         if (!b.ok) return b;
+        // Phase 1085 — an ABSENT `defaultValue` must stay ABSENT on the decoded
+        // binding. `decodeBinding`'s State arm reads a missing default as
+        // `JNull` and falls back to the slot's typed placeholder, which for this
+        // slot is the `"<opaque>"` sentinel. That was unreachable while the bare
+        // wrapper was refused; now that it decodes, leaving it would make the
+        // seeding pass read a source that DECLARES NOTHING as a declaration of
+        // `"<opaque>"` — seeding the slot with a sentinel on this tier and with
+        // nothing on the other, from one document. Measured, not reasoned: the
+        // first run of the new pin returned `{"members":"<opaque>"}`.
+        const liveBinding = (() => {
+          const raw = b.value as Binding<JsonValue>;
+          const declared = srcJ.value.kind === 'JObject' && srcJ.value.fields.has('defaultValue');
+          // `undefined` IS this decoder's representation of an absent default —
+          // it is what the `placeholder` argument three lines up asks for. The
+          // cast is only because `Binding<T>`'s `State` arm declares
+          // `defaultValue: T` as required where the F# tier has `'T option`; the
+          // modelling gap is the tier's, and widening it is not this change.
+          return raw.kind === 'State' && !declared
+            ? ({ ...raw, defaultValue: undefined } as unknown as Binding<JsonValue>)
+            : raw;
+        })();
         if (liveTag === 'State') {
           // An EMPTY array default is the empty table, exactly as a
           // Selection / Query live source starts. An initially-empty live
@@ -2147,15 +2172,20 @@ const decodeBinding = (
           // source slot spells "I read this key and carry no data of my own",
           // which is precisely the shape the seeding rule exists to make work.
           // `WIRE_FORMAT.md` §16 now carries the rule and the corpus pins it.
+          //
+          // Phase 1085 — an ABSENT `defaultValue` takes the same arm. The two
+          // spellings say one thing; the empty array stays the answer for a
+          // genuinely empty live collection rather than a workaround for a
+          // wrapper the decoder would not accept bare.
           const carriedJ =
             srcJ.value.kind === 'JObject' ? srcJ.value.fields.get('defaultValue') : undefined;
-          const carriedIsEmptyArray =
-            carriedJ !== undefined && carriedJ.kind === 'JArray' && carriedJ.items.length === 0;
+          const carriesNoData =
+            carriedJ === undefined || (carriedJ.kind === 'JArray' && carriedJ.items.length === 0);
 
-          if (carriedIsEmptyArray) {
+          if (carriesNoData) {
             source = {
               kind: 'Live',
-              binding: b.value as Binding<JsonValue>,
+              binding: liveBinding,
               initial: { kind: 'Embedded', table: { schema: [], columns: [] } },
             };
           } else {
@@ -2166,7 +2196,7 @@ const decodeBinding = (
             if (!snap.ok) return makeError('WRONG_TYPE', `${path}.source`, snap.error);
             source = {
               kind: 'Live',
-              binding: b.value as Binding<JsonValue>,
+              binding: liveBinding,
               initial: snap.value,
             };
           }
@@ -2180,7 +2210,7 @@ const decodeBinding = (
             dv !== undefined ? decodeDataSource(normaliseTransformSource(dv)) : undefined;
           source = {
             kind: 'Live',
-            binding: b.value as Binding<JsonValue>,
+            binding: liveBinding,
             initial:
               snap !== undefined && snap.ok
                 ? snap.value

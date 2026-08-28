@@ -15,17 +15,18 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { collectStateSeeds, decodeNode } from '@fuaran-ui/ops';
+import { collectStateSeeds, decodeNode, encodeNode } from '@fuaran-ui/ops';
 import { renderToHtml } from '../src/render.js';
 
 const gridJson =
   '{"id":"member-grid","kind":{"$type":"DataGrid","columns":[{"field":"team","kind":{"$type":"Text"},"label":"Team"}],"rowKeyField":"team","source":{"$type":"State","defaultValue":[{"team":"Ops"},{"team":"Research"}],"key":"members"}}}';
 
-// `"defaultValue":[]` is how a Transform's source slot spells "I read this key
-// and carry no data of my own" on the wire today — a bare
-// `{"$type":"State","key":k}` wrapper is refused as un-unwrappable
-// (`WIRE_FORMAT.md` §16). It declares nothing, so it neither seeds the slot
-// empty nor conflicts with the grid beside it.
+// `"defaultValue":[]` is one of the two ways a Transform's source slot spells
+// "I read this key and carry no data of my own". The other — the bare
+// `{"$type":"State","key":k}` — was refused as un-unwrappable until Phase 1085
+// widened the decoder (`WIRE_FORMAT.md` §16); both are exercised below, and both
+// must behave identically. Either way the payload declares nothing, so it
+// neither seeds the slot empty nor conflicts with the grid beside it.
 const badgeJson =
   '{"id":"member-count","kind":{"$type":"Badge","label":{"$type":"Bound","binding":{"$type":"Transform","pipeline":[{"$type":"groupBy","aggs":[{"fn":"count","name":"n","of":"team"}],"keys":[]}],"source":{"$type":"State","defaultValue":[],"key":"members"}}},"variant":"Info"}}';
 
@@ -90,6 +91,52 @@ describe('Binding.State seeding (Phase 1075 — the shared-data-source charter O
     const reserved = gridJson.replace('"key":"members"', '"key":"host.members"');
 
     expect(Object.keys(collectStateSeeds(decode(pairJson([reserved]))))).toEqual([]);
+  });
+
+  // ---- Phase 1085 — the BARE spelling, the gap 1075 found and routed ----
+  //
+  // The charter's §3.1 pair is written with the badge's source spelled
+  // `{"$type":"State","key":"members"}`. That document did not decode until this
+  // phase, on either reference host. It does now, and it must behave exactly as
+  // the `"defaultValue":[]` spelling does — one intent, one behaviour.
+  const bareBadgeJson =
+    '{"id":"member-count","kind":{"$type":"Badge","label":{"$type":"Bound","binding":{"$type":"Transform","pipeline":[{"$type":"groupBy","aggs":[{"fn":"count","name":"n","of":"team"}],"keys":[]}],"source":{"$type":"State","key":"members"}}},"variant":"Info"}}';
+
+  it('a bare State Transform source decodes to a LIVE source over the empty snapshot', () => {
+    const tree = decode(bareBadgeJson);
+    const badge = tree.kind as unknown as {
+      readonly display: {
+        readonly spec: { readonly label: { readonly binding: { readonly source: unknown } } };
+      };
+    };
+    expect(badge.display.spec.label.binding.source).toEqual({
+      kind: 'Live',
+      binding: { kind: 'State', key: 'members', defaultValue: undefined },
+      initial: { kind: 'Embedded', table: { schema: [], columns: [] } },
+    });
+  });
+
+  it('the bare spelling round-trips byte-for-byte — it is canonical, not a shorthand', () => {
+    expect(encodeNode(decode(bareBadgeJson))).toBe(bareBadgeJson);
+  });
+
+  it("the charter's §3.1 pair renders the same count in EITHER spelling", () => {
+    expect(renderToHtml(decode(pairJson([gridJson, bareBadgeJson])))).toContain('>2<');
+    expect(renderToHtml(decode(pairJson([gridJson, badgeJson])))).toContain('>2<');
+  });
+
+  it('a bare State source nothing seeds derives over the EMPTY table, and does not error', () => {
+    // The deliberate quiet arm. An unseeded, unwritten slot resolves to no
+    // value at all; that is the initial snapshot, not a resolution failure.
+    // FUARAN105 is the pre-emit warning that names the resulting zero — at
+    // authoring time, where the key and the remedy can be named.
+    const html = renderToHtml(decode(bareBadgeJson));
+    expect(html).not.toContain('>2<');
+    expect(html.toLowerCase()).not.toContain('cannot be read as data');
+  });
+
+  it('the bare source declares nothing, so it seeds nothing', () => {
+    expect(Object.keys(collectStateSeeds(decode(bareBadgeJson)))).toEqual([]);
   });
 
   it('a form field auto-bound at decode does NOT seed its own key', () => {

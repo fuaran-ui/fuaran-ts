@@ -281,11 +281,18 @@ const evalTransformFrame = (
   if (binding.source.kind === 'Live') {
     const live = binding.source;
     const r = resolve<JsonValue>(sources, live.binding);
-    if (r.kind === 'Resolved') {
-      const t = liveValueToTable(r.value);
-      if (!t.ok) return { ok: false, error: `Transform live source: ${t.error}` };
-      inputTable = t.value;
-    } else if (r.kind === 'NotResolved') {
+    // Phase 1085 — an ABSENT resolved value is the initial snapshot, not an
+    // error. A `State` binding with no `defaultValue` on a slot nothing has
+    // seeded or written resolves to `undefined` rather than to `NotResolved`,
+    // so without this the bare wire spelling `{"$type":"State","key":k}` — the
+    // one this phase makes decodable, and the one FUARAN106's own remedy tells
+    // an author to write — would refuse where `"defaultValue": []` renders the
+    // empty table. Two spellings of "I read this key and carry no data of my
+    // own" must resolve alike. Deliberately the quiet arm: FUARAN105 is the
+    // pre-emit warning that names the resulting zero, where it can name the key
+    // and the remedy, which a bare `undefined` at render time cannot.
+    const resolvedAbsent = r.kind === 'Resolved' && (r.value === undefined || r.value === null);
+    if (r.kind === 'NotResolved' || resolvedAbsent) {
       if (live.initial.kind !== 'Embedded') {
         return {
           ok: false,
@@ -293,6 +300,10 @@ const evalTransformFrame = (
         };
       }
       inputTable = live.initial.table;
+    } else if (r.kind === 'Resolved') {
+      const t = liveValueToTable(r.value);
+      if (!t.ok) return { ok: false, error: `Transform live source: ${t.error}` };
+      inputTable = t.value;
     } else if (r.kind === 'Errored') {
       return { ok: false, error: `Transform live source errored: ${r.message}` };
     } else {
