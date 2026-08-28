@@ -5992,10 +5992,82 @@ const decodeSemanticStyle = (path: string, j: JsonAst): R<SemanticStyle> => {
   });
 };
 
+// Phase 959 — the `Accessibility` trait's near-miss set (the Phase 863
+// discipline applied to the §3.1 trait). Parity-locked with F#
+// `accessibilityNearMisses` / `accessibilityNearMiss`, and mirrored in the
+// published schema as `not: { required: [...] }`.
+//
+// Rule 2's tolerance of unknown keys is right for a slot a future profile may
+// add and wrong for a near miss of one that exists. That silence is sharper
+// here than anywhere else, for a reason peculiar to this trait: it has NO
+// VISIBLE OUTPUT. A mislabelled column is on screen; an ignored `ariaLabel`
+// looks identical to an honoured one from every side, so the refusal is the
+// only feedback that can ever arrive.
+//
+// Refused rather than aliased. `ariaLabel` IS an unambiguous synonym, so
+// admission turns on §16's other half — a shorthand earns its place by being a
+// genuine assist to the emitting model, and a six-character key rename is not
+// one. `live` settles it: the HTML idiom it comes from also spells a BOOLEAN,
+// so an alias would bind a possibly-boolean prior onto a closed token set.
+//
+// `live` and `ariaLabel` are named by MEASURED evidence (6 and 1 emissions
+// against `liveRegion`'s 12 and `label`'s 44, across 12,722 language-tier
+// emissions); the rest of their families ride in with them. Declaration order
+// is identical in all five hosts, so which defect surfaces first is
+// deterministic.
+const A11Y_NEAR_MISSES = [
+  [
+    'aria-label',
+    'label — the accessible name, a Binding<string> (a bare string is the §3.6 shorthand)',
+  ],
+  [
+    'ariaLabel',
+    'label — the accessible name, a Binding<string> (a bare string is the §3.6 shorthand)',
+  ],
+  ['aria-labelledby', 'labelledBy — the id of a sibling node whose text carries the name'],
+  ['ariaLabelledBy', 'labelledBy — the id of a sibling node whose text carries the name'],
+  [
+    'labelledby',
+    'labelledBy — the slot name is camelCase on the wire, not the ARIA attribute spelling',
+  ],
+  ['aria-describedby', 'describedBy — the id of a sibling node whose text carries the description'],
+  ['ariaDescribedBy', 'describedBy — the id of a sibling node whose text carries the description'],
+  [
+    'describedby',
+    'describedBy — the slot name is camelCase on the wire, not the ARIA attribute spelling',
+  ],
+  ['aria-role', 'role — the ARIA role NAME as a bare string'],
+  ['ariaRole', 'role — the ARIA role NAME as a bare string'],
+  ['aria-live', 'liveRegion — the closed token set "polite" / "assertive" / "off"'],
+  ['ariaLive', 'liveRegion — the closed token set "polite" / "assertive" / "off"'],
+  ['live', 'liveRegion — the closed token set "polite" / "assertive" / "off"'],
+  ['liveregion', 'liveRegion — the closed token set "polite" / "assertive" / "off"'],
+  ['aria-hidden', 'hidden — a Binding<bool> (a bare bool is the §3.6 shorthand)'],
+  ['ariaHidden', 'hidden — a Binding<bool> (a bare bool is the §3.6 shorthand)'],
+] as const;
+
+const checkA11yNearMisses = (path: string, f: Fields): R<void> => {
+  for (const [name, canonical] of A11Y_NEAR_MISSES) {
+    if (tryField(f, name) !== undefined)
+      return makeError(
+        'WRONG_TYPE',
+        `${path}.${name}`,
+        `'${name}' is not part of the accessibility vocabulary — it would be ignored, not honoured, and the intent would reach assistive technology as nothing at all`,
+        canonical,
+      );
+  }
+  return ok(undefined);
+};
+
 const decodeAccessibility = (path: string, j: JsonAst): R<Accessibility> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
+  // The near-miss check runs BEFORE the slot reads, matching the `FormField`
+  // ordering, so a trait carrying both `ariaLabel` and a well-formed `label`
+  // still names the ignored key rather than decoding half the intent silently.
+  const nearMiss = checkA11yNearMisses(path, f);
+  if (!nearMiss.ok) return nearMiss;
   const label = optField(path, f, 'label', decodeBindingString);
   if (!label.ok) return label;
   const labelledBy = optField(path, f, 'labelledBy', requireString);
