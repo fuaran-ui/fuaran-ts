@@ -531,6 +531,15 @@ const updateField = (
             lay({ kind: 'Box', spec: { ...s, layout: { ...mode, cols: x } } }),
           );
         }
+        // Phase 1082 — `Masonry` carries the same column count under the same
+        // field name. Without this arm the introspection surface would advertise
+        // `Cols` on a masonry box and the apply engine would answer
+        // `unknownField`. Mirror of F# `Apply.fs`.
+        if (field === 'Cols' && mode.kind === 'Masonry') {
+          return patch(coerce.int(value), (x) =>
+            lay({ kind: 'Box', spec: { ...s, layout: { ...mode, cols: x } } }),
+          );
+        }
         if (field === 'TemplateColumns' && mode.kind === 'Grid') {
           return patch(coerce.string(value), (x) =>
             lay({ kind: 'Box', spec: { ...s, layout: { ...mode, templateColumns: x } } }),

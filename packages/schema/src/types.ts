@@ -953,6 +953,18 @@ export type BoxLayout =
       readonly gap?: number;
       readonly templateColumns?: string;
     }
+  // Column-FILL, where `Grid` is row-fill (WIRE_FORMAT §3.6.7). Children flow
+  // down each column in turn rather than across each row, so children of
+  // unequal height pack without the whitespace a row-aligned grid leaves under
+  // its shorter cells. `cols` must be POSITIVE. There is deliberately no
+  // `templateColumns` twin: that field is a verbatim `grid-template-columns`
+  // sizing function, and the multi-column model realising this has no track
+  // list for one to name — which is what keeps the case bounded.
+  | {
+      readonly kind: 'Masonry';
+      readonly cols: number;
+      readonly gap?: number;
+    }
   // Responsive auto-tile — the retired Dashboard's defining behaviour. The
   // renderer owns the tiling; no author-supplied column count.
   | { readonly kind: 'Auto' };

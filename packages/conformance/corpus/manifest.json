@@ -1797,6 +1797,22 @@
       "description": "Display/Markdown"
     },
     {
+      "id": "masonry-1",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/masonry-1.json",
+      "expectedFile": "nodes/masonry-1.json",
+      "description": "Layout/Masonry (Phase 1082 — column-fill, three columns)"
+    },
+    {
+      "id": "masonry-gap",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/masonry-gap.json",
+      "expectedFile": "nodes/masonry-gap.json",
+      "description": "Layout/Masonry (Phase 1082 — explicit gap)"
+    },
+    {
       "id": "master-detail-multi-field",
       "kind": "node-round-trip",
       "decoder": "node",
@@ -2422,6 +2438,15 @@
       "expectedErrorCode": "WRONG_TYPE",
       "expectedPath": "$.kind.activeStep",
       "description": "Binding<int> Static payload is a §7 non-finite sentinel — the sentinels are FLOAT-slot only; an integer slot has no non-finite form (Phase 1064)"
+    },
+    {
+      "id": "reject-box-masonry-nonpositive-cols",
+      "kind": "reject",
+      "decoder": "node",
+      "inputFile": "reject/reject-box-masonry-nonpositive-cols.json",
+      "expectedErrorCode": "WRONG_TYPE",
+      "expectedPath": "$.kind.layout.cols",
+      "description": "Masonry cols 0 — refused: a column count names how many columns the children fill, so a non-positive one describes a layout no renderer can realise. Refused rather than canonicalised to `Auto`, unlike a column-less `Grid`: that leniency works because `Auto` already means the browser's own choice, and masonry has no such case for the rewrite to land on"
     },
     {
       "id": "reject-daterange-unordered",

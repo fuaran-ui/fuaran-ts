@@ -5143,10 +5143,33 @@ const decodeBoxLayout = (path: string, j: JsonAst): R<BoxLayout> => {
         ...(templateColumns.value !== undefined ? { templateColumns: templateColumns.value } : {}),
       });
     }
+    case 'Masonry': {
+      // WIRE_FORMAT §3.6.7 — column-fill. `cols` is REQUIRED and POSITIVE, on
+      // the srcSet width-floor pattern: `column-count: 0` is invalid CSS, so a
+      // container declaring it would fall back to whatever the host stylesheet
+      // last said and the wire would carry a host-defined layout.
+      //
+      // No auto-column leniency here, unlike `Grid` above, and the asymmetry is
+      // deliberate rather than an omission: `Grid` canonicalises a column-less
+      // spec to `Auto` because the language already owns that concept, whereas
+      // `Auto` is a ROW-fill mode — rewriting a masonry into it would discard
+      // the author's intent rather than recover it. Mirror of F#.
+      const colsJ = tryField(f, 'cols') ?? tryField(f, 'columns');
+      if (colsJ === undefined) return missingField(path, 'cols', 'positive integer column count');
+      if (colsJ.kind !== 'JNumber' || colsJ.value <= 0 || !Number.isInteger(colsJ.value))
+        return wrongType(`${path}.cols`, 'JSON number (positive integer column count)');
+      const masonryGap = optField(path, f, 'gap', requireInt);
+      if (!masonryGap.ok) return masonryGap;
+      return ok({
+        kind: 'Masonry',
+        cols: colsJ.value,
+        ...(masonryGap.value !== undefined ? { gap: masonryGap.value } : {}),
+      });
+    }
     case 'Auto':
       return ok({ kind: 'Auto' });
     default:
-      return unknownDuCase(path, d.value, 'Flex | Grid | Auto');
+      return unknownDuCase(path, d.value, 'Flex | Grid | Masonry | Auto');
   }
 };
 

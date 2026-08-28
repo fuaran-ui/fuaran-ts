@@ -224,6 +224,10 @@ const boxKindClass = (layout: Extract<LayoutKind<unknown>, { kind: 'Box' }>): st
   if (role === 'Dashboard' || mode.kind === 'Auto') return 'fuaran-kind-dashboard';
   if (role === 'Separator') return 'fuaran-kind-divider';
   if (mode.kind === 'Grid') return 'fuaran-kind-grid-layout';
+  // Phase 1082 — its own hook, not the grid's: the two modes fill in
+  // different directions, so a host styling "the grid container" must not
+  // catch both.
+  if (mode.kind === 'Masonry') return 'fuaran-kind-masonry';
   return 'fuaran-kind-stack';
 };
 

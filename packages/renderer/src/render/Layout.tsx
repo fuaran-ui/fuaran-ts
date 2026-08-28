@@ -63,6 +63,21 @@ export const renderLayout = <TMsg,>(
           </div>
         );
       }
+      // WIRE_FORMAT §3.6.7 — column-fill, realised with the CSS multi-column
+      // family (`grid-template-rows: masonry` is explicitly NOT the mechanism —
+      // it is not deterministically supported across engines). The reference
+      // stylesheet supplies the `break-inside: avoid` on the children that
+      // stops a card being cut in half down a column boundary.
+      if (spec.layout.kind === 'Masonry') {
+        const m = spec.layout;
+        const masonryStyle: CSSProperties = { columnCount: m.cols };
+        if (m.gap !== undefined) masonryStyle.gap = `${m.gap}px`;
+        return (
+          <div className="fuaran-layout-masonry" style={masonryStyle}>
+            {renderChildren(ctx, spec.children)}
+          </div>
+        );
+      }
       // Flex (the fall-through for Group; Auto handled above).
       const f = spec.layout;
       const dir =

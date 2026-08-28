@@ -422,6 +422,24 @@ const renderLayout = (
           renderChildren(ctx, spec.children),
         );
       }
+      if (spec.layout.kind === 'Masonry') {
+        // WIRE_FORMAT §3.6.7 — column-fill, realised with the CSS multi-column
+        // family. `grid-template-rows: masonry` is NOT the mechanism and must
+        // not be substituted: it is not deterministically supported across
+        // engines, so a document rendered through it would lay out differently
+        // depending on which browser read it.
+        const m = spec.layout;
+        const masonryStyle =
+          m.gap !== undefined ? `column-count:${m.cols};gap:${m.gap}px` : `column-count:${m.cols}`;
+        return el(
+          'div',
+          [
+            ['class', 'fuaran-layout-masonry'],
+            ['style', masonryStyle],
+          ],
+          renderChildren(ctx, spec.children),
+        );
+      }
       const f = spec.layout;
       const dir =
         f.kind === 'Flex' && f.direction === 'Horizontal'

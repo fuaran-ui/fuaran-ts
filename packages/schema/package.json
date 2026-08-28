@@ -1,6 +1,6 @@
 {
   "name": "@fuaran-ui/schema",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "TypeScript shape of the Fuaran UI §4b typed record contract — tagged unions for every NodeKind / LayoutKind / DisplayKind / InputKind / VisKind / Spec, branded NodeId / FragmentId, bounded primitives, and declarative Defaults.* constants. One conformant host of the canonical Fuaran wire format.",
   "keywords": [
     "fuaran",

@@ -848,6 +848,19 @@ export interface GridLayoutOptions<TMsg> {
   readonly templateColumns?: string;
 }
 
+/**
+ * Options for the column-fill container (WIRE_FORMAT §3.6.7). No
+ * `templateColumns` twin: the multi-column model realising masonry has no track
+ * list for a `grid-template-columns` sizing function to name, and the omission
+ * is what keeps the case bounded.
+ */
+export interface MasonryLayoutOptions<TMsg> {
+  readonly id: NodeId | string;
+  readonly cols?: number;
+  readonly gap?: number;
+  readonly children?: readonly Node<TMsg>[];
+}
+
 export interface SplitPanelOptions<TMsg> {
   readonly id: NodeId | string;
   readonly weight?: number;
@@ -1287,6 +1300,33 @@ export const fuaran = {
             kind: 'Grid',
             cols: o.cols ?? 12,
             ...(o.templateColumns !== undefined ? { templateColumns: o.templateColumns } : {}),
+          },
+          role: 'Group',
+          children: o.children ?? [],
+        },
+      },
+    });
+  },
+  /**
+   * Phase 1082: the masonry hang — children fill DOWN each column rather than
+   * across each row, so children of unequal height pack without the whitespace
+   * a row-aligned grid leaves under its shorter cells. `cols` defaults to 3
+   * rather than the grid's 12: a masonry column is a real column of content,
+   * not a track slot to subdivide, so 12 would render as near-empty ribbons.
+   * Prefer `gridLayout` when the children are similarly proportioned, or when
+   * they must be read in sequence — multi-column fill puts document order down
+   * each column, not across the page.
+   */
+  masonryLayout<TMsg>(o: MasonryLayoutOptions<TMsg>): Node<TMsg> {
+    return buildNode(o.id, {
+      kind: 'Layout',
+      layout: {
+        kind: 'Box',
+        spec: {
+          layout: {
+            kind: 'Masonry',
+            cols: o.cols ?? 3,
+            ...(o.gap !== undefined ? { gap: o.gap } : {}),
           },
           role: 'Group',
           children: o.children ?? [],

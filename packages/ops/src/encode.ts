@@ -1911,6 +1911,12 @@ const boxLayout = (l: BoxLayout): string => {
       if (l.templateColumns !== undefined) fields.push(['templateColumns', str(l.templateColumns)]);
       return caseObj('Grid', fields);
     }
+    case 'Masonry': {
+      // cols < gap
+      const fields: Field[] = [['cols', intLit(l.cols)]];
+      if (l.gap !== undefined) fields.push(['gap', intLit(l.gap)]);
+      return caseObj('Masonry', fields);
+    }
     case 'Auto':
       return caseObj('Auto', []);
     default:
