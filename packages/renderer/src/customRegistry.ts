@@ -22,6 +22,13 @@ import type {
 } from '@fuaran-ui/schema';
 
 import type { GuestSeam } from './guestPrivilege.js';
+import {
+  payloadGateStamp,
+  payloadObligationsFor,
+  type CustomPayloadCard,
+  type CustomPayloadObligation,
+  type PayloadLanguages,
+} from './payloadLanguage.js';
 
 /** Props a registered custom React component receives. */
 export interface CustomRendererProps {
@@ -36,16 +43,30 @@ export type CustomRenderer = FunctionComponent<CustomRendererProps>;
 interface CustomRendererEntry {
   readonly render: CustomRenderer;
   readonly contentHash?: ContentHash;
+  readonly payloadLanguages?: PayloadLanguages;
+}
+
+/**
+ * An entry plus the identity it was registered under. Held separately from the
+ * public {@link CustomRendererEntry} so `get` keeps returning exactly what it
+ * always returned — and read rather than recovered from the map key, because a
+ * `moduleId` may itself contain a dot and splitting the key would silently
+ * attribute a card to the wrong component.
+ */
+interface IdentifiedEntry extends CustomRendererEntry {
+  readonly moduleId: string;
+  readonly componentId: string;
 }
 
 const key = (moduleId: string, componentId: string): string => `${moduleId}.${componentId}`;
 
 /**
  * A per-instance map of `${moduleId}.${componentId}` → registered React
- * component (+ optional content hash for Phase 70 bounded-escape verification).
+ * component (+ optional content hash for Phase 70 bounded-escape verification,
+ * + optional Phase 1107 payload-language declarations per prop key).
  */
 export class CustomRendererRegistry {
-  private readonly map = new Map<string, CustomRendererEntry>();
+  private readonly map = new Map<string, IdentifiedEntry>();
 
   /** Register a renderer for a module/component pair. Chainable. */
   register(
@@ -53,9 +74,15 @@ export class CustomRendererRegistry {
     componentId: string,
     render: CustomRenderer,
     contentHash?: ContentHash,
+    payloadLanguages?: PayloadLanguages,
   ): this {
-    const entry: CustomRendererEntry =
-      contentHash !== undefined ? { render, contentHash } : { render };
+    const entry: IdentifiedEntry = {
+      moduleId,
+      componentId,
+      render,
+      ...(contentHash !== undefined ? { contentHash } : {}),
+      ...(payloadLanguages !== undefined ? { payloadLanguages } : {}),
+    };
     this.map.set(key(moduleId, componentId), entry);
     return this;
   }
@@ -68,6 +95,46 @@ export class CustomRendererRegistry {
   /** True when a renderer is registered for the pair. */
   has(moduleId: string, componentId: string): boolean {
     return this.map.has(key(moduleId, componentId));
+  }
+
+  /**
+   * Every declared-wire prop across every registered component (Phase 1107), for
+   * a teaching surface or an eval harness that needs to know an inner language
+   * EXISTS — which a prop's JSON shape could never tell it. Components declaring
+   * none contribute no rows.
+   */
+  describePayloadLanguages(): CustomPayloadCard[] {
+    const cards: CustomPayloadCard[] = [];
+
+    for (const entry of this.map.values()) {
+      if (entry.payloadLanguages === undefined) continue;
+
+      for (const [propKey, declaration] of Object.entries(entry.payloadLanguages)) {
+        cards.push({
+          moduleId: entry.moduleId,
+          componentId: entry.componentId,
+          key: propKey,
+          language: declaration.language,
+          ...(declaration.gate !== undefined ? { gate: payloadGateStamp(declaration.gate) } : {}),
+        });
+      }
+    }
+
+    return cards;
+  }
+
+  /**
+   * The payload obligations a prop bag leaves outstanding for one registered
+   * component — what this registry CANNOT judge, said out loud rather than
+   * passed over. An unregistered pair yields none: the registry only speaks for
+   * what it knows.
+   */
+  payloadObligations(
+    moduleId: string,
+    componentId: string,
+    props: Readonly<Record<string, JsonValue>>,
+  ): CustomPayloadObligation[] {
+    return payloadObligationsFor(this.map.get(key(moduleId, componentId))?.payloadLanguages, props);
   }
 }
 
@@ -85,7 +152,9 @@ export const registerCustomRenderer = (
   componentId: string,
   render: CustomRenderer,
   contentHash?: ContentHash,
-): CustomRendererRegistry => registry.register(moduleId, componentId, render, contentHash);
+  payloadLanguages?: PayloadLanguages,
+): CustomRendererRegistry =>
+  registry.register(moduleId, componentId, render, contentHash, payloadLanguages);
 
 /**
  * The action shape handed to a {@link FuaranRuntime.canDispatch} policy gate —

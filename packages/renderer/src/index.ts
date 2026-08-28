@@ -79,6 +79,25 @@ export {
   type ActionDescriptor,
 } from './customRegistry.js';
 
+// A registered component's prop can declare an INNER wire format (Phase 1107) —
+// the string is a language with its own decoder and its own gate. This tier can
+// say the language exists and name the gate; it cannot RUN one, so what it
+// reports is an OBLIGATION, never a verdict.
+export {
+  payloadAttribution,
+  payloadGateStamp,
+  payloadObligationsFor,
+  payloadTag,
+  type CustomPayloadCard,
+  type CustomPayloadObligation,
+  type PayloadGate,
+  type PayloadGateVerdict,
+  type PayloadLanguage,
+  type PayloadLanguages,
+  type PayloadObligationKind,
+  type PayloadUpdateProvenance,
+} from './payloadLanguage.js';
+
 // The `NodeKind.Custom` content-hash FLOOR (Phase 1021, porting the Phase 783
 // posture). `ContentHash` is drift detection, never authentication — the tree
 // supplies its own record — so strictness is a host floor a tree may only
