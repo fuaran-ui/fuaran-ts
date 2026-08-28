@@ -74,6 +74,24 @@ export interface ConformanceAdapter {
    */
   readonly validateAnswerDocument?: (json: string) => AdapterDecodeResult;
   /**
+   * Decode a contract-card artefact (WIRE_FORMAT.md §25) with the named entry
+   * point (`contract-card` ⇒ the single-card codec, `contract-card-bundle` ⇒ the
+   * bundle codec) and return it RE-ENCODED to canonical bytes as `value` (a
+   * string), or the structured §25.3 refusal.
+   *
+   * Exercises the contract-card legs, and those legs are **not mandatory** —
+   * unlike every other family here. §25 adoption is a SEPARATE bar from wire
+   * conformance (WIRE_FORMAT §11.0 records it in its own table): a host can be
+   * byte-perfect on the whole node and op vocabulary and hold no card reader at
+   * all, and reporting it non-conformant for that would be measuring the wrong
+   * thing. A host that has not adopted omits this hook and the legs report
+   * `skipped`.
+   */
+  readonly roundTripContractCard?: (
+    decoder: 'contract-card' | 'contract-card-bundle',
+    json: string,
+  ) => AdapterDecodeResult;
+  /**
    * Reserved. Apply a decoded `TreeOp` to a decoded `Node` tree. Corpus v1
    * ships no apply fixtures, so this hook is never invoked today; it is
    * declared so the adapter seam is already stable when apply fixtures land

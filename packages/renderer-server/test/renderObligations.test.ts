@@ -44,6 +44,10 @@ import {
   unassertedObligations,
   type ObligationOutcome,
   type RenderFidelityManifest,
+  CardStore,
+  type ContentHash,
+  type ContractCard,
+  type Node,
 } from '@fuaran-ui/schema';
 import { fuaran } from '@fuaran-ui/ui';
 
@@ -277,6 +281,128 @@ const checkSrcSetAscendingByWidth = (): void => {
   );
 };
 
+// ─── The unregistered-degradation obligation (§25.4) ─────────────────────────
+
+/**
+ * A contract card for a component this host has no renderer for. That is the
+ * whole premise: this tier ships no custom-renderer registry seam at all, so
+ * every `Custom` node takes the unregistered path and the card is the only thing
+ * standing between a reader and two opaque strings.
+ */
+const SPARKLINE_CARD: ContractCard = {
+  moduleId: 'analytics',
+  componentId: 'sparkline',
+  props: [
+    {
+      name: 'series',
+      type: 'string',
+      required: true,
+      payloadLanguage: 'chartspec',
+      payloadGate: 'chartspec-gate:1.2',
+    },
+    { name: 'title', type: 'string', required: false },
+  ],
+  contentHash: { algorithm: 'SHA256', hash: 'a94a8fe5ccb19ba61c4c0873d391e987982fbbd3' },
+  summary: 'A compact trend line with a period-over-period delta.',
+};
+
+const customNode = (contentHash?: ContentHash): Node<never> =>
+  fuaran.custom({
+    id: 'cust',
+    moduleId: 'analytics',
+    componentId: 'sparkline',
+    props: { series: '{"points":[1,2,3]}' },
+    ...(contentHash !== undefined ? { contentHash } : {}),
+  });
+
+const checkUnregisteredCustomLabelled = (): void => {
+  const cards = CardStore.of([SPARKLINE_CARD]);
+
+  // (1) NO CARD — the pre-§25 path, byte-for-byte. First, because it is the leg
+  // the obligation must NOT have changed: an obligation that quietly rewrote
+  // every existing host's output would be a breaking change wearing a
+  // conformance claim.
+  const bare = renderToHtml(customNode());
+
+  expect(bare, 'the identity-only placeholder still names the component').toContain(
+    'Custom analytics.sparkline',
+  );
+  expect(bare, 'a host with no card claims nothing about a card').not.toContain(
+    'data-fuaran-custom-card',
+  );
+  expect(bare, 'and invents no description it does not have').not.toContain('trend line');
+
+  // (2) CARD, NO DECLARED HASH — the common case. Shown, and marked unverified.
+  const unverified = renderToHtml(customNode(), { cards });
+
+  expect(unverified, 'the verdict marker is machine-readable').toContain(
+    'data-fuaran-custom-card="unverified"',
+  );
+  expect(unverified, 'the identity is still emitted').toContain(
+    '[fuaran:custom analytics.sparkline]',
+  );
+  expect(unverified, "the card's summary is emitted — the whole legibility gain").toContain(
+    'A compact trend line with a period-over-period delta.',
+  );
+  expect(unverified, 'the declared prop rows are emitted, payload language included').toContain(
+    'series: string (required) [chartspec (gate chartspec-gate:1.2)]',
+  );
+  // Never a prop VALUE: this host was not asked to interpret the node's props.
+  expect(unverified, 'no prop value reaches the placeholder').not.toContain('points');
+
+  // (3) CARD, MATCHING HASH — the strongest claim available.
+  const matching = renderToHtml(
+    customNode({
+      algorithm: 'SHA256',
+      hash: 'a94a8fe5ccb19ba61c4c0873d391e987982fbbd3',
+      strictness: 'AdvisoryWarning',
+    }),
+    { cards },
+  );
+
+  expect(matching, 'a verified card says so').toContain('data-fuaran-custom-card="described"');
+  expect(matching, 'and shows the description').toContain('A compact trend line');
+
+  // (4) CARD, CONTRADICTED HASH — the description is WITHHELD. Without this leg
+  // the obligation would be satisfied by a renderer showing any card matching by
+  // name, which is the guess it exists to forbid.
+  const mismatched = renderToHtml(
+    customNode({
+      algorithm: 'SHA256',
+      hash: '0000000000000000000000000000000000000000',
+      strictness: 'AdvisoryWarning',
+    }),
+    { cards },
+  );
+
+  expect(mismatched, 'the contradiction is stated, not hidden').toContain(
+    'data-fuaran-custom-card="hash-mismatch"',
+  );
+  expect(
+    mismatched,
+    'a description of a different shape is withheld — a confident wrong description is worse than none',
+  ).not.toContain('trend line');
+  expect(mismatched, 'the identity survives; only the description is withheld').toContain(
+    '[fuaran:custom analytics.sparkline]',
+  );
+
+  // (5) A MALFORMED prop bag is CALLED malformed. The half a labelling pass
+  // alone would miss.
+  const malformed = renderToHtml(
+    fuaran.custom({
+      id: 'cust',
+      moduleId: 'analytics',
+      componentId: 'sparkline',
+      props: { title: 'Revenue' },
+    }),
+    { cards },
+  );
+
+  expect(malformed, 'a card lets this host say the node violates its declared schema').toContain(
+    "required prop 'series' (string) is missing",
+  );
+};
+
 /**
  * The registry: which (kind, claim) pairs this host asserts, and how. Keyed by
  * the claim's WIRE token, because the enumeration it is matched against comes
@@ -292,6 +418,7 @@ const CHECKERS: ReadonlyMap<string, () => void> = new Map([
   ['Image/refused-src-no-affordance', checkRefusedSrcNoAffordance],
   ['Image/figure-caption-outside-link', checkFigureCaptionOutsideLink],
   ['Image/srcset-ascending-by-width', checkSrcSetAscendingByWidth],
+  ['Custom/unregistered-custom-labelled', checkUnregisteredCustomLabelled],
 ]);
 
 /**

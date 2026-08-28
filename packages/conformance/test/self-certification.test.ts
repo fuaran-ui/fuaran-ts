@@ -22,7 +22,13 @@ import {
   negotiateEnvelope,
   validateAnswerDocument,
 } from '@fuaran-ui/ops';
-import type { Node } from '@fuaran-ui/schema';
+import {
+  decodeCardBundle,
+  decodeContractCard,
+  encodeCardBundle,
+  encodeContractCard,
+  type Node,
+} from '@fuaran-ui/schema';
 import { describe, expect, it } from 'vitest';
 
 import type { ConformanceAdapter } from '../src/adapter.js';
@@ -51,6 +57,16 @@ const tsHostAdapter: ConformanceAdapter = {
     return { ok: true, value: encodeElicitationOutcome(decoded.value) };
   },
   validateAnswerDocument: (json) => validateAnswerDocument(json),
+  roundTripContractCard: (decoder, json) => {
+    if (decoder === 'contract-card') {
+      const decoded = decodeContractCard(json);
+      if (!decoded.ok) return decoded;
+      return { ok: true, value: encodeContractCard(decoded.value) };
+    }
+    const decoded = decodeCardBundle(json);
+    if (!decoded.ok) return decoded;
+    return { ok: true, value: encodeCardBundle(decoded.value) };
+  },
 };
 
 const implementation = { name: '@fuaran-ui/ops', version: '0.1.0' };
@@ -132,11 +148,14 @@ describe('self-certification — @fuaran-ui/ops through the public kit', () => {
       leg('elicitation-round-trip').fixturesTotal +
       leg('elicitation-reject').fixturesTotal +
       leg('elicitation-answer').fixturesTotal;
+    const cardCount =
+      leg('contract-card-round-trip').fixturesTotal + leg('contract-card-reject').fixturesTotal;
     expect(lenientCount).toBeGreaterThan(0);
     expect(envelopeCount).toBeGreaterThan(0);
     expect(elicitationCount).toBeGreaterThan(0);
-    expect(acceptCount + rejectCount + lenientCount + envelopeCount + elicitationCount).toBe(
-      report.corpus.fixtureCount,
-    );
+    expect(cardCount).toBeGreaterThan(0);
+    expect(
+      acceptCount + rejectCount + lenientCount + envelopeCount + elicitationCount + cardCount,
+    ).toBe(report.corpus.fixtureCount);
   });
 });

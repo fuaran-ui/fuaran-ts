@@ -28,6 +28,8 @@ export type LegId =
   | 'elicitation-round-trip'
   | 'elicitation-reject'
   | 'elicitation-answer'
+  | 'contract-card-round-trip'
+  | 'contract-card-reject'
   | 'schema-validation'
   | 'apply';
 

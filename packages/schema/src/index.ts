@@ -14,5 +14,6 @@ export * from './bounded.js';
 export * from './defaults.js';
 export * from './binding.js';
 export * from './renderFidelity.js';
+export * from './customCard.js';
 export * from './limits.js';
 export * from './kindPolicy.js';

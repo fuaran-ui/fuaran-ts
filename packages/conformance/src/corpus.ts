@@ -33,12 +33,23 @@ export type FixtureKind =
   | 'elicitation-round-trip'
   | 'elicitation-reject'
   | 'elicitation-answer-accept'
-  | 'elicitation-answer-reject';
+  | 'elicitation-answer-reject'
+  // WIRE_FORMAT.md §25 contract cards. Its OWN family, never `nodes/` — a card is
+  // not a node, so the node round-trip law says nothing about it.
+  | 'contract-card-round-trip'
+  | 'contract-card-reject';
 
 export interface CorpusFixture {
   readonly id: string;
   readonly kind: FixtureKind;
-  readonly decoder: 'node' | 'op' | 'elicitation' | 'elicitation-outcome' | 'elicitation-answer';
+  readonly decoder:
+    | 'node'
+    | 'op'
+    | 'elicitation'
+    | 'elicitation-outcome'
+    | 'elicitation-answer'
+    | 'contract-card'
+    | 'contract-card-bundle';
   readonly inputFile: string;
   readonly expectedFile?: string;
   readonly expectedErrorCode?: string;

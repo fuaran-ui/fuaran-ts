@@ -33,6 +33,8 @@ import { sanitizeExtraAttributes } from '@fuaran-ui/renderer/sanitize';
 import type {
   Action,
   Binding,
+  CardStore,
+  ContentHash,
   CellFormat,
   CellKindErased,
   CellValue,
@@ -56,6 +58,8 @@ import type {
   ToneVariant,
   VisKind,
 } from '@fuaran-ui/schema';
+
+import { cardVerdictMarker, describeFromCard } from '@fuaran-ui/schema';
 
 import {
   accessibilityAttributes,
@@ -133,6 +137,17 @@ interface ServerContext {
    * browser fetches before any script runs.
    */
   readonly egressPolicy: EgressPolicy;
+  /**
+   * WIRE_FORMAT.md §25 — host-supplied contract cards. Undefined by default, and
+   * an absent store leaves every emitted byte exactly as it was: the
+   * identity-only placeholder is unchanged for a host that holds no card, which
+   * is what makes the §25.4 obligation free for every existing consumer.
+   *
+   * This tier ships no custom-renderer registry seam at all, so EVERY `Custom`
+   * node here takes the unregistered path — which makes the server renderer the
+   * clearest place the card earns its keep, not an edge case in it.
+   */
+  readonly cards?: CardStore;
 }
 
 // ─── Fragment collection + namespacing (port of @fuaran-ui/renderer/context) ──
@@ -346,7 +361,7 @@ const renderKind = (
       return renderNode(ctx, matched ? matched.child : kind.spec.default);
     }
     case 'Custom':
-      return renderCustom(kind.moduleId, kind.componentId, kind.props);
+      return renderCustom(ctx, kind.moduleId, kind.componentId, kind.props, kind.contentHash);
     case 'FragmentDecl':
       return ''; // zero-paint — the decl is a template, not visible output.
     case 'FragmentRef':
@@ -2493,21 +2508,77 @@ const renderMap = (
 // ─── Custom + Fragment ────────────────────────────────────────────────────────
 
 const renderCustom = (
+  ctx: ServerContext,
   moduleId: string,
   componentId: string,
   props: Readonly<Record<string, JsonValue>>,
+  contentHash: ContentHash | undefined,
 ): string => {
   // The server ships no custom-renderer registry seam, so a Custom node always
   // renders the inert labelled placeholder the client emits when no renderer is
   // registered. The host owns + escapes its own Custom output on the client path.
-  const propKeys = Object.keys(props).join(', ');
-  const label = textEl(
+  //
+  // WIRE_FORMAT.md §25.4 — TWO shapes, and the first is byte-for-byte what
+  // shipped before. A host holding no card for this identity emits exactly the
+  // placeholder it always emitted; a host holding one emits the card-derived
+  // degradation. That the uncarded path is untouched is not a courtesy: it is
+  // what makes the obligation safe to declare on a kind every host renders.
+  const card = ctx.cards?.get(moduleId, componentId);
+
+  if (card === undefined) {
+    const propKeys = Object.keys(props).join(', ');
+    const label = textEl(
+      'div',
+      [['class', 'fuaran-custom-label']],
+      `Custom ${moduleId}.${componentId}`,
+    );
+    const propsDiv = textEl('div', [['class', 'fuaran-custom-props']], `props: ${propKeys}`);
+    return el('div', [['class', 'fuaran-custom-placeholder']], label + propsDiv);
+  }
+
+  const described = describeFromCard(contentHash, props, card);
+
+  const label = textEl('div', [['class', 'fuaran-custom-label']], described.label);
+
+  const summary =
+    described.summary === undefined
+      ? ''
+      : textEl('div', [['class', 'fuaran-custom-summary']], described.summary);
+
+  // The declared prop rows — never a prop VALUE. The node's props are data this
+  // host was not asked to interpret, and spilling them into a placeholder is an
+  // information leak that buys no legibility at all.
+  const propRows =
+    described.propLines.length === 0
+      ? ''
+      : el(
+          'ul',
+          [['class', 'fuaran-custom-props']],
+          described.propLines.map((line) => textEl('li', [], line)).join(''),
+        );
+
+  // The node's own prop bag, judged against the card. This is the half a
+  // labelling pass alone would miss: a foreign host can now say the node is
+  // MALFORMED, where before it could only fail to render it.
+  const defects =
+    described.validation.defects.length === 0
+      ? ''
+      : el(
+          'ul',
+          [['class', 'fuaran-custom-defects']],
+          described.validation.defects.map((d) => textEl('li', [], d.message)).join(''),
+        );
+
+  return el(
     'div',
-    [['class', 'fuaran-custom-label']],
-    `Custom ${moduleId}.${componentId}`,
+    [
+      ['class', 'fuaran-custom-placeholder'],
+      ['data-fuaran-custom-module', moduleId],
+      ['data-fuaran-custom-component', componentId],
+      ['data-fuaran-custom-card', cardVerdictMarker(described.verdict)],
+    ],
+    label + summary + propRows + defects,
   );
-  const propsDiv = textEl('div', [['class', 'fuaran-custom-props']], `props: ${propKeys}`);
-  return el('div', [['class', 'fuaran-custom-placeholder']], label + propsDiv);
 };
 
 const renderFragmentRef = (ctx: ServerContext, parentNodeId: string, name: string): string => {
@@ -2558,6 +2629,16 @@ export interface RenderToHtmlOptions {
    * policy to declare specific destinations; both are reached BY NAME.
    */
   readonly egressPolicy?: EgressPolicy;
+  /**
+   * WIRE_FORMAT.md §25 — host-supplied contract cards, so an unregistered
+   * `Custom` node whose identity the store knows renders the card-derived
+   * labelled placeholder (§25.4) instead of the identity-only one.
+   *
+   * Omitting it leaves the placeholder exactly as it was. Reached BY NAME, like
+   * `egressPolicy`: a card store is a claim a host makes about what it can
+   * describe, and a renderer must never assume one.
+   */
+  readonly cards?: CardStore;
 }
 
 /**
@@ -2581,6 +2662,7 @@ export const renderToHtml = <TMsg>(tree: Node<TMsg>, options: RenderToHtmlOption
     expandingFragments: new Set<string>(),
     // Phase 1037 — default-deny. A host widens it BY NAME via `egressPolicy`.
     egressPolicy: options.egressPolicy ?? denyNonLocalEgress,
+    ...(options.cards !== undefined ? { cards: options.cards } : {}),
   };
   return renderNode(ctx, node);
 };

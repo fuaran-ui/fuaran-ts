@@ -534,6 +534,96 @@ export const runConformance = (
     }
   }
 
+  // Contract cards (WIRE_FORMAT.md §25). Same shape as the elicitation legs —
+  // decode with the fixture's decoder-named entry point, re-encode, compare —
+  // and deliberately NOT mandatory: §25 adoption is its own bar, recorded in the
+  // §11.0 table beside the byte-parity one.
+  const roundTripContractCard = adapter.roundTripContractCard;
+  if (roundTripContractCard !== undefined) {
+    const cardDecoder = (f: CorpusFixture): 'contract-card' | 'contract-card-bundle' =>
+      f.decoder === 'contract-card-bundle' ? 'contract-card-bundle' : 'contract-card';
+
+    for (const f of corpus.fixtures.filter((x) => x.kind === 'contract-card-round-trip')) {
+      const a = acc('contract-card-round-trip');
+      a.total++;
+      const input = corpus.read(f.inputFile);
+      let r: AdapterDecodeResult;
+      try {
+        r = roundTripContractCard(cardDecoder(f), input);
+      } catch (err) {
+        a.failures.push({
+          fixtureId: f.id,
+          summary:
+            'roundTripContractCard THREW on a round-trip fixture (must return a structured result)',
+          detail: messageOf(err),
+        });
+        continue;
+      }
+      if (!r.ok) {
+        a.failures.push({
+          fixtureId: f.id,
+          summary: 'roundTripContractCard refused a round-trip fixture',
+          detail: `${r.error.code} at ${r.error.path}`,
+        });
+        continue;
+      }
+      const expected = canon(corpus.read(f.expectedFile ?? f.inputFile));
+      if (typeof r.value !== 'string' || r.value !== expected) {
+        a.failures.push({
+          fixtureId: f.id,
+          summary: 'card re-encode diverges from the canonical form',
+          detail:
+            typeof r.value === 'string' ? firstDiff(expected, r.value) : 'value was not a string',
+        });
+        continue;
+      }
+      a.passed++;
+    }
+
+    for (const f of corpus.fixtures.filter((x) => x.kind === 'contract-card-reject')) {
+      const a = acc('contract-card-reject');
+      a.total++;
+      const input = corpus.read(f.inputFile);
+      let r: AdapterDecodeResult;
+      try {
+        r = roundTripContractCard(cardDecoder(f), input);
+      } catch (err) {
+        a.failures.push({
+          fixtureId: f.id,
+          summary:
+            'roundTripContractCard THREW on a reject fixture (must return a structured error)',
+          detail: messageOf(err),
+        });
+        continue;
+      }
+      if (r.ok) {
+        a.failures.push({
+          fixtureId: f.id,
+          summary: 'roundTripContractCard ACCEPTED a reject fixture',
+          detail: `expected ${f.expectedErrorCode} at ${f.expectedPath}`,
+        });
+        continue;
+      }
+      if (r.error.code !== f.expectedErrorCode) {
+        a.failures.push({
+          fixtureId: f.id,
+          summary: 'refusal CODE diverges from the canonical error',
+          detail: `expected ${f.expectedErrorCode}, got ${r.error.code} (path ${r.error.path})`,
+        });
+        continue;
+      }
+      if (!r.error.path.startsWith(f.expectedPath ?? '$')) {
+        a.failures.push({
+          fixtureId: f.id,
+          summary: 'refusal PATH diverges from the canonical error',
+          detail: `expected prefix ${f.expectedPath}, got ${r.error.path}`,
+        });
+        continue;
+      }
+      a.passed++;
+    }
+  }
+
   const validateAnswerDocument = adapter.validateAnswerDocument;
   if (validateAnswerDocument !== undefined) {
     for (const f of corpus.fixtures.filter(
@@ -647,6 +737,21 @@ export const runConformance = (
       hasSchemaInput
         ? need(['a decode hook for the encode hooks provided'])
         : need(['encodeNode and/or encodeOp']),
+    ),
+    // NOT mandatory — see the `roundTripContractCard` doc comment: §25 adoption
+    // is a separate bar from wire conformance, so a byte-perfect host that holds
+    // no card reader must not be reported non-conformant for it.
+    toLeg(
+      'contract-card-round-trip',
+      false,
+      accs.get('contract-card-round-trip'),
+      need(['roundTripContractCard']),
+    ),
+    toLeg(
+      'contract-card-reject',
+      false,
+      accs.get('contract-card-reject'),
+      need(['roundTripContractCard']),
     ),
     toLeg('apply', false, undefined, 'corpus v1 ships no apply fixtures — leg reserved'),
   ];

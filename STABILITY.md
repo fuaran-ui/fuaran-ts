@@ -238,6 +238,38 @@ The close of the migration window `0.4.0` of the wire format opened. `decodeOp` 
 
 Certified by `reject-op-insertchild-retired-position` / `reject-op-movenode-retired-newposition`; both payloads are otherwise well-formed, deliberately, so a host that merely fails them earlier for some other reason certifies nothing.
 
+### Recorded change — contract cards + the unregistered-degradation obligation (`WIRE_FORMAT.md` §25, fuaran#1108)
+
+Additive throughout: new exports on `@fuaran-ui/schema`, one new optional field on
+`RenderToHtmlOptions`, and **no change to any emitted byte for a host that supplies no cards**.
+
+`@fuaran-ui/schema` gains the card artefact — `ContractCard` / `CardPropRow` / `CardContentHash`,
+the codec (`decodeContractCard` / `decodeCardBundle` / `encodeContractCard` / `encodeCardBundle`),
+the three-way hash verdict (`verifyCardHash` / `cardVerdictMarker`), card-driven prop validation
+(`validateAgainstCard`), the §25.4 placeholder derivation (`describeFromCard`), and `CardStore`.
+`@fuaran-ui/renderer-server` gains `RenderToHtmlOptions.cards`: an unregistered `Custom` node whose
+identity the store knows renders the card-derived labelled placeholder instead of the identity-only
+one. Omit `cards` and the placeholder is exactly what it was.
+
+**This tier is the READER, and the divergence from the reference tier is deliberate.** The F#
+registry PROJECTS cards out of prop schemas it already holds; nothing here holds a prop schema, so
+what landed is the decode side plus the derivations §25.4 states over it. The canonical ENCODER is
+here only so a round-trip can be byte-compared against the corpus — a host that never publishes cards
+still has to prove it read them faithfully. Do not "unify" this with the renderer's payload-language
+registry (fuaran#1107): same vocabulary, same message strings, a different carrier, and the
+dependency direction is renderer → schema.
+
+**`@fuaran-ui/conformance` gains a `roundTripContractCard` hook and two legs, both NON-mandatory.**
+Every other family's legs are mandatory; these are not, because §25 adoption is a separate bar from
+wire conformance (`WIRE_FORMAT.md` §11.0 records it in its own table). A host can be byte-perfect on
+the whole node and op vocabulary and hold no card reader at all, and reporting it non-conformant for
+that would measure the wrong thing. A host that has not adopted omits the hook and the legs report
+`skipped`.
+
+`FixtureKind` and `LegId` are widened, and `CorpusFixture.decoder` gains `contract-card` /
+`contract-card-bundle`. Those are exported union types, so a consumer exhaustively switching on one
+gains an unhandled case — additive on the wire, source-visible in TypeScript.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:
