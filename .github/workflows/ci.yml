@@ -95,6 +95,17 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Typecheck covers what Build does not: each package's `build` compiles
+      # `src/` only, so a type error in `test/` — the tsconfig.test.json
+      # projects — reaches no gate at all. Vitest transpiles per-file without
+      # checking types, so `pnpm test` is green on it too. That is not
+      # hypothetical: five such errors stood on `main` while format:check,
+      # build and test were all green, because nothing in CI ran `tsc` over a
+      # test tree. Runs AFTER Build, because the workspace links resolve a
+      # sibling package through its published `types` entry under `dist/`.
+      - name: Typecheck
+        run: pnpm typecheck
+
       - name: Test
         run: pnpm test
 

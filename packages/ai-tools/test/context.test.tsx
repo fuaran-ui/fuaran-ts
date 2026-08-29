@@ -37,6 +37,7 @@ const tree: Node<unknown> = {
                   tone: 'Default',
                   weight: 'Standard',
                   emphasis: 'Normal',
+                  trendPolarity: 'HigherIsBetter',
                 },
               },
             },

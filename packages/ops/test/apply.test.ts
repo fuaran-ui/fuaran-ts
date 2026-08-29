@@ -237,6 +237,7 @@ describe('apply engine — field / binding / style / state ops', () => {
             tone: 'Default',
             weight: 'Standard',
             emphasis: 'Normal',
+            trendPolarity: 'HigherIsBetter',
           },
         },
       },

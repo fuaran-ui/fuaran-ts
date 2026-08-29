@@ -282,8 +282,15 @@ describe('preEmitValidate', () => {
     );
     expect(a11yCodesOf(empty)).toEqual(['EMPTY_ACCESSIBILITY_DECLARATION']);
 
+    // A `Static` binding whose `value` is absent cannot be spelled in TypeScript
+    // — the field is `string`. The validator guards it anyway
+    // (`isEmptyStaticText` tests `b.value === undefined`) because the shape
+    // reaches it all the same: from JavaScript callers the types never see, and
+    // from a decoded tree whose slot was omitted. So the cast is the POINT of
+    // this case, not a way around the type — deleting it deletes the only
+    // coverage that guard has.
     const valueless = node.withAccessibility<Msg>(
-      { label: { kind: 'Static', value: undefined } },
+      { label: { kind: 'Static', value: undefined as unknown as string } },
       fuaran.button<Msg>({ id: id('save'), label: 'Save' }),
     );
     expect(a11yCodesOf(valueless)).toEqual(['EMPTY_ACCESSIBILITY_DECLARATION']);

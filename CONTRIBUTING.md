@@ -50,6 +50,10 @@ quietly does nothing leaves the build green, and everybody reads that as agreeme
 - **pnpm**: `>=9` (the lockfile + workspaces protocol assumes this).
 - **Prettier**: configured at the repo root via `.prettierrc`; `pnpm format` formats every tracked file; `pnpm format:check` is the CI gate.
 - **TypeScript**: strict mode + `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes` + `verbatimModuleSyntax` (see `tsconfig.base.json`). Per-package `tsconfig.json` files extend this base.
+  `pnpm typecheck` is a CI gate alongside `pnpm format:check`, and it is the only one that covers the
+  test trees: a package's `build` compiles `src/` alone, and Vitest transpiles without checking types,
+  so a type error under `test/` is invisible to both. Run it after `pnpm build` — the workspace links
+  resolve a sibling package through its `dist/` types.
 
 ## Licence
 
