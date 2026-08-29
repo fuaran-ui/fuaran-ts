@@ -5,6 +5,8 @@
   "vocabulary": "wire-format-fixtures/validator/defect-vocabulary.json",
   "posture": "subset",
   "postureReason": "A full authoring + rendering tier, so every rule here is in principle in scope. The subset is historical, not designed.",
+  "messageForm": "structured",
+  "messageFormReason": "This host's findings are structured records — a symbolic discriminant plus typed fields (nodeId, slot, target), and no message string anywhere in preEmitValidate.ts. The human-readable rendering is the consumer's, so there is no prose here to compare against another host's and message parity is exempt BY SHAPE. Declared rather than inferred, which is the whole point: 'no messages were found' and 'the extractor broke' are the same observation, and message parity's own guard fails a non-exempt host that yields zero templates precisely so the two cannot be confused. The exemption is NOT a licence to leave the codes second-class — making the FUARAN codes first-class here is open work, and deliberately not to be 'solved' by renaming the discriminants, which are what make an exhaustive switch readable in TypeScript.",
   "implemented": [
     "FUARAN047",
     "FUARAN048",
