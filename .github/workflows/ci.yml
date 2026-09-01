@@ -97,25 +97,39 @@ jobs:
   # `repository_dispatch: types: [wire-conformance]`; see the workspace
   # roadmap/TIDY-UP.md "Wire the cross-conformance gate trigger" bundle).
   #
-  # Requires a repo/Actions secret WORKSPACE_DISPATCH_TOKEN — a fine-grained PAT or
-  # GitHub App token with `Contents: write` on fuaran-ui/workspace (the scope the
-  # repository_dispatch REST endpoint requires; classic-PAT equivalent is the `repo`
-  # scope). The default GITHUB_TOKEN is scoped to THIS repo only and cannot dispatch
-  # cross-repo. [OPERATOR-GATED — the secret must be provisioned for this to fire.]
+  # Requires the org-level Actions secret FUARAN_WORKSPACE_APP_PRIVATE_KEY — the
+  # private key of the `fuaran-ui-workspace-broker` GitHub App (app id 4797739),
+  # installed on the dispatch target only. The workflow mints a SHORT-LIVED
+  # installation token at run time (the App holds `Contents: write` there — the
+  # scope the repository_dispatch REST endpoint requires); no long-lived token is
+  # stored anywhere. The default GITHUB_TOKEN is scoped to THIS repo only and
+  # cannot dispatch cross-repo. [OPERATOR-GATED — the org secret must be granted
+  # to this repo for this to fire; until then the job skips rather than fails.]
   notify-workspace-conformance:
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
+      - name: Mint a workspace App installation token
+        id: workspace-token
+        if: ${{ secrets.FUARAN_WORKSPACE_APP_PRIVATE_KEY != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: 4797739 # fuaran-ui-workspace-broker
+          private-key: ${{ secrets.FUARAN_WORKSPACE_APP_PRIVATE_KEY }}
+          owner: fuaran-ui
+          repositories: workspace
+
       - name: Trigger workspace wire-format conformance gate
         env:
-          GH_TOKEN: ${{ secrets.WORKSPACE_DISPATCH_TOKEN }}
+          GH_TOKEN: ${{ steps.workspace-token.outputs.token }}
         run: |
-          # Operator-gated: until the secret is provisioned, skip rather than
-          # fail — a red dispatch job on every main push would mask real
-          # build/test failures.
+          # Operator-gated: until the org secret is granted here, skip rather
+          # than fail — a red dispatch job on every main push would mask real
+          # build/test failures. (The mint step above is if-guarded on the same
+          # condition, so an ungranted repo skips it and lands here tokenless.)
           if [ -z "$GH_TOKEN" ]; then
-            echo "::notice::WORKSPACE_DISPATCH_TOKEN is not provisioned — skipping the workspace conformance dispatch (operator-gated)."
+            echo "::notice::FUARAN_WORKSPACE_APP_PRIVATE_KEY is not granted to this repo — skipping the workspace conformance dispatch (operator-gated)."
             exit 0
           fi
           gh api repos/fuaran-ui/workspace/dispatches \
