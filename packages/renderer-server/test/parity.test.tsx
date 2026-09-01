@@ -97,6 +97,10 @@ const REFERENCE_RENDERER_SOURCES = [
   join('src', 'Fuaran.UI.Renderer.Core', 'Theme.fs'),
   // Phase 525 — the Drawing SVG class vocabulary (fuaran-drawing*) lives here.
   join('src', 'Fuaran.UI.Renderer.Core', 'DrawingSvg.fs'),
+  // Phase 207 — the per-kind class/id builder vocabulary (`Css`) was extracted
+  // here from the two Render.fs files; the prefix tokens that used to sit inline
+  // (fuaran-custom-, fuaran-badge-, …) are now spelled only in this module.
+  join('src', 'Fuaran.UI.Renderer.Core', 'Css.fs'),
 ];
 
 /**
