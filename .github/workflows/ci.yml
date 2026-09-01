@@ -42,37 +42,18 @@ jobs:
       # packages/spec-hash implements. Same layout convention as above — a sibling
       # of the repo root, the DIRECTORY name being the interface.
       #
-      # Unlike the wire-format corpus, this repository is PRIVATE, so the checkout
-      # needs a token: an operator-provisioned repo/Actions secret
-      # SPEC_CORPUS_TOKEN — a fine-grained PAT (or GitHub App token) with
-      # `Contents: read` on fuaran-ui/fuaran-model-execution-spec. The default
-      # GITHUB_TOKEN is scoped to THIS repo and cannot read another.
-      #
-      # This one FAILS LOUDLY when the secret is absent, deliberately, where the
-      # cross-repo dispatch job below skips. The difference is what absence means:
-      # a missing dispatch loses a downstream notification, while a missing corpus
-      # would leave a conformance suite unrun on a green build — and everybody
-      # reads a green build as "the implementation still agrees with the spec".
-      - name: Assert the specification-corpus secret is provisioned
-        env:
-          SPEC_CORPUS_TOKEN: ${{ secrets.SPEC_CORPUS_TOKEN }}
-        run: |
-          if [ -z "$SPEC_CORPUS_TOKEN" ]; then
-            echo "::error::SPEC_CORPUS_TOKEN is not provisioned. packages/spec-hash certifies against the" >&2
-            echo "model-execution wire specification's corpus, which lives in a PRIVATE repository" >&2
-            echo "(fuaran-ui/fuaran-model-execution-spec). Provision a fine-grained PAT with Contents:read" >&2
-            echo "on that repository as the repo/Actions secret SPEC_CORPUS_TOKEN. Do NOT make the suite" >&2
-            echo "skip-when-absent: a conformance gate that quietly does nothing is worse than absent," >&2
-            echo "because the build stays green and everyone reads that as agreement." >&2
-            exit 1
-          fi
-
-      - name: Checkout the model-execution wire specification (private)
+      # The specification repo went PUBLIC at Fuaran-Core/fuaran-model-execution-spec
+      # (re-homed + flipped 2026-08-29), so the checkout needs no token — the
+      # SPEC_CORPUS_TOKEN secret and its provisioning assert are retired. The
+      # corpus remains AUTHORITATIVE: the layout assert below still fails the job
+      # loudly if the corpus does not arrive, because a conformance suite left
+      # unrun on a green build reads as "the implementation still agrees with the
+      # spec" — do NOT make it skip-when-absent.
+      - name: Checkout the model-execution wire specification
         uses: actions/checkout@v4
         with:
-          repository: fuaran-ui/fuaran-model-execution-spec
+          repository: Fuaran-Core/fuaran-model-execution-spec
           path: fuaran-model-execution-spec
-          token: ${{ secrets.SPEC_CORPUS_TOKEN }}
 
       - name: Assert the specification corpus is where the tests resolve it
         run: test -f ../fuaran-model-execution-spec/wire-fixtures/manifest.json

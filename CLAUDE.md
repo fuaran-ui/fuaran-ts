@@ -99,7 +99,7 @@ This repo has **no upstream dependencies on the other Fuaran siblings** as publi
 
 - `../fuaran-dotnet/docs/WIRE_FORMAT.md` — the canonical wire-format spec (shipped in Phase 73).
 - `../wire-format-fixtures/` — the workspace-level fixture corpus the codec parity tests consume (relocated from `fuaran-dotnet/` in Phase 73).
-- `../fuaran-model-execution-spec/wire-fixtures/` — the **model-execution wire specification**'s corpus, which `@fuaran-ui/spec-hash` certifies against. A second, independent specification with its own corpus; its repository is private, so CI checks it out with a `SPEC_CORPUS_TOKEN` secret and **fails loudly when it is absent** rather than skipping.
+- `../fuaran-model-execution-spec/wire-fixtures/` — the **model-execution wire specification**'s corpus, which `@fuaran-ui/spec-hash` certifies against. A second, independent specification with its own corpus; its repository is public (`Fuaran-Core/fuaran-model-execution-spec`, re-homed + flipped 2026-08-29), so CI checks it out tokenless and **fails loudly when the corpus is absent** rather than skipping.
 - `../fuaran-dotnet/src/Fuaran.UI.Renderer/css/` — the reference CSS bundle Phase 77 sync-packages.
 
 This repo produces npm packages, not NuGet packs — the workspace [`../pack-all.ps1`](../pack-all.ps1) treats this sibling as a no-op by default. The `-PublishFuaranTsCanary` flag is the opt-in for inner-loop testing of the npm publish workflow without cutting a real release tag.

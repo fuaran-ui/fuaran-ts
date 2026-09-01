@@ -34,11 +34,11 @@ and the function-registry goldens) fail with a missing-file error; everything el
 `@fuaran-ui/spec-hash` (workspace-internal, not published) implements the
 `canonical-json-sha256-v1` minting canonicalisation and certifies against the **model-execution wire
 specification**'s corpus, resolved the same way — a directory named `fuaran-model-execution-spec`
-next to this checkout. That specification's repository is **private**, so the clone needs access to
-`fuaran-ui/fuaran-model-execution-spec`; CI reaches it with a `SPEC_CORPUS_TOKEN` secret.
+next to this checkout. That specification's repository is **public**
+(`Fuaran-Core/fuaran-model-execution-spec`), so the clone needs no credentials.
 
 ```sh
-git clone https://github.com/fuaran-ui/fuaran-model-execution-spec
+git clone https://github.com/Fuaran-Core/fuaran-model-execution-spec
 ```
 
 As above, absence is a **loud failure naming the checkout**, never a skip — a conformance gate that
