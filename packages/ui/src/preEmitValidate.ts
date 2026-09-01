@@ -76,6 +76,22 @@ export type PreEmitDefect =
    */
   | { readonly code: 'UNGROUNDED_SWITCH_STATE_KEY'; readonly nodeId: string }
   /**
+   * FUARAN090 (warning) — a `Grid` carries `editable: true` but no edit has
+   * anywhere to go: it declares no `editStateKey`, and its `source` is not
+   * directly a `State` binding. The FUARAN069 inert-control condition replayed
+   * for the grid — a `Transform` pipeline is not invertible, `Static` / `Query`
+   * rows are host data, and `staticRows` are immutable by definition — so every
+   * cell renders read-only and the flag is dead intent.
+   *
+   * The condition is the renderer's own, not a second statement of it: the
+   * grid's `editDestination` (`render/Visualisation.tsx`) resolves a declared
+   * `editStateKey` first and falls back to a `State` source, drawing no input
+   * when neither is present. This rule fires on exactly the trees that
+   * resolution leaves without a destination, so the two cannot disagree about
+   * what an emission means.
+   */
+  | { readonly code: 'INERT_EDITABLE_GRID'; readonly nodeId: string }
+  /**
    * FUARAN109 (warning) — an INTERACTIVE node that reaches a screen reader with
    * no name: its structural naming slot is an empty literal and the node
    * declares neither `accessibility.label` nor `accessibility.labelledBy`, so
@@ -377,9 +393,28 @@ export function preEmitValidate<TMsg>(
         break;
       }
       case 'Display':
-      case 'Visualisation':
-        // Leaves for tree-walk purposes (form fields / columns are not Nodes).
+        // A leaf for tree-walk purposes (form fields / columns are not Nodes).
         break;
+      case 'Visualisation': {
+        // Also a tree-walk leaf — a grid's columns are not Nodes — but the grid
+        // spec carries one invariant above the type level.
+        //
+        // FUARAN090 (Phase 663, widened by Phase 863): `editable: true` means
+        // something only when the whole-rows write has a destination. Asked
+        // through the same two-step the renderer resolves — a declared
+        // `editStateKey` wins, else the grid's own `source` when that source is
+        // directly a `State` binding — so the rule and the render agree by
+        // construction rather than by two people writing the same condition.
+        const vis = k.visualisation;
+        if (vis.kind === 'Grid') {
+          const spec = vis.spec;
+          const destination = spec.editStateKey !== undefined || spec.source.kind === 'State';
+          if (spec.editable && !destination) {
+            defects.push({ code: 'INERT_EDITABLE_GRID', nodeId: n.id });
+          }
+        }
+        break;
+      }
       case 'Input': {
         // FUARAN069 (Phase 426): an interactive input whose handler is omitted
         // needs a writable value binding for the write-back default to target.

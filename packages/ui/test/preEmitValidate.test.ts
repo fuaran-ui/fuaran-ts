@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   action,
+  column,
   fuaran,
   node,
   nodeId,
   preEmitValidate,
+  type Binding,
   type Node,
   type NodeId,
   type PreEmitDefect,
@@ -168,6 +170,81 @@ describe('preEmitValidate', () => {
       activeIndex: { kind: 'State', key: 'activePane', defaultValue: 0 },
     });
     expect(preEmitValidate(live).ok).toBe(true);
+  });
+
+  // ── FUARAN090 — the inert editable grid (Phase 663, widened by Phase 863) ──
+  //
+  // Ported from the reference host's rule, and asked through the same two-step
+  // the renderer's `editDestination` resolves: a declared `editStateKey` wins,
+  // else the grid's own `source` when that source is directly a `State`
+  // binding. The four tests below are the four corners of that condition — the
+  // one shape with no destination fires, and each of the two destinations,
+  // separately, silences it.
+
+  type Row = { readonly month: string; readonly revenue: number };
+
+  const rows: readonly Row[] = [
+    { month: 'Jan', revenue: 980 },
+    { month: 'Feb', revenue: 1105 },
+  ];
+
+  const planColumns = [
+    column.text<Row, Msg>('Month', (r) => r.month),
+    column.numeric<Row, Msg>('Revenue', (r) => r.revenue),
+  ];
+
+  const planGrid = (source: Binding<readonly Row[]>, editable: boolean): Node<Msg> =>
+    fuaran.grid<Row, Msg>({
+      id: id('plan'),
+      source,
+      rowKey: (r) => r.month,
+      columns: planColumns,
+      editable,
+    });
+
+  // `editStateKey` has no author-surface option (the field exists for a DECODED
+  // grid to say where its writes land), so a tree carrying one is built by
+  // patching the erased spec — the same shape the decoder produces.
+  const withEditStateKey = (n: Node<Msg>, key: string): Node<Msg> => {
+    if (n.kind.kind !== 'Visualisation' || n.kind.visualisation.kind !== 'Grid') return n;
+    return {
+      ...n,
+      kind: {
+        ...n.kind,
+        visualisation: {
+          ...n.kind.visualisation,
+          spec: { ...n.kind.visualisation.spec, editStateKey: key },
+        },
+      },
+    };
+  };
+
+  it('surfaces INERT_EDITABLE_GRID for an editable grid over a Static source', () => {
+    const tree = planGrid({ kind: 'Static', value: rows }, true);
+    const r = preEmitValidate(tree);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toContainEqual({ code: 'INERT_EDITABLE_GRID', nodeId: 'plan' });
+    }
+  });
+
+  it('passes an editable grid whose source IS a State binding (the Phase 663 floor)', () => {
+    const tree = planGrid({ kind: 'State', key: 'planRows', defaultValue: rows }, true);
+    expect(codesOf(tree)).not.toContain('INERT_EDITABLE_GRID');
+  });
+
+  it('passes an editable grid carrying a declared editStateKey over a Static source', () => {
+    // Phase 863's widening: the declared destination is a destination, so the
+    // rule that exists to name "nowhere to commit" must not fire on it.
+    const tree = withEditStateKey(planGrid({ kind: 'Static', value: rows }, true), 'planRows');
+    expect(codesOf(tree)).not.toContain('INERT_EDITABLE_GRID');
+  });
+
+  it('stays silent on a NON-editable grid over the same unwritable source', () => {
+    // The flag is what makes the shape a defect — a read-only grid over Static
+    // rows is the ordinary case and says nothing that cannot happen.
+    const tree = planGrid({ kind: 'Static', value: rows }, false);
+    expect(codesOf(tree)).not.toContain('INERT_EDITABLE_GRID');
   });
 
   // ── The accessibility family (FUARAN109/110/111) ──────────────────────────
