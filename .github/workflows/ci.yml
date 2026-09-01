@@ -110,9 +110,17 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
+      # A secrets expression is not valid in a step-level `if:`, so the
+      # presence probe goes through an env-var step output instead.
+      - name: Check whether the org secret is granted here
+        id: key-check
+        env:
+          HAS_KEY: ${{ secrets.FUARAN_WORKSPACE_APP_PRIVATE_KEY != '' }}
+        run: echo "has_key=$HAS_KEY" >> "$GITHUB_OUTPUT"
+
       - name: Mint a workspace App installation token
         id: workspace-token
-        if: ${{ secrets.FUARAN_WORKSPACE_APP_PRIVATE_KEY != '' }}
+        if: steps.key-check.outputs.has_key == 'true'
         uses: actions/create-github-app-token@v2
         with:
           app-id: 4797739 # fuaran-ui-workspace-broker
