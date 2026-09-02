@@ -1,5 +1,7 @@
 # fuaran-ts
 
+[![CI](https://github.com/fuaran-ui/fuaran-ts/actions/workflows/ci.yml/badge.svg)](https://github.com/fuaran-ui/fuaran-ts/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/%40fuaran-ui%2Fui.svg)](https://www.npmjs.com/package/@fuaran-ui/ui) [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 TypeScript reference implementation of the Fuaran UI language contract — sibling to the F# `fuaran` tier. Both are conformant hosts of the language-neutral wire format; neither is a port of the other.
 
 Ships the `@fuaran-ui/*` npm-scoped package set:
