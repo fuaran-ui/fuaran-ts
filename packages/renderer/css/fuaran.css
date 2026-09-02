@@ -52,7 +52,7 @@
        symmetric, so no inline-axis mirroring applies.
    ============================================================================ */
 
-/* fuaran-vocabulary-fingerprint: fv1:68c3a78c4afdffbb
+/* fuaran-vocabulary-fingerprint: fv1:e53ff9baff6fc36f
    The class vocabulary this stylesheet is written against (Phase 433). A host
    serving this file can assert it matches the renderer emitting the classes —
    see docs/HOST-STYLING-CHECKLIST.md §1.5d for the contract and the recommended
@@ -2410,6 +2410,65 @@ html[data-fuaran-disconnected]::before {
 
 .fuaran-media-audio {
   width: 100%;
+}
+
+/* Phase 1110 - the transcript disclosure. It exists only when a media node
+   declares a transcript, so the group wrapper appears only then too: a media
+   node without one emits the bare element it always emitted, and no rule here
+   can reach it.
+
+   The disclosure reuses the DISCLOSURE kind's summary chrome deliberately
+   rather than minting a second one - a reader who has learned what a Fuaran
+   disclosure looks like should not have to learn it twice - but it keeps its
+   own class names, because a transcript is a slot of a media node and not a
+   `Disclosure` node, and a host stylesheet must be able to target one without
+   catching the other. */
+.fuaran-media-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fuaran-space-sm, 8px);
+}
+
+.fuaran-media-transcript {
+  border: var(--fuaran-border-width, 1px) solid var(--fuaran-tone-default-border, #e5e7eb);
+  border-radius: var(--fuaran-radius-md, 6px);
+  overflow: hidden;
+}
+
+.fuaran-media-transcript-summary {
+  font-weight: var(--fuaran-font-weight-semibold, 600);
+  font-size: var(--fuaran-text-sm, 13px);
+  color: var(--fuaran-tone-subdued-fg, #6b7280);
+  padding: var(--fuaran-space-sm, 8px) var(--fuaran-space-md, 12px);
+  cursor: pointer;
+  list-style: none;
+}
+
+.fuaran-media-transcript-summary::-webkit-details-marker {
+  display: none;
+}
+
+.fuaran-media-transcript-summary::after {
+  content: "▸";
+  float: right;
+  transition: transform 0.15s ease-in-out;
+}
+
+.fuaran-media-transcript[open] > .fuaran-media-transcript-summary::after {
+  transform: rotate(90deg);
+}
+
+.fuaran-media-transcript-summary:focus-visible {
+  outline: var(--fuaran-focus-ring-width, 2px) var(--fuaran-focus-ring-style, solid)
+    var(--fuaran-focus-ring-color, #93c5fd);
+  outline-offset: calc(-1 * var(--fuaran-focus-ring-width, 2px));
+}
+
+.fuaran-media-transcript-body {
+  padding: var(--fuaran-space-md, 12px);
+  font-size: var(--fuaran-text-sm, 13px);
+  color: var(--fuaran-tone-default-fg, #1f2937);
+  white-space: pre-wrap;
 }
 
 /* ── List (Phase 287) ──────────────────────────────────────────── */
