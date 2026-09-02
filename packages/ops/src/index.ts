@@ -69,6 +69,7 @@ export {
   decodeDagRecord,
   type DagOpRecord,
   type DagResultEnvelope,
+  type DagActor,
 } from './dag.js';
 export { merge3Way, type MergeResult, type MergeConflict } from './merge.js';
 export { renderAstCanonical } from './encode.js';

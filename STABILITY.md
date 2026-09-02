@@ -270,6 +270,35 @@ that would measure the wrong thing. A host that has not adopted omits the hook a
 `contract-card-bundle`. Those are exported union types, so a consumer exhaustively switching on one
 gains an unhandled case — additive on the wire, source-visible in TypeScript.
 
+### Recorded breaking change — `@fuaran-ui/ops` 0.20.0, the typed actor on the DAG record (fuaran#1144)
+
+`DagOpRecord.userId: string` becomes `actor: DagActor` — the exported
+`{ kind: 'human'; id }` / `{ kind: 'agent'; model; version; id }` union, structurally identical to
+`Actor` in `@fuaran-ui/op-stream` and assignable to and from it. It is declared in this package
+rather than imported because op-stream depends on ops, not the reverse; importing it would invert the
+package dependency to reuse a shape TypeScript already lets the two share structurally.
+
+The canonical wire record changes with it. Top-level keys are Ordinal-sorted, so the trailing
+`"userId":"…"` is replaced by a LEADING `"actor":{…}`; the nested actor value is embedded verbatim in
+its own pinned member order (`kind` first, then the case fields), exactly as the nested `op` is:
+
+```text
+0.19.0  {"hash":…,"op":…,…,"tombstoned":false,"userId":"u1"}
+0.20.0  {"actor":{"kind":"human","id":"u1"},"hash":…,"op":…,…,"tombstoned":false}
+```
+
+**Why it is breaking beyond the type.** The actor sits inside the F# host's DAG content address, so
+typing it re-mints every hash in the shared `wire-format-fixtures/dag/` corpus this package certifies
+against — **pre-1144 DAG addresses do not carry forward.** `decodeDagRecord` therefore REFUSES a
+pre-1144 `userId` envelope by name instead of lifting it to `human`: a lift would produce a record
+carrying a `hash` no host can reproduce, turning a clear refusal at the boundary into a silent
+verification failure later. An unknown `kind`, or a case missing one of its fields, is refused for the
+same reason rather than defaulted.
+
+`encodeDagRecord` and `decodeDagRecord` keep their signatures; only the record shape moves. Nothing
+outside the DAG codec is touched — the Node/TreeOp vocabulary, the linear op-stream chain, and every
+non-DAG fixture family are byte-identical to 0.19.0.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:

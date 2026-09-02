@@ -53,4 +53,36 @@ describe('DAG record wire-format conformance (TS == corpus)', () => {
       expect(encodeDagRecord(decoded.value)).toBe(expected);
     });
   }
+
+  // Phase 1144. The pre-1144 envelope is refused BY NAME, not lifted: the actor
+  // is inside the content address, so a lifted record would carry a `hash` no
+  // host can reproduce — a silent verification failure instead of a clear
+  // refusal. This is the go-red proof for that refusal.
+  it('refuses a pre-1144 userId envelope by name', () => {
+    const legacy =
+      '{"hash":"' +
+      'a'.repeat(64) +
+      '","op":{"$type":"RemoveNode","target":"n1"},"parents":[],' +
+      '"resultEnvelope":{"$type":"Success"},"streamId":"s1","timestamp":1700000000,' +
+      '"tombstoned":false,"userId":"u1"}';
+
+    const decoded = decodeDagRecord(legacy);
+    expect(decoded.ok).toBe(false);
+    if (decoded.ok) return;
+    expect(decoded.error).toContain('userId');
+    expect(decoded.error).toContain('do not carry forward');
+  });
+
+  it('refuses an actor whose kind is unknown', () => {
+    const bad =
+      '{"actor":{"kind":"robot","id":"r1"},"hash":"' +
+      'a'.repeat(64) +
+      '","op":{"$type":"RemoveNode","target":"n1"},"parents":[],' +
+      '"resultEnvelope":{"$type":"Success"},"streamId":"s1","timestamp":1700000000,"tombstoned":false}';
+
+    const decoded = decodeDagRecord(bad);
+    expect(decoded.ok).toBe(false);
+    if (decoded.ok) return;
+    expect(decoded.error).toContain('actor');
+  });
 });
