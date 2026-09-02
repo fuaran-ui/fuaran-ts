@@ -14,8 +14,8 @@
   },
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "build": "pnpm -r --filter \"./packages/*\" --filter \"./tools/*\" run build",
-    "test": "pnpm -r --filter \"./packages/*\" --filter \"./tools/*\" run test",
+    "build": "pnpm -r --filter \"./packages/*\" --filter \"./tools/*\" --filter \"./templates/*\" run build",
+    "test": "pnpm -r --filter \"./packages/*\" --filter \"./tools/*\" run test && node dev-scripts/check-starter-pins.mjs",
     "typecheck": "pnpm -r --filter \"./packages/*\" --filter \"./tools/*\" run typecheck",
     "lint": "pnpm -r --filter \"./packages/*\" --filter \"./tools/*\" run lint",
     "format": "prettier --write .",

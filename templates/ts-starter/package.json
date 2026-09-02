@@ -12,13 +12,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@fuaran-ui/renderer": "workspace:*",
-    "@fuaran-ui/schema": "workspace:*",
-    "@fuaran-ui/ui": "workspace:*",
+    "@fuaran-ui/renderer": "^0.17.0",
+    "@fuaran-ui/schema": "^0.18.0",
+    "@fuaran-ui/ui": "^0.17.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",

@@ -53,6 +53,23 @@ Two things this host does not do, said here rather than left to be discovered:
 Reporting a suspected vulnerability: [`SECURITY.md`](SECURITY.md). The reasoning behind the posture:
 [default-deny by shape](https://fuaran-ui.io/discussion/default-deny-by-shape).
 
+## Starter template
+
+[`templates/ts-starter`](templates/ts-starter) is the on-ramp: a Vite + React 19 host wired to the published `@fuaran-ui/*` packages — the renderer mounted, a typed tree authored through the smart-constructor surface, the dispatch loop closed, and a custom-renderer registry stub.
+
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/fuaran-ui/fuaran-ts/tree/main/templates/ts-starter?file=src%2Ftree.ts)
+
+Opening that link renders a Fuaran tree in the browser with nothing installed and no account. To work locally instead:
+
+```bash
+npx degit fuaran-ui/fuaran-ts/templates/ts-starter my-fuaran-app
+cd my-fuaran-app
+npm install
+npm run dev
+```
+
+The starter's dependencies are ordinary published versions, so it installs outside this repository as readily as inside it. [`templates/ts-starter/README.md`](templates/ts-starter/README.md) walks through the files and the next steps.
+
 ## Demo
 
 [`samples/demo`](samples/demo) is a Vite + React app that consumes the full MVP stack end to end — it authors a representative tree through the smart-constructor surface, renders it with `<FuaranRenderer>`, demonstrates the canonical-JSON wire round-trip (encode → decode → render), a `Custom`-node escape hatch, and typed-theme application.

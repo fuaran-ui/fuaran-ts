@@ -3,10 +3,30 @@
 The 30-second on-ramp: mount the Fuaran renderer, author a typed UI tree, run the
 dispatch loop. Everything an AI orchestrator can emit, you can render here.
 
+## Open it in a browser — no install, no account
+
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/fuaran-ui/fuaran-ts/tree/main/templates/ts-starter?file=src%2Ftree.ts)
+
+- **StackBlitz** — <https://stackblitz.com/github/fuaran-ui/fuaran-ts/tree/main/templates/ts-starter>
+- **CodeSandbox** — <https://codesandbox.io/s/github/fuaran-ui/fuaran-ts/tree/main/templates/ts-starter>
+
+Both import this directory on its own and run `npm install` against the public
+registry, so what opens is a real host wired to the published `@fuaran-ui/*`
+packages — not a snippet. Edit [`src/tree.ts`](src/tree.ts) and the render
+updates.
+
+## Or run it locally
+
 ```bash
-pnpm install
-pnpm dev          # http://localhost:24031
+npx degit fuaran-ui/fuaran-ts/templates/ts-starter my-fuaran-app
+cd my-fuaran-app
+npm install
+npm run dev       # http://localhost:24031
 ```
+
+`pnpm` and `yarn` work the same way. Nothing here depends on the surrounding
+repository: the `@fuaran-ui/*` dependencies are ordinary published versions, so
+a copy of this directory installs anywhere.
 
 You should see a "Hello, Fuaran" heading, a Counter metric, and two buttons that
 move it. That whole UI is the typed `Node` tree in [`src/tree.ts`](src/tree.ts) —
@@ -37,10 +57,11 @@ no hand-written JSX for the components.
 3. **Register a custom renderer** — uncomment the example in `src/custom-renderers.tsx`,
    then author a `fuaran.custom({ moduleId, componentId, props })` node.
 
-## Using this outside the Fuaran workspace
+## A note on the pinned versions
 
-This template is a member of the Fuaran pnpm workspace, so it depends on the
-`@fuaran-ui/*` packages via `workspace:*` (they resolve to the local checkout).
-When you copy it out (degit / `create-fuaran-app`), replace the `workspace:*`
-ranges in [`package.json`](package.json) with the published versions, e.g.
-`"@fuaran-ui/renderer": "^0.1.0"`, once the packages are on npm.
+[`package.json`](package.json) names published `@fuaran-ui/*` versions rather
+than workspace links, which is what lets this directory be imported straight
+from GitHub by a browser sandbox and copied out by `degit`. Those pins track the
+versions this repository currently ships; `node dev-scripts/check-starter-pins.mjs`
+(run by the repository's `test` script) fails if they fall behind, so the starter
+cannot quietly drift onto an older line.
