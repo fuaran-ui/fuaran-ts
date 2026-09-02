@@ -59,6 +59,19 @@
     "TextArea",
     "Toggle"
   ],
+  "ops": [
+    "Batch",
+    "EditNode",
+    "InsertChild",
+    "MoveNode",
+    "RemoveNode",
+    "ReorderChildren",
+    "ReplaceBinding",
+    "ReplaceRoot",
+    "UpdateProp",
+    "UpdateState",
+    "UpdateStyle"
+  ],
   "fixtures": [
     {
       "id": "card-reject-bad-version",
