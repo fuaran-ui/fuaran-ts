@@ -29,6 +29,7 @@ import {
   evalPipelineWithInEnv,
   liveValueToTable,
   stepParams,
+  substituteListParams,
   type SourceResolver,
 } from '@fuaran-ui/ops';
 
@@ -43,6 +44,23 @@ const objToCell = (v: unknown): Cell | undefined => {
   if (typeof v === 'number') return { kind: 'Float', value: v };
   if (v === null) return { kind: 'Null' };
   return undefined;
+};
+
+/**
+ * Coerce a resolved LIST to a `Cell[]` for a `Transform` LIST param (Phase 610) — a
+ * multi-select chip's selection. Element coercion is `objToCell`'s, so a list scalar and a
+ * scalar param cannot disagree about what a value means. A non-array, or an array holding a
+ * non-scalar item, is `undefined` and stays the loud "non-scalar value" error.
+ */
+const objToCells = (v: unknown): Cell[] | undefined => {
+  if (!Array.isArray(v)) return undefined;
+  const cells: Cell[] = [];
+  for (const item of v) {
+    const c = objToCell(item);
+    if (c === undefined) return undefined;
+    cells.push(c);
+  }
+  return cells;
 };
 
 /**
@@ -257,6 +275,19 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
  * *non-filter* step referencing an unbound param surfaces `UnboundParam`
  * loudly (never silent). A non-scalar / `Errored` param source, a missing
  * `Ref` source, and an evaluator error are all errors.
+ *
+ * Phase 610 — a param source that resolves to a LIST (a multi-select chip's
+ * selection) is a LIST param. It never enters the scalar env: it resolves by
+ * SUBSTITUTION through `substituteListParams` (`inParam` → the literal `in`
+ * form) before the prune, which is how `fuaran-core#91` specifies a list param
+ * rather than as a second evaluation env. An EMPTY selection is UNBOUND rather
+ * than `items: []`: "nothing selected" is the absence of a constraint, not a
+ * constraint no row satisfies — the same lenient rule an unset scalar chip
+ * already gets, so deselecting everything shows the unfiltered table rather
+ * than an empty one. A list bound to a name the pipeline reads as a scalar
+ * `param` (or a scalar bound to one it reads as `in`/`param`) substitutes
+ * nothing and reaches the evaluator's strict `UnboundParam` — loud, never a
+ * silent wrong scoping.
  */
 const evalTransformFrame = (
   sources: BindingSources,
@@ -319,14 +350,27 @@ const evalTransformFrame = (
   }
   const params = binding.params ?? [];
   const env: Record<string, Cell> = {};
+  const listEnv: Record<string, readonly Cell[]> = {};
+  let hasListParam = false;
   const unbound = new Set<string>();
   for (const p of params) {
     const r = resolve<unknown>(sources, p.from);
     if (r.kind === 'Resolved') {
       const cell = objToCell(r.value);
-      if (cell === undefined)
+      if (cell !== undefined) {
+        env[p.name] = cell;
+        continue;
+      }
+      const cells = objToCells(r.value);
+      if (cells === undefined)
         return { ok: false, error: `Transform param '${p.name}' resolved to a non-scalar value` };
-      env[p.name] = cell;
+      // The empty selection is UNBOUND, not an empty membership set (see above).
+      if (cells.length === 0) {
+        unbound.add(p.name);
+      } else {
+        listEnv[p.name] = cells;
+        hasListParam = true;
+      }
     } else if (r.kind === 'NotResolved') {
       unbound.add(p.name);
     } else if (r.kind === 'Errored') {
@@ -338,7 +382,13 @@ const evalTransformFrame = (
       };
     }
   }
-  const pipeline = binding.pipeline.filter(
+  // Bound LIST params substitute BEFORE the prune: a substituted step names no param at
+  // all, while an unbound one still names its own, so the one `stepParams` prune below
+  // covers both param kinds with no second rule.
+  const substituted = hasListParam
+    ? substituteListParams(listEnv, binding.pipeline)
+    : binding.pipeline;
+  const pipeline = substituted.filter(
     (step) => step.kind !== 'filter' || stepParams(step).every((pn) => !unbound.has(pn)),
   );
   const out =

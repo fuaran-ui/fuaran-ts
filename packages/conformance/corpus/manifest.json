@@ -2104,6 +2104,14 @@
       "description": "Input/Select (multi-select — list value)"
     },
     {
+      "id": "multiselect-chip-list-param",
+      "kind": "node-round-trip",
+      "decoder": "node",
+      "inputFile": "nodes/multiselect-chip-list-param.json",
+      "expectedFile": "nodes/multiselect-chip-list-param.json",
+      "description": "Layout/Box (Phase 610 — multi-select chip + DataGrid scoped by a list-valued in/param)"
+    },
+    {
       "id": "now-environment-binding",
       "kind": "node-round-trip",
       "decoder": "node",

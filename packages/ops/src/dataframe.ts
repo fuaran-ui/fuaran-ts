@@ -1330,3 +1330,90 @@ export const stepParams = (t: Transform): readonly string[] => {
 export const pipelineParams = (pipeline: readonly Transform[]): readonly string[] => [
   ...new Set(pipeline.flatMap((t) => stepParams(t))),
 ];
+
+// ─── list-param substitution (fuaran-core#91 / Phase 610) ────────────────────
+//
+// A LIST param resolves by SUBSTITUTION, not through the evaluation env: every
+// `inParam` bound in `listEnv` is rewritten to the literal `in` form BEFORE the
+// pipeline is evaluated, which is why `evalExpr`'s `inParam` arm is an unbound-param
+// error rather than a lookup. An unbound `inParam` is left intact — the host's prune
+// then sees it still naming its own param, so one `stepParams`-driven prune covers
+// scalar and list params alike.
+
+const substituteListParamsExpr = (
+  listEnv: Readonly<Record<string, readonly Cell[]>>,
+  e: ColExpr,
+): ColExpr => {
+  switch (e.kind) {
+    case 'col':
+    case 'lit':
+    case 'param':
+      return e;
+    case 'binary':
+      return {
+        kind: 'binary',
+        op: e.op,
+        left: substituteListParamsExpr(listEnv, e.left),
+        right: substituteListParamsExpr(listEnv, e.right),
+      };
+    case 'not':
+      return { kind: 'not', expr: substituteListParamsExpr(listEnv, e.expr) };
+    case 'coalesce':
+      return { kind: 'coalesce', exprs: e.exprs.map((x) => substituteListParamsExpr(listEnv, x)) };
+    case 'case':
+      return {
+        kind: 'case',
+        cases: e.cases.map((br) => ({
+          when: substituteListParamsExpr(listEnv, br.when),
+          then: substituteListParamsExpr(listEnv, br.then),
+        })),
+        else: substituteListParamsExpr(listEnv, e.else),
+      };
+    case 'cast':
+      return { kind: 'cast', type: e.type, expr: substituteListParamsExpr(listEnv, e.expr) };
+    case 'apply':
+      return {
+        kind: 'apply',
+        fn: e.fn,
+        args: e.args.map((x) => substituteListParamsExpr(listEnv, x)),
+      };
+    case 'in':
+      return {
+        kind: 'in',
+        expr: substituteListParamsExpr(listEnv, e.expr),
+        items: e.items.map((x) => substituteListParamsExpr(listEnv, x)),
+      };
+    case 'isNull':
+      return { kind: 'isNull', expr: substituteListParamsExpr(listEnv, e.expr) };
+    case 'inParam': {
+      const expr = substituteListParamsExpr(listEnv, e.expr);
+      const items = Object.prototype.hasOwnProperty.call(listEnv, e.param)
+        ? listEnv[e.param]
+        : undefined;
+      return items === undefined
+        ? { kind: 'inParam', expr, param: e.param }
+        : { kind: 'in', expr, items: items.map((c): ColExpr => ({ kind: 'lit', cell: c })) };
+    }
+  }
+};
+
+/**
+ * Substitute every `inParam` bound in `listEnv` with the literal `in` form, through the
+ * whole pipeline — the TS mirror of Core `Transform.substituteListParams`. Unbound list
+ * params are left intact for the caller's prune to catch. Only `filter` / `derive` carry
+ * a `ColExpr`; every other step is returned unchanged.
+ */
+export const substituteListParams = (
+  listEnv: Readonly<Record<string, readonly Cell[]>>,
+  pipeline: readonly Transform[],
+): readonly Transform[] =>
+  pipeline.map((t) => {
+    switch (t.kind) {
+      case 'filter':
+        return { kind: 'filter', pred: substituteListParamsExpr(listEnv, t.pred) };
+      case 'derive':
+        return { kind: 'derive', name: t.name, expr: substituteListParamsExpr(listEnv, t.expr) };
+      default:
+        return t;
+    }
+  });

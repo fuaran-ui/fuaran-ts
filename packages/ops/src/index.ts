@@ -23,6 +23,7 @@ export {
   evalErrorString,
   stepParams,
   pipelineParams,
+  substituteListParams,
   type SourceResolver,
   type EvalEnv,
 } from './dataframe.js';
