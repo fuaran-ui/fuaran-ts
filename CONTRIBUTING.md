@@ -21,7 +21,7 @@ The corpus-parity tests read the fixture corpus from a directory named `wire-for
 **next to** this repository's checkout:
 
 ```sh
-git clone https://github.com/fuaran-ui/fuaran-specification wire-format-fixtures
+git clone https://github.com/fuaran-ui/fuaran-ui-specification wire-format-fixtures
 git clone https://github.com/fuaran-ui/fuaran-ts
 cd fuaran-ts && pnpm install && pnpm test
 ```
