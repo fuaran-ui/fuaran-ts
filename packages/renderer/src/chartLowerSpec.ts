@@ -18,39 +18,34 @@
 //  concern (`source`, `onPointClick`); the per-field bridge test enumerates
 //  `keyof ChartSpec` so a newly-declared field cannot join without a verdict.
 //
-//  ── The `TextSource` rule (deliberate, and stated because it LOSES something)
+//  ── The `TextSource` rule (Phase 1143)
 //
 //  The four `TextSource`-typed fields — `title` and Phase 878's `xTitle` /
-//  `yTitle` / `subtitle` — cross as a LITERAL ONLY. A `Bound` or `I18n` arm is
-//  DROPPED, and the lowering's own fallback stands (an axis title falls back to
-//  its capitalised field name, so an axis is never nameless; a title or
-//  subtitle simply does not draw).
+//  `yTitle` / `subtitle` — cross UNRESOLVED, whichever arm they carry. The
+//  lowering reaches its labels with the `TextSource` itself, and a `Bound` or
+//  `I18n` arm resolves at RENDER time, where this renderer's binding sources
+//  and catalogue are.
 //
-//  Dropped rather than resolved, even though this renderer holds the binding
-//  sources and could resolve a `Bound` arm here, because `ChartLowerSpec` takes
-//  plain `string`s: whatever the bridge resolves is BAKED INTO the lowered
-//  geometry — the text is measured for the axis margins, for truncation, and
-//  for the legend-band overflow predicate. Resolving here would make a
-//  drawing's LAYOUT a function of live binding state, which is the kind of
-//  cross-surface divergence this bridge exists to end rather than a second one
-//  to open, and `I18n` cannot be honest at all: the lowering carries no
-//  catalogue.
+//  It is deliberately not resolved HERE, even though this renderer holds the
+//  sources: whatever the bridge resolved would be BAKED INTO the lowered
+//  geometry — measured for the axis margins, for truncation, and for the
+//  legend-band overflow predicate — which would make a drawing's LAYOUT a
+//  function of live binding state, and `I18n` could not be honest at all
+//  because the lowering carries no catalogue. The lowering's own rules are
+//  arranged so it never needs to be: space is reserved by the PRESENCE of these
+//  fields, and truncation is confined to the `Literal` arm.
 //
-//  This mirrors the Python host's `_lower_chart` gate, whose `literal_text`
-//  likewise yields nothing for a non-literal arm — the two hosts whose lowering
-//  input is string-typed agree. It is NOT what the F# and Rust hosts do: their
-//  lowering carries the `TextSource` itself into the drawing, so bound and i18n
-//  arms resolve at render time. Closing THAT residue is a `ChartLowerSpec`
-//  contract change across every host — a phase, not a bridge fix.
+//  Until Phase 1143 the four fields crossed as a LITERAL ONLY and a `Bound` or
+//  `I18n` arm was DROPPED here — an authored title vanishing from a localised
+//  chart, an authored axis name silently replaced by a capitalised column name.
+//  The Python host's bridge dropped them the same way; the F# and Rust hosts
+//  already carried them. Same wire, two behaviours. The recorded contract is
+//  the reference host's `docs/CHART-LOWERING-TEXT-CONTRACT.md`, and the
+//  `chart-lowering/bar-bound-i18n-titles` corpus fixture pins it on every host.
 // ============================================================================
 
-import type { ChartSpec, TextSource } from '@fuaran-ui/schema';
+import type { ChartSpec } from '@fuaran-ui/schema';
 import type { ChartLowerSpec } from '@fuaran-ui/charts';
-
-/** The literal text of a `TextSource`, or nothing for the bound / i18n arms
- * (see the `TextSource` rule above). */
-const literalText = (source: TextSource | undefined): string | undefined =>
-  source !== undefined && source.kind === 'Literal' ? source.value : undefined;
 
 /**
  * Project a tree-level `ChartSpec` onto the neutral `ChartLowerSpec` the
@@ -59,24 +54,21 @@ const literalText = (source: TextSource | undefined): string | undefined =>
  * default applies and a pre-field tree lowers byte-for-byte as before.
  */
 export const chartLowerSpecOf = <TMsg>(spec: ChartSpec<TMsg>): ChartLowerSpec => {
-  const title = literalText(spec.title);
-  const xTitle = literalText(spec.xTitle);
-  const yTitle = literalText(spec.yTitle);
-  const subtitle = literalText(spec.subtitle);
   return {
     kind: spec.kind,
     xField: spec.xField,
     yFields: spec.yFields,
     stacked: spec.stacked,
-    ...(title !== undefined ? { title } : {}),
+    // Phase 1143 — every arm crosses, unresolved (the `TextSource` rule above).
+    ...(spec.title !== undefined ? { title: spec.title } : {}),
     // Phase 876 — the declared value-axis number format (the axis UNIT MODE is
     // a style selector, not a wire field, and is never read here).
     ...(spec.valueFormat !== undefined ? { valueFormat: spec.valueFormat } : {}),
     // Phase 878 — the axis names + the muted subtitle. The field-name fallback
     // is the lowering's, not the bridge's, so absent must stay absent.
-    ...(xTitle !== undefined ? { xTitle } : {}),
-    ...(yTitle !== undefined ? { yTitle } : {}),
-    ...(subtitle !== undefined ? { subtitle } : {}),
+    ...(spec.xTitle !== undefined ? { xTitle: spec.xTitle } : {}),
+    ...(spec.yTitle !== undefined ? { yTitle: spec.yTitle } : {}),
+    ...(spec.subtitle !== undefined ? { subtitle: spec.subtitle } : {}),
     // Phase 880 — the legend edge. Absent means the host default (`Right`);
     // suppression is the explicit `'None'`.
     ...(spec.legendPosition !== undefined ? { legendPosition: spec.legendPosition } : {}),

@@ -24,6 +24,11 @@ import {
   type ChartLowerStyle,
   type ChartRow,
 } from '../src/index.js';
+import type { TextSource } from '@fuaran-ui/schema';
+
+/** A `TextSource` in canonical wire JSON: the bare string (the canonical
+ * `Literal` form, §16) or a `$type`-tagged arm. */
+type WireTextSource = string | { readonly $type: string; readonly [k: string]: unknown };
 
 const here = dirname(fileURLToPath(import.meta.url));
 // packages/charts/test → workspace-root/wire-format-fixtures/chart-lowering
@@ -41,18 +46,19 @@ interface ChartInput {
   readonly kind: ChartLowerSpec['kind'];
   readonly xField: string;
   readonly yFields: readonly string[];
-  readonly title: string | null;
+  readonly title: WireTextSource | null;
   readonly stacked: boolean;
   // Phase 876 — `valueFormat` is a WIRE field carried in canonical `Format`
   // JSON; `axisUnitMode` is a harness-only STYLE selector (the chart style is a
   // lowering parameter, never wire), present so the corpus can pin every mode.
   readonly valueFormat?: { readonly $type: string; readonly [k: string]: unknown };
   readonly axisUnitMode?: ChartAxisUnitMode;
-  // Phase 878 — the axis names + the subtitle, plain strings beside `title`,
-  // omitted when absent (so every pre-878 input is byte-unchanged).
-  readonly xTitle?: string;
-  readonly yTitle?: string;
-  readonly subtitle?: string;
+  // Phase 878 — the axis names + the subtitle, beside `title` and carrying the
+  // same `TextSource` vocabulary (Phase 1143); omitted when absent (so every
+  // pre-878 input is byte-unchanged).
+  readonly xTitle?: WireTextSource;
+  readonly yTitle?: WireTextSource;
+  readonly subtitle?: WireTextSource;
   // Phase 880 — the legend's declared edge, a WIRE field carried as the
   // canonical enum string; omitted when absent (so every pre-880 input is
   // byte-unchanged even though the PICTURE many of them lower to has moved).
@@ -89,6 +95,33 @@ const valueFormatOf = (
   }
 };
 
+/** The corpus carries a `TextSource` in canonical wire JSON; the lowering takes
+ * the host's tagged-union shape. Every arm crosses — dropping the non-literal
+ * ones is exactly the divergence Phase 1143 closed — so this decodes all three,
+ * and throws on a binding arm no fixture uses rather than inventing one. */
+const textSourceOf = (raw: WireTextSource): TextSource => {
+  if (typeof raw === 'string') return { kind: 'Literal', value: raw };
+  switch (raw['$type']) {
+    case 'Literal':
+      return { kind: 'Literal', value: raw['text'] as string };
+    case 'Bound': {
+      const binding = raw['binding'] as { readonly $type: string; readonly [k: string]: unknown };
+      if (binding.$type !== 'Static') {
+        throw new Error(`chart-lowering input: unsupported Bound binding ${binding.$type}`);
+      }
+      return { kind: 'Bound', binding: { kind: 'Static', value: binding['value'] as string } };
+    }
+    case 'I18n':
+      return {
+        kind: 'I18n',
+        key: raw['key'] as string,
+        args: (raw['args'] ?? {}) as Readonly<Record<string, never>>,
+      };
+    default:
+      throw new Error(`chart-lowering input: unsupported TextSource ${String(raw['$type'])}`);
+  }
+};
+
 const cases = (): string[] => {
   if (!existsSync(CHART_LOWERING_DIR)) return [];
   return readdirSync(CHART_LOWERING_DIR)
@@ -104,13 +137,14 @@ const specAndRows = (
     kind: inp.kind,
     xField: inp.xField,
     yFields: inp.yFields,
-    ...(inp.title !== null ? { title: inp.title } : {}),
+    ...(inp.title !== null ? { title: textSourceOf(inp.title) } : {}),
     stacked: inp.stacked,
     ...(inp.valueFormat !== undefined ? { valueFormat: valueFormatOf(inp.valueFormat) } : {}),
-    // Phase 878 — plain-string keys beside `title`, omitted when absent.
-    ...(inp.xTitle !== undefined ? { xTitle: inp.xTitle } : {}),
-    ...(inp.yTitle !== undefined ? { yTitle: inp.yTitle } : {}),
-    ...(inp.subtitle !== undefined ? { subtitle: inp.subtitle } : {}),
+    // Phase 878 — the same keys beside `title`, omitted when absent; Phase
+    // 1143 — carrying the same `TextSource` vocabulary, every arm.
+    ...(inp.xTitle !== undefined ? { xTitle: textSourceOf(inp.xTitle) } : {}),
+    ...(inp.yTitle !== undefined ? { yTitle: textSourceOf(inp.yTitle) } : {}),
+    ...(inp.subtitle !== undefined ? { subtitle: textSourceOf(inp.subtitle) } : {}),
     // Phase 880 — same omitted-when-absent posture; a real wire field, so it
     // goes on the spec rather than the style.
     ...(inp.legendPosition !== undefined ? { legendPosition: inp.legendPosition } : {}),
