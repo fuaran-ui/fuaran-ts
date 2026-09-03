@@ -7,7 +7,7 @@
 //  script — can inspect, and where the host permits edit, a live Fuaran UI.
 //
 //  The contract is specified language-neutrally in the wire-format
-//  specification repository (`DEVTOOLS_RELAY.md`, profile `relay@1.0`) with an
+//  specification repository (`DEVTOOLS_RELAY.md`, profile `relay@1.3`) with an
 //  executable fixture family beside it; this module is written to that document
 //  and pinned against those fixtures in `test/relayCorpus.test.tsx`. Section
 //  references in the comments below are to that document.
@@ -35,30 +35,47 @@ import type {
   BindingState,
   FuaranDebugGlobal,
   NodeGeometry,
+  NodeJsonError,
   TreeOpJson,
 } from './debugGlobal.js';
 
-/** The relay profile this peer speaks. */
-export const RELAY_PROFILE = 'relay@1.0';
+/**
+ * The relay profile this peer speaks — the HIGHEST it can serve. A client that
+ * accepts only an earlier minor of the same major is answered at that minor
+ * (§6.3, and see `selectProfile`), so advancing this is additive for every
+ * existing client.
+ */
+export const RELAY_PROFILE = 'relay@1.3';
 
 /** The envelope field whose presence marks a message as a relay message (§3.2, §4). */
 export const RELAY_KEY = '$relay';
 
 /** The version of the underlying in-page surface shape, reported in `hello.ok`. */
-const SURFACE_VERSION = '0.1.0';
+const SURFACE_VERSION = '0.2.0';
 
 /** The host implementation identifier, reported in `hello.ok`. Opaque to clients. */
 const HOST_NAME = 'fuaran-ts';
 
 export type RelayDirection = 'request' | 'response' | 'event';
 
-/** The closed capability set of `relay@1.0` (§4.2) — each named for the request type it gates. */
+/**
+ * The closed capability set (§4.2) — each named for the request type it gates.
+ *
+ * The set is the CONTRACT's, not this host's: `read.affordances` is listed
+ * because the contract defines it, and this peer must therefore refuse it with
+ * `CAPABILITY_ABSENT` (the entry point exists, this host does not offer it)
+ * rather than `UNKNOWN_MESSAGE` (which would tell the client, falsely, that no
+ * such entry point exists). §6.4 makes a peer that offers only some of these
+ * fully conformant.
+ */
 export type RelayCapability =
   | 'read.nodeState'
   | 'read.bindingValue'
   | 'read.renderedDom'
   | 'read.tree'
   | 'read.findNodes'
+  | 'read.affordances'
+  | 'read.nodeJson'
   | 'apply'
   | 'subscribe';
 
@@ -73,7 +90,8 @@ export type RelayRefusalClass =
   | 'SLOT_NOT_DECLARED'
   | 'DECODE_FAILED'
   | 'VALIDATOR_REJECT'
-  | 'POLICY_DENIED';
+  | 'POLICY_DENIED'
+  | 'ENCODE_FAILED';
 
 /** Every relay message — request, response, and event alike (§4). */
 export interface RelayEnvelope {
@@ -161,6 +179,45 @@ export const parseRelayProfile = (token: string): ParsedProfile | undefined => {
 const OWN_PROFILE = parseRelayProfile(RELAY_PROFILE)!;
 
 /**
+ * §6.3 — the profile named in `hello.ok` MUST be one the client listed in
+ * `accepts`. This picks the HIGHEST profile that is both acceptable to the
+ * client and speakable by this peer (same name + major, minor ≤ ours);
+ * `undefined` when the client accepts nothing we can speak, which is the
+ * `FOREIGN_PROFILE` case.
+ *
+ * **This is what makes a minor bump additive rather than breaking.** Answering
+ * only with `RELAY_PROFILE` — or, equivalently, testing `accepts.includes` —
+ * refuses every client whose `accepts` predates our newest minor, which is the
+ * entire population a backward-compatible bump exists to keep serving. §5.3
+ * says additive change is a minor bump BECAUSE an older peer can ignore what a
+ * newer one adds; the same reasoning obliges a newer peer to keep speaking to
+ * an older client.
+ */
+const selectProfile = (accepts: readonly unknown[]): string | undefined => {
+  let best: { readonly minor: number; readonly token: string } | undefined;
+  for (const token of accepts) {
+    if (typeof token !== 'string') continue;
+    const parsed = parseRelayProfile(token);
+    if (parsed === undefined) continue;
+    if (parsed.name !== OWN_PROFILE.name || parsed.major !== OWN_PROFILE.major) continue;
+    if (parsed.minor > OWN_PROFILE.minor) continue;
+    if (best === undefined || parsed.minor > best.minor) best = { minor: parsed.minor, token };
+  }
+  return best?.token;
+};
+
+/**
+ * The minor a peer should answer a message at: the sender's, clamped to this
+ * peer's own. A `Behind` sender (a newer minor than ours) is served at ours,
+ * which is exactly what "proceed" means in §5.2 — we cannot serve what we do
+ * not implement, and the sender is obliged to tolerate the absence (§10.2).
+ */
+const effectiveMinor = (token: string): number => {
+  const parsed = parseRelayProfile(token);
+  return parsed === undefined ? 0 : Math.min(parsed.minor, OWN_PROFILE.minor);
+};
+
+/**
  * `Current` / `Behind` proceed; `Foreign` — a different name or major — refuses.
  * A newer minor is safe to proceed on because within a major, everything added
  * is something an older peer may ignore (§5.2, §5.3, §10.2).
@@ -174,6 +231,7 @@ const isForeign = (token: string): boolean => {
 
 // ─── the closed request-type set (§4.2) ──────────────────────────────────────
 
+/** The `relay@1.0` read set — every one of them served by this host. */
 const READ_TYPES = [
   'read.nodeState',
   'read.bindingValue',
@@ -182,8 +240,27 @@ const READ_TYPES = [
   'read.findNodes',
 ] as const;
 
+/**
+ * Reads added after `relay@1.0`, paired with the minor that introduced each and
+ * with whether THIS host serves it. Keeping the minor beside the name is what
+ * lets `capabilitiesFor` answer a client at the profile it negotiated instead of
+ * advertising entry points that do not exist in the profile it speaks.
+ *
+ * `read.affordances` is listed and NOT served: it must be a recognised type (so
+ * the refusal is `CAPABILITY_ABSENT` rather than `UNKNOWN_MESSAGE` — see
+ * `RelayCapability`) while remaining an entry point this host does not offer.
+ * `relay@1.2` added no request type at all; it added the optional
+ * `attribution.actorClass` field (§8.2.1), which this peer reads for nothing
+ * (§8.2) and so needs no entry here — which is why the minors skip 2.
+ */
+const VERSIONED_READ_TYPES = [
+  { type: 'read.affordances', since: 1, served: false },
+  { type: 'read.nodeJson', since: 3, served: true },
+] as const;
+
 const REQUEST_TYPES = new Set<string>([
   ...READ_TYPES,
+  ...VERSIONED_READ_TYPES.map((r) => r.type),
   'hello',
   'apply',
   'subscribe',
@@ -204,6 +281,18 @@ const capabilityFor = (type: string): RelayCapability | undefined =>
 
 const isSurfaceError = (x: unknown): x is { readonly error: string } =>
   isObject(x) && typeof x['error'] === 'string';
+
+/**
+ * `getNodeJson` returns either the node's wire JSON or a tagged error, and the
+ * wire JSON is itself an object — so the discriminator has to be the `reason`
+ * tag, not the presence of `error`. A wire node has no `reason` member: the
+ * canonical encoding's members are the node's own (`id`, `kind`, …), and `kind`
+ * is the discriminated object every wire node carries.
+ */
+const isNodeJsonError = (x: unknown): x is NodeJsonError =>
+  isObject(x) &&
+  typeof x['error'] === 'string' &&
+  (x['reason'] === 'nodeNotFound' || x['reason'] === 'encodeFailed');
 
 /** The wire form of the codec's decode error (§9.3 carries it verbatim). */
 const wireDecodeError = (
@@ -256,7 +345,14 @@ export const createRelayPeer = (
   const surface = (): FuaranDebugGlobal | undefined =>
     typeof surfaceSource === 'function' ? surfaceSource() : surfaceSource;
 
-  const capabilities = (): readonly RelayCapability[] => {
+  /**
+   * The capabilities this peer offers AT a given profile minor. A capability
+   * introduced after the negotiated minor is not advertised and not served: its
+   * request type does not exist in the profile the client speaks, so advertising
+   * it would name an entry point the client's own contract says is not there. A
+   * client that wants it re-handshakes at the higher minor (§6.3).
+   */
+  const capabilitiesFor = (minor: number): readonly RelayCapability[] => {
     if (!optedIn) return [];
     const s = surface();
     if (s === undefined) return [];
@@ -264,10 +360,19 @@ export const createRelayPeer = (
     const offerSubscribe = options.offerSubscribe ?? true;
     return [
       ...READ_TYPES,
+      ...VERSIONED_READ_TYPES.filter((r) => r.served && r.since <= minor).map(
+        (r) => r.type as RelayCapability,
+      ),
       ...(offerApply ? (['apply'] as const) : []),
       ...(offerSubscribe ? (['subscribe'] as const) : []),
     ];
   };
+
+  /**
+   * Everything this peer can serve, at its own highest profile — what
+   * {@link RelayPeer.capabilities} reports to a host inspecting its own wiring.
+   */
+  const capabilities = (): readonly RelayCapability[] => capabilitiesFor(OWN_PROFILE.minor);
 
   const revisionOf = (s: FuaranDebugGlobal): string => s.treeRevision();
 
@@ -375,6 +480,44 @@ export const createRelayPeer = (
     // An unmatched (or unrecognised) kind is `[]`, never a refusal: "which
     // nodes have this kind" has the honest answer "none" (§7.5).
     return response(id, `${type}.ok`, { nodeIds: [...s.findNodes(kind)] });
+  };
+
+  /**
+   * §7.7 — the addressed node's own canonical wire JSON, plus the revision it
+   * was taken at, so a client deriving an edit from this read can tell at commit
+   * time whether the tree moved underneath it.
+   *
+   * The revision is read AFTER the encoding, from the same surface instance the
+   * encoding came from, so the pair is a consistent observation rather than two
+   * observations of possibly-different trees.
+   */
+  const readNodeJson = (
+    s: FuaranDebugGlobal,
+    id: string,
+    type: string,
+    payload: Record<string, unknown>,
+  ): RelayEnvelope => {
+    const nodeId = payload['nodeId'];
+    if (typeof nodeId !== 'string')
+      return refusal(id, type, 'MALFORMED_MESSAGE', 'nodeId must be a string.', {
+        path: 'payload.nodeId',
+      });
+
+    const node = s.getNodeJson(nodeId);
+    if (isNodeJsonError(node))
+      // The node exists and this host cannot render it in the wire vocabulary is
+      // a DIFFERENT answer from "no such node", and the contract keeps them
+      // apart: refusing NODE_NOT_FOUND about a node that is there would send the
+      // client looking somewhere else, which is the one remedy that cannot work.
+      return refusal(
+        id,
+        type,
+        node.reason === 'encodeFailed' ? 'ENCODE_FAILED' : 'NODE_NOT_FOUND',
+        node.error,
+        { nodeId },
+      );
+
+    return response(id, `${type}.ok`, { node, treeRevision: revisionOf(s) });
   };
 
   // ── apply (§8) ─────────────────────────────────────────────────────────────
@@ -541,8 +684,11 @@ export const createRelayPeer = (
         return refusal(id, type, 'MALFORMED_MESSAGE', 'accepts must be a non-empty array.', {
           path: 'payload.accepts',
         });
-      // The profile named in `hello.ok` MUST be one the client listed (§6.3).
-      if (!accepts.includes(RELAY_PROFILE))
+      // The profile named in `hello.ok` MUST be one the client listed, and the
+      // HIGHEST such profile this peer can speak, so a client that predates our
+      // newest minor is served rather than refused (§6.3, `selectProfile`).
+      const negotiated = selectProfile(accepts);
+      if (negotiated === undefined)
         return refusal(id, type, 'FOREIGN_PROFILE', 'Incompatible relay profile.', {
           received: clientProfile,
           supported: [RELAY_PROFILE],
@@ -551,8 +697,11 @@ export const createRelayPeer = (
         host: HOST_NAME,
         hostVersion: options.hostVersion ?? '0.0.0',
         surfaceVersion: SURFACE_VERSION,
-        profile: RELAY_PROFILE,
-        capabilities: [...capabilities()],
+        profile: negotiated,
+        // Advertised at the NEGOTIATED profile, not ours: naming an entry point
+        // the client's own profile does not define tells it something it cannot
+        // use.
+        capabilities: [...capabilitiesFor(effectiveMinor(negotiated))],
         treeRevision: revisionOf(s),
       });
     }
@@ -567,7 +716,14 @@ export const createRelayPeer = (
     const capability = capabilityFor(type);
     // Re-checked per request: capability advertisement is discovery, not a
     // security boundary, and a client is not a trusted component (§11.3).
-    if (capability === undefined || !capabilities().includes(capability))
+    // Checked at the minor the REQUEST declares, so a 1.0 envelope asking for a
+    // 1.3 entry point is refused with the same CAPABILITY_ABSENT a genuine 1.0
+    // peer would give it — the answer does not depend on which peer happened to
+    // receive it (§6.3).
+    if (
+      capability === undefined ||
+      !capabilitiesFor(effectiveMinor(clientProfile)).includes(capability)
+    )
       return refusal(
         id,
         type,
@@ -587,6 +743,8 @@ export const createRelayPeer = (
         return readRenderedDom(s, id, type, payload);
       case 'read.findNodes':
         return readFindNodes(s, id, type, payload);
+      case 'read.nodeJson':
+        return readNodeJson(s, id, type, payload);
       case 'apply':
         return applyOp(s, id, type, payload);
       case 'subscribe':

@@ -177,6 +177,11 @@ describe('hello handshake', () => {
       'read.renderedDom',
       'read.tree',
       'read.findNodes',
+      // `relay@1.3`, and present because the handshake accepts `relay@1.3`.
+      // `read.affordances` is NOT here: it is a recognised type of the contract
+      // that this host does not serve, so it is refused CAPABILITY_ABSENT rather
+      // than advertised (§6.4).
+      'read.nodeJson',
       'apply',
       'subscribe',
     ]);

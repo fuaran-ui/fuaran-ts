@@ -21,7 +21,14 @@
 //  `__fuaran.*` call; nothing here writes to `console.*`.
 // ============================================================================
 
-import { apply, type DecodeError, decodeOp, encodeOp, type TreeOp } from '@fuaran-ui/ops';
+import {
+  apply,
+  type DecodeError,
+  decodeOp,
+  encodeNode,
+  encodeOp,
+  type TreeOp,
+} from '@fuaran-ui/ops';
 import type { Node, NodeKind } from '@fuaran-ui/schema';
 import type { DenyTelemetry, FuaranTelemetrySink } from '@fuaran-ui/telemetry';
 import {
@@ -49,7 +56,7 @@ import {
 export const DEBUG_GLOBAL_KEY = '__fuaran';
 
 /** Schema version of the `window.__fuaran` shape (independent of package semver). */
-export const DEBUG_GLOBAL_VERSION = '0.1.0';
+export const DEBUG_GLOBAL_VERSION = '0.2.0';
 
 /** A structured error envelope returned in place of a result. */
 export interface DebugError {
@@ -135,6 +142,24 @@ export type BindingStateError =
       readonly slot: string;
       readonly kind: string;
     };
+
+/**
+ * Why {@link FuaranDebugGlobal.getNodeJson} could not answer.
+ *
+ * Two reasons, tagged, because the relay contract refuses them with two
+ * different classes and an untagged `{ error }` cannot tell them apart:
+ * `nodeNotFound` means look elsewhere, `encodeFailed` means the node is
+ * genuinely here and this host cannot render it in the wire vocabulary.
+ *
+ * This host never produces `encodeFailed` — the canonical encoder is total over
+ * live trees, since a value the wire format cannot carry becomes a sentinel
+ * string rather than a refusal. It is in the type so a host whose local model is
+ * wider than the wire's has an honest answer available at this seam instead of
+ * being forced to claim a node that exists does not.
+ */
+export type NodeJsonError =
+  | { readonly error: string; readonly reason: 'nodeNotFound'; readonly nodeId: string }
+  | { readonly error: string; readonly reason: 'encodeFailed'; readonly nodeId: string };
 
 /**
  * Host wiring for the policy-gated `apply` entry. The renderer owns neither the
@@ -255,6 +280,23 @@ export interface FuaranDebugGlobal {
   /** Ids of every node whose kind discriminator equals `kind`. */
   findNodes(kind: string): readonly string[];
   /**
+   * One node's own canonical wire JSON — the whole subtree, as a structured
+   * object rather than text.
+   *
+   * The other reads report what a node IS structurally; this one reports what
+   * its properties HOLD, which is what makes a caller able to read-modify-write
+   * rather than only write. Reading a style block before replacing it, or a
+   * collection's current length before addressing `Columns[0].Label`, is not
+   * possible from any other member.
+   *
+   * Values the wire format cannot carry — closures, opaque host payloads —
+   * appear as the encoder's sentinel strings, because an encoding WITH sentinels
+   * is the canonical encoding. That also means the result is for READING and
+   * path derivation, not for feeding back as a node copy: a sentinel decodes as
+   * the literal string it looks like, not as the closure it stands for.
+   */
+  getNodeJson(nodeId: string): unknown | NodeJsonError;
+  /**
    * Decode a canonical-JSON `TreeOp` and apply it to the live tree — but ONLY
    * when the policy gate permits (FGP 3), and only when the edit introduces no
    * new validator defect. A denied op returns the deny envelope and leaves the
@@ -290,6 +332,7 @@ const HELP_TEXT = `window.__fuaran — Fuaran in-page introspection (DEBUG-only,
   .getRenderedDom(id)       live DOM geometry (x/y/size + overflow/hidden flags)
   .inspectTree()            recursive structural snapshot of the whole tree
   .findNodes(kind)          ids of every node whose kind === <kind>
+  .getNodeJson(id)          one node's own canonical wire JSON, whole subtree
   .apply(op)                policy-gated TreeOp mutation, JSON string or object
                             (default-deny; deny → envelope, tree untouched)
   .treeRevision()           opaque token identifying the current tree state
@@ -514,6 +557,19 @@ export const buildDebugGlobal = <TMsg>(
     findNodes(tree, (n: Node<TMsg>) => kindName(n.kind as NodeKind<unknown>) === kind).map(
       (n: Node<TMsg>) => n.id as string,
     ),
+  getNodeJson: (nodeId) => {
+    const node = findNode(tree, nodeId);
+    if (node === undefined)
+      return {
+        error: `Node '${nodeId}' not found in tree.`,
+        reason: 'nodeNotFound',
+        nodeId,
+      } satisfies NodeJsonError;
+    // The rendered canonical string, read back into structure. What a caller
+    // wants here is the encoding a wire consumer would see, byte decisions and
+    // all, and parsing the canonical text is the shortest honest route to it.
+    return JSON.parse(encodeNode(node)) as unknown;
+  },
   apply: (opJson) => buildApplyEnvelope(tree, options, opJson),
   help: () => HELP_TEXT,
 });

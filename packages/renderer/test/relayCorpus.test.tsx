@@ -1,6 +1,6 @@
 // ============================================================================
-//  DevTools relay conformance — the `relay@1.0` fixture family, run against
-//  this host's page peer.
+//  DevTools relay conformance — the `devtools-relay/` fixture family, run
+//  against this host's page peer.
 //
 //  The corpus is self-enumerated: `wire-format-fixtures/devtools-relay/` has
 //  its own manifest and is deliberately absent from the corpus root manifest,
@@ -32,6 +32,7 @@ import {
   createChangeHub,
   createRelayPeer,
   FuaranRenderer,
+  RELAY_PROFILE,
   type RelayEnvelope,
   type RelayPeer,
 } from '../src/index.js';
@@ -104,6 +105,20 @@ interface HarnessOptions {
   readonly optedIn?: boolean;
   readonly readOnly?: boolean;
   readonly denyPolicy?: boolean;
+  /**
+   * Make the surface unable to render a node in the wire vocabulary — the
+   * `ENCODE_FAILED` world (§9.3).
+   *
+   * This host's own surface can never produce that outcome: the canonical
+   * encoder is TOTAL over live trees, since a value the wire format cannot carry
+   * becomes a sentinel string rather than a refusal. So the class is exercised at
+   * the SEAM, which is the technique the corpus already uses for `DECODE_FAILED`
+   * and `VALIDATOR_REJECT` (the apply handler is stubbed there, the node-json leg
+   * here). What the fixture proves is the peer's mapping from that surface
+   * outcome onto the refusal class — exactly what a future host with a wider
+   * local vocabulary than the wire's would depend on.
+   */
+  readonly encodeFails?: boolean;
 }
 
 /**
@@ -117,7 +132,7 @@ const harness = (options: HarnessOptions = {}): Harness => {
   const emitted: RelayEnvelope[] = [];
   hub.commit(tree, 'host');
 
-  const surface = () =>
+  const baseSurface = () =>
     buildDebugGlobal(tree, sources, {
       hub,
       runtime: { canDispatch: () => options.denyPolicy !== true, warn: () => {} },
@@ -133,6 +148,18 @@ const harness = (options: HarnessOptions = {}): Harness => {
             },
           }),
     });
+
+  const surface = () =>
+    options.encodeFails === true
+      ? {
+          ...baseSurface(),
+          getNodeJson: (nodeId: string) => ({
+            error: `Node '${nodeId}' has no canonical wire encoding on this host.`,
+            reason: 'encodeFailed' as const,
+            nodeId,
+          }),
+        }
+      : baseSurface();
 
   const peer = createRelayPeer(surface, {
     optedIn: options.optedIn ?? true,
@@ -155,6 +182,8 @@ const harnessFor = (id: string): Harness => {
       return harness({ optedIn: false });
     case 'refusal-policy-denied':
       return harness({ denyPolicy: true });
+    case 'refusal-encode-failed':
+      return harness({ encodeFails: true });
     default:
       return harness();
   }
@@ -218,6 +247,34 @@ const assertMeaning = (id: string, envelope: RelayEnvelope): void => {
       expect(p['capabilities']).toContain('apply');
       expect(p['capabilities']).toContain('subscribe');
       expect(p['profile']).toBe('relay@1.0');
+      // A `relay@1.0` session must NOT be told about a `relay@1.3` entry point:
+      // the type does not exist in the profile this client speaks, so naming it
+      // would advertise something that client's own contract says is not there
+      // (§6.3). This is the backward-compatibility evidence the unchanged 1.0
+      // fixtures exist to carry.
+      expect(p['capabilities']).not.toContain('read.nodeJson');
+      break;
+    case 'hello-node-json':
+      // …and a `relay@1.3` session IS told about it.
+      expect(p['profile']).toBe('relay@1.3');
+      expect(p['capabilities']).toContain('read.nodeJson');
+      break;
+    case 'read-node-json':
+      // The node's own wire JSON, embedded as an object (§7.7 rule 1).
+      expect((p['node'] as Record<string, unknown>)['id']).toBe('grid-1');
+      expect(typeof (p['node'] as Record<string, unknown>)['kind']).toBe('object');
+      expect(typeof p['treeRevision']).toBe('string');
+      break;
+    case 'read-node-json-subtree':
+      expect((p['node'] as Record<string, unknown>)['id']).toBe('root');
+      // Rule 3 — the WHOLE subtree, never elided. An elided encoding is
+      // well-formed wire JSON for a DIFFERENT node, which is precisely the
+      // silent-discard class this entry point exists to close, so a check that
+      // only looked at well-formedness would pass the thing being guarded
+      // against. Every child this host reports for the node must be inside the
+      // encoding it returned for it.
+      for (const childId of ['metric-1', 'metric-2', 'metric-9', 'grid-1'])
+        expect(JSON.stringify(p['node']), `child ${childId} elided`).toContain(`"${childId}"`);
       break;
     case 'read-node-state':
       expect(p['id']).toBe('metric-1');
@@ -271,7 +328,11 @@ const assertMeaning = (id: string, envelope: RelayEnvelope): void => {
       break;
     case 'refusal-foreign-profile':
       expect((p['detail'] as Record<string, unknown>)['received']).toBe('relay@2.0');
-      expect((p['detail'] as Record<string, unknown>)['supported']).toEqual(['relay@1.0']);
+      // `supported` is the PEER's own list, not the fixture's (§12.1): comparing
+      // it against the fixture asserts the fixture author's version rather than
+      // this implementation's conformance, and fails every peer that ever
+      // advances a minor.
+      expect((p['detail'] as Record<string, unknown>)['supported']).toEqual([RELAY_PROFILE]);
       break;
     case 'refusal-malformed-message':
       expect((p['detail'] as Record<string, unknown>)['path']).toBe('payload.events');
@@ -304,8 +365,8 @@ afterEach(() => {
 
 describe(`devtools-relay corpus (${manifest.profile})`, () => {
   it('enumerates the whole family', () => {
-    expect(manifest.profile).toBe('relay@1.0');
-    expect(manifest.fixtures.length).toBeGreaterThanOrEqual(24);
+    expect(manifest.profile).toBe('relay@1.3');
+    expect(manifest.fixtures.length).toBeGreaterThanOrEqual(28);
   });
 
   const exchanges = manifest.fixtures.filter((f) => f.kind !== 'relay-event');
@@ -325,7 +386,10 @@ describe(`devtools-relay corpus (${manifest.profile})`, () => {
 
       // The regular protocol: success is the request type + '.ok'; refusal is
       // always 'refusal'. There is no third outcome.
-      expect(actual.$relay).toBe('relay@1.0');
+      // `$relay` on a response is the RESPONDING PEER's own profile id (§4), not
+      // the fixture's. A `relay@1.0` fixture answered by a `relay@1.3` peer
+      // carries two different ids by construction and both are correct.
+      expect(actual.$relay).toBe(RELAY_PROFILE);
       expect(actual.dir).toBe('response');
       expect(actual.id).toBe(request['id']);
       expect(actual.type).toBe(expected['type']);
