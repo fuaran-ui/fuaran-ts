@@ -243,6 +243,36 @@ export const sanitizeUrl = (url: string): string | undefined => {
  */
 export const sanitizeUrlOrBlank = (url: string): string => sanitizeUrl(url) ?? 'about:blank';
 
+/**
+ * Phase 1111 — the `embed` SCHEME floor. §19-class, and deliberately NOT §19.
+ *
+ * `https` is the only accepted scheme, and the two exclusions worth naming are
+ * the ones §19 accepts. `http`, because an embed is fetched and then EXECUTED,
+ * so a document delivered over a channel any intermediary can rewrite is an
+ * intermediary's script running in a frame this page created. And a SCHEMELESS
+ * reference, because it names a same-origin document — which is exactly where
+ * `AllowSameOrigin` together with `AllowScripts` lets the framed document reach
+ * its own frame element and remove the sandbox attribute.
+ *
+ * One accepted scheme and NO positional test, which is the second reason this
+ * is its own function rather than a parameter on the §19 floor: rule 5's
+ * protocol-relative check exists because a schemeless reference is otherwise
+ * admitted, and a class that admits none cannot inherit its evasion surface.
+ * Rule 1's normalisation is still shared — it is what makes the scheme
+ * extraction see the string the parser will see.
+ *
+ * `undefined` means REFUSED, and the caller drops the attribute rather than
+ * substituting anything: an `<iframe>` with no `src` is a well-defined empty
+ * frame that fetches nothing.
+ */
+export const sanitizeEmbedSrc = (url: string): string | undefined => {
+  if (url == null) return undefined;
+  const normalized = normalizeUrlForFloor(url);
+  if (normalized === '') return undefined;
+  const [scheme] = extractScheme(normalized);
+  return scheme === 'https' ? normalized : undefined;
+};
+
 // ─── Markdown raw-HTML sanitization ──────────────────────────────────────────
 
 const dangerousElements = ['script', 'iframe', 'object', 'embed', 'form', 'link', 'meta'];

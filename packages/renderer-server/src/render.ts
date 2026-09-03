@@ -27,6 +27,7 @@
 import {
   denyNonLocalEgress,
   type EgressPolicy,
+  sanitizeEmbedSrcForEgress,
   sanitizeUrlForEgress,
 } from '@fuaran-ui/renderer/egress';
 import { sanitizeExtraAttributes } from '@fuaran-ui/renderer/sanitize';
@@ -41,6 +42,7 @@ import type {
   ColumnErased,
   DefaultSort,
   DisplayKind,
+  EmbedPermission,
   ErrorPayload,
   FilterSpec,
   FormField,
@@ -1084,6 +1086,52 @@ const renderDisplay = (
         ...shared,
         ...posterAttrs,
         ...autoplayAttrs,
+      ]);
+    }
+
+    case 'Embed': {
+      // Phase 1111 — the sandboxed third-party embed, structural parity with
+      // both F# renderers. Four contract points, stated at length in
+      // WIRE_FORMAT §3.6.8 and in the order they appear below: the `sandbox`
+      // attribute emitted ALWAYS and EMPTY when nothing is granted (omitting it
+      // on a permissionless embed would be the same markup as an unsandboxed
+      // frame); the tokens in the vocabulary's DECLARATION order and
+      // de-duplicated, so two documents naming the same set produce identical
+      // markup whatever order they authored; fullscreen riding `allow` rather
+      // than `sandbox`, because it is a permissions-policy directive and not a
+      // sandbox token; and a refused `src` DROPPED entirely rather than pointed
+      // at the refusal URL, because an iframe at that URL renders that page.
+      const [embedSrc, embedEgressAttrs] = sanitizeEmbedSrcForEgress(
+        ctx.egressPolicy,
+        tryResolve(ctx.sources, display.spec.src) ?? '',
+      );
+      const has = (p: EmbedPermission): boolean => display.spec.permissions.includes(p);
+      const sandboxTokens: string[] = [];
+      if (has('AllowScripts')) sandboxTokens.push('allow-scripts');
+      if (has('AllowSameOrigin')) sandboxTokens.push('allow-same-origin');
+      if (has('AllowForms')) sandboxTokens.push('allow-forms');
+      const aspectClass =
+        display.spec.aspectRatio === 'Natural'
+          ? ''
+          : display.spec.aspectRatio === 'Square'
+            ? ' fuaran-embed-aspect-square'
+            : display.spec.aspectRatio === 'FourThree'
+              ? ' fuaran-embed-aspect-four-three'
+              : display.spec.aspectRatio === 'ThreeTwo'
+                ? ' fuaran-embed-aspect-three-two'
+                : ' fuaran-embed-aspect-sixteen-nine';
+      // `el`, not `voidEl`: `<iframe>` is NOT a void element, and a self-closed
+      // one leaves the parser inside it — the `<video>` trap one kind over.
+      return el('iframe', [
+        ['class', 'fuaran-embed' + aspectClass],
+        ['title', renderText(ctx.sources, display.spec.title)],
+        ['sandbox', sandboxTokens.join(' ')],
+        ['loading', 'lazy'],
+        ['referrerpolicy', 'strict-origin-when-cross-origin'],
+        ...(embedSrc === undefined ? [] : ([['src', embedSrc]] as Attr[])),
+        ...(has('AllowFullscreen') ? ([['allow', 'fullscreen']] as Attr[]) : []),
+        ...semanticAttrs,
+        ...embedEgressAttrs,
       ]);
     }
 

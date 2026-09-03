@@ -28,7 +28,7 @@
 //      policy a hostile tree can widen, which is not a policy.
 // ============================================================================
 
-import { sanitizeUrl } from './sanitize.js';
+import { sanitizeEmbedSrc, sanitizeUrl } from './sanitize.js';
 
 /**
  * The classes of destination a rule can be scoped to. Closed by construction: a
@@ -38,11 +38,17 @@ import { sanitizeUrl } from './sanitize.js';
  * browser fetches with NO user act — THE exfiltration class, which is why it is
  * scoped separately rather than folded in.
  */
-export type EgressClass = 'hyperlink' | 'media' | 'route' | 'download' | 'fileRead';
+export type EgressClass = 'hyperlink' | 'media' | 'embed' | 'route' | 'download' | 'fileRead';
+// `embed` (Phase 1111) is scoped apart from `media` deliberately: `media` is
+// fetch-and-display, where the bytes are decoded by the user agent's own codec
+// and reach no scripting context, while an embed is fetch-and-EXECUTE. A
+// composition that declared a CDN for image egress has said nothing about which
+// DOCUMENTS it will run.
 
 export const egressClasses: readonly EgressClass[] = [
   'hyperlink',
   'media',
+  'embed',
   'route',
   'download',
   'fileRead',
@@ -361,4 +367,28 @@ export const sanitizeUrlForEgress = (
   if (verdict.kind === 'allowed') return [verdict.url, []];
   const marker = egressRefusalMarker(verdict);
   return [egressRefusalUrl, marker === undefined ? [] : [marker]];
+};
+
+/**
+ * Phase 1111 — the one-call EMBED render seam: the `src` to emit, or
+ * `undefined` to omit the attribute, plus the attributes recording a refusal.
+ *
+ * Two gates in order, exactly as `sanitizeUrlForEgress` runs them: the embed
+ * scheme floor says what the URL may BE, then the destination policy says where
+ * it may GO — under the `embed` class, never `media`.
+ *
+ * A refusal returns `undefined` rather than `egressRefusalUrl`, and the
+ * difference matters: an `<iframe>` pointed at the refusal URL RENDERS that
+ * page, where one with no `src` is an empty frame that fetches nothing.
+ */
+export const sanitizeEmbedSrcForEgress = (
+  policy: EgressPolicy,
+  url: string,
+): [string | undefined, readonly [string, string][]] => {
+  const safe = sanitizeEmbedSrc(url);
+  if (safe === undefined) return [undefined, [[egressRefusalAttribute, 'embed:unsafe-url']]];
+  const verdict = checkDestination(policy, 'embed', safe);
+  if (verdict.kind === 'allowed') return [verdict.url, []];
+  const marker = egressRefusalMarker(verdict);
+  return [undefined, marker === undefined ? [] : [marker]];
 };

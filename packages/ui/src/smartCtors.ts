@@ -51,6 +51,7 @@ import type {
   DateStyle,
   DateVariant,
   EffectClass,
+  EmbedPermission,
   ImageAspect,
   ImageFit,
   ImageLoading,
@@ -1052,6 +1053,25 @@ export interface AudioOptions {
   readonly loop?: boolean;
 }
 
+/**
+ * Phase 1111 — the sandboxed third-party embed.
+ *
+ * `permissions` is deliberately optional and defaults to the EMPTY list, which
+ * is total denial: the shortest call is the fully-sandboxed one, and every
+ * relaxation is something a caller names.
+ */
+export interface EmbedOptions {
+  readonly id: NodeId | string;
+  /** Must be `https` — the embed egress class refuses every other scheme and
+   *  every relative reference at RENDER time. */
+  readonly src: StringInput;
+  /** The frame's accessible name. Mandatory: a browsing context has no
+   *  decorative case. */
+  readonly title: TextInput;
+  readonly aspectRatio?: ImageAspect;
+  readonly permissions?: readonly EmbedPermission[];
+}
+
 export interface ListOptions {
   readonly id: NodeId | string;
   readonly items: readonly TextInput[];
@@ -1634,6 +1654,26 @@ export const fuaran = {
           controls: o.controls ?? true,
           loop: o.loop ?? false,
           kind: { $type: 'Audio' },
+        },
+      },
+    });
+  },
+  embed<TMsg>(o: EmbedOptions): Node<TMsg> {
+    return buildNode(o.id, {
+      kind: 'Display',
+      display: {
+        kind: 'Embed',
+        spec: {
+          src: stringBinding(o.src),
+          title: text(o.title),
+          // Both ALWAYS present on the spec, for the reason `srcSet` and
+          // `expandable` are: the wire says an absent `aspectRatio` is
+          // `Natural` and an absent `permissions` is `[]`, so a constructed
+          // spec that omitted either would disagree with a decoded one. The
+          // empty permission list is TOTAL DENIAL, which makes the default
+          // here the locked one rather than merely the unset one.
+          aspectRatio: o.aspectRatio ?? 'Natural',
+          permissions: o.permissions ?? [],
         },
       },
     });

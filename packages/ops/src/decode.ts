@@ -84,6 +84,8 @@ import type {
   DisplayKind,
   EffectClass,
   Emphasis,
+  EmbedPermission,
+  EmbedSpec,
   ImageAspect,
   ImageFit,
   ImageLoading,
@@ -576,6 +578,20 @@ const decodeImageAspect = (p: string, j: JsonAst): R<ImageAspect> =>
 
 const decodeImageLoading = (p: string, j: JsonAst): R<ImageLoading> =>
   bareEnum(p, j, ['Eager', 'Lazy'] as const, 'ImageLoading');
+
+// Phase 1111 — one embed sandbox relaxation. A bare enum inside a LIST, so an
+// unrecognised case reports at the ELEMENT's own path with no `.$type` suffix.
+// The refusal is doing real work rather than merely being consistent: a decoder
+// that silently dropped an unrecognised permission would turn a document asking
+// for something this vocabulary has no name for into one asking for less, which
+// reads as success — and a decoder that guessed would be worse.
+const decodeEmbedPermission = (p: string, j: JsonAst): R<EmbedPermission> =>
+  bareEnum(
+    p,
+    j,
+    ['AllowScripts', 'AllowSameOrigin', 'AllowForms', 'AllowFullscreen'] as const,
+    'EmbedPermission',
+  );
 
 const decodeScrollOrientation = (p: string, j: JsonAst): R<ScrollOrientation> =>
   bareEnum(p, j, ['Vertical', 'Horizontal', 'Both'] as const, 'ScrollOrientation');
@@ -3275,6 +3291,48 @@ const decodeMediaSpec = (path: string, j: JsonAst): R<MediaSpec> => {
   });
 };
 
+// Phase 1111 — the embed spec. `title` is REQUIRED, the frame a11y floor
+// expressed where a decoder can enforce it; `permissions` takes the
+// `ImageSpec.srcSet` missing-list class (absent is the EMPTY array, never
+// `undefined` and never `null`), and here that rule carries a second meaning
+// worth naming — the empty array is TOTAL DENIAL.
+//
+// Nothing here inspects the `src` STRING: the `embed` egress class is a
+// RENDER-time obligation, as every §19-class rule is.
+const decodeEmbedSpec = (path: string, j: JsonAst): R<EmbedSpec> => {
+  const fo = requireObject(path, j);
+  if (!fo.ok) return fo;
+  const f = fo.value;
+  const src = reqField(path, f, 'src', 'Embed Binding<string> Src', decodeBindingString);
+  if (!src.ok) return src;
+  const title = reqField(path, f, 'title', 'Embed accessible title TextSource', decodeTextSource);
+  if (!title.ok) return title;
+  const aspectJ = tryField(f, 'aspectRatio');
+  const aspectRatio =
+    aspectJ === undefined
+      ? ok<ImageAspect>('Natural')
+      : decodeImageAspect(`${path}.aspectRatio`, aspectJ);
+  if (!aspectRatio.ok) return aspectRatio;
+  const permissionsJ = tryField(f, 'permissions');
+  const permissions: R<readonly EmbedPermission[]> =
+    permissionsJ === undefined
+      ? ok<readonly EmbedPermission[]>([])
+      : (() => {
+          const arr = requireArray(`${path}.permissions`, permissionsJ);
+          if (!arr.ok) return arr;
+          return traverseIndexed(arr.value, (i, el) =>
+            decodeEmbedPermission(`${path}.permissions[${i}]`, el),
+          );
+        })();
+  if (!permissions.ok) return permissions;
+  return ok({
+    src: src.value,
+    title: title.value,
+    aspectRatio: aspectRatio.value,
+    permissions: permissions.value,
+  });
+};
+
 const decodeListSpec = (path: string, j: JsonAst): R<ListSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
@@ -3792,6 +3850,10 @@ const decodeDisplayKind = (path: string, j: JsonAst): R<DisplayKind> => {
     case 'Image': {
       const r = decodeImageSpec(path, j);
       return r.ok ? ok({ kind: 'Image', spec: r.value }) : r;
+    }
+    case 'Embed': {
+      const r = decodeEmbedSpec(path, j);
+      return r.ok ? ok({ kind: 'Embed', spec: r.value }) : r;
     }
     case 'Media': {
       const r = decodeMediaSpec(path, j);
@@ -5703,6 +5765,7 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
     case 'Link':
     case 'Image':
     case 'Media':
+    case 'Embed':
     case 'List':
     case 'Toast':
     case 'CodeBlock':

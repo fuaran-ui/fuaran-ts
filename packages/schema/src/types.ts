@@ -110,6 +110,18 @@ export type ImageFit = 'Natural' | 'Cover' | 'Contain';
 export type ImageAspect = 'Natural' | 'Square' | 'FourThree' | 'ThreeTwo' | 'SixteenNine';
 
 /**
+ * Phase 1111 — one deliberate relaxation of an embed's sandbox. Closed at four,
+ * and the DEFAULT is to declare none, which is total denial.
+ *
+ * Three map to HTML `sandbox` tokens and `AllowFullscreen` to a
+ * permissions-policy directive; the case names the RELAXATION, never the
+ * attribute. What is absent is as much the design as what is here: there is no
+ * top-level-navigation case (a framed document navigating the page that framed
+ * it is the drive-by redirect) and no downloads case, and neither is reserved.
+ */
+export type EmbedPermission = 'AllowScripts' | 'AllowSameOrigin' | 'AllowForms' | 'AllowFullscreen';
+
+/**
  * `DisplayKind.Image.loading` — whether the browser fetches during the initial
  * load or defers until the element nears the viewport (Phase 1077). `Eager` is
  * the default deliberately: deferring an above-the-fold image is a regression,
@@ -734,6 +746,7 @@ export const NODE_KIND_GROUPS: readonly {
       'Link',
       'Image',
       'Media',
+      'Embed',
       'List',
       'Toast',
       'CodeBlock',
@@ -1126,6 +1139,7 @@ export type DisplayKind =
   | { readonly kind: 'Link'; readonly spec: LinkSpec }
   | { readonly kind: 'Image'; readonly spec: ImageSpec }
   | { readonly kind: 'Media'; readonly spec: MediaSpec }
+  | { readonly kind: 'Embed'; readonly spec: EmbedSpec }
   | { readonly kind: 'List'; readonly spec: ListSpec }
   | { readonly kind: 'Toast'; readonly spec: ToastSpec }
   | { readonly kind: 'CodeBlock'; readonly spec: CodeBlockSpec }
@@ -1295,6 +1309,61 @@ export interface MediaSpec {
   /** Whether playback repeats. Omitted from the wire at `false`. */
   readonly loop: boolean;
   readonly kind: MediaKind;
+}
+
+/**
+ * Phase 1111 — a third-party document rendered inside a maximally-sandboxed
+ * browsing context.
+ *
+ * A NEW kind rather than a `Mount` variant. `Mount` composes a COOPERATING
+ * guest — a scope id, a declared message channel, a capability request list, a
+ * host-side loader — and a third-party page has none of those; widening `Mount`
+ * to admit an uncooperative third party would weaken every guarantee it makes.
+ * It is equally not a `Media` variant: `Media` fetches an asset and DISPLAYS it,
+ * `Embed` fetches a document and lets it EXECUTE.
+ */
+export interface EmbedSpec {
+  /**
+   * The document to embed. Routed at RENDER time through the `embed` egress
+   * class, which admits `https` and nothing else — not `http`, and not a
+   * schemeless relative reference either, because a same-origin frame is
+   * exactly where `AllowSameOrigin` plus `AllowScripts` lets the framed
+   * document remove its own sandbox. A refused source omits the attribute.
+   *
+   * The DECODER does not inspect this string: as everywhere else in §19, a
+   * document naming a URL the floor refuses is still a valid wire document.
+   */
+  readonly src: Binding<string>;
+  /**
+   * The frame's accessible name, emitted as `title`. Mandatory, on
+   * `MediaSpec.label`'s argument one kind over: a frame is a focus container a
+   * reader tabs into, so it is never decorative, and an unnamed one is
+   * announced as "frame" and nothing more.
+   */
+  readonly title: TextSource;
+  /**
+   * The box the frame reserves. REUSES `ImageAspect` rather than a parallel
+   * enum with identical cases — a ratio is a ratio, and the wire carries bare
+   * strings, so the type name reaches no document.
+   *
+   * NOT optional in the type, and the default is `'Natural'`: an absent key on
+   * the wire decodes to `Natural`, so a `?` here would hand a consumer
+   * `undefined` for a slot the wire says has a value. Omit-at-`Natural` rather
+   * than an optional for the same reason on the wire side — an option over an
+   * enum that already contains `Natural` would give one fact two spellings.
+   */
+  readonly aspectRatio: ImageAspect;
+  /**
+   * The relaxations granted to the framed document. EMPTY is TOTAL DENIAL, and
+   * that polarity is the point rather than an accident of the omit rule: the
+   * document that says nothing grants nothing.
+   *
+   * NOT optional in the type, for the reason `ImageSpec.srcSet` is not: an
+   * absent key on the wire is the empty array, so `undefined` would be a value
+   * the wire does not describe and this package's own encoder could not
+   * round-trip.
+   */
+  readonly permissions: readonly EmbedPermission[];
 }
 
 /**

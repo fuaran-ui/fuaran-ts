@@ -190,6 +190,7 @@ export {
 export {
   sanitizeUrl,
   sanitizeUrlOrBlank,
+  sanitizeEmbedSrc,
   sanitizeExtraAttributes,
   sanitizeMarkdownHtml,
   isAllowedExtraAttributeKey,
@@ -214,6 +215,7 @@ export {
   isDeclaredOrigin,
   permissiveEgress,
   sanitizeUrlForEgress,
+  sanitizeEmbedSrcForEgress,
   type Destination,
   type EgressClass,
   type EgressOrigin,

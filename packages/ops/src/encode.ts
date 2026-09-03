@@ -50,6 +50,7 @@ import type {
   DisplayKind,
   EffectClass,
   ImageSpec,
+  EmbedSpec,
   MediaKind,
   MediaSpec,
   ListSpec,
@@ -1118,6 +1119,22 @@ const mediaSpec = (s: MediaSpec): string => {
   return jObject(fields);
 };
 
+// Phase 1111 — byte parity with the F# encoder. Both optional slots omit at
+// their identity: `aspectRatio` at `Natural` and `permissions` at EMPTY, the
+// second being the encode half of the missing-list rule. The permission ORDER
+// is the document's and is emitted verbatim — a JSON array is ordered data, and
+// re-sorting it here would make this encoder produce bytes it did not decode.
+// Emitting the tokens in a canonical order is the RENDERER's obligation.
+const embedSpec = (s: EmbedSpec): string => {
+  const fields: Field[] = [];
+  if (s.aspectRatio !== 'Natural') fields.push(['aspectRatio', str(s.aspectRatio)]);
+  if (s.permissions.length > 0)
+    fields.push(['permissions', jArray(s.permissions.map((p) => str(p)))]);
+  fields.push(['src', binding(s.src)]);
+  fields.push(['title', textSource(s.title)]);
+  return jObject(fields);
+};
+
 const listSpec = (s: ListSpec): string =>
   jObject([
     ['items', jArray(s.items.map(textSource))],
@@ -1366,6 +1383,8 @@ const displayKind = (d: DisplayKind): string => {
       return hoistSpec('Image', imageSpec(d.spec));
     case 'Media':
       return hoistSpec('Media', mediaSpec(d.spec));
+    case 'Embed':
+      return hoistSpec('Embed', embedSpec(d.spec));
     case 'List':
       return hoistSpec('List', listSpec(d.spec));
     case 'Toast':
