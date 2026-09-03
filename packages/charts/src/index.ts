@@ -1061,15 +1061,34 @@ const circle = (cx: number, cy: number, r: number, style: DrawStyle): Shape => (
 /**
  * The resolved chart layout inputs — the neutral lowering contract. Mirrors the
  * fields the F# `ChartSpec` lowering reads: `kind`, the `xField` category (or,
- * for `Scatter`, numeric) column, the `yFields` series columns, an optional
- * literal `title`, and `stacked` (Bar / Area geometry only — ignored on kinds
- * where stacking is meaningless).
+ * for `Scatter`, numeric) column, the `yFields` series columns, the `title`, and
+ * `stacked` (Bar / Area geometry only — ignored on kinds where stacking is
+ * meaningless).
+ *
+ * ── The `TextSource` rule (Phase 1143)
+ *
+ * The four `TextSource`-typed fields — `title`, `xTitle`, `yTitle`, `subtitle` —
+ * CARRY into the drawing unresolved and reach the emitted labels as
+ * `TextSource`. A `Bound` or `I18n` arm is neither resolved here nor dropped:
+ * resolution is the renderer's, at render time, where the host holds the
+ * binding sources and the catalogue.
+ *
+ * That is affordable because every layout rule below reserves space by the
+ * PRESENCE of these fields and never by their text — so a drawing's geometry is
+ * a function of the spec's shape, identical on every host and stable under a
+ * binding that changes. The one content-dependent rule, `boundText`
+ * truncation, is confined to the `Literal` arm for the same reason.
+ *
+ * The full cross-host statement is the reference host's
+ * `docs/CHART-LOWERING-TEXT-CONTRACT.md`; the `chart-lowering/*` corpus pins it.
+ * These fields were `string` until Phase 1143, which made the contract
+ * unrepresentable at the bridge and silently dropped every non-literal arm.
  */
 export interface ChartLowerSpec {
   readonly kind: ChartKind;
   readonly xField: string;
   readonly yFields: readonly string[];
-  readonly title?: string;
+  readonly title?: TextSource;
   readonly stacked?: boolean;
   /** Phase 876 — the VALUE axis's number format, reusing the existing `Format`
    * vocabulary. A wire field: a semantic declaration, not an appearance. */
@@ -1079,16 +1098,17 @@ export interface ChartLowerSpec {
    * reason `title` is one: what an axis is CALLED is the author's meaning.
    *
    * Absent is the ORDINARY shape, not an opt-out: each axis title falls back to
-   * its capitalised field name, so an axis is never nameless.
+   * its capitalised field name, so an axis is never nameless. The fallback
+   * answers ABSENCE only — a declared title of any arm always wins.
    */
-  readonly xTitle?: string;
-  readonly yTitle?: string;
+  readonly xTitle?: TextSource;
+  readonly yTitle?: TextSource;
   /**
    * The natural home for a units statement. Declaring one SUPPRESSES the
    * lowering's own display-unit slot — the author has said it, so the machine
-   * does not repeat it.
+   * does not repeat it. PRESENCE is the whole test, on every arm.
    */
-  readonly subtitle?: string;
+  readonly subtitle?: TextSource;
   /**
    * Phase 880 — WHERE the legend sits, and whether it sits anywhere at all.
    * Semantic for the same reason the titles above are: the edge an author wants
@@ -1461,12 +1481,18 @@ export const lower = (
   // name (which is what the x axis has always drawn, now stated once and applied
   // to both). Undefined only where there is no honest fallback: an empty field
   // name, or a y axis carrying no series at all.
-  const axisTitleOf = (declared: string | undefined, fallbackField: string): string | undefined =>
+  // The fallback is a `Literal` the lowering MINTS, and it answers ABSENCE
+  // only: a declared title of any arm wins, and is never replaced because it
+  // could not be resolved here (the text contract, clause 5).
+  const axisTitleOf = (
+    declared: TextSource | undefined,
+    fallbackField: string,
+  ): TextSource | undefined =>
     declared !== undefined
       ? declared
       : fallbackField === ''
         ? undefined
-        : capitalise(fallbackField);
+        : literal(capitalise(fallbackField));
 
   // Phase 882 wires §4e's date-axis rule: a SELF-EVIDENT DATE AXIS SUPPRESSES
   // ITS DEFAULT TITLE — an axis reading "Jan Feb Mar" does not need the word
@@ -1918,8 +1944,13 @@ export const lower = (
   // something the author declares rather than something the lowering guesses
   // from the label text. Decided where `xTitle` is resolved, above; the fallback
   // only, and the title only — never the axis.
-  const boundText = (fontSize: number, extent: number, t: string): string =>
-    truncateToWidth(fontSize, extent, t);
+  // Bound a title to the extent it runs along. Only a `Literal` can be
+  // truncated — the text behind a `Bound` or `I18n` arm is not known here — and
+  // that is the honest boundary: those pass through and may overrun, which is a
+  // visible fact rather than a silently wrong measurement (the text contract,
+  // clause 4, implemented identically on every host).
+  const boundText = (fontSize: number, extent: number, t: TextSource): TextSource =>
+    t.kind === 'Literal' ? literal(truncateToWidth(fontSize, extent, t.value)) : t;
 
   const axisTitles: Shape[] = [];
   if (xTitle !== undefined) {
@@ -1930,7 +1961,7 @@ export const lower = (
         // its own inset from whatever is beneath it. `legendBandH` is 0 on
         // every other arm.
         r2(H - legendBandH - AXIS_TITLE_BOTTOM_OFFSET),
-        literal(boundText(tickSize, PLOT_W, xTitle)),
+        boundText(tickSize, PLOT_W, xTitle),
         textStyle(undefined, 'Middle', tickSize, 'Normal'),
       ),
     );
@@ -1940,7 +1971,7 @@ export const lower = (
       label(
         r2(Y_AXIS_TITLE_OFFSET_X),
         r2((PLOT_Y0 + PLOT_Y1) / 2.0),
-        literal(boundText(tickSize, PLOT_H, yTitle)),
+        boundText(tickSize, PLOT_H, yTitle),
         {
           ...textStyle(undefined, 'Middle', tickSize, 'Normal'),
           rotation: r2(-Y_AXIS_TITLE_DEGREES),
@@ -2368,14 +2399,7 @@ export const lower = (
   // ── Visible title (a Label — bigger + emphasised) ──
   const titleShapes: Shape[] =
     spec.title !== undefined
-      ? [
-          label(
-            r2(PLOT_X0),
-            22.0,
-            literal(spec.title),
-            textStyle(undefined, 'Start', titleSize, 'Loud'),
-          ),
-        ]
+      ? [label(r2(PLOT_X0), 22.0, spec.title, textStyle(undefined, 'Start', titleSize, 'Loud'))]
       : [];
 
   // ── Subtitle (Phase 878) — the muted line under the title ──
@@ -2390,7 +2414,7 @@ export const lower = (
           label(
             r2(PLOT_X0),
             SUBTITLE_BASELINE_Y,
-            literal(boundText(SUBTITLE_FONT_SIZE, PLOT_W, spec.subtitle)),
+            boundText(SUBTITLE_FONT_SIZE, PLOT_W, spec.subtitle),
             textStyle(LABEL_OPACITY, 'Start', SUBTITLE_FONT_SIZE, 'Normal'),
           ),
         ]
@@ -2599,7 +2623,7 @@ export const lower = (
     viewBox: { minX: 0.0, minY: 0.0, width: W, height: H },
     shapes,
     style: {},
-    ...(spec.title !== undefined ? { title: literal(spec.title) } : {}),
+    ...(spec.title !== undefined ? { title: spec.title } : {}),
     ...(accessibleSummary !== undefined ? { description: literal(accessibleSummary) } : {}),
   };
   return drawing;

@@ -110,9 +110,9 @@ describe('Chart first-party lowering (Phase 534 tail)', () => {
 type BridgeDisposition =
   // Crosses as-is (an enum or a structural format record).
   | 'threaded'
-  // Crosses as its LITERAL text only; a Bound / I18n arm is dropped and the
-  // lowering's own fallback stands (see `src/chartLowerSpec.ts`).
-  | 'threaded-literal-only'
+  // A `TextSource` field: crosses UNRESOLVED, whichever arm it carries — the
+  // Phase 1143 text contract (see `src/chartLowerSpec.ts`).
+  | 'threaded-text-source'
   // Not a lowering input: a host concern (the data source, an event handler).
   | 'not-a-lowering-input';
 
@@ -123,10 +123,10 @@ const BRIDGE_DISPOSITIONS: Record<keyof ChartSpec<never>, BridgeDisposition> = {
   xField: 'threaded',
   yFields: 'threaded',
   stacked: 'threaded',
-  title: 'threaded-literal-only',
-  xTitle: 'threaded-literal-only',
-  yTitle: 'threaded-literal-only',
-  subtitle: 'threaded-literal-only',
+  title: 'threaded-text-source',
+  xTitle: 'threaded-text-source',
+  yTitle: 'threaded-text-source',
+  subtitle: 'threaded-text-source',
   valueFormat: 'threaded',
   legendPosition: 'threaded',
   dataLabels: 'threaded',
@@ -166,10 +166,26 @@ const renderSpec = (spec: ChartSpec<never>): string =>
 const fieldCases: ReadonlyArray<
   readonly [keyof ChartSpec<never>, Partial<ChartSpec<never>>, unknown]
 > = [
-  ['title', { title: { kind: 'Literal', value: 'Revenue by quarter' } }, 'Revenue by quarter'],
-  ['xTitle', { xTitle: { kind: 'Literal', value: 'Trading quarter' } }, 'Trading quarter'],
-  ['yTitle', { yTitle: { kind: 'Literal', value: 'Money in' } }, 'Money in'],
-  ['subtitle', { subtitle: { kind: 'Literal', value: 'Millions of £' } }, 'Millions of £'],
+  [
+    'title',
+    { title: { kind: 'Literal', value: 'Revenue by quarter' } },
+    { kind: 'Literal', value: 'Revenue by quarter' },
+  ],
+  [
+    'xTitle',
+    { xTitle: { kind: 'Literal', value: 'Trading quarter' } },
+    { kind: 'Literal', value: 'Trading quarter' },
+  ],
+  [
+    'yTitle',
+    { yTitle: { kind: 'Literal', value: 'Money in' } },
+    { kind: 'Literal', value: 'Money in' },
+  ],
+  [
+    'subtitle',
+    { subtitle: { kind: 'Literal', value: 'Millions of £' } },
+    { kind: 'Literal', value: 'Millions of £' },
+  ],
   [
     'valueFormat',
     { valueFormat: { kind: 'Currency', isoCode: 'GBP' } },
@@ -274,11 +290,13 @@ describe('the threaded fields reach the drawing with their declared meaning', ()
   });
 });
 
-describe('the `TextSource` rule — Literal crosses, Bound / I18n are dropped', () => {
-  // DELIBERATE, and a loss: `ChartLowerSpec` takes plain strings, so anything
-  // resolved here is baked into the measured geometry. Mirrors the Python
-  // host's `literal_text` gate. See `src/chartLowerSpec.ts` for the full
-  // reasoning and for what it costs relative to the F# / Rust hosts.
+describe('the `TextSource` rule — every arm crosses, unresolved (Phase 1143)', () => {
+  // The four TextSource-typed fields cross whichever arm they carry, and the
+  // bridge resolves nothing: resolution is the renderer's, at render time. The
+  // bridge DROPPED the non-literal arms until Phase 1143, which is how an
+  // authored `I18n` title came to vanish from a localised chart. See
+  // `src/chartLowerSpec.ts` for the reasoning and the reference host's
+  // `docs/CHART-LOWERING-TEXT-CONTRACT.md` for the cross-host contract.
   const bound = {
     kind: 'Bound',
     binding: { kind: 'State', key: 'chartTitle', defaultValue: 'from state' },
@@ -286,27 +304,35 @@ describe('the `TextSource` rule — Literal crosses, Bound / I18n are dropped', 
   const i18n = { kind: 'I18n', key: 'chart.title', args: {} } as const;
 
   it('crosses a Literal title', () => {
-    expect(chartLowerSpecOf({ ...baseSpec, title: { kind: 'Literal', value: 'Q' } }).title).toBe(
-      'Q',
+    expect(chartLowerSpecOf({ ...baseSpec, title: { kind: 'Literal', value: 'Q' } }).title).toEqual(
+      { kind: 'Literal', value: 'Q' },
     );
   });
 
   it.each([
     ['Bound', bound],
     ['I18n', i18n],
-  ] as const)('drops a %s title rather than resolving it', (_arm, source) => {
-    expect(chartLowerSpecOf({ ...baseSpec, title: source }).title).toBeUndefined();
+  ] as const)('crosses a %s title unresolved', (_arm, source) => {
+    expect(chartLowerSpecOf({ ...baseSpec, title: source }).title).toEqual(source);
   });
 
   it.each([
     ['Bound', bound],
     ['I18n', i18n],
-  ] as const)('drops a %s axis title, leaving the lowering fallback to stand', (_arm, source) => {
+  ] as const)('crosses a %s axis title, so the fallback is not reached', (_arm, source) => {
     const lowered = chartLowerSpecOf({ ...baseSpec, xTitle: source, yTitle: source });
-    expect(lowered.xTitle).toBeUndefined();
-    expect(lowered.yTitle).toBeUndefined();
-    // The fallback is the lowering's: the capitalised field name still draws,
-    // so a dropped axis title never leaves an axis nameless.
-    expect(renderSpec({ ...baseSpec, xTitle: source })).toContain('Quarter');
+    expect(lowered.xTitle).toEqual(source);
+    expect(lowered.yTitle).toEqual(source);
+    // The capitalised-field-name fallback answers ABSENCE only (contract
+    // clause 5): a declared arm is never replaced by it. The bound title
+    // resolves at render time, so what draws is the state default.
+    const markup = renderSpec({ ...baseSpec, xTitle: bound });
+    expect(markup).toContain('from state');
+    expect(markup).not.toContain('>Quarter<');
+  });
+
+  it('leaves the axis nameless-proofing intact when nothing is declared', () => {
+    expect(chartLowerSpecOf(baseSpec).xTitle).toBeUndefined();
+    expect(renderSpec(baseSpec)).toContain('Quarter');
   });
 });
