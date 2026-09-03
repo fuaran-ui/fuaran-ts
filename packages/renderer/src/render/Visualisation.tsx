@@ -533,6 +533,17 @@ const sliceRowsToPage = (
 // them would be a gesture with no destination — the fake-affordance class the
 // grid-behaviour charter refuses, and the reason this returns `undefined`
 // rather than a no-op writer.
+//
+// Phase 1157 — and this host mints NO per-control slot attribute for the
+// commit, deliberately. The charter walk refused a `data-*` write-back slot
+// hint naming the state key (the reference tier's `docs/VOCABULARY.md`,
+// Appendix A, Interaction / affordance cluster): the destination is already on
+// the wire and resolved right here, the caller's `editCommit` closure reaches
+// it in-process, and an attribute publishing a store ADDRESS would let a
+// generic DOM wirer write the store past the gates a tree-originated write
+// crosses. Every `data-*` token this renderer emits carries identity within the
+// tree, never a store address. A host whose renderer emits inert HTML obtains
+// this destination out of band from its own core, not from its own markup.
 
 /** The structurally-minimal binding view `writeBackTo` reads. */
 type WriteTarget = { readonly kind: string; readonly key?: string; readonly name?: string };
