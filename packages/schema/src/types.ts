@@ -679,6 +679,20 @@ export interface Node<TMsg> {
   readonly accessibility?: Accessibility;
   readonly motion?: Motion;
   readonly extraAttributes?: Readonly<Record<string, string>>;
+  /**
+   * The node-level tooltip trait (Phase 1112) — a supplementary HINT about this
+   * node, revealed by the renderer's own hover / focus / long-press affordance
+   * and announced through `aria-describedby`.
+   *
+   * A `TextSource` rather than a `Binding<string>` because a hint is CONTENT:
+   * authored, translated, and covered for the runtime case by `Bound`. The
+   * GESTURE is deliberately absent from the wire — a document says what the hint
+   * is and never how it appears.
+   *
+   * It DESCRIBES; it does not NAME. `accessibility.label` names the element; an
+   * icon-only control needs both, saying different things.
+   */
+  readonly tooltip?: TextSource;
 }
 
 export type NodeKind<TMsg> =

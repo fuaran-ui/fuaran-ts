@@ -209,6 +209,20 @@ export const node = {
   withAccessibility<TMsg>(a11y: Accessibility, n: Node<TMsg>): Node<TMsg> {
     return { ...n, accessibility: a11y };
   },
+
+  /**
+   * Attach the node-level tooltip trait (Phase 1112) -- a supplementary hint
+   * ABOUT this node, revealed by the renderer's own hover / focus / long-press
+   * affordance and announced through `aria-describedby`.
+   *
+   * A hint DESCRIBES; it does not NAME. On a control whose own text is empty --
+   * an icon-only button is the case this was built for -- set
+   * `withAccessibility` as well, or the element reaches a screen reader with a
+   * description and no name at all.
+   */
+  withTooltip<TMsg>(hint: TextSource, n: Node<TMsg>): Node<TMsg> {
+    return { ...n, tooltip: hint };
+  },
   withMotion<TMsg>(motion: Motion, n: Node<TMsg>): Node<TMsg> {
     return { ...n, motion };
   },

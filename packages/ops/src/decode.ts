@@ -6291,12 +6291,21 @@ const decodeNodeAstInner = (path: string, j: JsonAst): R<Node<unknown>> => {
   if (!style.ok) return style;
   const accessibility = optField(path, f, 'accessibility', decodeAccessibility);
   if (!accessibility.ok) return accessibility;
+  // Phase 1112 — the node-level tooltip trait. An ordinary optional
+  // `TextSource`, decoded by the shared decoder rather than by anything this
+  // position invents. Note the CANONICAL form of a literal hint is a BARE
+  // STRING: `Literal` is `TextSource`'s transparent case, so
+  // `"tooltip":"Updated nightly."` is the encoder's own output rather than a
+  // lenient shorthand; `Bound` and `I18n` are the arms that carry an envelope.
+  const tooltip = optField(path, f, 'tooltip', decodeTextSource);
+  if (!tooltip.ok) return tooltip;
   return ok({
     id: idStr.value as NodeId,
     kind: kind.value,
     state: state.value,
     style: style.value,
     ...(accessibility.value !== undefined ? { accessibility: accessibility.value } : {}),
+    ...(tooltip.value !== undefined ? { tooltip: tooltip.value } : {}),
   });
 };
 

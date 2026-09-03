@@ -16,12 +16,15 @@ import type { ReactElement, ReactNode } from 'react';
 
 import type { Node, NodeKind, StateBehaviour } from '@fuaran-ui/schema';
 
-import { resolve } from '../bindings.js';
+import { renderText, resolve } from '../bindings.js';
 import { collectFragments } from '../context.js';
 import { deriveGuestPrivilege } from '../guestPrivilege.js';
 import {
   accessibilityAttributes,
   forwardsToSemanticElement,
+  tooltipHintId,
+  tooltipRidesSemanticElement,
+  withTooltipDescribedBy,
   partitionExtraAttributes,
 } from '../accessibility.js';
 import { motionVar, nodeClassName } from '../classNames.js';
@@ -193,6 +196,16 @@ export const renderNode = <TMsg,>(
   let className = nodeClassName(node.kind, node.style);
   if (node.motion !== undefined) className += ` fuaran-motion-${motionVar(node.motion)}`;
 
+  // Phase 1112 -- the node-level tooltip trait. An EMPTY resolved hint emits
+  // nothing at all: a declared hint that says nothing is markup that reveals an
+  // empty box on hover, and the wrapper class / focus stop / describedby would
+  // then advertise a description that is not there.
+  const resolvedHint =
+    node.tooltip === undefined ? undefined : renderText(ctx.sources, node.tooltip);
+  const tooltipText =
+    resolvedHint !== undefined && resolvedHint.trim() !== '' ? resolvedHint : undefined;
+  if (tooltipText !== undefined) className += ' fuaran-has-tooltip';
+
   // Phase 951 — route the projection. A kind whose body IS the node's semantic
   // element takes the a11y attributes (plus the `aria-*` half of
   // extraAttributes) onto that element; the wrapper keeps only the `data-*`
@@ -215,6 +228,21 @@ export const renderNode = <TMsg,>(
     }
   }
 
+  // Phase 1112 -- route the hint's description and, where the wrapper is the
+  // described element, its focus stop. The two travel together by construction:
+  // see `tooltipRidesSemanticElement`. Emitted attribute-for-attribute as the
+  // server renderer emits them, so the hydrated DOM matches the served one.
+  if (tooltipText !== undefined) {
+    const hintId = tooltipHintId(id);
+    if (tooltipRidesSemanticElement(node.kind)) {
+      withTooltipDescribedBy(hintId, semanticAttrs);
+    } else {
+      withTooltipDescribedBy(hintId, attrs);
+      attrs['tabIndex'] = '0';
+    }
+    ensureTooltipDismissal();
+  }
+
   let kindBody: ReactNode;
   try {
     kindBody = renderKind(ctx, id, node.state, node.kind, semanticAttrs);
@@ -232,11 +260,69 @@ export const renderNode = <TMsg,>(
     );
   }
 
+  // The hint element itself -- a sibling of the body inside the wrapper, which is
+  // what makes it HOVERABLE: the pointer moving from the node onto the hint never
+  // leaves the wrapper, so the `:hover` that revealed it still holds (WCAG
+  // 1.4.13). Placed after the body so the reading order is thing-then-description.
   return (
     <div key={key} id={id} data-fuaran-node-id={id} className={className} {...attrs}>
       {kindBody}
+      {tooltipText !== undefined && (
+        <span id={tooltipHintId(id)} className="fuaran-tooltip" role="tooltip">
+          {tooltipText}
+        </span>
+      )}
     </div>
   );
+};
+
+// --- The tooltip dismissal listener (Phase 1112) ------------------------------
+//
+// WCAG 1.4.13 asks that content revealed on hover or focus be DISMISSIBLE without
+// moving the pointer or the focus. The reveal itself is pure CSS -- the reference
+// stylesheet shows `.fuaran-tooltip` on `:hover` / `:focus-within` of its
+// `.fuaran-has-tooltip` wrapper -- so the only thing script has to add is Escape,
+// and it adds it by writing `data-fuaran-tooltip-dismissed` on the wrapper, which
+// the stylesheet's last rule reads.
+//
+// ONE DOCUMENT-LEVEL LISTENER, not a per-node handler, for two reasons that are
+// not stylistic. A per-node handler only fires when focus is already inside that
+// node, so a POINTER user hovering a hint -- the commonest case there is -- could
+// never dismiss it; the key event goes to the document. And the node renderer is
+// not a component, so it cannot hold an effect of its own.
+//
+// Installed lazily on the first hint rendered, and idempotent. It writes and
+// clears one attribute and touches nothing React owns, so a re-render never
+// fights it. Parity-locked with the F# client renderer's twin.
+let tooltipDismissalInstalled = false;
+
+const clearDismissedTooltips = (): void => {
+  for (const el of Array.from(document.querySelectorAll('[data-fuaran-tooltip-dismissed]'))) {
+    if (!el.matches(':hover') && !el.matches(':focus-within')) {
+      el.removeAttribute('data-fuaran-tooltip-dismissed');
+    }
+  }
+};
+
+const ensureTooltipDismissal = (): void => {
+  if (tooltipDismissalInstalled || typeof document === 'undefined') return;
+  tooltipDismissalInstalled = true;
+
+  document.addEventListener('keydown', (ev) => {
+    if ((ev as KeyboardEvent).key !== 'Escape') return;
+    // The hints currently showing are exactly the wrappers under the pointer or
+    // holding focus -- the same selector the stylesheet reveals on, so the two
+    // can never disagree about which hint Escape is aimed at.
+    const showing = document.querySelectorAll(
+      '.fuaran-has-tooltip:hover, .fuaran-has-tooltip:focus-within',
+    );
+    for (const el of Array.from(showing)) {
+      el.setAttribute('data-fuaran-tooltip-dismissed', '');
+    }
+  });
+
+  document.addEventListener('pointerout', clearDismissedTooltips);
+  document.addEventListener('focusout', clearDismissedTooltips);
 };
 
 let counter = 0;

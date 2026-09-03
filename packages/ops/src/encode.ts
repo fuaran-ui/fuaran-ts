@@ -2357,6 +2357,10 @@ const node = (n: Node<unknown>): string => {
   if (!isEmptyState(n.state)) fields.push(['state', stateBehaviour(n.state)]);
   if (!isDefaultStyle(n.style)) fields.push(['style', semanticStyle(n.style)]);
   if (n.accessibility !== undefined) fields.push(['accessibility', accessibility(n.accessibility)]);
+  // Phase 1112 — the node-level tooltip trait, omitted when absent. `jObject`
+  // sorts, so the emitted key order is the envelope's ordinal one whatever order
+  // the pushes happen in.
+  if (n.tooltip !== undefined) fields.push(['tooltip', textSource(n.tooltip)]);
   return jObject(fields);
 };
 

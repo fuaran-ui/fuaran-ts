@@ -67,6 +67,9 @@ import {
   accessibilityAttributes,
   forwardsToSemanticElement,
   partitionExtraAttributes,
+  tooltipHintId,
+  tooltipRidesSemanticElement,
+  withTooltipDescribedBy,
 } from './accessibility.js';
 import {
   asArray,
@@ -285,6 +288,16 @@ const renderNode = (ctx: ServerContext, node: Node<unknown>): string => {
   let className = nodeClassName(node.kind, node.style);
   if (node.motion !== undefined) className += ` fuaran-motion-${motionVar(node.motion)}`;
 
+  // Phase 1112 -- the node-level tooltip trait. An EMPTY resolved hint emits
+  // nothing at all: a declared hint that says nothing is markup that reveals an
+  // empty box on hover, and the wrapper class / focus stop / describedby would
+  // then advertise a description that is not there.
+  const resolvedHint =
+    node.tooltip === undefined ? undefined : renderText(ctx.sources, node.tooltip);
+  const tooltipText =
+    resolvedHint !== undefined && resolvedHint.trim() !== '' ? resolvedHint : undefined;
+  if (tooltipText !== undefined) className += ' fuaran-has-tooltip';
+
   // Accessibility first, then sanitized extra-attributes (extra overrides a11y,
   // mirroring the client's `Object.assign` order).
   //
@@ -310,13 +323,44 @@ const renderNode = (ctx: ServerContext, node: Node<unknown>): string => {
     }
   }
 
+  // Phase 1112 -- route the hint's description and, where the wrapper is the
+  // described element, its focus stop. The two travel together by construction:
+  // see `tooltipRidesSemanticElement`.
+  if (tooltipText !== undefined) {
+    const hintId = tooltipHintId(node.id);
+    if (tooltipRidesSemanticElement(node.kind)) {
+      withTooltipDescribedBy(hintId, semantic);
+    } else {
+      withTooltipDescribedBy(hintId, dyn);
+      dyn['tabindex'] = '0';
+    }
+  }
+
   const attrs: Attr[] = [
     ['id', node.id],
     ['data-fuaran-node-id', node.id],
     ['class', className],
     ...Object.entries(dyn),
   ];
-  return el('div', attrs, renderKind(ctx, node, Object.entries(semantic)));
+
+  // The hint element itself -- a sibling of the body inside the wrapper, which is
+  // what makes it HOVERABLE: the pointer moving from the node onto the hint never
+  // leaves the wrapper, so the `:hover` that revealed it still holds (WCAG
+  // 1.4.13). Placed after the body so the reading order is thing-then-description.
+  const body = renderKind(ctx, node, Object.entries(semantic));
+  const hintEl =
+    tooltipText === undefined
+      ? ''
+      : textEl(
+          'span',
+          [
+            ['id', tooltipHintId(node.id)],
+            ['class', 'fuaran-tooltip'],
+            ['role', 'tooltip'],
+          ],
+          tooltipText,
+        );
+  return el('div', attrs, body + hintEl);
 };
 
 const renderKind = (

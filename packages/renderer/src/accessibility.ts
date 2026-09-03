@@ -104,3 +104,64 @@ export const partitionExtraAttributes = (
   }
   return [data, aria];
 };
+
+// --- The node-level tooltip trait (Phase 1112) -------------------------------
+//
+// A tooltip is a DESCRIPTION of the node, revealed by the renderer's own hover /
+// focus / long-press affordance and announced through `aria-describedby`. One
+// principle decides both placement questions, and getting either wrong makes the
+// hint reach nobody: THE ELEMENT THAT CARRIES `aria-describedby` MUST BE THE
+// ELEMENT THAT TAKES FOCUS. A node whose body is not a focus stop therefore needs
+// one -- `tabindex="0"` on the wrapper -- or the hint is pointer-only (WCAG
+// 2.1.1).
+
+/**
+ * Does a node-level tooltip's `aria-describedby` ride the kind's own semantic
+ * element (rather than the wrapper)? True exactly when the projection forwards
+ * AND the forwarded-to element is a native focus stop.
+ *
+ * `Image` forwards its projection and `<img>` takes no focus, so an image with a
+ * hint takes the wrapper description AND the wrapper focus stop -- the pair, or
+ * neither. That is the case that shows this is not simply
+ * `forwardsToSemanticElement`.
+ *
+ * Composed over `forwardsToSemanticElement` rather than restating its arms, so a
+ * kind added there (`Media` and `Embed` are the two this tier still owes) is
+ * picked up here by the same edit.
+ */
+export const tooltipRidesSemanticElement = (kind: NodeKind<unknown>): boolean => {
+  if (!forwardsToSemanticElement(kind)) return false;
+  switch (kind.kind) {
+    // `<button>`, `<a href>`, `<video controls>` / `<audio controls>` and
+    // `<iframe>` are each a native focus stop.
+    case 'Input':
+      return kind.input.kind === 'Button';
+    case 'Display':
+      return (
+        kind.display.kind === 'Link' ||
+        kind.display.kind === 'Media' ||
+        kind.display.kind === 'Embed'
+      );
+    default:
+      return false;
+  }
+};
+
+/**
+ * The DOM id of the hint element a node's tooltip renders as. Derived from the
+ * node id so every host computes the same string without carrying a second
+ * identifier on the wire.
+ */
+export const tooltipHintId = (nodeId: string): string => `${nodeId}-tooltip`;
+
+/**
+ * Merge a tooltip's hint id into an attribute map's `aria-describedby`.
+ *
+ * Appended, never substituted: `aria-describedby` is an ID LIST, and a node that
+ * declares `accessibility.describedBy` AND carries a hint has said two different
+ * things a reader is owed both of.
+ */
+export const withTooltipDescribedBy = (hintId: string, attrs: Record<string, string>): void => {
+  const existing = attrs['aria-describedby'];
+  attrs['aria-describedby'] = existing === undefined ? hintId : `${existing} ${hintId}`;
+};
