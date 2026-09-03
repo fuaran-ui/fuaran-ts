@@ -1239,6 +1239,10 @@ export interface FileUploadOptions<TMsg> {
   readonly multiple?: boolean;
   /** Phase 130 — optional bound disabled-state; absent means always enabled. */
   readonly disabled?: Binding<boolean>;
+  /** Phase 1115 — render a drop zone; absent means the plain picker. */
+  readonly dropTarget?: boolean;
+  /** Phase 1115 — accept a file-bearing paste; absent means the plain picker. */
+  readonly acceptPaste?: boolean;
 }
 
 export interface ChartOptions<TMsg> {
@@ -1934,6 +1938,10 @@ export const fuaran = {
             multiple: o.multiple ?? false,
             onSelect: o.onSelect,
             ...(o.disabled !== undefined ? { disabled: o.disabled } : {}),
+            // Phase 1115 — both default `false`, so the shortest call is the
+            // plain picker and each ingress route is asked for by name.
+            dropTarget: o.dropTarget ?? false,
+            acceptPaste: o.acceptPaste ?? false,
           },
         },
       },

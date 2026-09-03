@@ -950,7 +950,8 @@ const decodeLocalFlushTrigger = (path: string, j: JsonAst): R<LocalFlushTrigger>
 // UI host's `coreError` wrapping.
 
 type CR<T> =
-  { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: string };
 const cok = <T>(value: T): CR<T> => ({ ok: true, value });
 const cerr = (error: string): CR<never> => ({ ok: false, error });
 
@@ -2392,7 +2393,8 @@ const normaliseTransformSource = (j: JsonAst): JsonAst => {
 export const liveValueToTable = (
   v: unknown,
 ):
-  { readonly ok: true; readonly value: Table } | { readonly ok: false; readonly error: string } => {
+  | { readonly ok: true; readonly value: Table }
+  | { readonly ok: false; readonly error: string } => {
   if (v === undefined) return { ok: false, error: 'Transform live source resolved to no value' };
   let text: string;
   try {
@@ -4477,12 +4479,29 @@ const decodeFileUploadSpec = (path: string, j: JsonAst): R<FileUploadSpec<unknow
   // Phase 130: optional bound disabled-state.
   const disabled = optField(path, f, 'disabled', decodeBindingBool);
   if (!disabled.ok) return disabled;
+  // Phase 1115 — the two ingress gestures, both OMIT at `false`. Absent reads as
+  // `false` (the plain picker, which is what every document written before this
+  // revision says); a present member of any other type is WRONG_TYPE and is
+  // never coerced — the slot decides whether a whole ingress route exists, so a
+  // lenient truthiness read would open a drop target on `"no"` and `"false"`.
+  const dropTargetJ = tryField(f, 'dropTarget');
+  const dropTarget =
+    dropTargetJ === undefined ? ok<boolean>(false) : requireBool(`${path}.dropTarget`, dropTargetJ);
+  if (!dropTarget.ok) return dropTarget;
+  const acceptPasteJ = tryField(f, 'acceptPaste');
+  const acceptPaste =
+    acceptPasteJ === undefined
+      ? ok<boolean>(false)
+      : requireBool(`${path}.acceptPaste`, acceptPasteJ);
+  if (!acceptPaste.ok) return acceptPaste;
   return ok({
     accept: accept.value,
     label: label.value,
     multiple: multiple.value,
     onSelect: () => placeholderAction,
     ...(disabled.value !== undefined ? { disabled: disabled.value } : {}),
+    dropTarget: dropTarget.value,
+    acceptPaste: acceptPaste.value,
   });
 };
 

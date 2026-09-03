@@ -550,7 +550,16 @@ const inputKindArb: fc.Arbitrary<InputKind<unknown>> = fc.oneof(
     )
     .map((spec) => ({ kind: 'Button', spec }) as InputKind<unknown>),
   fc
-    .record({ label: textSourceArb, accept: smallArr(nonEmptyStrArb), multiple: boolArb })
+    // Phase 1115 — the two ingress gestures are generated, so the round-trip
+    // property exercises the omit-at-`false` encoder arms in both states rather
+    // than only the omitted one.
+    .record({
+      label: textSourceArb,
+      accept: smallArr(nonEmptyStrArb),
+      multiple: boolArb,
+      dropTarget: boolArb,
+      acceptPaste: boolArb,
+    })
     .map(
       (r) => ({ kind: 'FileUpload', spec: { ...r, onSelect: noopAction } }) as InputKind<unknown>,
     ),

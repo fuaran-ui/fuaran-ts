@@ -1667,6 +1667,12 @@ const fileUploadSpec = (s: FileUploadSpec<unknown>): string => {
   ];
   // Phase 130: optional bound disabled-state.
   if (s.disabled !== undefined) fields.push(['disabled', binding(s.disabled)]);
+  // Phase 1115 — the ingress gestures, OMITTED at `false` so the shortest
+  // upload document is the plain picker and every document written before this
+  // revision encodes to the bytes it always did. `jObject` sorts, so the key
+  // order is canonical whatever order these pushes happen in.
+  if (s.acceptPaste) fields.push(['acceptPaste', bool(true)]);
+  if (s.dropTarget) fields.push(['dropTarget', bool(true)]);
   return jObject(fields);
 };
 

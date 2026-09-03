@@ -69,7 +69,12 @@ export const iconSource = (value: string): IconSource => value as IconSource;
 // / AiTool payloads, and TextSource.I18n args.
 
 export type JsonValue =
-  null | boolean | number | string | readonly JsonValue[] | { readonly [key: string]: JsonValue };
+  | null
+  | boolean
+  | number
+  | string
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
 
 // ─── Bare-string enums (WIRE_FORMAT.md §3.5) ─────────────────────────────────
 //
@@ -139,7 +144,13 @@ export type DateVariant = 'Date' | 'Time' | 'DateTime';
 export type MathDisplay = 'Inline' | 'Block';
 
 export type ToneVariant =
-  'Default' | 'Subdued' | 'Brand' | 'Success' | 'Warning' | 'Critical' | 'Info';
+  | 'Default'
+  | 'Subdued'
+  | 'Brand'
+  | 'Success'
+  | 'Warning'
+  | 'Critical'
+  | 'Info';
 
 export type StyleWeight = 'Compact' | 'Standard' | 'Spacious';
 
@@ -268,7 +279,12 @@ export type Motion =
   | 'ExpandCollapse';
 
 export type ErrorKind =
-  'NotFound' | 'Forbidden' | 'Server' | 'Network' | 'Timeout' | 'BindingResolution';
+  | 'NotFound'
+  | 'Forbidden'
+  | 'Server'
+  | 'Network'
+  | 'Timeout'
+  | 'BindingResolution';
 
 /** Hash-mismatch handling for a `NodeKind.Custom` body (Phase 70). */
 export type HashStrictness = 'StrictReplay' | 'AdvisoryWarning' | 'Enforced';
@@ -610,7 +626,8 @@ export type Format =
  * ambient locale; `Explicit` pins a BCP-47 locale tag (e.g. "en-GB").
  */
 export type LocaleSource =
-  { readonly kind: 'Ambient' } | { readonly kind: 'Explicit'; readonly tag: string };
+  | { readonly kind: 'Ambient' }
+  | { readonly kind: 'Explicit'; readonly tag: string };
 
 // ─── State behaviour + style + accessibility ─────────────────────────────────
 
@@ -2005,6 +2022,27 @@ export interface FileUploadSpec<TMsg> {
    * under the slot name `Disabled`.
    */
   readonly disabled?: Binding<boolean>;
+  /**
+   * Phase 1115 — the control renders a drop zone. Omitted on the wire when
+   * `false`, so an upload that says nothing is the plain picker.
+   *
+   * This names an INGRESS ROUTE, not a gesture: the drag-over, the drop and the
+   * visible drop state are the renderer's affordance, and a dropped file
+   * resolves through the same `onSelect` / `FileSelection` path a picked one
+   * does, filtered by `accept` and bounded by `multiple` exactly as a picked one
+   * is. The drop zone is ADDITIONAL — the picker and its label are always
+   * emitted, because there is no keyboard equivalent of a drag.
+   */
+  readonly dropTarget: boolean;
+  /**
+   * Phase 1115 — a paste carrying files or images, on the focused control,
+   * resolves through the same selection path. Omitted on the wire when `false`.
+   *
+   * It admits no clipboard-READING capability: what a host attaches is a
+   * `paste` listener, which fires only on the reader's own paste and carries
+   * only what the reader pasted.
+   */
+  readonly acceptPaste: boolean;
 }
 
 /**

@@ -11,7 +11,14 @@
 // ============================================================================
 
 import { useEffect, useRef, useState } from 'react';
-import type { ChangeEvent, KeyboardEvent, ReactElement, ReactNode } from 'react';
+import type {
+  ChangeEvent,
+  ClipboardEvent,
+  DragEvent,
+  KeyboardEvent,
+  ReactElement,
+  ReactNode,
+} from 'react';
 
 import type {
   Action,
@@ -1184,6 +1191,139 @@ function FilterView<TMsg>({
 
 // ─── FileUpload ──────────────────────────────────────────────────────────────
 
+/**
+ * Phase 1115 — does `accept` admit this file? The list is the wire's `accept`,
+ * the same value the `<input accept>` attribute carries, so this reproduces the
+ * user agent's own picker filter for the two routes the picker is not on.
+ *
+ * An EMPTY list admits everything, exactly as an absent `accept` attribute does.
+ * Three entry shapes are recognised and they are the three HTML defines: an
+ * extension (`.csv`), a wildcard MIME (`image/*`) and an exact MIME
+ * (`text/csv`). Anything else matches NOTHING rather than everything — a
+ * spelling the picker would not honour must not open a route the picker does
+ * not.
+ */
+export const uploadAdmits = (accept: readonly string[], name: string, mime: string): boolean => {
+  if (accept.length === 0) return true;
+  const n = name.toLowerCase();
+  const m = mime.toLowerCase();
+  return accept.some((raw) => {
+    const entry = raw.trim().toLowerCase();
+    if (entry === '') return false;
+    if (entry.startsWith('.')) return n.endsWith(entry);
+    if (entry.endsWith('/*')) return m !== '' && m.startsWith(entry.slice(0, -1));
+    return m !== '' && m === entry;
+  });
+};
+
+/**
+ * Phase 1115 — the drop / paste affordance around an otherwise unchanged file
+ * control.
+ *
+ * **The one design decision everything else follows from:** an ingested file is
+ * written into the control's OWN `<input type="file">` (via a `DataTransfer`)
+ * and a bubbling `change` is dispatched from it, rather than being handed to
+ * `onSelect` directly. That gives one selection path, the user agent's own
+ * filename chrome as the control's feedback, and — decisively — an
+ * `input.files` any host mechanism that reads the selection off the element
+ * can see. A renderer that dispatched around the input would leave a dropped
+ * file reachable here and invisible there, silently.
+ *
+ * A function component because the drag depth and the refusal count live for
+ * one interaction and are never part of the document. The children are built by
+ * the caller, so there is exactly one definition of the control's markup.
+ */
+const UploadDropZone = (props: {
+  readonly className: string;
+  readonly dropTarget: boolean;
+  readonly acceptPaste: boolean;
+  readonly accept: readonly string[];
+  readonly multiple: boolean;
+  readonly children: ReactNode;
+}): ReactElement => {
+  // A COUNTER, not a flag: dragenter / dragleave fire for every descendant the
+  // pointer crosses, so a boolean flickers off the moment the drag passes over
+  // the label's own <span>.
+  const [depth, setDepth] = useState(0);
+  const [refused, setRefused] = useState(0);
+
+  const ingest = (container: Element, all: readonly File[]): void => {
+    if (all.length === 0) return;
+    const accepted = all.filter((f) => uploadAdmits(props.accept, f.name, f.type));
+    // A single-file control takes the FIRST accepted file, matching the picker.
+    const kept = props.multiple || accepted.length <= 1 ? accepted : accepted.slice(0, 1);
+    setRefused(all.length - kept.length);
+    if (kept.length === 0) return;
+    try {
+      const input = container.querySelector('input[type=file]') as HTMLInputElement | null;
+      if (!input || typeof DataTransfer === 'undefined') return;
+      const dt = new DataTransfer();
+      for (const f of kept) dt.items.add(f);
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    } catch (e) {
+      console.warn(`[Fuaran] FileUpload drop/paste ingest failed: ${String(e)}`);
+    }
+  };
+
+  const classes = [
+    props.className,
+    'fuaran-upload-drop',
+    ...(depth > 0 ? ['fuaran-upload-drop-active'] : []),
+    ...(refused > 0 ? ['fuaran-upload-drop-refused'] : []),
+  ].join(' ');
+
+  return (
+    <label
+      className={classes}
+      {...(props.dropTarget
+        ? {
+            // preventDefault on BOTH enter and over is what makes the element a
+            // drop target at all; omitting it on dragover is the classic silent
+            // failure — the zone highlights and then refuses the drop.
+            onDragEnter: (e: DragEvent) => {
+              e.preventDefault();
+              setDepth((d) => d + 1);
+            },
+            onDragOver: (e: DragEvent) => e.preventDefault(),
+            onDragLeave: (e: DragEvent) => {
+              e.preventDefault();
+              setDepth((d) => Math.max(0, d - 1));
+            },
+            onDrop: (e: DragEvent) => {
+              // Consumed even when every file is refused, so the browser's own
+              // default action (navigating to the dropped file) never fires.
+              e.preventDefault();
+              setDepth(0);
+              ingest(e.currentTarget, Array.from(e.dataTransfer?.files ?? []));
+            },
+          }
+        : {})}
+      {...(props.acceptPaste
+        ? {
+            // Only a paste CARRYING FILES is consumed; a text paste keeps its
+            // default action, so an editable descendant is unaffected.
+            onPaste: (e: ClipboardEvent) => {
+              const files = Array.from(e.clipboardData?.files ?? []);
+              if (files.length === 0) return;
+              e.preventDefault();
+              ingest(e.currentTarget, files);
+            },
+          }
+        : {})}
+    >
+      {props.children}
+      {refused > 0 ? (
+        <span className="fuaran-upload-drop-hint" role="status">
+          {refused === 1
+            ? '1 file was not accepted by this upload.'
+            : `${refused} files were not accepted by this upload.`}
+        </span>
+      ) : null}
+    </label>
+  );
+};
+
 const renderFileUpload = <TMsg,>(
   ctx: RenderContext<TMsg>,
   spec: FileUploadSpec<TMsg>,
@@ -1193,8 +1333,8 @@ const renderFileUpload = <TMsg,>(
   // attribute on the file input when the binding resolves `true`.
   const isDisabled =
     spec.disabled !== undefined ? tryResolve(ctx.sources, spec.disabled) === true : false;
-  return (
-    <label className="fuaran-file-upload">
+  const children = (
+    <>
       <span className="fuaran-file-upload-label">{renderText(ctx.sources, spec.label)}</span>
       <input
         className="fuaran-file-upload-input"
@@ -1219,6 +1359,23 @@ const renderFileUpload = <TMsg,>(
           runAction(ctx, spec.onSelect(selections));
         }}
       />
-    </label>
+    </>
+  );
+
+  // Phase 1115 — neither gesture declared is the shape every document written
+  // before this revision has, and it renders EXACTLY what it rendered then: the
+  // omit-at-`false` polarity is visible here as well as on the wire.
+  return spec.dropTarget || spec.acceptPaste ? (
+    <UploadDropZone
+      className="fuaran-file-upload"
+      dropTarget={spec.dropTarget}
+      acceptPaste={spec.acceptPaste}
+      accept={spec.accept}
+      multiple={spec.multiple}
+    >
+      {children}
+    </UploadDropZone>
+  ) : (
+    <label className="fuaran-file-upload">{children}</label>
   );
 };

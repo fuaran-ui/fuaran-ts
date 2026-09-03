@@ -276,6 +276,10 @@ const fileUpload = <TMsg>(): FileUploadSpec<TMsg> => ({
   accept: [],
   multiple: false,
   onSelect: () => noActions<TMsg>(),
+  // Phase 1115 — both gestures off by default, which IS the wire identity: a
+  // default upload encodes to exactly the bytes it always did.
+  dropTarget: false,
+  acceptPaste: false,
 });
 
 // ─── Visualisation defaults ──────────────────────────────────────────────────

@@ -1988,7 +1988,16 @@ const renderFileUpload = (
   ];
   if (isDisabled) attrs.push(['disabled', true]);
   if (acceptStr !== undefined) attrs.push(['accept', acceptStr]);
-  return el('label', [['class', 'fuaran-file-upload']], label + voidEl('input', attrs));
+  // Phase 1115 — the SSR floor for `dropTarget` / `acceptPaste` is the PLAIN
+  // PICKER, and that is a decision rather than an omission: both routes need an
+  // event listener and no CSS observes a drag, so drop-zone markup a no-script
+  // host could never wire would be an invitation the document cannot honour.
+  // A marker per declared route records that the declaration was READ; it is
+  // explicitly NOT coverage and nothing in this tier acts on it.
+  const labelAttrs: Attr[] = [['class', 'fuaran-file-upload']];
+  if (spec.dropTarget) labelAttrs.push(['data-fuaran-upload-drop', 'declared']);
+  if (spec.acceptPaste) labelAttrs.push(['data-fuaran-upload-paste', 'declared']);
+  return el('label', labelAttrs, label + voidEl('input', attrs));
 };
 
 // ─── Visualisations ───────────────────────────────────────────────────────────
