@@ -1774,6 +1774,44 @@ const renderFormControl = (ctx: ServerContext, field: FormField<unknown>): strin
     }
     case 'SegmentedChoice':
       return renderSegmentedChoiceCore(ctx, field.id, k.options, k.value, k.orientation);
+    // Phase 1113 — THE SSR FLOOR FOR A COMBOBOX, and it is not an approximation
+    // of the client widget: a native `<input list>` bound to a `<datalist>` IS a
+    // combobox to the user agent, which supplies the popup, the filtering, the
+    // keyboard interaction and the accessibility semantics itself, with no
+    // script. NO HAND-WRITTEN ARIA is emitted — a static `aria-expanded="false"`
+    // that can never become `true` would replace the user agent's own correct
+    // semantics with a claim inert markup cannot keep.
+    //
+    // RECORDED KNOWN LIMIT — `allowFreeText: false` is NOT enforced here and
+    // cannot be: a `<datalist>` is a suggestion list, not a constraint. The
+    // declaration rides `data-fuaran-combobox-constrained` so a reader can see
+    // it was not silently dropped, and it is NOT claimed as coverage; the
+    // enforcement is the host's server-side re-check on submit.
+    case 'Combobox': {
+      const listId = `${field.id}-options`;
+      const opts = asArray<SelectOption>(tryResolve(ctx.sources, k.options));
+      const current = String(tryResolve(ctx.sources, k.value) ?? '');
+      const optionsHtml = opts
+        .map((o) => textEl('option', [['value', o.value]], renderText(ctx.sources, o.label)))
+        .join('');
+      const input = voidEl('input', [
+        ['class', 'fuaran-form-field-control fuaran-combobox-input'],
+        ['data-fuaran-field', field.id],
+        ['type', 'text'],
+        ['list', listId],
+        // The browser's own history dropdown would otherwise compete with the
+        // datalist popup for the same gesture.
+        ['autocomplete', 'off'],
+        ['data-fuaran-combobox-constrained', k.allowFreeText ? 'false' : 'true'],
+        ['required', field.required],
+        ['value', current],
+      ]);
+      return el(
+        'span',
+        [['class', 'fuaran-combobox']],
+        input + el('datalist', [['id', listId]], optionsHtml),
+      );
+    }
     case 'Date': {
       const inputType =
         k.variant === 'Time' ? 'time' : k.variant === 'DateTime' ? 'datetime-local' : 'date';

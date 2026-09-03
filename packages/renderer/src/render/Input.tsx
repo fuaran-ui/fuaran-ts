@@ -619,6 +619,31 @@ const renderFormControl = <TMsg,>(ctx: RenderContext<TMsg>, field: FormField<TMs
         k.orientation,
       );
     }
+    // Phase 1113 - the full WAI-ARIA combobox. The pattern is stateful (popup
+    // open, ACTIVE option, in-progress query) in a way the tree is not, so it is
+    // a function component; the renderer resolves the bindings here and the
+    // component holds only the interaction. Nothing on the wire named a
+    // keystroke - the keyboard walk is entirely the renderer's.
+    case 'Combobox': {
+      const comboOnChange = k.onChange;
+      const currentRaw = tryResolve(ctx.sources, k.value);
+      const current = typeof currentRaw === 'string' && currentRaw !== '' ? currentRaw : undefined;
+      return (
+        <ComboboxControl
+          fieldId={field.id}
+          className="fuaran-form-field-control fuaran-combobox-input"
+          required={field.required}
+          allowFreeText={k.allowFreeText}
+          placeholder=""
+          options={asArray<SelectOption>(tryResolve(ctx.sources, k.options))}
+          labelOf={(o) => renderText(ctx.sources, o.label)}
+          committed={current}
+          commit={(chosen) => {
+            handle(comboOnChange, k.value, chosen, chosen);
+          }}
+        />
+      );
+    }
     case 'Date': {
       // Phase 288 — native date / time / datetime control. The bound value is
       // an ISO-8601 string; min/max are ISO strings, step is seconds.
@@ -715,6 +740,213 @@ const checkedProps = (
   current: boolean,
 ): Record<string, boolean> =>
   binding.kind === 'Static' ? { defaultChecked: current } : { checked: current };
+
+// ─── The WAI-ARIA combobox (Phase 1113) ────────────────────────
+//
+//  The APG "combobox with listbox popup" pattern, mirroring the F# tier's
+//  `ComboboxControl`. Focus never leaves the input: the listbox and its options
+//  are not focus stops, and the active option is named by
+//  `aria-activedescendant` - which is what lets a screen reader announce the
+//  highlighted option while the reader keeps typing.
+//
+//  A pointer commits by `mousedown`, NOT `click`: the input's `blur` would
+//  otherwise fire first, close the popup and unmount the option before the
+//  click landed on it.
+//
+//  With `allowFreeText: false` the reader may type anything (typing IS how the
+//  list is searched) but only an option commits; blurring with an unmatched
+//  entry restores the committed value. That restore is an AFFORDANCE and never
+//  a gate - the trust boundary is the host's server-side re-check on submit.
+
+/** The id an option element takes. Derived from the field id and the option's
+ *  INDEX rather than its value: `aria-activedescendant` must name an element
+ *  that exists, and an option value can carry characters invalid in an id. */
+const comboboxOptionId = (fieldId: string, index: number): string =>
+  `${fieldId}-option-${String(index)}`;
+
+function ComboboxControl({
+  fieldId,
+  className,
+  required,
+  allowFreeText,
+  placeholder,
+  options,
+  labelOf,
+  committed,
+  commit,
+}: {
+  fieldId: string;
+  className: string;
+  required: boolean;
+  allowFreeText: boolean;
+  placeholder: string;
+  options: readonly SelectOption[];
+  labelOf: (o: SelectOption) => string;
+  committed: string | undefined;
+  commit: (chosen: string | undefined) => void;
+}): ReactElement {
+  const matched = options.find((o) => o.value === committed);
+  // Free text that matches no option is its own label; a constrained control
+  // cannot reach this branch with a value it did not commit.
+  const committedLabel = matched !== undefined ? labelOf(matched) : (committed ?? '');
+
+  const [query, setQuery] = useState<string>(committedLabel);
+  const [isOpen, setOpen] = useState<boolean>(false);
+  const [activeIndex, setActiveIndex] = useState<number>(-1);
+  const openRef = useRef(isOpen);
+  openRef.current = isOpen;
+
+  // Re-seed the entry text when the committed value moves underneath us. Only
+  // while the popup is CLOSED, so an unrelated model update cannot rewrite what
+  // the reader is halfway through typing.
+  useEffect(() => {
+    if (!openRef.current) setQuery(committedLabel);
+  }, [committedLabel]);
+
+  // An empty query shows everything - opening the popup with no text typed is
+  // how a reader browses the set.
+  const visible =
+    query === ''
+      ? options
+      : options.filter((o) => {
+          const needle = query.toLowerCase();
+          return (
+            labelOf(o).toLowerCase().includes(needle) || o.value.toLowerCase().includes(needle)
+          );
+        });
+
+  const listId = `${fieldId}-listbox`;
+
+  const close = (): void => {
+    setOpen(false);
+    setActiveIndex(-1);
+  };
+
+  const commitOption = (o: SelectOption): void => {
+    setQuery(labelOf(o));
+    close();
+    commit(o.value);
+  };
+
+  // Leaving the control. A matched entry commits; an unmatched one commits only
+  // where free text is admitted. Clearing the box clears the selection in both
+  // modes - an empty entry is "no value", the one reading both modes share.
+  const settle = (): void => {
+    close();
+    if (query.trim() === '') {
+      setQuery('');
+      commit(undefined);
+      return;
+    }
+    const hit = options.find((o) => labelOf(o) === query || o.value === query);
+    if (hit !== undefined) {
+      setQuery(labelOf(hit));
+      commit(hit.value);
+    } else if (allowFreeText) {
+      commit(query);
+    } else {
+      setQuery(committedLabel);
+    }
+  };
+
+  const move = (delta: number): void => {
+    setOpen(true);
+    if (visible.length === 0) return;
+    const next = activeIndex + delta;
+    setActiveIndex(next < 0 ? visible.length - 1 : next >= visible.length ? 0 : next);
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      move(1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      move(-1);
+    } else if (e.key === 'Home' && isOpen) {
+      e.preventDefault();
+      if (visible.length > 0) setActiveIndex(0);
+    } else if (e.key === 'End' && isOpen) {
+      e.preventDefault();
+      if (visible.length > 0) setActiveIndex(visible.length - 1);
+    } else if (e.key === 'Enter') {
+      if (isOpen && activeIndex >= 0 && activeIndex < visible.length) {
+        // The popup owns Enter while an option is highlighted; without this the
+        // keystroke submits the enclosing form and loses the selection.
+        e.preventDefault();
+        const picked = visible[activeIndex];
+        if (picked !== undefined) commitOption(picked);
+      } else if (isOpen) {
+        e.preventDefault();
+        settle();
+      }
+    } else if (e.key === 'Escape') {
+      if (isOpen) {
+        e.preventDefault();
+        close();
+        setQuery(committedLabel);
+      }
+    } else if (e.key === 'Tab') {
+      // Tab moves on and settles; it must NOT be swallowed, or the control
+      // becomes a keyboard trap.
+      settle();
+    }
+  };
+
+  const activeDescendant =
+    isOpen && activeIndex >= 0 && activeIndex < visible.length
+      ? comboboxOptionId(fieldId, activeIndex)
+      : undefined;
+
+  return (
+    <span className="fuaran-combobox">
+      <input
+        className={className}
+        type="text"
+        id={fieldId}
+        required={required}
+        placeholder={placeholder}
+        role="combobox"
+        aria-expanded={isOpen}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        autoComplete="off"
+        {...(activeDescendant !== undefined ? { 'aria-activedescendant': activeDescendant } : {})}
+        value={query}
+        onChange={(e: ChangeEvent<HTMLInputElement>) => {
+          setQuery(e.target.value);
+          setOpen(true);
+          setActiveIndex(-1);
+        }}
+        onKeyDown={onKeyDown}
+        onBlur={() => {
+          settle();
+        }}
+      />
+      <ul className="fuaran-combobox-list" id={listId} role="listbox" hidden={!isOpen}>
+        {visible.map((o, i) => (
+          <li
+            key={`${String(i)}:${o.value}`}
+            id={comboboxOptionId(fieldId, i)}
+            role="option"
+            aria-selected={i === activeIndex}
+            className={
+              i === activeIndex
+                ? 'fuaran-combobox-option fuaran-combobox-option-active'
+                : 'fuaran-combobox-option'
+            }
+            onMouseDown={(e) => {
+              e.preventDefault();
+              commitOption(o);
+            }}
+          >
+            {labelOf(o)}
+          </li>
+        ))}
+      </ul>
+    </span>
+  );
+}
 
 // ─── Local-bound input (Phase 62) ─────────────────────────────────────────────
 

@@ -950,8 +950,7 @@ const decodeLocalFlushTrigger = (path: string, j: JsonAst): R<LocalFlushTrigger>
 // UI host's `coreError` wrapping.
 
 type CR<T> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: string };
+  { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
 const cok = <T>(value: T): CR<T> => ({ ok: true, value });
 const cerr = (error: string): CR<never> => ({ ok: false, error });
 
@@ -2393,8 +2392,7 @@ const normaliseTransformSource = (j: JsonAst): JsonAst => {
 export const liveValueToTable = (
   v: unknown,
 ):
-  | { readonly ok: true; readonly value: Table }
-  | { readonly ok: false; readonly error: string } => {
+  { readonly ok: true; readonly value: Table } | { readonly ok: false; readonly error: string } => {
   if (v === undefined) return { ok: false, error: 'Transform live source resolved to no value' };
   let text: string;
   try {
@@ -4070,6 +4068,40 @@ const decodeFormFieldKind = (
         value: value.value,
         ...onChangeField,
         orientation: orientation.value,
+      });
+    }
+    case 'Combobox': {
+      // Phase 1113 — wire shape is `Choice`'s (same option source, same value
+      // slot, same handler contract) plus `allowFreeText`, which OMITS at
+      // `false`. A present member of any other type is WRONG_TYPE and is never
+      // coerced: the slot decides whether values outside the option set are
+      // admitted, so a lenient truthiness read would widen the field on `"no"`.
+      const options = reqField(
+        path,
+        f,
+        'options',
+        'Combobox options binding',
+        decodeBindingSelectOptions,
+      );
+      if (!options.ok) return options;
+      const allowFreeTextJ = tryField(f, 'allowFreeText');
+      const allowFreeText =
+        allowFreeTextJ === undefined
+          ? ok<boolean>(false)
+          : requireBool(`${path}.allowFreeText`, allowFreeTextJ);
+      if (!allowFreeText.ok) return allowFreeText;
+      const value = valueOr(
+        decodeBindingStringOpt as (p: string, v: JsonAst) => R<Binding<unknown>>,
+        controlValueDefaults.choice,
+        'Combobox value binding',
+      ) as R<Binding<string | undefined>>;
+      if (!value.ok) return value;
+      return ok({
+        kind: 'Combobox',
+        allowFreeText: allowFreeText.value,
+        options: options.value,
+        value: value.value,
+        ...onChangeField,
       });
     }
     case 'TextArea': {

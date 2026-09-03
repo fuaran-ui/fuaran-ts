@@ -1503,6 +1503,19 @@ const formFieldKind = (autoBind: ControlAutoBind, k: FormFieldKind<unknown>): st
         ['orientation', str(k.orientation)],
         ...valueField(k.value, controlValueDefaults.choice, (v) => binding(v, staticStringOpt)),
       ]);
+    case 'Combobox': {
+      // Phase 1113 — ordinal key order (`allowFreeText` < `onChange` <
+      // `options` < `value`), with `allowFreeText` OMITTED at `false` so the
+      // shortest combobox document is the constrained one.
+      const fields: Field[] = [];
+      if (k.allowFreeText) fields.push(['allowFreeText', bool(true)]);
+      fields.push(...handlerField('onChange', k.onChange));
+      fields.push(['options', binding(k.options, staticSelectOptions)]);
+      fields.push(
+        ...valueField(k.value, controlValueDefaults.choice, (v) => binding(v, staticStringOpt)),
+      );
+      return caseObj('Combobox', fields);
+    }
     case 'TextArea':
       return caseObj('TextArea', [
         ...handlerField('onChange', k.onChange),

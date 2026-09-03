@@ -69,12 +69,7 @@ export const iconSource = (value: string): IconSource => value as IconSource;
 // / AiTool payloads, and TextSource.I18n args.
 
 export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
+  null | boolean | number | string | readonly JsonValue[] | { readonly [key: string]: JsonValue };
 
 // ─── Bare-string enums (WIRE_FORMAT.md §3.5) ─────────────────────────────────
 //
@@ -144,13 +139,7 @@ export type DateVariant = 'Date' | 'Time' | 'DateTime';
 export type MathDisplay = 'Inline' | 'Block';
 
 export type ToneVariant =
-  | 'Default'
-  | 'Subdued'
-  | 'Brand'
-  | 'Success'
-  | 'Warning'
-  | 'Critical'
-  | 'Info';
+  'Default' | 'Subdued' | 'Brand' | 'Success' | 'Warning' | 'Critical' | 'Info';
 
 export type StyleWeight = 'Compact' | 'Standard' | 'Spacious';
 
@@ -279,12 +268,7 @@ export type Motion =
   | 'ExpandCollapse';
 
 export type ErrorKind =
-  | 'NotFound'
-  | 'Forbidden'
-  | 'Server'
-  | 'Network'
-  | 'Timeout'
-  | 'BindingResolution';
+  'NotFound' | 'Forbidden' | 'Server' | 'Network' | 'Timeout' | 'BindingResolution';
 
 /** Hash-mismatch handling for a `NodeKind.Custom` body (Phase 70). */
 export type HashStrictness = 'StrictReplay' | 'AdvisoryWarning' | 'Enforced';
@@ -626,8 +610,7 @@ export type Format =
  * ambient locale; `Explicit` pins a BCP-47 locale tag (e.g. "en-GB").
  */
 export type LocaleSource =
-  | { readonly kind: 'Ambient' }
-  | { readonly kind: 'Explicit'; readonly tag: string };
+  { readonly kind: 'Ambient' } | { readonly kind: 'Explicit'; readonly tag: string };
 
 // ─── State behaviour + style + accessibility ─────────────────────────────────
 
@@ -1931,6 +1914,23 @@ export type FormFieldKind<TMsg> =
       readonly onChange?: (value: readonly [string, string]) => Action<TMsg>;
       readonly variant: DateVariant;
       readonly constraints: DateFieldConstraints;
+    }
+  | {
+      // Phase 1113 — the typeahead / autocomplete control. `Choice` is a bounded
+      // menu the reader scans; `Combobox` is a searchable one it FILTERS, which
+      // is what makes a two-hundred-option source usable rather than merely
+      // valid. The option source is an ordinary binding, so a `Query`-bound one
+      // IS the asynchronous suggestion feed — no coordination vocabulary is
+      // minted for it. `allowFreeText` omits at `false` on the wire, which makes
+      // the shortest document the CONSTRAINED one. The value slot and handler
+      // are `Choice`'s, deliberately: the constrained combobox is a searchable
+      // select, so the two must not differ at a call site that migrates between
+      // them.
+      readonly kind: 'Combobox';
+      readonly allowFreeText: boolean;
+      readonly options: Binding<readonly SelectOption[]>;
+      readonly value: Binding<string | undefined>;
+      readonly onChange?: (value: string | undefined) => Action<TMsg>;
     };
 
 /**
@@ -1962,6 +1962,7 @@ export const FORM_FIELD_KIND_NAMES: readonly string[] = [
   'TextArea',
   'Date',
   'DateRange',
+  'Combobox',
 ];
 
 export interface NumberFieldConstraints {

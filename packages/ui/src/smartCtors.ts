@@ -709,6 +709,22 @@ export const formFieldKind = {
   ): FormFieldKind<TMsg> {
     return { kind: 'SegmentedChoice', options, value, onChange, orientation };
   },
+  /**
+   * `Combobox` (Phase 1113) - the typeahead / autocomplete control: the same
+   * triple `choice` takes plus the free-text admission, in `segmentedChoice`'s
+   * call shape (the discriminator last). A `Query`-bound `options` gives an
+   * asynchronous suggestion source with no coordination vocabulary of its own.
+   * `allowFreeText` defaults to `false` - the constrained form - so the
+   * shortest call admits only the listed values.
+   */
+  combobox<TMsg>(
+    options: Binding<readonly SelectOption[]>,
+    value: Binding<string | undefined>,
+    onChange: (value: string | undefined) => Action<TMsg>,
+    allowFreeText = false,
+  ): FormFieldKind<TMsg> {
+    return { kind: 'Combobox', allowFreeText, options, value, onChange };
+  },
   date<TMsg>(
     value: Binding<string>,
     onChange: (value: string) => Action<TMsg>,
@@ -775,6 +791,15 @@ export const formFieldKind = {
   ): FormFieldKind<TMsg> {
     return { kind: 'SegmentedChoice', options, value, orientation };
   },
+  /** Handler-free `Combobox` (Phase 1113) - writes the chosen or typed value
+   *  back to the value slot; a cleared entry clears the slot. */
+  comboboxDeclarative<TMsg>(
+    options: Binding<readonly SelectOption[]>,
+    value: Binding<string | undefined>,
+    allowFreeText = false,
+  ): FormFieldKind<TMsg> {
+    return { kind: 'Combobox', allowFreeText, options, value };
+  },
   /** Handler-free `Date` — writes the ISO-8601 string back to the value slot. */
   dateDeclarative<TMsg>(
     value: Binding<string>,
@@ -811,6 +836,15 @@ export const filterField = {
     orientation: Orientation = 'Horizontal',
   ): FormFieldKind<TMsg> {
     return { kind: 'SegmentedChoice', options, value: { kind: 'Filter', name }, orientation };
+  },
+  /** Typeahead chip bound to its own filter key (Phase 1113) - the searchable
+   *  form of `choice`, for a filter over a set too large to scan. */
+  combobox<TMsg>(
+    name: string,
+    options: Binding<readonly SelectOption[]>,
+    allowFreeText = false,
+  ): FormFieldKind<TMsg> {
+    return { kind: 'Combobox', allowFreeText, options, value: { kind: 'Filter', name } };
   },
   /** Dual-thumb range chip bound to its own filter key. */
   range<TMsg>(name: string): FormFieldKind<TMsg> {
