@@ -2068,6 +2068,10 @@ const modalSpec = (s: ModalSpec<unknown>): string => {
   ];
   if (s.onDismiss !== undefined) fields.push(['onDismiss', action(s.onDismiss)]);
   if (s.heading !== undefined) fields.push(['heading', textSource(s.heading)]);
+  // Phase 1119 — `modality` omits at `Modal`, so a blocking dialog encodes to
+  // exactly the bytes it did before this release; `anchor` omits when absent.
+  if (s.modality !== 'Modal') fields.push(['modality', str(s.modality)]);
+  if (s.anchor !== undefined) fields.push(['anchor', str(s.anchor)]);
   return jObject(fields);
 };
 

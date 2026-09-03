@@ -590,31 +590,63 @@ const renderLayout = (
       // portal); closed = the `hidden` attribute; positioned by CSS. Inert
       // server-side (handlers attach on hydration). Body order: heading, dismiss
       // button, then the children body — parity-locked with the client + F#.
+      //
+      // Phase 1119 — the SSR floor for a Popover, and the honest one. A
+      // no-script host cannot measure an anchor, so it cannot place a surface
+      // against one: what it emits is the popover IN FLOW at the node's own
+      // document position, with no scrim and no `aria-modal`. An emitter that
+      // wants the static render to read correctly puts the popover node
+      // immediately after its anchor — WIRE_FORMAT.md §3.6.11, not a property
+      // of this file. The markup is byte-identical to the client renderer's.
       const isOpen = tryResolve(ctx.sources, layout.spec.open) === true;
-      const heading =
-        layout.spec.heading !== undefined
+      // Every emitted class name is a LITERAL at its call site, never composed
+      // from a family prefix — the class vocabulary is parity-locked across the
+      // host tiers and read out of the source.
+      const surfaceChildren = (
+        headingClass: string,
+        dismissClass: string,
+        bodyClass: string,
+      ): string => {
+        const heading =
+          layout.spec.heading !== undefined
+            ? textEl('h2', [['class', headingClass]], renderText(ctx.sources, layout.spec.heading))
+            : '';
+        const dismiss = layout.spec.dismissable
           ? textEl(
-              'h2',
-              [['class', 'fuaran-modal-heading']],
-              renderText(ctx.sources, layout.spec.heading),
+              'button',
+              [
+                ['class', dismissClass],
+                ['type', 'button'],
+                ['aria-label', 'Close'],
+              ],
+              '×',
             )
           : '';
-      const dismiss = layout.spec.dismissable
-        ? textEl(
-            'button',
-            [
-              ['class', 'fuaran-modal-dismiss'],
-              ['type', 'button'],
-              ['aria-label', 'Close'],
-            ],
-            '×',
-          )
-        : '';
-      const body = el(
-        'div',
-        [['class', 'fuaran-modal-body']],
-        renderChildren(ctx, layout.spec.children),
-      );
+        const body = el('div', [['class', bodyClass]], renderChildren(ctx, layout.spec.children));
+        return heading + dismiss + body;
+      };
+      if (layout.spec.modality === 'Popover') {
+        const surface = el(
+          'div',
+          [
+            ['class', 'fuaran-popover-surface'],
+            ['role', 'dialog'],
+          ],
+          surfaceChildren(
+            'fuaran-popover-heading',
+            'fuaran-popover-dismiss',
+            'fuaran-popover-body',
+          ),
+        );
+        const popoverAttrs: Attr[] = [['class', 'fuaran-popover']];
+        if (!isOpen) popoverAttrs.push(['hidden', true]);
+        // The declared anchor RIDES the static render — it records that the id
+        // was read, and it is the hook the client control resolves on mount. It
+        // is explicitly not coverage: nothing in a no-script host acts on it.
+        if (layout.spec.anchor !== undefined)
+          popoverAttrs.push(['data-fuaran-popover-anchor', layout.spec.anchor]);
+        return el('div', popoverAttrs, surface);
+      }
       const dialog = el(
         'div',
         [
@@ -622,7 +654,7 @@ const renderLayout = (
           ['role', 'dialog'],
           ['aria-modal', 'true'],
         ],
-        heading + dismiss + body,
+        surfaceChildren('fuaran-modal-heading', 'fuaran-modal-dismiss', 'fuaran-modal-body'),
       );
       const overlayAttrs: Attr[] = [['class', 'fuaran-modal-overlay']];
       if (!isOpen) overlayAttrs.push(['hidden', true]);

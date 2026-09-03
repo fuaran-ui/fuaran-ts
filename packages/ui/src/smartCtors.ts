@@ -58,6 +58,7 @@ import type {
   ImageVariant,
   LinkProtection,
   MathDisplay,
+  ModalityKind,
   ScrollOrientation,
   InvokeArg,
   Emphasis,
@@ -1145,6 +1146,10 @@ export interface ModalOptions<TMsg> {
   readonly dismissable?: boolean;
   readonly children?: readonly Node<TMsg>[];
   readonly onDismiss?: Action<TMsg>;
+  /** Which overlay this is (Phase 1119; default `'Modal'`). */
+  readonly modality?: ModalityKind;
+  /** The id of the node a `'Popover'` is positioned against (Phase 1119). */
+  readonly anchor?: string;
 }
 
 export interface CodeBlockOptions {
@@ -1531,6 +1536,10 @@ export const fuaran = {
             // writable `open` binding (the write-back default).
             ...(o.onDismiss !== undefined ? { onDismiss: o.onDismiss } : {}),
             ...(o.heading !== undefined ? { heading: text(o.heading) } : {}),
+            // Phase 1119: `Modal` is the wire identity, so the shortest call
+            // still emits the pre-1119 bytes and a popover is asked for by name.
+            modality: o.modality ?? 'Modal',
+            ...(o.anchor !== undefined ? { anchor: o.anchor } : {}),
           },
         },
       },

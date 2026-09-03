@@ -101,6 +101,15 @@ export type ImageVariant = 'Default' | 'Avatar' | 'Rounded';
 export type ImageFit = 'Natural' | 'Cover' | 'Contain';
 
 /**
+ * `LayoutKind.Modal.modality` — WHICH overlay the node is (Phase 1119). The
+ * axis is whether the surface BLOCKS the page, and it has two answers:
+ * `Modal` is the blocking task surface (scrim, focus trap, `aria-modal`);
+ * `Popover` is the transient anchored one (no scrim, no trap, light dismiss),
+ * positioned against `ModalSpec.anchor`. Omitted on the wire at `Modal`.
+ */
+export type ModalityKind = 'Modal' | 'Popover';
+
+/**
  * `DisplayKind.Image.aspectRatio` — the box the element reserves BEFORE the
  * image arrives (Phase 1077); the cumulative-layout-shift slot. A closed set of
  * TOKENS, never a CSS ratio: a numeric pair would reach a style attribute,
@@ -1120,6 +1129,18 @@ export interface ModalSpec<TMsg> {
    * dismissable modal closes itself with zero host code.
    */
   readonly onDismiss?: Action<TMsg>;
+  /**
+   * Which overlay this is (Phase 1119). Required in the type and omitted at
+   * `'Modal'` on the wire, matching the F# record — the shortest document is
+   * still the blocking dialog every pre-1119 emission produced.
+   */
+  readonly modality: ModalityKind;
+  /**
+   * The id of the node a `Popover` is positioned against (Phase 1119).
+   * Meaningful for `'Popover'` only; on a `'Modal'` it is a dead declaration
+   * the validator reports rather than a decode failure.
+   */
+  readonly anchor?: string;
 }
 
 // An overflow / scroll container (Phase 289). `orientation` selects the scroll

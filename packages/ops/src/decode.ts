@@ -88,6 +88,7 @@ import type {
   EmbedSpec,
   ImageAspect,
   ImageFit,
+  ModalityKind,
   ImageLoading,
   ImageSpec,
   ImageVariant,
@@ -567,6 +568,13 @@ const decodeImageVariant = (p: string, j: JsonAst): R<ImageVariant> =>
 // unrecognised case reports at the field's own path with no `.$type` suffix.
 const decodeImageFit = (p: string, j: JsonAst): R<ImageFit> =>
   bareEnum(p, j, ['Natural', 'Cover', 'Contain'] as const, 'ImageFit');
+
+// Phase 1119 — `ModalSpec.modality`. Two cases and no lenient spelling: the
+// member decides whether the surface BLOCKS the page, and absence already
+// spells the safe answer (`Modal`, the pre-1119 behaviour), so a value the
+// decoder cannot read must be refused rather than recovered from.
+const decodeModalityKind = (p: string, j: JsonAst): R<ModalityKind> =>
+  bareEnum(p, j, ['Modal', 'Popover'] as const, 'ModalityKind');
 
 const decodeImageAspect = (p: string, j: JsonAst): R<ImageAspect> =>
   bareEnum(
@@ -5480,12 +5488,26 @@ const decodeModalSpec = (path: string, j: JsonAst): R<ModalSpec<unknown>> => {
   if (!open.ok) return open;
   const heading = optFieldAliased(path, f, 'heading', ['title'], decodeTextSource);
   if (!heading.ok) return heading;
+  // Phase 1119 — omitted-when-`Modal`; absent restores the pre-1119 blocking
+  // dialog, which is what keeps every existing modal document decoding
+  // unchanged. `anchor` admits any string: whether it names a node in this tree
+  // is a whole-tree question the validator answers (FUARAN122), never a decoder.
+  const modalityJ = tryField(f, 'modality');
+  const modality =
+    modalityJ === undefined
+      ? ok<ModalityKind>('Modal')
+      : decodeModalityKind(`${path}.modality`, modalityJ);
+  if (!modality.ok) return modality;
+  const anchor = optField(path, f, 'anchor', requireString);
+  if (!anchor.ok) return anchor;
   return ok({
     children: children.value,
     dismissable: dismissable.value,
     ...(onDismiss.value !== undefined ? { onDismiss: onDismiss.value } : {}),
     open: open.value as Binding<boolean>,
     ...(heading.value !== undefined ? { heading: heading.value } : {}),
+    modality: modality.value,
+    ...(anchor.value !== undefined ? { anchor: anchor.value } : {}),
   });
 };
 

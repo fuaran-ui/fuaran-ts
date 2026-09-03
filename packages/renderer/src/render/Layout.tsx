@@ -6,7 +6,8 @@
 //  reference CSS keys off them).
 // ============================================================================
 
-import type { CSSProperties, KeyboardEvent, ReactElement } from 'react';
+import type { CSSProperties, KeyboardEvent, ReactElement, ReactNode } from 'react';
+import { useEffect, useRef } from 'react';
 
 import type { LayoutKind, Node, TabHeader } from '@fuaran-ui/schema';
 
@@ -15,6 +16,133 @@ import type { RenderContext } from '../context.js';
 import { runAction, writeBackTo } from '../context.js';
 import { renderChildren, renderNode } from './core.js';
 import { iconHook } from './iconHook.js';
+
+// ─── Popover (Phase 1119) ────────────────────────────────────────────────────
+//
+// `ModalSpec.modality = 'Popover'` selects the NON-BLOCKING overlay. Everything
+// in this component is renderer-owned: where the surface is placed, which way it
+// flips at a viewport edge, how far off its anchor it sits, and which gestures
+// close it. Nothing on the wire names a pixel or an event — WIRE_FORMAT.md
+// §3.6.11 — which is why this lives here rather than in four more wire members.
+//
+// The RENDERED markup is byte-identical to the SSR floor: same wrapper, same
+// classes, same `role`, same `[hidden]`. Placement is applied IMPERATIVELY to
+// the element after mount, never as a `style` prop, so hydration finds the DOM
+// the server emitted — the same posture the modal's focus management takes.
+//
+// When no anchor resolves, this positions NOTHING and the surface stays in the
+// document flow where the node sits. It does not guess and it does not centre
+// itself: a surface floating mid-screen with no scrim is the one outcome a
+// reader cannot interpret, and the validator reports both unanchored shapes
+// (FUARAN122) so the fallback is described rather than silent.
+
+const POPOVER_GAP = 8;
+
+const findAnchor = (anchorId: string | undefined): Element | null => {
+  if (anchorId === undefined || anchorId === '' || typeof document === 'undefined') return null;
+  return document.querySelector(`[data-fuaran-node-id="${anchorId.replace(/"/g, '\\"')}"]`);
+};
+
+const PopoverSurface = ({
+  hidden,
+  anchor,
+  dismissable,
+  onDismiss,
+  children,
+}: {
+  readonly hidden: boolean;
+  readonly anchor?: string;
+  readonly dismissable: boolean;
+  readonly onDismiss: () => void;
+  readonly children: ReactNode;
+}): ReactElement => {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const isOpen = !hidden;
+
+  // Placement, and the re-placement on scroll / resize while open. `scroll` is
+  // captured because a scroll event does not bubble, so the capture phase is the
+  // only way to see one from a nested scroller and move with the anchor.
+  useEffect(() => {
+    const el = ref.current;
+    if (el === null) return;
+    const place = (): void => {
+      const anchorEl = isOpen ? findAnchor(anchor) : null;
+      if (anchorEl === null) {
+        el.style.position = '';
+        el.style.top = '';
+        el.style.left = '';
+        el.removeAttribute('data-fuaran-popover-placement');
+        return;
+      }
+      // Coordinates are viewport-relative from getBoundingClientRect, so fixed
+      // positioning needs no scroll arithmetic and no offset-parent archaeology
+      // — the two things that make hand-rolled anchoring wrong under any
+      // transformed ancestor.
+      const a = anchorEl.getBoundingClientRect();
+      el.style.position = 'fixed';
+      el.style.top = '0px';
+      el.style.left = '0px';
+      const s = el.getBoundingClientRect();
+      const roomBelow = window.innerHeight - a.bottom - POPOVER_GAP;
+      const roomAbove = a.top - POPOVER_GAP;
+      // A single either/or, preferring below on a tie. There is no left/right
+      // axis and no "auto" strategy: a second axis needs a preference to choose
+      // between them, and a preference is a wire member the charter declines.
+      const above = s.height > roomBelow && roomAbove > roomBelow;
+      const top = above ? a.top - POPOVER_GAP - s.height : a.bottom + POPOVER_GAP;
+      const maxLeft = window.innerWidth - s.width - POPOVER_GAP;
+      const left = Math.max(POPOVER_GAP, Math.min(a.left, maxLeft));
+      el.style.top = `${String(Math.round(top))}px`;
+      el.style.left = `${String(Math.round(left))}px`;
+      el.setAttribute('data-fuaran-popover-placement', above ? 'above' : 'below');
+    };
+    place();
+    if (!isOpen || anchor === undefined) return;
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [isOpen, anchor]);
+
+  // Light dismiss. The ANCHOR is excluded from the outside test deliberately: it
+  // is normally the control that opened the surface, so a dismiss on its own
+  // pointerdown would race the open it is about to perform. `pointerdown` rather
+  // than `click`, and `Escape` on the document rather than on the surface —
+  // nothing here holds focus, so a keydown on the surface would mostly not fire.
+  useEffect(() => {
+    if (!isOpen || !dismissable || typeof document === 'undefined') return;
+    const el = ref.current;
+    const anchorEl = findAnchor(anchor);
+    const onPointerDown = (e: Event): void => {
+      const target = e.target as globalThis.Node | null;
+      if (el !== null && target !== null && el.contains(target)) return;
+      if (anchorEl !== null && target !== null && anchorEl.contains(target)) return;
+      onDismiss();
+    };
+    const onKeyDown = (e: globalThis.KeyboardEvent): void => {
+      if (e.key === 'Escape' || e.key === 'Esc') onDismiss();
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isOpen, anchor, dismissable, onDismiss]);
+
+  return (
+    <div
+      className="fuaran-popover"
+      ref={ref}
+      {...(hidden ? { hidden: true } : {})}
+      {...(anchor !== undefined ? { 'data-fuaran-popover-anchor': anchor } : {})}
+    >
+      {children}
+    </div>
+  );
+};
 
 export const renderLayout = <TMsg,>(
   ctx: RenderContext<TMsg>,
@@ -178,6 +306,63 @@ export const renderLayout = <TMsg,>(
         if (onDismiss !== undefined) runAction(ctx, onDismiss);
         else writeBackTo(ctx, modalOpenBinding, false);
       };
+      // Phase 1119 — the modality selects WHICH overlay this is. A Popover
+      // takes the whole `fuaran-popover` class family rather than a modifier on
+      // the modal's: the class vocabulary is parity-locked across every host
+      // tier, and a modifier that changed what `fuaran-modal-*` MEANS would
+      // silently re-style every existing modal on a host that adopted it.
+      // Every emitted class name is a LITERAL at its call site, never composed
+      // from a family prefix: the class vocabulary is parity-locked across the
+      // host tiers and read out of the source, so a composed name is invisible
+      // to the machinery that keeps the lock.
+      const surfaceChildren = (
+        headingClass: string,
+        dismissClass: string,
+        bodyClass: string,
+      ): ReactElement => (
+        <>
+          {layout.spec.heading !== undefined && (
+            <h2 className={headingClass}>{renderText(ctx.sources, layout.spec.heading)}</h2>
+          )}
+          {layout.spec.dismissable && (
+            <button
+              className={dismissClass}
+              type="button"
+              aria-label="Close"
+              onClick={() => dismiss()}
+            >
+              ×
+            </button>
+          )}
+          <div className={bodyClass}>{renderChildren(ctx, layout.spec.children)}</div>
+        </>
+      );
+      if (layout.spec.modality === 'Popover') {
+        // No scrim wrapper, no backdrop click and NO `aria-modal` — that
+        // attribute asserts the rest of the page is inert, which here is false,
+        // and it is omitted entirely rather than emitted as "false" (already the
+        // ARIA default, so writing it would claim a denial nobody made). The
+        // dialog role is kept: a dialog that does not block is exactly what
+        // ARIA's non-modal dialog is. Placement and light dismiss are attached
+        // to the mounted element by `PopoverSurface`, so the rendered markup is
+        // byte-identical to the server's and hydration finds the DOM it expects.
+        return (
+          <PopoverSurface
+            hidden={!isOpen}
+            {...(layout.spec.anchor !== undefined ? { anchor: layout.spec.anchor } : {})}
+            dismissable={layout.spec.dismissable}
+            onDismiss={dismiss}
+          >
+            <div className="fuaran-popover-surface" role="dialog">
+              {surfaceChildren(
+                'fuaran-popover-heading',
+                'fuaran-popover-dismiss',
+                'fuaran-popover-body',
+              )}
+            </div>
+          </PopoverSurface>
+        );
+      }
       return (
         <div
           className="fuaran-modal-overlay"
@@ -187,22 +372,7 @@ export const renderLayout = <TMsg,>(
           }}
         >
           <div className="fuaran-modal-dialog" role="dialog" aria-modal="true">
-            {layout.spec.heading !== undefined && (
-              <h2 className="fuaran-modal-heading">
-                {renderText(ctx.sources, layout.spec.heading)}
-              </h2>
-            )}
-            {layout.spec.dismissable && (
-              <button
-                className="fuaran-modal-dismiss"
-                type="button"
-                aria-label="Close"
-                onClick={() => dismiss()}
-              >
-                ×
-              </button>
-            )}
-            <div className="fuaran-modal-body">{renderChildren(ctx, layout.spec.children)}</div>
+            {surfaceChildren('fuaran-modal-heading', 'fuaran-modal-dismiss', 'fuaran-modal-body')}
           </div>
         </div>
       );
