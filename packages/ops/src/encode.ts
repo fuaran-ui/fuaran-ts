@@ -129,7 +129,7 @@ const assertNever = (x: never): never => {
 };
 
 /** Quote + escape a string per WIRE_FORMAT.md §2 rule 6 (only " \ and control chars). */
-const str = (s: string): string => {
+export const str = (s: string): string => {
   let out = '"';
   for (let i = 0; i < s.length; i += 1) {
     const c = s[i]!;
@@ -264,20 +264,20 @@ export const num = (n: number): string => {
   return formatFiniteDouble(v);
 };
 
-const bool = (b: boolean): string => (b ? 'true' : 'false');
+export const bool = (b: boolean): string => (b ? 'true' : 'false');
 
-type Field = readonly [string, string];
+export type Field = readonly [string, string];
 
 /** Emit an object with Ordinal-sorted keys (§2 rule 2). */
-const jObject = (fields: readonly Field[]): string => {
+export const jObject = (fields: readonly Field[]): string => {
   const sorted = [...fields].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
   return '{' + sorted.map(([k, v]) => str(k) + ':' + v).join(',') + '}';
 };
 
-const jArray = (items: readonly string[]): string => '[' + items.join(',') + ']';
+export const jArray = (items: readonly string[]): string => '[' + items.join(',') + ']';
 
 /** A `$type`-discriminated DU object (§2 rule 8). */
-const caseObj = (discriminator: string, fields: readonly Field[]): string =>
+export const caseObj = (discriminator: string, fields: readonly Field[]): string =>
   jObject([['$type', str(discriminator)], ...fields]);
 
 /**

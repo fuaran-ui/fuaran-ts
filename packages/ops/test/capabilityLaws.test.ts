@@ -16,24 +16,21 @@
 //    - declarationRoundTrip — decode-then-encode returns the REFERENCE's bytes.
 //    - registryEnumerate    — id-sorted enumeration, whatever the insertion order.
 //
-//  WHERE THE CODEC LIVES, and why it is here rather than in a package. The
-//  three runtime cases run against SHIPPED ports (`validateArgs`,
-//  `invocationKey`, `capabilityDeterminismTag`, `registryOf` + `enumerate`) —
-//  those are the surface the reference's law family certifies and the surface
-//  this host mirrors. The capability DECLARATION codec is the one member of the
-//  family this host ships nowhere: `@fuaran-ui/ui` holds the capability types
-//  but not a canonical renderer, and `@fuaran-ui/ops` holds the canonical
-//  renderer but not the types. Placing a shipped codec on either side is a
-//  public-surface decision (a peer dependency one way, a type move the other),
-//  which is not this leg's to make — so the codec below is HARNESS-LOCAL,
-//  written over ops's own canonical number and escape rules so the bytes it
-//  emits are this host's canonical bytes and not a second convention.
+//  WHERE THE CODEC LIVES. Every case now runs against SHIPPED surfaces. The
+//  three runtime cases run against `@fuaran-ui/ui`'s ports (`validateArgs`,
+//  `invocationKey`, `capabilityDeterminismTag`, `registryOf` + `enumerate`),
+//  and `declarationRoundTrip` against `@fuaran-ui/ops`'s
+//  `decodeCapabilityDeclaration` / `encodeCapabilityDeclaration`.
 //
-//  That still makes `declarationRoundTrip` a real assertion rather than a
-//  self-consistency check: the INPUT bytes were produced by the reference, and
-//  a decode-then-encode that disagreed on member order, escaping or number form
-//  would fail against them. What it does not yet do is certify a codec a
-//  CONSUMER can call — that is the successor.
+//  That last one used to be a HARNESS-LOCAL codec, because the types were in
+//  `@fuaran-ui/ui` and the canonical renderer in `@fuaran-ui/ops` and neither
+//  package may depend on the other. It was a real assertion even then — the
+//  INPUT bytes are the reference's, so a decode-then-encode disagreeing on
+//  member order, escaping or number form would have failed against them — but
+//  it certified no codec a CONSUMER could call. Moving the five declaration
+//  types down into `@fuaran-ui/schema`, which both packages already depend on,
+//  let the codec ship in `@fuaran-ui/ops`; the bytes this law certifies are now
+//  the bytes the package emits, by construction rather than by review.
 //
 //  ONE named partial, deliberately not silent. An `invocationKey` vector also
 //  carries `capturedValue`: the value a capture-replay seam must return
@@ -71,15 +68,10 @@ import {
   invocationKey,
   registryOf,
   validateArgs,
-  type Capability,
-  type CapabilitySigEntry,
-  type CapabilitySignature,
-  type IslandKind,
-  type Placement,
 } from '../../ui/dist/index.js';
-import type { DeterminismSource, HoleValueSpace, HostEffect, InvokeArg } from '@fuaran-ui/schema';
+import type { Capability, InvokeArg } from '@fuaran-ui/schema';
 
-import { formatFiniteDouble } from '../src/encode.js';
+import { decodeCapabilityDeclaration, encodeCapabilityDeclaration } from '../src/capabilityDecl.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // packages/ops/test → workspace-root/wire-format-fixtures/laws
@@ -142,287 +134,6 @@ const manifest = readJson<LawManifest>(join(lawsRoot, 'manifest.json'));
 const family = manifest?.families.find((f) => f.id === 'capabilityLaws');
 const lawFile = family ? readJson<CapabilityLawFile>(join(lawsRoot, family.file)) : undefined;
 
-// ─── the harness-local declaration codec ─────────────────────────────────────
-//
-// Canonical form: object keys Ordinal-sorted at every level (`$type`, U+0024,
-// sorts before every lower-case data key), strings escaped with `"` / `\` /
-// the C0 controls and nothing else, and floats through the host's one pinned
-// layout. Decoding is order-tolerant — it looks fields up by name.
-
-type JVal =
-  | { readonly t: 'str'; readonly v: string }
-  | { readonly t: 'int'; readonly v: number }
-  | { readonly t: 'float'; readonly v: number }
-  | { readonly t: 'bool'; readonly v: boolean }
-  | { readonly t: 'arr'; readonly v: readonly JVal[] }
-  | { readonly t: 'obj'; readonly v: readonly (readonly [string, JVal])[] };
-
-const jstr = (v: string): JVal => ({ t: 'str', v });
-const jint = (v: number): JVal => ({ t: 'int', v });
-const jbool = (v: boolean): JVal => ({ t: 'bool', v });
-const jarr = (v: readonly JVal[]): JVal => ({ t: 'arr', v });
-const jobj = (v: readonly (readonly [string, JVal])[]): JVal => ({ t: 'obj', v });
-/** A `$type`-discriminated object — the DU-position convention. */
-const jtyped = (tag: string, fields: readonly (readonly [string, JVal])[]): JVal =>
-  jobj([['$type', jstr(tag)], ...fields]);
-
-const escape = (s: string): string => {
-  let out = '';
-  for (const ch of s) {
-    const code = ch.codePointAt(0) ?? 0;
-    if (ch === '"') out += '\\"';
-    else if (ch === '\\') out += '\\\\';
-    else if (code < 0x20) out += `\\u${code.toString(16).padStart(4, '0')}`;
-    else out += ch;
-  }
-  return `"${out}"`;
-};
-
-const render = (v: JVal): string => {
-  switch (v.t) {
-    case 'str':
-      return escape(v.v);
-    case 'int':
-      return String(v.v);
-    case 'float':
-      // The negative-zero collapse and the .NET "R" layout are both
-      // formatFiniteDouble's; nothing about the number form is restated here.
-      return formatFiniteDouble(v.v);
-    case 'bool':
-      return v.v ? 'true' : 'false';
-    case 'arr':
-      return `[${v.v.map(render).join(',')}]`;
-    case 'obj':
-      return `{${[...v.v]
-        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([k, val]) => `${escape(k)}:${render(val)}`)
-        .join(',')}}`;
-  }
-};
-
-const HOST_WIRE: Record<HostEffect, string> = {
-  Pure: 'pure',
-  ReadsHost: 'readsHost',
-  WritesHost: 'writesHost',
-};
-const DETERMINISM_WIRE: Record<DeterminismSource, string> = {
-  Deterministic: 'deterministic',
-  Clock: 'clock',
-  Random: 'random',
-  Network: 'network',
-};
-const PLACEMENT_WIRE: Record<Placement['kind'], string> = {
-  BuildTime: 'buildTime',
-  Server: 'server',
-  ClientDeclarative: 'clientDeclarative',
-  ClientIsland: 'clientIsland',
-  Precomputed: 'precomputed',
-};
-const SPACE_WIRE: Record<HoleValueSpace['kind'], string> = {
-  IntRange: 'intRange',
-  FloatRange: 'floatRange',
-  StringLen: 'stringLen',
-  Enum: 'enum',
-  AnyString: 'anyString',
-};
-
-const invert = <K extends string>(m: Record<K, string>): Record<string, K> =>
-  Object.fromEntries(Object.entries(m).map(([k, v]) => [v as string, k as K])) as Record<string, K>;
-
-const HOST_OF = invert(HOST_WIRE);
-const DETERMINISM_OF = invert(DETERMINISM_WIRE);
-const PLACEMENT_OF = invert(PLACEMENT_WIRE);
-const SPACE_OF = invert(SPACE_WIRE);
-
-const spaceJson = (s: HoleValueSpace): JVal => {
-  switch (s.kind) {
-    case 'IntRange':
-      return jtyped('intRange', [
-        ['min', jint(s.min)],
-        ['max', jint(s.max)],
-      ]);
-    case 'FloatRange':
-      return jtyped('floatRange', [
-        ['min', { t: 'float', v: s.min }],
-        ['max', { t: 'float', v: s.max }],
-      ]);
-    case 'StringLen':
-      return jtyped('stringLen', [
-        ['min', jint(s.minLen)],
-        ['max', jint(s.maxLen)],
-      ]);
-    case 'Enum':
-      return jtyped('enum', [['values', jarr(s.choices.map(jstr))]]);
-    case 'AnyString':
-      return jtyped('anyString', []);
-  }
-};
-
-const effectJson = (host: HostEffect, determinism: DeterminismSource): JVal =>
-  jobj([
-    ['host', jstr(HOST_WIRE[host])],
-    ['determinism', jstr(DETERMINISM_WIRE[determinism])],
-  ]);
-
-const entryJson = (e: CapabilitySigEntry): JVal => {
-  const fields: (readonly [string, JVal])[] = [
-    ['addr', jstr(e.addr)],
-    ['name', jstr(e.name)],
-    ['kind', jstr(e.kind)],
-    ['required', jbool(e.required)],
-  ];
-  if (e.space !== undefined) fields.push(['space', spaceJson(e.space)]);
-  if (e.slotKind !== undefined) fields.push(['slotKind', jstr(e.slotKind)]);
-  return jobj(fields);
-};
-
-const placementJson = (p: Placement): JVal =>
-  p.kind === 'ClientIsland'
-    ? jtyped('clientIsland', [['island', jstr(p.island)]])
-    : jtyped(PLACEMENT_WIRE[p.kind], []);
-
-const encodeDeclaration = (cap: Capability): string =>
-  render(
-    jtyped('capability', [
-      ['id', jstr(cap.id)],
-      [
-        'signature',
-        jobj([
-          ['name', jstr(cap.signature.name)],
-          ['effect', effectJson(cap.signature.effect.hostEffect, cap.signature.effect.determinism)],
-          ['holes', jarr(cap.signature.holes.map(entryJson))],
-        ]),
-      ],
-      ['determinism', jstr(DETERMINISM_WIRE[cap.determinism])],
-      ['placement', placementJson(cap.placement)],
-    ]),
-  );
-
-// The decoder half. `unknown`-typed field access with named refusals — a
-// malformed declaration must name what it got wrong rather than yield a
-// half-built capability.
-
-const asObject = (v: unknown, what: string): Record<string, unknown> => {
-  if (typeof v !== 'object' || v === null || Array.isArray(v))
-    throw new Error(`${what} is not an object`);
-  return v as Record<string, unknown>;
-};
-
-const strAt = (o: Record<string, unknown>, k: string): string => {
-  const v = o[k];
-  if (typeof v !== 'string') throw new Error(`missing or non-string field: ${k}`);
-  return v;
-};
-
-const numAt = (o: Record<string, unknown>, k: string): number => {
-  const v = o[k];
-  if (typeof v !== 'number' || !Number.isFinite(v))
-    throw new Error(`missing or non-finite numeric field: ${k}`);
-  return v;
-};
-
-const spaceOf = (raw: unknown): HoleValueSpace => {
-  const o = asObject(raw, 'value-space');
-  const kind = SPACE_OF[strAt(o, '$type')];
-  switch (kind) {
-    case 'IntRange':
-      return { kind, min: numAt(o, 'min'), max: numAt(o, 'max') };
-    case 'FloatRange':
-      return { kind, min: numAt(o, 'min'), max: numAt(o, 'max') };
-    case 'StringLen':
-      return { kind, minLen: numAt(o, 'min'), maxLen: numAt(o, 'max') };
-    case 'Enum': {
-      const values = o['values'];
-      if (!Array.isArray(values) || values.some((x) => typeof x !== 'string'))
-        throw new Error('enum values must be a string array');
-      return { kind, choices: values as string[] };
-    }
-    case 'AnyString':
-      return { kind };
-    default:
-      throw new Error(`unknown value-space kind: ${strAt(o, '$type')}`);
-  }
-};
-
-const entryOf = (raw: unknown): CapabilitySigEntry => {
-  const o = asObject(raw, 'signature hole');
-  if ('actionEffect' in o) {
-    // Named refusal rather than a silent drop: this host's CapabilitySigEntry
-    // carries no action-effect axis, so an entry declaring one cannot survive
-    // a round trip. Dropping it would make the round-trip law pass on a
-    // declaration this host had silently narrowed.
-    throw new Error(
-      "this host's signature entry carries no action-effect axis, so a hole declaring `actionEffect` cannot round-trip",
-    );
-  }
-  const kind = strAt(o, 'kind');
-  if (kind !== 'value' && kind !== 'slot' && kind !== 'repeat')
-    throw new Error(`unknown hole kind: ${kind}`);
-  const required = o['required'];
-  if (typeof required !== 'boolean') throw new Error('missing or non-boolean field: required');
-  return {
-    addr: strAt(o, 'addr'),
-    name: strAt(o, 'name'),
-    kind,
-    required,
-    ...('space' in o ? { space: spaceOf(o['space']) } : {}),
-    ...('slotKind' in o ? { slotKind: strAt(o, 'slotKind') } : {}),
-  };
-};
-
-const placementOf = (raw: unknown): Placement => {
-  const o = asObject(raw, 'placement');
-  const tag = strAt(o, '$type');
-  const kind = PLACEMENT_OF[tag];
-  if (kind === undefined) throw new Error(`unknown placement: ${tag}`);
-  if (kind === 'ClientIsland') {
-    const island = strAt(o, 'island');
-    if (island !== 'pyodide' && island !== 'fable' && island !== 'js')
-      throw new Error(`unknown island kind: ${island}`);
-    return { kind, island: island as IslandKind };
-  }
-  return { kind } as Placement;
-};
-
-const decodeDeclaration = (json: string): Capability => {
-  const o = asObject(JSON.parse(json), 'capability declaration');
-  const sigObj = asObject(o['signature'], 'signature');
-  const effectObj = asObject(sigObj['effect'], 'effect');
-
-  const hostEffect = HOST_OF[strAt(effectObj, 'host')];
-  if (hostEffect === undefined) throw new Error(`unknown host effect: ${strAt(effectObj, 'host')}`);
-  const determinism = DETERMINISM_OF[strAt(effectObj, 'determinism')];
-  if (determinism === undefined)
-    throw new Error(`unknown determinism: ${strAt(effectObj, 'determinism')}`);
-
-  const holes = sigObj['holes'];
-  if (!Array.isArray(holes)) throw new Error('missing or non-array field: holes');
-
-  const signature: CapabilitySignature = {
-    name: strAt(sigObj, 'name'),
-    holes: holes.map(entryOf),
-    effect: { hostEffect, determinism },
-  };
-
-  // The wire tag is derivable from the signature, so a disagreement is a
-  // tampered or divergent payload rather than a spelling difference — refuse it
-  // by name instead of silently preferring the signature, which would key the
-  // replay seam under a determinism the declaration does not declare.
-  const wireTag = strAt(o, 'determinism');
-  const expectedTag = DETERMINISM_WIRE[determinism];
-  if (wireTag !== expectedTag)
-    throw new Error(
-      `capability determinism disagrees with signature effect: wire '${wireTag}' vs signature '${expectedTag}'`,
-    );
-
-  return {
-    id: strAt(o, 'id'),
-    signature,
-    determinism,
-    placement: placementOf(o['placement']),
-  };
-};
-
 // ─── the refusal-class vocabulary the vectors speak ──────────────────────────
 
 const REFUSAL_WIRE: Record<string, string> = {
@@ -470,7 +181,13 @@ describe('capabilityLaws vectors (shared corpus laws/ family)', () => {
 
   const capOf = (vectorId: string, declaration: string | undefined): Capability => {
     if (declaration === undefined) throw new Error(`vector ${vectorId}: no declaration in input`);
-    return decodeDeclaration(declaration);
+    const decoded = decodeCapabilityDeclaration(declaration);
+    // The shipped decoder is TOTAL — it refuses by name rather than throwing —
+    // so the harness turns a refusal into the failure, naming what the codec
+    // said. A vector the codec cannot read is a divergence, never a skip.
+    if (!decoded.ok)
+      throw new Error(`vector ${vectorId}: the shipped decoder refused — ${decoded.error}`);
+    return decoded.value;
   };
 
   for (const v of vectors) {
@@ -507,12 +224,12 @@ describe('capabilityLaws vectors (shared corpus laws/ family)', () => {
 
         case 'declarationRoundTrip': {
           const cap = capOf(v.id, v.input.declaration);
-          expect(encodeDeclaration(cap)).toBe(v.expected.declaration);
+          expect(encodeCapabilityDeclaration(cap)).toBe(v.expected.declaration);
           break;
         }
 
         case 'registryEnumerate': {
-          const caps = (v.input.declarations ?? []).map((d) => decodeDeclaration(d));
+          const caps = (v.input.declarations ?? []).map((d, i) => capOf(`${v.id}[${i}]`, d));
           const reg = registryOf(caps);
           expect(reg.ok, 'registering the declarations was refused').toBe(true);
           if (reg.ok) {

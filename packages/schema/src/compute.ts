@@ -26,6 +26,8 @@
 //   - F# `option` / absent ⟺ a field omitted; never `null`.
 // ============================================================================
 
+import type { DeterminismSource, EffectClass, HoleValueSpace } from './types.js';
+
 // ─── Columnar model (port of Fuaran.Core.Column) ─────────────────────────────
 
 /**
@@ -295,6 +297,66 @@ export type CapabilityInvoker = (
   capabilityId: string,
   args: readonly InvokeArg[],
 ) => Deferred<unknown>;
+
+// ─── Capability declaration (port of Fuaran.Core.Function) ───────────────────
+//
+// The DECLARATION half of the capability contract, beside the invocation half
+// above. It lives here rather than in the author surface because two packages
+// need it and neither may depend on the other: `@fuaran-ui/ui` owns the
+// capability RUNTIME (validate / invocationKey / registry / invoker) and
+// `@fuaran-ui/ops` owns the canonical DECLARATION CODEC, and a codec whose
+// types sit in the author package would need a dependency that inverts this
+// workspace's layering. Both already depend on this package, so the shared
+// shape belongs here — the same reason `HoleValueSpace` and `EffectClass` are
+// in `types.ts` rather than beside the runtime that ranges over them.
+// `@fuaran-ui/ui` re-exports all five, so its published surface is unchanged.
+
+/**
+ * One signature entry — the introspectable projection of a capability hole. A
+ * `value` / `repeat` hole carries its value-`space`; a `slot` hole carries its
+ * `slotKind` constraint (and no scalar space). Port of F# `SigEntry`; the value
+ * space reuses `HoleValueSpace` (the same five cases).
+ */
+export interface CapabilitySigEntry {
+  readonly addr: string;
+  readonly name: string;
+  readonly kind: 'value' | 'slot' | 'repeat';
+  readonly space?: HoleValueSpace;
+  readonly slotKind?: string;
+  readonly required: boolean;
+}
+
+/** A capability's derived signature: which holes, what spaces, and its effect class. */
+export interface CapabilitySignature {
+  readonly name: string;
+  readonly holes: readonly CapabilitySigEntry[];
+  readonly effect: EffectClass;
+}
+
+/** Which client-island runtime a `ClientIsland` capability's body runs in. */
+export type IslandKind = 'pyodide' | 'fable' | 'js';
+
+/** Where a capability's body runs (spec §5) — a typed, portable placement contract. */
+export type Placement =
+  | { readonly kind: 'BuildTime' }
+  | { readonly kind: 'Server' }
+  | { readonly kind: 'ClientDeclarative' }
+  | { readonly kind: 'ClientIsland'; readonly island: IslandKind }
+  | { readonly kind: 'Precomputed' };
+
+/**
+ * A registrable, invocable runtime capability. `signature` (incl. its effect) is
+ * the artifact-function projection; `determinism` is the capture-keying axis
+ * (always `= signature.effect.determinism`, enforced by `createCapability`);
+ * `placement` routes the host body. The wire carries this declaration + a typed
+ * invocation, never the body. Port of F# `Capability`.
+ */
+export interface Capability {
+  readonly id: string;
+  readonly signature: CapabilitySignature;
+  readonly determinism: DeterminismSource;
+  readonly placement: Placement;
+}
 
 // ─── Evaluator error envelope (port of Fuaran.Core.EvalError) ────────────────
 

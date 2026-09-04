@@ -32,9 +32,33 @@ export {
   decodeOp,
   coerce,
   liveValueToTable,
+  // The dataframe half of the structural decoder. Public since the transform
+  // reference vectors made the need concrete: a host given a canonical
+  // `DataSource` / pipeline string (a corpus vector, a stored query, a peer's
+  // payload) had no way to reach the decoder that already handles it. Both take
+  // a `JsonAst` from the exported `parse`.
+  decodeDataSource,
+  decodePipelineCore as decodePipeline,
   type DecodeError,
   type DecodeErrorCode,
 } from './decode.js';
+export {
+  // The canonical capability DECLARATION codec. `Placement` is re-exported as
+  // `CapabilityPlacement` because this package already exports an unrelated
+  // `Placement` — the tree-op placement target of `placeOp` / `moveOp` above.
+  // Renaming either in place would break consumers, so the collision is
+  // resolved at the export rather than at the declaration.
+  encodeCapabilityDeclaration,
+  decodeCapabilityDeclaration,
+  type CapabilityDeclResult,
+} from './capabilityDecl.js';
+export type {
+  Capability,
+  CapabilitySigEntry,
+  CapabilitySignature,
+  IslandKind,
+  Placement as CapabilityPlacement,
+} from '@fuaran-ui/schema';
 export {
   apply,
   type ApplyError,

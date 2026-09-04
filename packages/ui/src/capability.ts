@@ -25,65 +25,37 @@
 // ============================================================================
 
 import type {
+  Capability,
   CapabilityInvoker,
+  CapabilitySigEntry,
+  CapabilitySignature,
   Deferred,
   DeterminismSource,
   EffectClass,
   HoleValueSpace,
   HostEffect,
   InvokeArg,
+  Placement,
   Result,
 } from '@fuaran-ui/schema';
 import { err, ok } from '@fuaran-ui/schema';
 
 // ─── Capability declaration types (port of Fuaran.Core.Function) ─────────────
+//
+// The five declaration types moved DOWN into `@fuaran-ui/schema` (beside
+// `InvokeArg` / `CapabilityInvoker` / `HoleValueSpace`) so the canonical
+// declaration codec could ship in `@fuaran-ui/ops` without either package
+// depending on the other. They are re-exported here verbatim, so every
+// consumer that imports them from `@fuaran-ui/ui` is unaffected — this file
+// remains the home of the RUNTIME the declarations feed.
 
-/**
- * One signature entry — the introspectable projection of a capability hole. A
- * `value` / `repeat` hole carries its value-`space`; a `slot` hole carries its
- * `slotKind` constraint (and no scalar space). Port of F# `SigEntry`; the value
- * space reuses @fuaran-ui/schema's `HoleValueSpace` (the same five cases).
- */
-export interface CapabilitySigEntry {
-  readonly addr: string;
-  readonly name: string;
-  readonly kind: 'value' | 'slot' | 'repeat';
-  readonly space?: HoleValueSpace;
-  readonly slotKind?: string;
-  readonly required: boolean;
-}
-
-/** A capability's derived signature: which holes, what spaces, and its effect class. */
-export interface CapabilitySignature {
-  readonly name: string;
-  readonly holes: readonly CapabilitySigEntry[];
-  readonly effect: EffectClass;
-}
-
-/** Which client-island runtime a `ClientIsland` capability's body runs in. */
-export type IslandKind = 'pyodide' | 'fable' | 'js';
-
-/** Where a capability's body runs (spec §5) — a typed, portable placement contract. */
-export type Placement =
-  | { readonly kind: 'BuildTime' }
-  | { readonly kind: 'Server' }
-  | { readonly kind: 'ClientDeclarative' }
-  | { readonly kind: 'ClientIsland'; readonly island: IslandKind }
-  | { readonly kind: 'Precomputed' };
-
-/**
- * A registrable, invocable runtime capability. `signature` (incl. its effect) is
- * the artifact-function projection; `determinism` is the capture-keying axis
- * (always `= signature.effect.determinism`, enforced by `createCapability`);
- * `placement` routes the host body. The wire carries this declaration + a typed
- * invocation, never the body. Port of F# `Capability`.
- */
-export interface Capability {
-  readonly id: string;
-  readonly signature: CapabilitySignature;
-  readonly determinism: DeterminismSource;
-  readonly placement: Placement;
-}
+export type {
+  Capability,
+  CapabilitySigEntry,
+  CapabilitySignature,
+  IslandKind,
+  Placement,
+} from '@fuaran-ui/schema';
 
 /**
  * Why a typed invocation (or a registration) was refused — total, names the
