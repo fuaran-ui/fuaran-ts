@@ -573,7 +573,7 @@ importers:
   templates/ts-starter:
     dependencies:
       '@fuaran-ui/renderer':
-        specifier: ^0.19.0
+        specifier: ^0.20.0
         version: link:../../packages/renderer
       '@fuaran-ui/schema':
         specifier: ^0.19.0

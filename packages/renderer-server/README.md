@@ -20,6 +20,7 @@ Mirroring the F# SSR precedent — render the tree inert, never blank:
 - **A `Link` is a real, sanitised `<a href>`** — the crawlable, no-JavaScript navigation path.
 - **Bindings resolve server-side.** `Static` bindings resolve to their value; `Query` / `Filter` / `Selection` / … resolve from host-supplied `sources` or fall back to the loading slot / em-dash placeholder.
 - **Client-library visualisations render a deterministic placeholder** (`Chart` / `Map`), never a blank; `Table` / `Grid` render structural HTML.
+- **A `Sparkline` renders REAL GEOMETRY, not a placeholder**, from the same `@fuaran-ui/charts` lowering and `drawingSvg` builder the client renderer calls — so the two tiers emit identical bytes by construction, and the picture is pinned cross-host by the shared `sparkline-lowering/*` goldens. An unresolved or empty series keeps the em-dash element (`fuaran-sparkline-empty`): a readable, deterministic stand-in rather than a blank.
 - **`Custom` renders the inert labelled placeholder** the client emits when no renderer is registered.
 
 ## Usage

@@ -108,13 +108,27 @@ Until `0.11.0` the destination policy of WIRE_FORMAT §14.1 was **available** bu
 
 Additive alongside it: a React-free **`@fuaran-ui/renderer/egress` subpath** (the whole egress surface, including the new `sanitizeUrlForEgress` one-call render seam and `describeEgressVerdict`), on the same pattern as `/sanitize` and `/markdown`, so a pure-string host can reach it without React. Every name it exports was already exported from the package root; no existing entry point changed shape.
 
+#### `0.20.0` — the sparkline renders through the shared `Drawing` lowering (breaking: rendered output)
+
+A `Sparkline` no longer draws itself. It lowers to a canonical `DrawingSpec` through `@fuaran-ui/charts` `tryLowerSparkline` and emits through the same `drawingSvg` builder the `Drawing` and lowered `Chart` arms already use — so this tier and `@fuaran-ui/renderer-server` produce identical bytes **by construction** rather than by two hand-written builders kept in step. The geometry is unchanged and is now pinned by the shared `wire-format-fixtures/sparkline-lowering/*` goldens the F# reference emits.
+
+The **markup** moves, and a consumer with CSS or DOM queries keyed to the old shape is affected:
+
+- **`fuaran-sparkline` is now a `<div>` CONTAINER, not the `<svg>` itself.** The picture inside it is the shared builder's `<svg class="fuaran-drawing" role="img">`. The container is where the 100×30 sizing and the inherited `color` the `currentColor` stroke reads have always lived, so the packaged reference stylesheet's hook survives and the rendered picture does not move — but a selector like `svg.fuaran-sparkline` no longer matches, and `.fuaran-sparkline > .fuaran-drawing` is the new inner rule (both ship in `@fuaran-ui/renderer/css`).
+- **`fuaran-sparkline-line` is gone from the emitted vocabulary.** The polyline carries the shared builder's `fuaran-drawing-polyline`. Consumer CSS keyed off the old class needs the new one.
+- **`preserveAspectRatio="none"` is not carried and is not needed**: the container is exactly 100×30 and so is the viewBox, so the default `xMidYMid meet` scales identically.
+- **A non-finite series member renders `0` rather than the literal `NaN`.** The retired builder wrote `NaN` straight into the `points` attribute, which is not a valid SVG coordinate — a browser drops the whole polyline. The shared builder's number form emits `0`, which is what every other geometry-bearing kind already does with a sentinel and what the `sparkline-lowering/nonfinite-sentinel` golden fixes.
+- **The empty case is unchanged**: an unresolved or empty series still renders `<div class="fuaran-sparkline fuaran-sparkline-empty">—</div>`. That element is a host element rather than a `Shape`, so the lowering reports it in its return type (`null`) instead of drawing an empty canvas.
+
+`packages/charts/test/sparkline-lowering.test.ts` is the byte-parity gate; the rendered markup is pinned by the renderer's corpus snapshots and by the two-tier parity lock below.
+
 ### `@fuaran-ui/renderer-server`
 
 The **`renderToHtml` body-fragment output is stable**, subject to the same class-name + ARIA forward-coupling rule as `@fuaran-ui/renderer` – the server renderer is a pure-string twin of the F# `Fuaran.UI.Renderer.Server` that emits the same `fuaran-*` class vocabulary the React client renderer does, with no React and no DOM. This covers:
 
 - The `renderToHtml(tree, { sources, egressPolicy })` entry point + its body-fragment contract (the host owns the document shell + the `<link>` to the packaged `@fuaran-ui/renderer/css`).
 - The emitted **class-name + `data-fuaran-node-id` vocabulary**, parity-locked two ways (`test/parity.test.tsx`): the class set + node-id set equal the React client renderer's `renderToStaticMarkup` output for every corpus fixture, and every class is in the F# reference renderer's vocabulary. A drift in either direction is a build failure. This is what makes a server-rendered fragment safe to hand to the client renderer's `hydrate` entry points.
-- The **server semantics**: interactivity renders inert (no event handlers); `Link` is a real sanitised `<a href>`; `Static` bindings resolve and the rest fall back; `Chart` / `Map` render a deterministic placeholder; `Custom` renders the inert labelled placeholder.
+- The **server semantics**: interactivity renders inert (no event handlers); `Link` is a real sanitised `<a href>`; `Static` bindings resolve and the rest fall back; `Map` renders a deterministic placeholder; a lowerable `Chart` and — from `0.19.0` — a resolved `Sparkline` render real first-party inline SVG through the shared `@fuaran-ui/charts` lowering, byte-identical to the client's; `Custom` renders the inert labelled placeholder.
 - The **markdown body**, from `0.10.0`: `DisplayKind.Markdown` renders through the same deterministic renderer the client uses (re-exported here as `toHtml` / `toHtmlWithEgress`), so the emitted bytes are governed by the shared markdown corpus and are byte-identical to the client's for the same source. `test/markdownCorpus.test.tsx` locks both halves — the corpus leg and an end-to-end `renderToHtml` vs `<FuaranRenderer>` comparison over every corpus source.
 
 `@fuaran-ui/schema` + `@fuaran-ui/renderer` are peer dependencies (the latter for its React-free `/sanitize` and `/markdown` subpaths + the packaged reference CSS); `react` / `react-dom` are **not** runtime dependencies, and as of `0.10.0` the package declares **no runtime dependencies at all**. The HTML-escaping floor (`escapeText` / `escapeAttr`) and the binding / class-name helpers are re-exported for hosts.
@@ -140,6 +154,12 @@ Two things are specific to this tier:
 - **The default matters more here than on the client**, and that is not rhetoric: a refused `<img src>` in a server-rendered document is fetched by the browser _before any script runs_, so there is no client-side gate downstream of this one. `0.10.0` closed the gap where the server had no policy notion at all; `0.11.0` closes the one where it had a policy notion its own render path never used.
 
 `test/egressAmbient.test.ts` is this tier's corpus for it, and `test/markdownCorpus.test.tsx` Leg 2 now compares the two tiers under the policy each fixture names — plus one case under **no** policy on either side, which is the only assertion that would catch the two tiers defaulting differently.
+
+#### `0.19.0` — the same sparkline lowering here (breaking: rendered output)
+
+The server twin of the `@fuaran-ui/renderer` `0.20.0` note above; read it for the full account. Everything there applies here, with the same markup, the same class vocabulary and the same empty-series fallback — which is the point, since a server fragment whose sparkline markup differed from the client's would not hydrate into it.
+
+One thing is specific to this tier, and it is the reason the change is worth its cost: **this tier and the client tier each carried a hand-written copy of one scaling algorithm**, in one repository, next door to a `Drawing` arm that had shared its builder since Phase 525. They agreed — but only because nobody had yet changed one of them. Both call `tryLowerSparkline` now, so the two-tier parity lock (`test/parity.test.tsx`) is checking a property that holds by construction rather than by coincidence.
 
 ### `@fuaran-ui/op-stream`
 

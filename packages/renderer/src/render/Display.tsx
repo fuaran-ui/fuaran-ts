@@ -37,6 +37,8 @@ import {
   tryResolve,
   tryResolveScalarFloat,
 } from '../bindings.js';
+import { tryLowerSparkline } from '@fuaran-ui/charts';
+
 import { imageAspectClass, toneVar, trendSentiment } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { drawingSvg } from '../drawingSvg.js';
@@ -858,32 +860,32 @@ const renderLabelValueRow = <TMsg,>(
   );
 };
 
+// Phase 1099 — the bespoke polyline builder is retired for the shared
+// `Sparkline -> Drawing` lowering (Phase 644's D7), emitted through the SAME
+// `drawingSvg` builder the `Drawing` and `Chart` arms already use. This arm and
+// the string server renderer's arm were two hand-written copies of one
+// algorithm producing byte-identical pictures; they are now the same bytes by
+// construction, which is what moved `Sparkline` to `"class": "none"` in the
+// render-fidelity contract.
+//
+// The `fuaran-sparkline` class moves to the CONTAINER. That is where the 100x30
+// sizing and the inherited `color` the lowering's `currentColor` stroke reads
+// have always lived, so the hook `render-fidelity.json` names survives and the
+// picture does not move; the inner SVG is the shared builder's `fuaran-drawing`
+// root.
+//
+// An unresolved or empty series keeps the em-dash element, unchanged: it is a
+// host element rather than a `Shape`, so `tryLowerSparkline` reports it in the
+// return type rather than lowering an empty canvas nobody can read.
 const renderSparkline = <TMsg,>(ctx: RenderContext<TMsg>, spec: SparklineSpec): ReactElement => {
-  const series = asArray<number>(tryResolve(ctx.sources, spec.source));
-  if (series.length === 0) {
+  const drawing = tryLowerSparkline(asArray<number>(tryResolve(ctx.sources, spec.source)));
+  if (drawing === null) {
     return <div className="fuaran-sparkline fuaran-sparkline-empty">—</div>;
   }
-  const values = [...series];
-  const n = values.length;
-  const minV = Math.min(...values);
-  const maxV = Math.max(...values);
-  const range = maxV - minV < 1e-9 ? 1 : maxV - minV;
-  const points = values
-    .map((v, i) => {
-      const x = n <= 1 ? 50 : (i / (n - 1)) * 100;
-      const y = 30 - ((v - minV) / range) * 28 - 1;
-      return `${x.toFixed(2)},${y.toFixed(2)}`;
-    })
-    .join(' ');
   return (
-    <svg className="fuaran-sparkline" viewBox="0 0 100 30" preserveAspectRatio="none">
-      <polyline
-        className="fuaran-sparkline-line"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        points={points}
-      />
-    </svg>
+    <div
+      className="fuaran-sparkline"
+      dangerouslySetInnerHTML={{ __html: drawingSvg(ctx.sources, drawing) }}
+    />
   );
 };

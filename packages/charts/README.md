@@ -1,9 +1,10 @@
 # @fuaran-ui/charts
 
-Render-time **Chart → Drawing lowering** for the Fuaran UI wire format — the
-bounded, deterministic layout engine that turns a semantic chart spec + data rows
-into a canonical themed `Drawing` subtree (scales, ticks, axes, gridlines, legend,
-series geometry). The TypeScript twin of the F# reference lowering.
+Render-time **lowering to `Drawing`** for the Fuaran UI wire format — the bounded,
+deterministic layout engine that turns a semantic chart spec + data rows into a
+canonical themed `Drawing` subtree (scales, ticks, axes, gridlines, legend, series
+geometry), and the `Sparkline` lowering beside it. The TypeScript twin of the F#
+reference lowerings.
 
 A `Chart` stays a **semantic** wire kind; this module lowers it at render time to
 the closed, typed `Shape` vocabulary of `@fuaran-ui/schema`, so a chart renders as
@@ -27,6 +28,43 @@ const rows = [
 const drawing = lower(spec, rows); // a DrawingSpec
 const wire = encodeNode(lowerNode('chart-revenue', spec, rows)); // canonical JSON
 ```
+
+## Sparkline
+
+A `Sparkline` carries a bare bound series and nothing else, so every host that
+draws one has to turn that series into geometry — and this is the ONE place this
+repository does it. Both renderers (`@fuaran-ui/renderer` and
+`@fuaran-ui/renderer-server`) call it, so they cannot draw a different picture;
+before it landed they each carried a hand-written copy of the same algorithm.
+
+```ts
+import { tryLowerSparkline } from '@fuaran-ui/charts';
+
+const drawing = tryLowerSparkline([1, 2, 3, 2, 4]); // a DrawingSpec, or null
+```
+
+`null` is the **nothing-to-draw** case: an empty (or unresolved, and so
+array-coerced-to-empty) series has no polyline, and the fallback a renderer emits
+instead — its own hook element carrying an em-dash — is a _host_ element rather
+than a `Shape`, so the lowering cannot express it and must not pretend to by
+returning an empty canvas. The goldens spell the same fact as the JSON literal
+`null`.
+
+The geometry, over a series of `n` values with `min` and `max`: a
+`viewBox="0 0 100 30"` canvas; `range = max - min`, or `1.0` when
+`max - min < 1e-9` so a constant series sits on its own line rather than dividing
+by zero; `x = i / (n - 1) * 100`, and `50` when `n = 1` so a lone point is
+centred; `y = 30 - (v - min) / range * 28 - 1`, one unit of inset at each edge so
+a peak is not clipped by the stroke; round-half-up to 2 dp on both coordinates;
+one `Polyline`, `stroke="currentColor"`, `stroke-width="1.5"`, no fill. No title
+or description — a sparkline has no spec to generate an accessible summary from,
+so it carries no accessible name of its own.
+
+**Non-finite values are not special-cased.** They propagate through that
+arithmetic, reach the wire as the canonical `"NaN"` / `"Infinity"` /
+`"-Infinity"` string sentinels, and render as `0` through the drawing builder's
+number form. The shared `wire-format-fixtures/sparkline-lowering/*` corpus pins
+every case, this one included.
 
 ## Chart-kind coverage (this host)
 

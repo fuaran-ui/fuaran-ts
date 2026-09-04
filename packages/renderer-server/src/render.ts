@@ -105,7 +105,7 @@ import { chartLowerSpecOf, drawingSvg, mathMl } from '@fuaran-ui/renderer';
 // Phase 1075 — the `Binding.State` seeding pass. One definition, shared with
 // the client renderer, so the two tiers cannot drift on the charter's §4/§5.
 import { withStateSeeds } from '@fuaran-ui/ops';
-import { isLowered, lower, type ChartRow } from '@fuaran-ui/charts';
+import { isLowered, lower, tryLowerSparkline, type ChartRow } from '@fuaran-ui/charts';
 
 import {
   gridPrintBreakClasses,
@@ -1633,42 +1633,28 @@ const renderLabelValueRow = (
   return el('div', [['class', `fuaran-label-value-row${emphasisSuffix}`]], labelBlock + value);
 };
 
+// Phase 1099 — the bespoke polyline builder is retired, parity-locked with the
+// client renderer: the SAME `tryLowerSparkline` + `drawingSvg` pair the client
+// arm calls, so the two tiers emit identical bytes by construction — the journey
+// `Drawing` took at Phase 525 and each lowered `ChartKind` arm has taken since.
+// This tier and the client tier each carried a hand-written copy of one scaling
+// algorithm, in one repo, next door to a `Drawing` arm that had shared its
+// builder since 525.
+//
+// The `fuaran-sparkline` class is the CONTAINER's — the hook the reference
+// stylesheet sizes and colours — and the picture inside it is the shared
+// builder's `fuaran-drawing` root. The em-dash branch survives for the
+// UNRESOLVED or EMPTY series only: a readable, deterministic stand-in rather
+// than a blank, exactly as before.
 const renderSparkline = (
   ctx: ServerContext,
   spec: Extract<DisplayKind, { kind: 'Sparkline' }>['spec'],
 ): string => {
-  const series = asArray<number>(tryResolve(ctx.sources, spec.source));
-  if (series.length === 0) {
+  const drawing = tryLowerSparkline(asArray<number>(tryResolve(ctx.sources, spec.source)));
+  if (drawing === null) {
     return textEl('div', [['class', 'fuaran-sparkline fuaran-sparkline-empty']], EM_DASH);
   }
-  const values = [...series];
-  const n = values.length;
-  const minV = Math.min(...values);
-  const maxV = Math.max(...values);
-  const range = maxV - minV < 1e-9 ? 1 : maxV - minV;
-  const points = values
-    .map((v, i) => {
-      const x = n <= 1 ? 50 : (i / (n - 1)) * 100;
-      const y = 30 - ((v - minV) / range) * 28 - 1;
-      return `${x.toFixed(2)},${y.toFixed(2)}`;
-    })
-    .join(' ');
-  const polyline = el('polyline', [
-    ['class', 'fuaran-sparkline-line'],
-    ['fill', 'none'],
-    ['stroke', 'currentColor'],
-    ['stroke-width', '1.5'],
-    ['points', points],
-  ]);
-  return el(
-    'svg',
-    [
-      ['class', 'fuaran-sparkline'],
-      ['viewBox', '0 0 100 30'],
-      ['preserveAspectRatio', 'none'],
-    ],
-    polyline,
-  );
+  return el('div', [['class', 'fuaran-sparkline']], drawingSvg(ctx.sources, drawing));
 };
 
 // ─── Inputs (inert — no dispatch server-side) ─────────────────────────────────
