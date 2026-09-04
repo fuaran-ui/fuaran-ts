@@ -600,9 +600,11 @@ const checkPickerAlwaysPresent = (): void => {
 // ─── Phase 1119 — the modal's inertness claim ───────────────────────────────
 
 const checkAriaModalOnlyWhenBlocking = (): void => {
-  const blocking = renderToHtml(
-    fuaran.modal({ id: 'md', openStateKey: 'open', children: [], heading: 'Confirm' }),
-  );
+  // `ModalOptions` has no `openStateKey` — the openness input is `open`, and it
+  // defaults to a literal `false`. The obligation below is about the MODALITY,
+  // not about whether the surface is open, so the default is left in place
+  // rather than invented: both renderings emit the dialog either way.
+  const blocking = renderToHtml(fuaran.modal({ id: 'md', children: [], heading: 'Confirm' }));
   expect(blocking, 'the blocking modality claims the page behind it is inert').toContain(
     'aria-modal="true"',
   );
@@ -610,7 +612,6 @@ const checkAriaModalOnlyWhenBlocking = (): void => {
   const popover = renderToHtml(
     fuaran.modal({
       id: 'mp',
-      openStateKey: 'open',
       children: [],
       heading: 'Details',
       modality: 'Popover',

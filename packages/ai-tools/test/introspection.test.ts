@@ -71,7 +71,16 @@ const dashboard = (id: string, children: readonly Node<unknown>[]): Node<unknown
   id: nid(id),
   kind: {
     kind: 'Layout',
-    layout: { kind: 'Box', spec: { layout: { kind: 'Auto' }, role: 'Dashboard', children } },
+    layout: {
+      kind: 'Box',
+      spec: {
+        layout: { kind: 'Auto' },
+        role: 'Dashboard',
+        keepTogether: false,
+        breakBefore: false,
+        children,
+      },
+    },
   },
   state: emptyState,
   style: defaultStyle,
@@ -91,7 +100,13 @@ describe('kindName — matches F# Introspect.kindName', () => {
         kind: 'Layout',
         layout: {
           kind: 'Box',
-          spec: { layout: { kind: 'Grid', cols: 2 }, role: 'Group', children: [] },
+          spec: {
+            layout: { kind: 'Grid', cols: 2 },
+            role: 'Group',
+            keepTogether: false,
+            breakBefore: false,
+            children: [],
+          },
         },
       },
       state: emptyState,
@@ -109,6 +124,9 @@ describe('kindName — matches F# Introspect.kindName', () => {
             columns: [],
             editable: false,
             reorderable: false,
+            exportable: false,
+            keepRowsTogether: false,
+            repeatHeader: false,
           },
         },
       },

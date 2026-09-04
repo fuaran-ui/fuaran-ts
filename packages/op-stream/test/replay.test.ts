@@ -39,7 +39,16 @@ const dashboard = (id: string, children: readonly Node<unknown>[]): Node<unknown
   id: nid(id),
   kind: {
     kind: 'Layout',
-    layout: { kind: 'Box', spec: { layout: { kind: 'Auto' }, role: 'Dashboard', children } },
+    layout: {
+      kind: 'Box',
+      spec: {
+        layout: { kind: 'Auto' },
+        role: 'Dashboard',
+        keepTogether: false,
+        breakBefore: false,
+        children,
+      },
+    },
   },
   state: {},
   style: { tone: 'Default', weight: 'Standard', emphasis: 'Normal' },

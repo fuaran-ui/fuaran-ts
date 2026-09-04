@@ -68,7 +68,16 @@ const container = (id: string, children: readonly N[]): N => ({
   id: nid(id),
   kind: {
     kind: 'Layout',
-    layout: { kind: 'Box', spec: { layout: { kind: 'Auto' }, role: 'Dashboard', children } },
+    layout: {
+      kind: 'Box',
+      spec: {
+        layout: { kind: 'Auto' },
+        role: 'Dashboard',
+        keepTogether: false,
+        breakBefore: false,
+        children,
+      },
+    },
   },
   state: {},
   style: { tone: 'Default', weight: 'Standard', emphasis: 'Normal' },

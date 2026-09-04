@@ -23,6 +23,8 @@ const tree: Node<unknown> = {
       spec: {
         layout: { kind: 'Auto' },
         role: 'Dashboard',
+        keepTogether: false,
+        breakBefore: false,
         children: [
           {
             id: nid('rev'),
