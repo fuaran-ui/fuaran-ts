@@ -1313,7 +1313,7 @@ const inferColumnType = (name: string, values: readonly JsonAst[]): CR<ColumnTyp
 
 /** A `DataSource` — port of F# `ColumnCodec.decodeJson` (Phase 88: `schema`
  *  may be omitted on an embedded source; inferred in Ordinal column order). */
-const decodeDataSource = (j: JsonAst): CR<DataSource> => {
+export const decodeDataSource = (j: JsonAst): CR<DataSource> => {
   const fo = cFields(j);
   if (!fo.ok) return fo;
   const schemaJ = fo.value.get('schema');
@@ -1897,7 +1897,7 @@ const decodeTransformCore = (j: JsonAst): CR<Transform> => {
   }
 };
 
-const decodePipelineCore = (j: JsonAst): CR<Transform[]> => {
+export const decodePipelineCore = (j: JsonAst): CR<Transform[]> => {
   if (j.kind !== 'JArray') {
     return cerr('malformed: pipeline: expected a JSON array of transform steps');
   }
