@@ -95,7 +95,15 @@ export {
   type DagResultEnvelope,
   type DagActor,
 } from './dag.js';
-export { merge3Way, type MergeResult, type MergeConflict } from './merge.js';
+export {
+  merge3Way,
+  encodeMergeEnvelope,
+  sortConflictsCanonical,
+  type MergeResult,
+  type MergeConflict,
+  type MergeConflictClass,
+  type MergeSide,
+} from './merge.js';
 export { renderAstCanonical } from './encode.js';
 export {
   // Wire versioning + forward-compat (WIRE_FORMAT.md §15).

@@ -14,11 +14,19 @@
 //    - "accessibility" — the Accessibility block.
 //    - "children"      — the ordered child-id list (structural).
 //
-//  When a facet changed on at most one side, take that side's value; when both
-//  changed it differently, it is a CONFLICT (returned, not silently picked).
-//  The one structural case auto-merged across both sides is disjoint pure
+//  When a facet changed on at most one side, take that side's value. When both
+//  sides changed it to the SAME value, take the shared value — that is not a
+//  conflict, it is agreement. When both changed it differently, it is a CONFLICT
+//  (returned, not silently picked), surfaced as a TWO-SIDED envelope: `a` and
+//  `b` carry each branch's value on every refusal, so swapping the branches
+//  transposes them and changes nothing else.
+//
+//  The structural cases auto-merged across both sides are (a) disjoint pure
 //  inserts into the same parent, ordered by NodeId code-unit (Ordinal) bytes —
-//  the deterministic, wall-clock-free tie-break.
+//  the deterministic, wall-clock-free tie-break — and (b) two sides that reached
+//  the SAME child-id list, whose shared new children must then also agree on
+//  content: two branches inserting one id with different content is a refusal
+//  naming that id, never an arrival-order-dependent pick.
 //
 //  Facet equality is `encodeNode` canonical-JSON bytes (the same oracle the
 //  merge-conformance corpus commits to), except the closure-free SemanticStyle
@@ -59,10 +67,60 @@ const mkNode = (
     : { ...rest, kind, style, state };
 };
 
-/** A `(nodeId, facet)` cell that could not be auto-merged. */
+/**
+ * The class of a merge refusal. Mirrors the reference host's
+ * `MergeConflictClass` spelling-for-spelling — these strings are the `class`
+ * member of the committed refusal envelope, so they are wire, not prose.
+ */
+export type MergeConflictClass =
+  | 'ConcurrentEdit'
+  | 'ConcurrentMove'
+  | 'DeleteModify'
+  | 'KindSwapOrphansPin'
+  | 'ReorderVsStructural'
+  | 'CombinedCycle';
+
+/**
+ * One SIDE of a two-sided refusal: that branch's value for the contended cell,
+ * plus the branch's own opaque provenance tag.
+ *
+ * The `value` is the contended cell's canonical encoding, EXCEPT for the
+ * `style.*` sub-facets, whose value is the sub-field's case name — which
+ * coincides with its wire spelling only because every style sub-field is
+ * enum-shaped. Do not generalise it to a compound cell.
+ */
+export interface MergeSide {
+  readonly value: string;
+  readonly tag?: string;
+}
+
+/**
+ * A `(nodeId, facet)` cell that could not be auto-merged, as a two-sided
+ * recovery envelope.
+ *
+ * `a` and `b` are the SIDES view: the first- and second-argument branches'
+ * values for the contended cell, populated on EVERY refusal. Swapping the
+ * branches TRANSPOSES them and changes nothing else — which is what lets two
+ * replicas that merged the same pair in opposite orders agree about what the
+ * other side wanted. `base` is the LCA value (the empty string for a cell that
+ * exists on neither side of the LCA, such as an `insert`).
+ *
+ * `primacyHeld` is the precedence view, and on this tier it is always `false`:
+ * `merge3Way` is the author-agnostic entry point, so neither side is pinned.
+ * The reference host's precedence slots (`primary` / `secondary` /
+ * `secondaryTag` / `choices`) are deliberately NOT mirrored here — they are
+ * populated exactly when a pin is held, and this tier has no author classifier
+ * to hold one with, so they could only ever be absent. They arrive with the
+ * entry point that supplies an author, not before.
+ */
 export interface MergeConflict {
   readonly nodeId: string;
   readonly facet: string;
+  readonly class: MergeConflictClass;
+  readonly base: string;
+  readonly a: MergeSide;
+  readonly b: MergeSide;
+  readonly primacyHeld: boolean;
 }
 
 /** Outcome of a 3-way merge: the merged tree, or the conflicting cells. */
@@ -133,11 +191,34 @@ const isPureAddition = (baseIds: readonly string[], headIds: readonly string[]):
 // canonical default), so an explicit-default vs absent never reads as changed.
 const eqOpt = <T>(x: T | undefined, y: T | undefined): boolean => (x ?? null) === (y ?? null);
 
-/** Merge one SemanticStyle sub-field; push a conflict on a genuine divergence. */
-const pickField = <T>(
+/** A two-sided refusal envelope with no primacy pin — the only shape this
+ * author-agnostic entry point can produce. */
+const refusal = (
+  nodeId: string,
+  facet: string,
+  cls: MergeConflictClass,
+  base: string,
+  aValue: string,
+  bValue: string,
+): MergeConflict => ({
+  nodeId,
+  facet,
+  class: cls,
+  base,
+  a: { value: aValue },
+  b: { value: bValue },
+  primacyHeld: false,
+});
+
+/** Merge one SemanticStyle sub-field; push a conflict on a genuine divergence.
+ * `dflt` renders an absent field for the envelope — absent ⟺ default on the
+ * wire, so a side that omitted the field wanted the default, and an envelope
+ * saying `undefined` would name a value the language does not have. */
+const pickField = <T extends string>(
   conflicts: MergeConflict[],
   nodeId: string,
   facet: string,
+  dflt: T,
   baseV: T | undefined,
   aV: T | undefined,
   bV: T | undefined,
@@ -145,7 +226,7 @@ const pickField = <T>(
   const aCh = !eqOpt(aV, baseV);
   const bCh = !eqOpt(bV, baseV);
   if (aCh && bCh && !eqOpt(aV, bV)) {
-    conflicts.push({ nodeId, facet });
+    conflicts.push(refusal(nodeId, facet, 'ConcurrentEdit', baseV ?? dflt, aV ?? dflt, bV ?? dflt));
     return baseV;
   }
   if (aCh) return aV;
@@ -165,7 +246,7 @@ const pickCanonical = (
   const aCh = aC !== baseC;
   const bCh = bC !== baseC;
   if (aCh && bCh && aC !== bC) {
-    conflicts.push({ nodeId, facet });
+    conflicts.push(refusal(nodeId, facet, 'ConcurrentEdit', baseC, aC, bC));
     return 0;
   }
   if (aCh) return 1;
@@ -177,18 +258,28 @@ const mergeStyle = (conflicts: MergeConflict[], id: string, base: N, a: N, b: N)
   const bs = base.style;
   const as_ = a.style;
   const bsB = b.style;
-  const tone = pickField(conflicts, id, 'style.tone', bs.tone, as_.tone, bsB.tone)!;
-  const weight = pickField(conflicts, id, 'style.weight', bs.weight, as_.weight, bsB.weight)!;
+  const d = defaults.style;
+  const tone = pickField(conflicts, id, 'style.tone', d.tone, bs.tone, as_.tone, bsB.tone)!;
+  const weight = pickField(
+    conflicts,
+    id,
+    'style.weight',
+    d.weight,
+    bs.weight,
+    as_.weight,
+    bsB.weight,
+  )!;
   const emphasis = pickField(
     conflicts,
     id,
     'style.emphasis',
+    d.emphasis,
     bs.emphasis,
     as_.emphasis,
     bsB.emphasis,
   )!;
-  const role = pickField(conflicts, id, 'style.role', bs.role, as_.role, bsB.role);
-  const voice = pickField(conflicts, id, 'style.voice', bs.voice, as_.voice, bsB.voice);
+  const role = pickField(conflicts, id, 'style.role', d.role!, bs.role, as_.role, bsB.role);
+  const voice = pickField(conflicts, id, 'style.voice', d.voice!, bs.voice, as_.voice, bsB.voice);
   // Only attach optional fields when present, so the merged style encodes
   // byte-identically (absent ⟺ default; `encodeNode` omits defaults).
   const style: SemanticStyle = { tone, weight, emphasis };
@@ -264,8 +355,24 @@ const merge3 = (
     const bc = baseMap.get(cid);
     if (bc !== undefined) return merge3(conflicts, bc, aMap.get(cid), bMap.get(cid));
     const ac = aMap.get(cid);
-    if (ac !== undefined) return ac;
     const bb = bMap.get(cid);
+    if (ac !== undefined && bb !== undefined) {
+      // BOTH branches introduced this id. There is no base to merge against, so
+      // agreement is the only clean outcome: identical content is the shared
+      // value, and DIFFERENT content is a refusal naming the id. Taking the A
+      // side unconditionally is a silent, arrival-order-dependent pick.
+      const acC = encodeNode(ac);
+      const bcC = encodeNode(bb);
+      if (acC === bcC) return ac;
+      // The id exists on neither side of the LCA, so it has no base value — the
+      // empty string, not an encoding of some node that was never there.
+      conflicts.push(refusal(cid, 'insert', 'ConcurrentEdit', '', acC, bcC));
+      // The merge has already refused, so this value reaches no caller — but it
+      // must not depend on which branch arrived first either. Same doctrine as
+      // the insert tie-break: order by canonical bytes.
+      return ordinal(acC, bcC) <= 0 ? ac : bb;
+    }
+    if (ac !== undefined) return ac;
     if (bb !== undefined) return bb;
     throw new Error(`merge3: child id ${cid} vanished`);
   };
@@ -277,6 +384,14 @@ const merge3 = (
     mergedChildren = aIds.map(recurseChild);
   } else if (!aStruct && bStruct) {
     mergedChildren = bIds.map(recurseChild);
+  } else if (JSON.stringify(aIds) === JSON.stringify(bIds)) {
+    // Both sides changed the children to the SAME id list — agreement, not a
+    // conflict, and the guard every other facet already has. Its absence here is
+    // what made `merge3Way(base, a, a)` refuse for any branch that touched
+    // children at all. The shared ids' CONTENTS are checked by `recurseChild`
+    // above, which refuses a same-id-different-content insert rather than
+    // defaulting to a side.
+    mergedChildren = aIds.map(recurseChild);
   } else {
     const baseSet = new Set(baseIds);
     const aNew = aIds.filter((i) => !baseSet.has(i));
@@ -291,7 +406,17 @@ const merge3 = (
       const newIds = [...new Set([...aNew, ...bNew])].sort(ordinal);
       mergedChildren = [...survivors, ...newIds.map(recurseChild)];
     } else {
-      conflicts.push({ nodeId: id, facet: 'children' });
+      // Both sides structurally changed the same parent differently.
+      conflicts.push(
+        refusal(
+          id,
+          'children',
+          'ReorderVsStructural',
+          baseIds.join(','),
+          aIds.join(','),
+          bIds.join(','),
+        ),
+      );
       mergedChildren = baseIds.map(recurseChild);
     }
   }
@@ -311,3 +436,56 @@ export const merge3Way = (base: N, a: N, b: N): MergeResult => {
   const merged = merge3(conflicts, base, a, b);
   return conflicts.length === 0 ? { ok: true, tree: merged } : { ok: false, conflicts };
 };
+
+// ─── the refusal envelope as a cross-host artefact ───────────────────────────
+
+/**
+ * Order a refusal set deterministically. `(nodeId, facet)` is unique within one
+ * merge — a facet of a node is merged once — so this totally orders an envelope
+ * regardless of the fold's internal emission order.
+ */
+export const sortConflictsCanonical = (
+  conflicts: readonly MergeConflict[],
+): readonly MergeConflict[] =>
+  [...conflicts].sort((x, y) => ordinal(x.nodeId, y.nodeId) || ordinal(x.facet, y.facet));
+
+/** Mirror of the canonical-JSON string escape, kept local for the same reason
+ * the reference host keeps its own: the merge surface takes no dependency on a
+ * codec for one escape. */
+const escapeJson = (s: string): string => {
+  let out = '"';
+  for (const ch of s) {
+    if (ch === '"') out += '\\"';
+    else if (ch === '\\') out += '\\\\';
+    else if (ch < ' ') out += `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`;
+    else out += ch;
+  }
+  return out + '"';
+};
+
+const encodeSide = (side: MergeSide): string =>
+  `{"tag":${side.tag === undefined ? 'null' : escapeJson(side.tag)},"value":${escapeJson(side.value)}}`;
+
+/**
+ * Canonical JSON of a REFUSAL envelope: the conflict set as a sorted array of
+ * `{a,b,base,class,facet,nodeId,primacyHeld}` objects (object keys alphabetical,
+ * array entries in `(nodeId, facet)` order). Byte-stable across hosts, so a
+ * sha256 over it is the cross-host refusal hash — the determinism artefact for a
+ * REFUSED structural merge, the analogue of the outcome hash for an auto-merge.
+ *
+ * The precedence view is deliberately projected as `primacyHeld` alone: the
+ * pinned winner and loser are derivable from the sides plus the pin, and a
+ * corpus that committed both would pin the same value twice and go red on a host
+ * that agreed about the merge.
+ */
+export const encodeMergeEnvelope = (conflicts: readonly MergeConflict[]): string =>
+  '[' +
+  sortConflictsCanonical(conflicts)
+    .map(
+      (c) =>
+        `{"a":${encodeSide(c.a)},"b":${encodeSide(c.b)},"base":${escapeJson(c.base)},` +
+        `"class":${escapeJson(c.class)},"facet":${escapeJson(c.facet)},` +
+        `"nodeId":${escapeJson(c.nodeId)},"primacyHeld":${c.primacyHeld ? 'true' : 'false'}}`,
+    )
+    .join(',') +
+  ']';
