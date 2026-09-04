@@ -15,6 +15,7 @@ import type {
   ImageAspect,
   StyleRole,
   FontVoice,
+  TextDirection,
   LayoutKind,
   Motion,
   NodeKind,
@@ -187,6 +188,54 @@ export const fontVoiceVar = (voice: FontVoice | undefined): string | undefined =
   }
 };
 
+/**
+ * Map a `TextDirection` to its `fuaran-dir-{suffix}` class suffix (Phase 1472).
+ * `'auto'` / absent returns `undefined` — no fragment, byte-identical default.
+ *
+ * The CLASS is what carries the ISOLATION. `dir` alone states a direction; the
+ * reference stylesheet's `.fuaran-dir-ltr, .fuaran-dir-rtl { unicode-bidi:
+ * isolate }` is what stops the surrounding bidirectional context reordering the
+ * run. Stating it in the stylesheet rather than leaning on the user agent's own
+ * `[dir]` rule is deliberate: the isolation is the whole point of the slot, and
+ * it must not depend on which UA stylesheet a host happens to ship.
+ */
+export const textDirectionVar = (direction: TextDirection | undefined): string | undefined => {
+  switch (direction) {
+    case undefined:
+    case 'auto':
+      return undefined;
+    case 'ltr':
+      return 'ltr';
+    case 'rtl':
+      return 'rtl';
+  }
+};
+
+/**
+ * The print-break class SUFFIX for a container's two Phase 1473 declarations —
+ * the empty string when neither is declared, so every element a pre-1473
+ * document produced carries a byte-identical class string.
+ *
+ * ONE helper, called from every container arm rather than a fragment assembled
+ * per arm: the six `Box` arms would otherwise be six independent chances to
+ * spell it differently, and the classes are what the reference stylesheet's
+ * `@media print` block hooks against.
+ */
+export const printBreakClasses = (keepTogether: boolean, breakBefore: boolean): string =>
+  (keepTogether ? ' fuaran-break-inside-avoid' : '') +
+  (breakBefore ? ' fuaran-break-before-page' : '');
+
+/**
+ * The GRID's own two Phase 1473 declarations, on the same rule and separate from
+ * the pair above because they name DIFFERENT boundaries: these hook rules at the
+ * row and at the header row group, which live INSIDE the element the class sits
+ * on, where the container pair applies to the element itself. Collapsing the two
+ * into one helper would put four mutually-unrelated flags behind one name.
+ */
+export const gridPrintBreakClasses = (keepRowsTogether: boolean, repeatHeader: boolean): string =>
+  (keepRowsTogether ? ' fuaran-grid-rows-together' : '') +
+  (repeatHeader ? ' fuaran-grid-repeat-header' : '');
+
 /** Map a `BadgeVariant` to its `fuaran-badge-{x}` class fragment. */
 export const badgeVariantClass = (variant: string): string => variant.toLowerCase();
 
@@ -205,7 +254,15 @@ export const styleClassName = (style: SemanticStyle): string => {
   )} fuaran-emphasis-${emphasisVar(style.emphasis)}`;
   const role = styleRoleVar(style.role);
   const voice = fontVoiceVar(style.voice);
-  return [base, role && `fuaran-role-${role}`, voice && `fuaran-voice-${voice}`]
+  // Phase 1472 — appended LAST, after the Phase 147 pair, so every class string
+  // a pre-1472 document produced is byte-identical.
+  const direction = textDirectionVar(style.direction);
+  return [
+    base,
+    role && `fuaran-role-${role}`,
+    voice && `fuaran-voice-${voice}`,
+    direction && `fuaran-dir-${direction}`,
+  ]
     .filter(Boolean)
     .join(' ');
 };

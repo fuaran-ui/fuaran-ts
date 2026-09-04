@@ -537,7 +537,37 @@ export type Action<TMsg> =
   | { readonly kind: 'AiTool'; readonly toolName: string; readonly args: JsonValue }
   | { readonly kind: 'Chain'; readonly actions: readonly Action<TMsg>[] }
   | { readonly kind: 'CommitLocal'; readonly nodeId: string }
-  | { readonly kind: 'WriteToClipboard'; readonly text: string }
+  | {
+      /**
+       * Phase 1126 — the payload is a `TextSource`, not a bare string, so the
+       * reader may be given a value the tree computed and not only a literal
+       * the author typed. `TextSource.Literal`'s canonical form IS the bare
+       * JSON string (§3.6's first 0.2.0 exception), so the widening is
+       * source-breaking for construction sites and WIRE-NEUTRAL: every document
+       * written before it carries bytes the encoder still emits.
+       *
+       * Resolution happens at DISPATCH time, through the same binding
+       * resolution the host renders text slots with, so what is copied is what
+       * the reader was looking at.
+       */
+      readonly kind: 'WriteToClipboard';
+      readonly text: TextSource;
+    }
+  | {
+      /**
+       * Phase 1124 — open the reader's own print dialogue. The format's first
+       * payload-free `Action` case, and the emptiness is the specification
+       * rather than an omission in it: every printing parameter belongs either
+       * to the host's page setup or to the dialogue the reader is looking at.
+       *
+       * It is the one `Action` arm that is STRICT about unrecognised members —
+       * a member beside `$type` is `WRONG_TYPE` at that member's own path —
+       * because here there is nothing to learn, and a host that accepted
+       * `{"$type":"Print","pageRange":"1-3"}` would leave the emitter believing
+       * it had constrained a printing it had not.
+       */
+      readonly kind: 'Print';
+    }
   | {
       /**
        * Phase 136 — read a previously-selected file's body in `encoding`, then
@@ -667,7 +697,33 @@ export interface SemanticStyle {
    * (`'Default'`); emits no class + is omitted from the wire.
    */
   readonly voice?: FontVoice;
+  /**
+   * Phase 1472 — the declared base direction of THIS node's own run. Optional:
+   * absent ⟺ `'auto'`, the identity, so a document that declares nothing is
+   * byte-identical to what it was before this member existed.
+   *
+   * The only member of this record that is not presentational. `emphasis`,
+   * `role`, `tone`, `voice` and `weight` are statements a host may ignore and
+   * still render a document that says the same thing; this one is a
+   * CORRECTNESS statement — a value declared `'ltr'` inside right-to-left prose
+   * is reordered by the Unicode bidirectional algorithm unless the run is
+   * isolated, and the reader then reads its digits back in the wrong order
+   * (WCAG 1.3.2). A host that drops it renders a document that says something
+   * else.
+   *
+   * An unrecognised token is REFUSED, never coerced to the default: a document
+   * that meant `'rtl'` and misspelled it would otherwise render as reordered
+   * digits with nothing said anywhere.
+   */
+  readonly direction?: TextDirection;
 }
+
+/**
+ * Phase 1472 — the closed, LOWER-CASE direction vocabulary, spelled in the
+ * values the isolation is ultimately expressed in (the `liveRegion` posture).
+ * `'auto'` is the identity and is omitted at it on the wire.
+ */
+export type TextDirection = 'auto' | 'ltr' | 'rtl';
 
 export interface Accessibility {
   readonly label?: Binding<string>;
@@ -706,7 +762,7 @@ export interface Node<TMsg> {
 
 export type NodeKind<TMsg> =
   | { readonly kind: 'Layout'; readonly layout: LayoutKind<TMsg> }
-  | { readonly kind: 'Display'; readonly display: DisplayKind }
+  | { readonly kind: 'Display'; readonly display: DisplayKind<TMsg> }
   | { readonly kind: 'Input'; readonly input: InputKind<TMsg> }
   | { readonly kind: 'Visualisation'; readonly visualisation: VisKind<TMsg> }
   | {
@@ -770,6 +826,7 @@ export const NODE_KIND_GROUPS: readonly {
       'Image',
       'Media',
       'Embed',
+      'Tree',
       'List',
       'Toast',
       'CodeBlock',
@@ -832,6 +889,24 @@ export interface SwitchSpec<TMsg> {
   readonly on: Binding<string>;
   readonly cases: readonly SwitchCase<TMsg>[];
   readonly default: Node<TMsg>;
+  /**
+   * Phase 1122 — advance to the next case every this-many milliseconds. Optional
+   * and omitted at absence, so a document that does not declare it is
+   * byte-identical to what it was before this member existed.
+   *
+   * It declares the one fact a host cannot recover from the tree: every other
+   * half of a carousel is already composable (the stage is a `Box`, the panels
+   * the `cases`, the position the bound key, the arrows ordinary controls
+   * writing it), and nothing in any arrangement of those says a timer exists.
+   *
+   * A DURATION, never a flag — "advances" with no interval is not renderable.
+   * A non-positive or FRACTIONAL value is `WRONG_TYPE` and is never
+   * canonicalised: `0` is what an emitter reaches for to mean "off" and the
+   * language already has a spelling for off (an absent key), while a decoder
+   * truncating a fraction where another rounded would leave two hosts
+   * disagreeing about a document neither refused.
+   */
+  readonly autoAdvanceMs?: number;
 }
 
 /** One case in a {@link SwitchSpec}: render `child` when the state value's
@@ -1020,6 +1095,23 @@ export interface BoxSpec<TMsg> {
   /** Optional container heading (the retired Card heading). Emitted only when set. */
   readonly heading?: TextSource;
   readonly children: readonly Node<TMsg>[];
+  /**
+   * Phase 1473 — this container and its whole subtree stay on one page when the
+   * rendering is PAGED. Omitted on the wire at `false`.
+   *
+   * It declares the one fact a host cannot recover from a rendering: a
+   * formatter laying out pages sees boxes, and nothing in the rendering carries
+   * back that the three lines of a totals block are ONE THING that reads wrong
+   * when halved. Scoped to the paged medium — a screen rendering is unchanged.
+   */
+  readonly keepTogether: boolean;
+  /**
+   * Phase 1473 — this container starts at the top of a fresh page when the
+   * rendering is PAGED. Omitted on the wire at `false`. There is deliberately no
+   * break-AFTER twin anywhere: a break after this container is a break before
+   * the next one.
+   */
+  readonly breakBefore: boolean;
 }
 
 // ── Author-facing container spec records — retained as smart-ctor inputs
@@ -1153,13 +1245,16 @@ export interface ScrollAreaSpec<TMsg> {
   readonly maxWidth?: number;
 }
 
-// ─── Display — pure presentation, no Msg ─────────────────────────────────────
+// ─── Display — presentation ──────────────────────────────────────────────────
 //
-// The F# `DisplayKind<'Msg>` is generic for uniformity, but none of its cases
-// reference `'Msg`. The TS port drops the type parameter — Display specs carry
-// no actions.
+// The F# `DisplayKind<'Msg>` is generic, and this port carried no type
+// parameter for as long as no case referenced `'Msg`. Phase 1120's `Tree`
+// carries an `onSelect`, so the parameter is restored — WITH A DEFAULT of
+// `unknown`, so every existing bare `DisplayKind` reference (the decoder, both
+// renderers, the generative arbitraries) keeps its meaning unchanged and a
+// decoded tree, which is `Node<unknown>`, reads exactly as it did.
 
-export type DisplayKind =
+export type DisplayKind<TMsg = unknown> =
   | { readonly kind: 'Heading'; readonly spec: HeadingSpec }
   | { readonly kind: 'Markdown'; readonly spec: MarkdownSpec }
   | { readonly kind: 'Metric'; readonly spec: MetricSpec }
@@ -1174,6 +1269,7 @@ export type DisplayKind =
   | { readonly kind: 'Link'; readonly spec: LinkSpec }
   | { readonly kind: 'Image'; readonly spec: ImageSpec }
   | { readonly kind: 'Media'; readonly spec: MediaSpec }
+  | { readonly kind: 'Tree'; readonly spec: TreeSpec<TMsg> }
   | { readonly kind: 'Embed'; readonly spec: EmbedSpec }
   | { readonly kind: 'List'; readonly spec: ListSpec }
   | { readonly kind: 'Toast'; readonly spec: ToastSpec }
@@ -1344,6 +1440,134 @@ export interface MediaSpec {
   /** Whether playback repeats. Omitted from the wire at `false`. */
   readonly loop: boolean;
   readonly kind: MediaKind;
+  /**
+   * Phase 1110 — the element's timed-text tracks, in AUTHORED order.
+   *
+   * Omitted on the wire when EMPTY — an absent list and an empty one denote the
+   * same document — so a decoder restores the empty list, never a null. The
+   * order is preserved and never re-sorted: this is the OPPOSITE of `srcSet`'s
+   * ascending rule and the difference is not an inconsistency — a browser picks
+   * ONE candidate from a srcset by an algorithm, so ordering it is
+   * canonicalisation, while a reader picks a track from a menu the user agent
+   * builds in DOCUMENT order, so ordering it would be rewriting someone else's
+   * menu.
+   */
+  readonly tracks: readonly TrackEntry[];
+  /**
+   * Phase 1110 — the element's text alternative. On the SPEC rather than on
+   * `MediaKind.Video`, and that placement is the one worth explaining: a
+   * transcript is the accessibility affordance an AUDIO surface needs most,
+   * because a recording with no visual channel has nowhere else to put its
+   * words.
+   *
+   * An ordinary optional: absent means the document offers no transcript, which
+   * is a different statement from offering an empty one. It renders as a
+   * disclosure BESIDE the transport, never inside it — `<video>` and `<audio>`
+   * admit only source-ish children.
+   */
+  readonly transcript?: TextSource;
+}
+
+/**
+ * Phase 1110 — one timed-text track on a `MediaSpec`.
+ *
+ * Four of the five members are REQUIRED, which makes it the strictest record on
+ * the wire; `default` is the one omitted-at-`false` slot. `srcLang` is required
+ * on EVERY kind, where HTML makes `srclang` mandatory only on subtitles: the
+ * extra strictness costs an author one value and buys a menu a user agent can
+ * order, a speech engine can pronounce, and a reader can tell apart.
+ */
+export interface TrackEntry {
+  readonly kind: TrackKind;
+  readonly src: Binding<string>;
+  readonly srcLang: string;
+  readonly label: TextSource;
+  /**
+   * Whether this track is the elected default for its kind. Omitted at `false`.
+   *
+   * At most ONE `default` per KIND survives to the emission, first election
+   * wins — a document electing two default captions tracks is legal bytes (the
+   * decoder does not refuse it, because a lenient host would render it anyway
+   * and HTML leaves the case undefined), so the HOST resolves it, and every
+   * host resolves it the same way.
+   */
+  readonly default: boolean;
+}
+
+/**
+ * Phase 1110 — a track's kind, a BARE enum on the wire carrying the lower-case
+ * HTML token at emission time.
+ *
+ * `metadata` is NOT a track kind, and its absence is the design: its cues are
+ * rendered by no user agent and read only by script, so a declarative document
+ * naming it would state an intent no conformant host could honour. The set is
+ * closed at four; a fifth is an addition, not a spelling a decoder may guess at.
+ */
+export type TrackKind = 'Subtitles' | 'Captions' | 'Descriptions' | 'Chapters';
+
+/**
+ * Phase 1120 — a hierarchy of ROWS and, optionally, the names of the two State
+ * slots through which a reader opens rows and selects one.
+ *
+ * This kind carries NO `expandable` and NO `selectable` boolean, and none is
+ * coming: a behaviour the reader drives is declared as a named State key the
+ * host both writes and reads, and a flag with no key behind it is a decorative
+ * control writing state nothing reads.
+ */
+export interface TreeSpec<TMsg> {
+  readonly items: readonly TreeItem[];
+  /**
+   * Names a State slot holding a JSON ARRAY OF ROW IDS — the rows currently
+   * open. An array rather than a map of booleans, because the question a host
+   * asks is set membership, and a set has one spelling where a map has two for
+   * "closed".
+   *
+   * ABSENT means the tree renders FULLY EXPANDED and does not toggle. That is
+   * the same reading that lets a grid honour a declared initial order while
+   * offering no interactive sorting, and it is the only reading under which
+   * such a tree shows its content at all.
+   *
+   * A value of any other shape reads as EMPTY rather than as an error: this is
+   * a host's own state slot, not a wire document, so there is nothing here to
+   * refuse, and refusing would blank a tree over a value the reader never
+   * authored.
+   */
+  readonly expandedStateKey?: string;
+  /**
+   * Names a State slot holding a bare ROW-ID STRING — the selected row. Absent
+   * means the tree does not select, and emits no `aria-selected`: a tree that
+   * never selects must not declare a selectable widget with nothing selected.
+   */
+  readonly selectionStateKey?: string;
+  /**
+   * Optional selection handler. Emitted only when present (rule 4); the value
+   * is the `"<closure>"` sentinel.
+   */
+  readonly onSelect?: (id: string) => Action<TMsg>;
+}
+
+/**
+ * Phase 1120 — one row of a {@link TreeSpec}. `children` is a list of the SAME
+ * record, which makes this the format's first SELF-REFERENTIAL shape.
+ *
+ * `children` omits at the EMPTY LIST and `icon` when absent, so a leaf carries
+ * two keys and nothing else — which is most of a real hierarchy, and a host
+ * emitting an empty `children` on a leaf produces different bytes for most of a
+ * file listing.
+ *
+ * `id` is required because it is what the two State slots NAME. `label` is a
+ * `TextSource` because it is content — authored, translated, bindable.
+ *
+ * Row ids MUST be unique within one tree, and that is an EMIT-side obligation
+ * rather than a decode refusal: duplicate detection is a whole-tree property, a
+ * decoder streaming a document is not required to carry the id set, and there
+ * is no error code for it.
+ */
+export interface TreeItem {
+  readonly id: string;
+  readonly label: TextSource;
+  readonly children: readonly TreeItem[];
+  readonly icon?: string;
 }
 
 /**
@@ -1969,6 +2193,93 @@ export type FormFieldKind<TMsg> =
       readonly options: Binding<readonly SelectOption[]>;
       readonly value: Binding<string | undefined>;
       readonly onChange?: (value: string | undefined) => Action<TMsg>;
+    }
+  | {
+      // Phase 1121 — SEVERAL values accumulated as removable chips, over a
+      // suggestion set that may be open, searchable, asynchronous, or absent
+      // entirely. Recipients, labels, skills.
+      //
+      // THE TRIANGLE, which is the line an emitter has to hold: a CLOSED set
+      // small enough to scan is a `Select` with `multiple`; ONE value from a
+      // large or asynchronous set is a `Combobox`; SEVERAL values over a set
+      // that is open, or that the document does not enumerate at all, is this.
+      // A `Combobox` PER ITEM is not a smaller version of this control — it is
+      // N single-value fields with N ids, no gesture that removes the third
+      // entry, and a submission shaped like `tag1`, `tag2`, `tag3` rather than
+      // one list.
+      //
+      // Every member is OPTIONAL on the wire, so the bare discriminator is a
+      // complete, useful document — the plain open token box, which is the
+      // commonest shape this control takes.
+      readonly kind: 'Tokens';
+      // `allowFreeText` omits at TRUE, the OPPOSITE polarity to `Combobox`'s,
+      // and this is the one thing about the case a host is most likely to get
+      // wrong. The two differ because their sets differ: `Combobox.options` is
+      // REQUIRED so "constrained" is its resting state, where `suggestions`
+      // here is optional so "open" is this one's. The default follows the
+      // required-ness of the set — one rule, not two habits.
+      readonly allowFreeText: boolean;
+      // The ORDERED list, and the order is the READER'S: chips appear where they
+      // were added. A host MUST NOT sort or de-duplicate it — both would rewrite
+      // a fact the reader can see, and de-duplication would silently repair a
+      // document the specification says is wrong.
+      readonly value: Binding<readonly string[]>;
+      // Optional, which is the difference from `Combobox.options`. An ABSENT
+      // source and an EMPTY one are different facts: absent means the control
+      // has no candidate set at all, resolved-empty means it has one that is
+      // currently empty — which is also every asynchronous source's first frame.
+      // A `Binding.Query` here IS the async feed; nothing names a request, a
+      // debounce or a minimum query length.
+      readonly suggestions?: Binding<readonly SelectOption[]>;
+      // The WHOLE list on every add and every remove, never a delta, which is
+      // what lets the declarative write-back rewrite the slot and keep the order
+      // with no host code.
+      readonly onChange?: (value: readonly string[]) => Action<TMsg>;
+    }
+  | {
+      // Phase 1130 — a SUBJECTIVE SCORE on a small ordinal scale. The line an
+      // emitter has to hold is one sentence: a rating is a judgement a person
+      // GIVES, a `RangedNumber` is a measurement they REPORT. Both carry a
+      // floating-point value and a ceiling, which is exactly why the sentence is
+      // written down rather than left to be inferred from the shapes.
+      readonly kind: 'Rating';
+      // The scale, and the case's only REQUIRED member: it is what the control
+      // announces as `aria-valuemax`, and a rating with no declared ceiling is
+      // not a scale. A `max` below 1 is `WRONG_TYPE` and is REFUSED, not
+      // clamped — a scale with no positions has nothing to draw, nothing to
+      // announce and no keystroke that could change anything.
+      readonly max: number;
+      // Omits at `false`, and the polarity is load-bearing: the SHORTEST rating
+      // document is the WHOLE-STAR one. It governs ENTRY, never DISPLAY — the
+      // granularity of a keystroke and of a pointer commit — and a host MUST NOT
+      // quantise a resolved value to it.
+      readonly allowHalf: boolean;
+      // A FLOAT even where nothing can type a fraction, and this is normative
+      // rather than incidental: the commonest rating a reader sees is an
+      // AVERAGE arriving through a `Query` binding, and an integer slot could
+      // not carry it. A host MUST render a fractional value as a partial
+      // position rather than rounding it.
+      readonly value: Binding<number>;
+      readonly onChange?: (value: number) => Action<TMsg>;
+    }
+  | {
+      // Phase 1130 — the platform's own colour picker. Note what it is NOT: a
+      // CONTROL, and not a `rule.format` — a format constrains the text a reader
+      // types into a text box, where this is a swatch that opens the operating
+      // system's colour picker.
+      //
+      // Both members are optional, so the bare discriminator is a complete,
+      // auto-bound colour field.
+      readonly kind: 'Color';
+      // `#rrggbb` and nothing else — six hexadecimal digits after a `#`, either
+      // case. That is the one form a native colour input can hold or return, so
+      // it is the wire form too rather than a wider colour syntax the control
+      // would silently narrow. A `Static` literal outside that shape is
+      // `WRONG_TYPE` and is refused, not coerced. CASE IS PRESERVED, never
+      // normalised: browsers normalise at the DOM, which is their business and
+      // not the wire's.
+      readonly value: Binding<string>;
+      readonly onChange?: (value: string) => Action<TMsg>;
     };
 
 /**
@@ -2001,6 +2312,9 @@ export const FORM_FIELD_KIND_NAMES: readonly string[] = [
   'Date',
   'DateRange',
   'Combobox',
+  'Tokens',
+  'Rating',
+  'Color',
 ];
 
 export interface NumberFieldConstraints {
@@ -2064,7 +2378,55 @@ export interface FileUploadSpec<TMsg> {
    * only what the reader pasted.
    */
   readonly acceptPaste: boolean;
+  /**
+   * Phase 1116 — WHICH of the reader's own recording devices the platform
+   * should open in place of the file browser. The THIRD ingress route, and the
+   * only one that PRODUCES a file rather than moving one that already exists.
+   *
+   * OPTIONAL, not omit-at-default, and the distinction is real: "say nothing"
+   * is a state of its own — an upload naming no device asks for the ordinary
+   * file browser, which is not one of the two devices wearing a default. A
+   * present value outside the set is `UNKNOWN_DU_CASE` at the member's own path
+   * (a BARE enum, so no `.$type` suffix) and MUST NOT fall back to either
+   * device.
+   *
+   * `capture` and `accept` are ONE statement and a host emits both exactly as
+   * declared: a host MUST NOT synthesise an `accept` from the declared device.
+   */
+  readonly capture?: CaptureSource;
+  /**
+   * Phase 1117 — the host-registered destination an upload streams its selected
+   * files to. The fourth thing added to this control and the only one about what
+   * happens AFTER the selection: the other three are ingress routes, this is
+   * egress.
+   *
+   * It is a NAME, and it is a name because it must never be an ADDRESS. The
+   * string is an id the host has registered with its own upload sink; it is not
+   * a URL, not a path, not a template, and nothing on this member is ever
+   * fetched or joined to a base. A wire document comes from an arbitrary
+   * emitter, and a URL here would let that emitter choose where a reader's file
+   * goes.
+   *
+   * Optional; the EMPTY STRING is REFUSED (`WRONG_TYPE`) rather than read as
+   * absence — it is a name no host registers, so a document carrying it
+   * describes an upload that can never stream, and reading it as absence
+   * silently turns an upload the author meant to stream into a client-only one.
+   * An UNREGISTERED non-empty id is NOT a decode refusal: whether an id is
+   * registered is a fact about the host, not about the document.
+   */
+  readonly destination?: string;
 }
+
+/**
+ * Phase 1116 — the recording device a `FileUpload` asks the platform to open.
+ * A BARE enum on the wire (no `$type`), so an unknown token reports at the
+ * member's own path.
+ *
+ * There is no display-capture case and there will not be one by widening this:
+ * a screen capture reaches every window the reader has open rather than one
+ * device behind the picker, so it is a different class of thing.
+ */
+export type CaptureSource = 'Camera' | 'Microphone';
 
 /**
  * Requested encoding for `Action.ReadFileBody` (Phase 136). The renderer's
@@ -2162,6 +2524,37 @@ export interface GridSpec<TMsg> {
   // (`editStateKey`, else the Phase-663 State-source floor) — a reorder IS a
   // write of the whole updated rows value, so it mints no second key.
   readonly reorderable: boolean;
+  // Phase 1123 — the two sides of ONE shared State key, and between them they
+  // say exactly one thing: THESE GRIDS EXCHANGE ROWS. A grid declaring
+  // `transferOutKey` K may RELEASE rows onto K; one declaring `transferInKey` K
+  // ACCEPTS rows arriving on it; one declaring both with one K does each.
+  // Nothing else is named — not the drag, not the drop, not the drag image, not
+  // the keyboard route, not the visible drop state.
+  //
+  // TWO members and not one symmetric key, because the one-way ends are
+  // ordinary: an archive column that accepts and never releases, a Done column
+  // that releases nothing back. Neither carries the `-StateKey` suffix the
+  // sibling behaviour fields do, deliberately: that suffix marks a key a grid
+  // both writes AND READS to change its own presentation, and neither end reads
+  // this one for its own presentation. Both omitted on the wire when absent; a
+  // present member of any other type is WRONG_TYPE and is never coerced.
+  readonly transferOutKey?: string;
+  readonly transferInKey?: string;
+  // Phase 1125 — this grid's rows are the reader's to take. Omitted at `false`.
+  // The grid-behaviour rule reached by a node that writes NOTHING: every other
+  // member of that family names a State key because the behaviour it declares
+  // writes something the grid reads back, and an export writes nothing, so
+  // there is no key it could name and no reader of that key to disappoint. The
+  // boolean is the whole declaration — not the format, not the file name, not
+  // the control, not the gesture, and not which rows.
+  readonly exportable: boolean;
+  // Phase 1473 — no row of this grid is split across a page boundary. Omitted at
+  // `false`; scoped to the paged medium. It applies to the grid's ROWS, not to
+  // the grid as a whole.
+  readonly keepRowsTogether: boolean;
+  // Phase 1473 — the column headers repeat at the top of every page the grid
+  // continues onto. Omitted at `false`; scoped to the paged medium.
+  readonly repeatHeader: boolean;
   readonly columns: readonly ColumnErased<TMsg>[];
   readonly onRowClick?: (row: unknown) => Action<TMsg>;
   readonly editable: boolean;

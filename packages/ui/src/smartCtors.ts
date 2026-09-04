@@ -95,6 +95,10 @@ import type {
   TabHeader,
   TabsSpec,
   TextSource,
+  TrackEntry,
+  TrackKind,
+  TreeItem,
+  CaptureSource,
   ToneVariant,
   TrendPolarity,
   Transform,
@@ -139,6 +143,30 @@ const numberBinding = (input: NumberInput): Binding<number> =>
 
 const stringBinding = (input: StringInput): Binding<string> =>
   typeof input === 'string' ? { kind: 'Static', value: input } : input;
+
+/**
+ * Phase 1110 — one authored `<track>`. `default` omits at `false`, so the
+ * shortest track declaration is the un-elected one.
+ */
+/**
+ * Phase 1120 — one authored row. `children` is ALWAYS present on the record,
+ * even when empty: the wire says an absent `children` is the empty list, so a
+ * constructed item that left it off would disagree with a decoded one.
+ */
+const treeItem = (t: TreeItemInput): TreeItem => ({
+  id: t.id,
+  label: text(t.label),
+  children: (t.children ?? []).map(treeItem),
+  ...(t.icon !== undefined ? { icon: t.icon } : {}),
+});
+
+const trackEntry = (t: TrackInput): TrackEntry => ({
+  kind: t.kind,
+  src: stringBinding(t.src),
+  srcLang: t.srcLang,
+  label: text(t.label),
+  default: t.default ?? false,
+});
 
 /** A `Binding<boolean>`, or a bare boolean that becomes a `Binding.Static`. */
 export type BoolInput = boolean | Binding<boolean>;
@@ -437,8 +465,31 @@ export const action = {
   commitLocal<TMsg>(id: string): Action<TMsg> {
     return { kind: 'CommitLocal', nodeId: id };
   },
-  writeToClipboard<TMsg>(text: string): Action<TMsg> {
-    return { kind: 'WriteToClipboard', text };
+  /**
+   * Phase 1126 — the payload is a `TextSource`, so a bound value the tree
+   * computed can reach the clipboard and not only a literal typed at authoring
+   * time. A bare string is still accepted and still encodes to the same bytes:
+   * `Literal`'s canonical form IS the bare JSON string.
+   *
+   * Resolution happens at DISPATCH time, so what is copied is what the reader
+   * was looking at.
+   */
+  writeToClipboard<TMsg>(payload: TextInput): Action<TMsg> {
+    return { kind: 'WriteToClipboard', text: text(payload) };
+  },
+  /**
+   * Phase 1124 — open the reader's own print dialogue. It takes nothing, and
+   * the emptiness is the specification rather than an omission in it: every
+   * printing parameter belongs either to the host's page setup or to the
+   * dialogue the reader is looking at.
+   *
+   * Which subtrees stay whole on paper is a separate, independent statement —
+   * `keepTogether` / `breakBefore` on a `Box` and `keepRowsTogether` /
+   * `repeatHeader` on a grid — because a printed page must be correct with no
+   * action having fired at all.
+   */
+  print<TMsg>(): Action<TMsg> {
+    return { kind: 'Print' };
   },
   /**
    * Phase 136 — read a previously-selected file's body in `encoding`, then
@@ -726,6 +777,57 @@ export const formFieldKind = {
   ): FormFieldKind<TMsg> {
     return { kind: 'Combobox', allowFreeText, options, value, onChange };
   },
+  /**
+   * `Tokens` (Phase 1121) — SEVERAL values accumulated as removable chips, over
+   * a suggestion set that may be open, searchable, asynchronous, or absent.
+   *
+   * `allowFreeText` defaults to `true`, the OPPOSITE of `combobox`'s default and
+   * the wire's own polarity: this control's suggestion source is optional, so
+   * "open" is its resting state. A closed field with no `suggestions` is refused
+   * by the decoder — it admits nothing typed and offers nothing to pick — so
+   * pass one whenever you pass `false`.
+   */
+  tokens<TMsg>(
+    value: Binding<readonly string[]>,
+    onChange: (value: readonly string[]) => Action<TMsg>,
+    allowFreeText = true,
+    suggestions?: Binding<readonly SelectOption[]>,
+  ): FormFieldKind<TMsg> {
+    return {
+      kind: 'Tokens',
+      allowFreeText,
+      value,
+      onChange,
+      ...(suggestions !== undefined ? { suggestions } : {}),
+    };
+  },
+  /**
+   * `Rating` (Phase 1130) — a SUBJECTIVE SCORE on a small ordinal scale. Use
+   * `rangedNumber` for a numeric QUANTITY the reader reports; a rating is a
+   * judgement they give.
+   *
+   * `max` is the scale and must be at least 1. `allowHalf` governs ENTRY only —
+   * a bound average renders at its true fraction whatever it says.
+   */
+  rating<TMsg>(
+    max: number,
+    value: Binding<number>,
+    onChange: (value: number) => Action<TMsg>,
+    allowHalf = false,
+  ): FormFieldKind<TMsg> {
+    return { kind: 'Rating', max, allowHalf, value, onChange };
+  },
+  /**
+   * `Color` (Phase 1130) — the platform's own colour picker. The value is
+   * `#rrggbb` and nothing else; a literal outside that shape is refused by the
+   * decoder rather than narrowed.
+   */
+  color<TMsg>(
+    value: Binding<string>,
+    onChange: (value: string) => Action<TMsg>,
+  ): FormFieldKind<TMsg> {
+    return { kind: 'Color', value, onChange };
+  },
   date<TMsg>(
     value: Binding<string>,
     onChange: (value: string) => Action<TMsg>,
@@ -801,6 +903,36 @@ export const formFieldKind = {
   ): FormFieldKind<TMsg> {
     return { kind: 'Combobox', allowFreeText, options, value };
   },
+  /** Handler-free `Tokens` (Phase 1121) — writes the WHOLE list back on every
+   *  add and every remove, never a delta, which is what keeps the reader's
+   *  order with no host code. */
+  tokensDeclarative<TMsg>(
+    value: Binding<readonly string[]>,
+    allowFreeText = true,
+    suggestions?: Binding<readonly SelectOption[]>,
+  ): FormFieldKind<TMsg> {
+    return {
+      kind: 'Tokens',
+      allowFreeText,
+      value,
+      ...(suggestions !== undefined ? { suggestions } : {}),
+    };
+  },
+  /** Handler-free `Rating` (Phase 1130) — writes the chosen score back to the
+   *  value slot. A rating over a slot the write-back cannot reach is a DISPLAY,
+   *  and both renderers emit it as one. */
+  ratingDeclarative<TMsg>(
+    max: number,
+    value: Binding<number>,
+    allowHalf = false,
+  ): FormFieldKind<TMsg> {
+    return { kind: 'Rating', max, allowHalf, value };
+  },
+  /** Handler-free `Color` (Phase 1130) — writes the chosen `#rrggbb` back to
+   *  the value slot. */
+  colorDeclarative<TMsg>(value: Binding<string>): FormFieldKind<TMsg> {
+    return { kind: 'Color', value };
+  },
   /** Handler-free `Date` — writes the ISO-8601 string back to the value slot. */
   dateDeclarative<TMsg>(
     value: Binding<string>,
@@ -847,6 +979,29 @@ export const filterField = {
   ): FormFieldKind<TMsg> {
     return { kind: 'Combobox', allowFreeText, options, value: { kind: 'Filter', name } };
   },
+  /** Token chip bound to its own filter key (Phase 1121) — several values over
+   *  an open or suggested set, where `choice` takes one from a closed one. */
+  tokens<TMsg>(
+    name: string,
+    allowFreeText = true,
+    suggestions?: Binding<readonly SelectOption[]>,
+  ): FormFieldKind<TMsg> {
+    return {
+      kind: 'Tokens',
+      allowFreeText,
+      value: { kind: 'Filter', name },
+      ...(suggestions !== undefined ? { suggestions } : {}),
+    };
+  },
+  /** Rating chip bound to its own filter key (Phase 1130) — "at least this
+   *  many stars". */
+  rating<TMsg>(name: string, max: number, allowHalf = false): FormFieldKind<TMsg> {
+    return { kind: 'Rating', max, allowHalf, value: { kind: 'Filter', name } };
+  },
+  /** Colour-swatch chip bound to its own filter key (Phase 1130). */
+  color<TMsg>(name: string): FormFieldKind<TMsg> {
+    return { kind: 'Color', value: { kind: 'Filter', name } };
+  },
   /** Dual-thumb range chip bound to its own filter key. */
   range<TMsg>(name: string): FormFieldKind<TMsg> {
     return { kind: 'Range', value: { kind: 'Filter', name } };
@@ -879,19 +1034,19 @@ const buildNode = <TMsg>(
 
 // Option object shapes -------------------------------------------------------
 
-export interface DashboardOptions<TMsg> {
+export interface DashboardOptions<TMsg> extends PrintBreakOptions {
   readonly id: NodeId | string;
   readonly children?: readonly Node<TMsg>[];
 }
 
-export interface StackOptions<TMsg> {
+export interface StackOptions<TMsg> extends PrintBreakOptions {
   readonly id: NodeId | string;
   readonly orientation?: Orientation;
   readonly children?: readonly Node<TMsg>[];
   readonly wrap?: boolean;
 }
 
-export interface GridLayoutOptions<TMsg> {
+export interface GridLayoutOptions<TMsg> extends PrintBreakOptions {
   readonly id: NodeId | string;
   readonly cols?: number;
   readonly children?: readonly Node<TMsg>[];
@@ -904,7 +1059,7 @@ export interface GridLayoutOptions<TMsg> {
  * list for a `grid-template-columns` sizing function to name, and the omission
  * is what keeps the case bounded.
  */
-export interface MasonryLayoutOptions<TMsg> {
+export interface MasonryLayoutOptions<TMsg> extends PrintBreakOptions {
   readonly id: NodeId | string;
   readonly cols?: number;
   readonly gap?: number;
@@ -929,7 +1084,7 @@ export interface TabsOptions<TMsg> {
   readonly onSelectTag?: (tag: string) => Action<TMsg>;
 }
 
-export interface CardOptions<TMsg> {
+export interface CardOptions<TMsg> extends PrintBreakOptions {
   readonly id: NodeId | string;
   readonly heading?: TextInput;
   readonly children?: readonly Node<TMsg>[];
@@ -1086,6 +1241,34 @@ export interface VideoOptions {
    * a refused one is dropped rather than emitted.
    */
   readonly poster?: StringInput;
+  /**
+   * Phase 1110 — the timed-text tracks, in AUTHORED order. Omitted ⇒ none. The
+   * order is preserved end to end: a reader picks a track from a menu the user
+   * agent builds in document order, so sorting it would be rewriting someone
+   * else's menu.
+   */
+  readonly tracks?: readonly TrackInput[];
+  /**
+   * Phase 1110 — the text alternative, rendered as a disclosure BESIDE the
+   * transport. Omitted ⇒ none, which is a different statement from an empty one.
+   */
+  readonly transcript?: TextInput;
+}
+
+/**
+ * Phase 1110 — one timed-text track. Four of the five members are required, the
+ * strictest record in the format: `srcLang` is required on EVERY kind, where
+ * HTML makes it mandatory only on subtitles, because a track with no language is
+ * one nothing downstream can route.
+ */
+export interface TrackInput {
+  readonly kind: TrackKind;
+  readonly src: StringInput;
+  readonly srcLang: string;
+  readonly label: TextInput;
+  /** Omitted ⇒ `false`. At most one default per KIND survives to the emission,
+   *  first election wins — the host resolves a document that elects two. */
+  readonly default?: boolean;
 }
 
 /**
@@ -1100,6 +1283,14 @@ export interface AudioOptions {
   readonly label: TextInput;
   readonly controls?: boolean;
   readonly loop?: boolean;
+  /** Phase 1110 — the timed-text tracks, in authored order. */
+  readonly tracks?: readonly TrackInput[];
+  /**
+   * Phase 1110 — the text alternative. It lives on the SPEC rather than on the
+   * video variant precisely so an audio surface can carry one: a recording with
+   * no visual channel has nowhere else to put its words.
+   */
+  readonly transcript?: TextInput;
 }
 
 /**
@@ -1248,6 +1439,22 @@ export interface FileUploadOptions<TMsg> {
   readonly dropTarget?: boolean;
   /** Phase 1115 — accept a file-bearing paste; absent means the plain picker. */
   readonly acceptPaste?: boolean;
+  /**
+   * Phase 1116 — open one of the reader's own recording devices in place of the
+   * file browser. Absent is the ordinary picker, which is a state of its own
+   * rather than a default either device wears.
+   *
+   * `capture` and `accept` are ONE statement: WHICH device the platform opens is
+   * decided by `accept`, and nothing synthesises one from the other.
+   */
+  readonly capture?: CaptureSource;
+  /**
+   * Phase 1117 — the host-registered destination selected files stream to. A
+   * NAME and never an address: it is an id the host has registered with its own
+   * upload sink, and nothing is ever fetched from it or joined to a base. The
+   * empty string is refused by the decoder rather than read as absence.
+   */
+  readonly destination?: string;
 }
 
 export interface ChartOptions<TMsg> {
@@ -1286,6 +1493,62 @@ export interface GridOptions<TRow, TMsg> {
   readonly editable?: boolean;
   // Phase 934 — declarative row reorder; absent means off, as `editable`.
   readonly reorderable?: boolean;
+  /**
+   * Phase 1125 — this grid's rows are the reader's to take. Absent means off.
+   * Nothing else is named: not the file format, not the file name, not the
+   * control, not the gesture, and not which rows.
+   */
+  readonly exportable?: boolean;
+  /** Phase 1473 — no row of this grid is split across a page boundary. */
+  readonly keepRowsTogether?: boolean;
+  /** Phase 1473 — the column headers repeat on every page the grid continues onto. */
+  readonly repeatHeader?: boolean;
+  /**
+   * Phase 1123 — the two sides of ONE shared State key. A grid declaring
+   * `transferOutKey` K may RELEASE rows onto K; one declaring `transferInKey` K
+   * ACCEPTS rows arriving on it. Two members and not one symmetric key, because
+   * the one-way ends are ordinary.
+   */
+  readonly transferOutKey?: string;
+  readonly transferInKey?: string;
+}
+
+/**
+ * Phase 1120 — a hierarchy of ROWS and, optionally, the names of the two State
+ * slots through which a reader opens rows and selects one.
+ *
+ * There is no `expandable` and no `selectable` flag, and none is coming: a
+ * behaviour the reader drives is declared as a named State key the host both
+ * writes and reads, and a flag with no key behind it is a decorative control
+ * writing state nothing reads.
+ */
+export interface TreeOptions<TMsg> {
+  readonly id: NodeId | string;
+  readonly items: readonly TreeItemInput[];
+  /**
+   * Names a State slot holding a JSON ARRAY OF ROW IDS. ABSENT means the tree
+   * renders FULLY EXPANDED and does not toggle — an initial presentation with no
+   * reader-driven affordance, and the only reading under which such a tree shows
+   * its content at all.
+   */
+  readonly expandedStateKey?: string;
+  /**
+   * Names a State slot holding a bare ROW-ID STRING. Absent means the tree does
+   * not select, and emits no `aria-selected`.
+   */
+  readonly selectionStateKey?: string;
+  readonly onSelect?: (id: string) => Action<TMsg>;
+}
+
+/**
+ * Phase 1120 — one authored row. `children` defaults to none, so a leaf is two
+ * members and nothing else.
+ */
+export interface TreeItemInput {
+  readonly id: string;
+  readonly label: TextInput;
+  readonly children?: readonly TreeItemInput[];
+  readonly icon?: string;
 }
 
 export interface CustomOptions {
@@ -1312,6 +1575,16 @@ export interface SwitchOptions<TMsg> {
   readonly cases: readonly { readonly match: string; readonly child: Node<TMsg> }[];
   /** Rendered when no case matches (and the SSR / first-paint surface). */
   readonly default: Node<TMsg>;
+  /**
+   * Phase 1122 — advance to the next case every this-many milliseconds. Absent
+   * means no timer, which is what every switch written before this member said.
+   *
+   * A DURATION, never a flag: "advances" with no interval is not renderable, and
+   * two hosts inventing different periods is exactly the divergence the corpus
+   * exists to prevent. A non-positive or fractional value is refused by the
+   * decoder rather than canonicalised.
+   */
+  readonly autoAdvanceMs?: number;
 }
 
 export interface FragmentDeclOptions<TMsg> {
@@ -1336,6 +1609,27 @@ export interface FiltersOptions<TMsg> {
   readonly filters: readonly FilterSpec<TMsg>[];
 }
 
+/**
+ * Phase 1473 — the two paged-medium declarations every container-emitting ctor
+ * accepts. Both default to `false` and both omit at it on the wire, so a call
+ * that names neither produces the bytes it always did.
+ *
+ * They are conditional statements about a PAGED rendering that may never happen:
+ * nothing about a screen rendering changes, and a surface with no paged medium
+ * at all satisfies them vacuously.
+ */
+export interface PrintBreakOptions {
+  /** This container and its whole subtree stay on one page. */
+  readonly keepTogether?: boolean;
+  /** This container starts at the top of a fresh page. */
+  readonly breakBefore?: boolean;
+}
+
+const printBreak = (o: PrintBreakOptions): { keepTogether: boolean; breakBefore: boolean } => ({
+  keepTogether: o.keepTogether ?? false,
+  breakBefore: o.breakBefore ?? false,
+});
+
 export const fuaran = {
   // ─── Layout ────────────────────────────────────────────────────────────
   // Phase 390 — `dashboard` / `stack` / `gridLayout` / `card` are now
@@ -1348,7 +1642,12 @@ export const fuaran = {
         kind: 'Layout',
         layout: {
           kind: 'Box',
-          spec: { layout: { kind: 'Auto' }, role: 'Dashboard', children: o.children ?? [] },
+          spec: {
+            layout: { kind: 'Auto' },
+            role: 'Dashboard',
+            children: o.children ?? [],
+            ...printBreak(o),
+          },
         },
       },
       defaults.accessibility.dashboard,
@@ -1363,6 +1662,7 @@ export const fuaran = {
           layout: { kind: 'Flex', direction: o.orientation ?? 'Vertical', wrap: o.wrap ?? false },
           role: 'Group',
           children: o.children ?? [],
+          ...printBreak(o),
         },
       },
     });
@@ -1380,6 +1680,7 @@ export const fuaran = {
           },
           role: 'Group',
           children: o.children ?? [],
+          ...printBreak(o),
         },
       },
     });
@@ -1407,6 +1708,7 @@ export const fuaran = {
           },
           role: 'Group',
           children: o.children ?? [],
+          ...printBreak(o),
         },
       },
     });
@@ -1421,6 +1723,7 @@ export const fuaran = {
           layout: { kind: 'Grid', cols: o.cols ?? 12, templateColumns: o.templateColumns },
           role: 'Group',
           children: o.children ?? [],
+          ...printBreak(o),
         },
       },
     });
@@ -1465,6 +1768,7 @@ export const fuaran = {
             layout: { kind: 'Flex', direction: 'Vertical', wrap: false },
             role: 'Card',
             children: o.children ?? [],
+            ...printBreak(o),
             ...(o.heading !== undefined ? { heading: text(o.heading) } : {}),
           },
         },
@@ -1681,6 +1985,26 @@ export const fuaran = {
       },
     });
   },
+  /**
+   * Phase 1120 — a hierarchy of rows with tree semantics: ONE tab stop, the
+   * arrow keys moving within the widget, and `aria-expanded` only on rows that
+   * have children. That single tab stop is the property no `List` +
+   * `Disclosure` composition has, and it is why the kind exists.
+   */
+  tree<TMsg>(o: TreeOptions<TMsg>): Node<TMsg> {
+    return buildNode(o.id, {
+      kind: 'Display',
+      display: {
+        kind: 'Tree',
+        spec: {
+          items: o.items.map(treeItem),
+          ...(o.expandedStateKey !== undefined ? { expandedStateKey: o.expandedStateKey } : {}),
+          ...(o.selectionStateKey !== undefined ? { selectionStateKey: o.selectionStateKey } : {}),
+          ...(o.onSelect !== undefined ? { onSelect: o.onSelect } : {}),
+        },
+      },
+    });
+  },
   video<TMsg>(o: VideoOptions): Node<TMsg> {
     return buildNode(o.id, {
       kind: 'Display',
@@ -1700,6 +2024,11 @@ export const fuaran = {
             autoplay: o.autoplay ?? false,
             ...(o.poster !== undefined ? { poster: stringBinding(o.poster) } : {}),
           },
+          // Phase 1110 — ALWAYS present on the spec, even when empty: the wire
+          // says an absent `tracks` is `[]`, so a constructed spec that left the
+          // field off would disagree with what a decoded one carries.
+          tracks: (o.tracks ?? []).map(trackEntry),
+          ...(o.transcript !== undefined ? { transcript: text(o.transcript) } : {}),
         },
       },
     });
@@ -1715,6 +2044,8 @@ export const fuaran = {
           controls: o.controls ?? true,
           loop: o.loop ?? false,
           kind: { $type: 'Audio' },
+          tracks: (o.tracks ?? []).map(trackEntry),
+          ...(o.transcript !== undefined ? { transcript: text(o.transcript) } : {}),
         },
       },
     });
@@ -1763,6 +2094,8 @@ export const fuaran = {
           layout: { kind: 'Flex', direction: 'Horizontal', wrap: false },
           role: 'Separator',
           children: [],
+          keepTogether: false,
+          breakBefore: false,
         },
       },
     });
@@ -1951,6 +2284,10 @@ export const fuaran = {
             // plain picker and each ingress route is asked for by name.
             dropTarget: o.dropTarget ?? false,
             acceptPaste: o.acceptPaste ?? false,
+            // Phase 1116 / 1117 — ordinary optionals: absent is the pre-member
+            // control in both cases, so the shortest call is unchanged.
+            ...(o.capture !== undefined ? { capture: o.capture } : {}),
+            ...(o.destination !== undefined ? { destination: o.destination } : {}),
           },
         },
       },
@@ -1998,6 +2335,11 @@ export const fuaran = {
             columns: [],
             editable: false,
             reorderable: false,
+            // Phase 1125 / 1473 — all three omit at `false`, so a table that
+            // declares none is byte-identical to what it was before they existed.
+            exportable: false,
+            keepRowsTogether: false,
+            repeatHeader: false,
             staticRows: {
               headers: o.headers.map(text),
               rows: o.rows.map((row) => row.map(text)),
@@ -2046,6 +2388,19 @@ export const fuaran = {
             editable: o.editable ?? false,
             // Phase 934 — declarative row reorder; absent means off, as `editable`.
             reorderable: o.reorderable ?? false,
+            // Phase 1125 — the export declaration; absent means off. It writes
+            // NOTHING, which is why it names no State key where every other
+            // grid-behaviour member does.
+            exportable: o.exportable ?? false,
+            // Phase 1473 — the grid's two paged-medium declarations, on the
+            // container pair's terms and separate from them because they name
+            // boundaries INSIDE this element.
+            keepRowsTogether: o.keepRowsTogether ?? false,
+            repeatHeader: o.repeatHeader ?? false,
+            // Phase 1123 — the two ends of one shared transfer key; each rides
+            // only when declared.
+            ...(o.transferOutKey !== undefined ? { transferOutKey: o.transferOutKey } : {}),
+            ...(o.transferInKey !== undefined ? { transferInKey: o.transferInKey } : {}),
             ...(o.onRowClick !== undefined
               ? { onRowClick: (row: unknown) => o.onRowClick!(row as TRow) }
               : {}),
@@ -2085,6 +2440,9 @@ export const fuaran = {
         on: { kind: 'State', key: o.stateKey, defaultValue: undefined as unknown as string },
         cases: o.cases.map((c) => ({ match: c.match, child: c.child })),
         default: o.default,
+        // Phase 1122 — omitted when absent, so every pre-1122 switch is
+        // byte-identical.
+        ...(o.autoAdvanceMs !== undefined ? { autoAdvanceMs: o.autoAdvanceMs } : {}),
       },
     });
   },

@@ -403,6 +403,254 @@ const checkUnregisteredCustomLabelled = (): void => {
   );
 };
 
+// ─── Phase 1110 — the Media text tracks ─────────────────────────────────────
+
+const captionsTrack = (label: string, srcLang: string, isDefault: boolean) => ({
+  kind: 'Captions' as const,
+  src: `/walkthrough.${srcLang}.vtt`,
+  srcLang,
+  label,
+  default: isDefault,
+});
+
+const checkAuthoredChildOrder = (): void => {
+  // Authored in an order NO SORT PRODUCES, which is what makes this an
+  // assertion about order rather than about presence: a renderer emitting the
+  // tracks sorted by language, by kind, or by label would carry all three and
+  // still fail here.
+  const html = renderToHtml(
+    fuaran.video({
+      id: 'mv',
+      src: '/walkthrough.mp4',
+      label: 'Studio walkthrough',
+      tracks: [
+        { kind: 'Subtitles', src: '/w.gd.vtt', srcLang: 'gd', label: 'Gàidhlig' },
+        captionsTrack('English captions', 'en', true),
+        { kind: 'Descriptions', src: '/w.ad.vtt', srcLang: 'ar', label: 'Audio description' },
+      ],
+    }),
+  );
+  const order = ['gd', 'en', 'ar'].map((l) => html.indexOf(`srclang="${l}"`));
+  expect(
+    order.every((i) => i >= 0),
+    'every authored track is emitted',
+  ).toBe(true);
+  expect(
+    order,
+    'the tracks are emitted in the AUTHORED order — a reader picks from a menu the user agent builds in document order, so re-sorting rewrites someone else\u2019s menu',
+  ).toEqual([...order].sort((a, b) => a - b));
+};
+
+const checkSingleDefaultPerKind = (): void => {
+  // Two captions tracks BOTH electing default, and a subtitles track electing
+  // it as well. The election is per KIND, so the subtitles default must survive
+  // alongside the FIRST captions one — a host that kept only one default in the
+  // whole element would pass a naive count and be wrong.
+  const html = renderToHtml(
+    fuaran.video({
+      id: 'mvd',
+      src: '/walkthrough.mp4',
+      label: 'Studio walkthrough',
+      tracks: [
+        captionsTrack('English captions', 'en', true),
+        captionsTrack('English captions (verbose)', 'ev', true),
+        { kind: 'Subtitles', src: '/w.gd.vtt', srcLang: 'gd', label: 'Gàidhlig', default: true },
+      ],
+    }),
+  );
+  const tracks = html.match(/<track[^>]*>/g) ?? [];
+  expect(tracks.length, 'every track is still emitted — only the CLAIM is dropped').toBe(3);
+  const defaults = tracks.filter((t) => t.includes(' default'));
+  expect(
+    defaults.length,
+    'exactly two defaults survive: the FIRST captions election and the subtitles one',
+  ).toBe(2);
+  expect(defaults[0], 'the first captions election is the one honoured').toContain('srclang="en"');
+  expect(
+    tracks.find((t) => t.includes('srclang="ev"')),
+    'the LATER election of the same kind is emitted without the attribute',
+  ).not.toContain(' default');
+};
+
+const checkTranscriptDisclosureNamed = (): void => {
+  const html = renderToHtml(
+    fuaran.audio({
+      id: 'ma',
+      src: '/commentary.mp3',
+      label: "Curator's commentary",
+      transcript: 'The harbour was rebuilt twice.',
+    }),
+  );
+  // BESIDE the transport, never inside it: `<audio>` admits only source-ish
+  // children, so a transcript placed there would be fallback content a browser
+  // never shows. Asserting the two opening tags in order is what catches that
+  // inversion, which would carry every one of the same classes.
+  expect(html, 'the disclosure is a SIBLING of the transport inside the group wrapper').toContain(
+    '</audio><details class="fuaran-media-transcript"',
+  );
+  expect(
+    html,
+    "the disclosure carries the MEDIA's own resolved label, so a reader meeting it out of context is told which recording it transcribes",
+  ).toContain('aria-label="Curator&#x27;s commentary"');
+
+  const without = renderToHtml(
+    fuaran.audio({ id: 'ma2', src: '/commentary.mp3', label: 'Commentary' }),
+  );
+  expect(without, 'absent, the emission is the bare element it would otherwise be').not.toContain(
+    'fuaran-media-transcript',
+  );
+};
+
+// ─── Phase 1111 — the sandboxed embed ───────────────────────────────────────
+
+const checkEmbedAccessibleNameAlways = (): void => {
+  const html = renderToHtml(
+    fuaran.embed({ id: 'em', src: 'https://example.com/x', title: 'Quarterly figures' }),
+  );
+  expect(html, 'the frame carries its accessible name').toContain('title="Quarterly figures"');
+
+  // A frame is a focus container a reader tabs INTO, so it is never decorative:
+  // the attribute is emitted whatever it resolves to, and an empty title is a
+  // stated empty rather than an absent one.
+  const empty = renderToHtml(fuaran.embed({ id: 'em2', src: 'https://example.com/x', title: '' }));
+  expect(empty, 'an empty title is still EMITTED, never dropped').toContain('title=""');
+};
+
+const checkSandboxAlwaysExactlyDeclared = (): void => {
+  const none = renderToHtml(
+    fuaran.embed({ id: 'es', src: 'https://example.com/x', title: 'Figures' }),
+  );
+  // EMPTY and PRESENT. Omitting it on a permissionless embed would be the same
+  // markup as an unsandboxed frame — the one mistake here that grants
+  // everything while looking like it grants nothing.
+  expect(none, 'the sandbox attribute is emitted even when nothing is granted').toContain(
+    'sandbox=""',
+  );
+
+  // Authored out of declaration order and with a duplicate, so this pins the
+  // ORDER and the DE-DUPLICATION rather than the token set: two documents naming
+  // the same set must produce identical markup whatever order they authored.
+  const some = renderToHtml(
+    fuaran.embed({
+      id: 'es2',
+      src: 'https://example.com/x',
+      title: 'Figures',
+      permissions: ['AllowForms', 'AllowScripts', 'AllowScripts'],
+    }),
+  );
+  expect(some, 'tokens ride in DECLARATION order, de-duplicated').toContain(
+    'sandbox="allow-scripts allow-forms"',
+  );
+  expect(
+    some,
+    'and never a token the document did not name — AllowSameOrigin plus AllowScripts is how a frame removes its own sandbox',
+  ).not.toContain('allow-same-origin');
+
+  // Fullscreen rides `allow`, not `sandbox`: it is a permissions-policy
+  // directive and not a sandbox token, and emitting it as one grants nothing.
+  const fs = renderToHtml(
+    fuaran.embed({
+      id: 'es3',
+      src: 'https://example.com/x',
+      title: 'Figures',
+      permissions: ['AllowFullscreen'],
+    }),
+  );
+  expect(fs, 'fullscreen is a permissions-policy directive').toContain('allow="fullscreen"');
+  expect(fs, 'and is NOT a sandbox token').toContain('sandbox=""');
+};
+
+const checkRefusedEmbedSourceOmitted = (): void => {
+  // `http` — the embed egress class admits `https` and nothing else, because a
+  // same-origin frame is exactly where AllowSameOrigin plus AllowScripts lets
+  // the framed document remove its own sandbox.
+  const html = renderToHtml(
+    fuaran.embed({ id: 'er', src: 'http://example.com/x', title: 'Figures' }),
+  );
+  expect(
+    html,
+    'the source attribute is OMITTED ENTIRELY rather than pointed at the refusal URL — an iframe at that URL renders that page',
+  ).not.toContain('src=');
+  expect(html, 'while the refusal is still RECORDED').toContain('data-fuaran-egress');
+  expect(html, 'and the frame itself is still emitted, named and sandboxed').toContain(
+    'title="Figures"',
+  );
+};
+
+// ─── Phase 1115 — the upload picker ─────────────────────────────────────────
+
+const checkPickerAlwaysPresent = (): void => {
+  const noop = () => ({ kind: 'Chain' as const, actions: [] });
+  for (const [id, extra] of [
+    ['up-plain', {}],
+    ['up-drop', { dropTarget: true }],
+    ['up-paste', { acceptPaste: true }],
+    ['up-capture', { capture: 'Camera' as const }],
+    ['up-dest', { destination: 'session-recordings' }],
+  ] as const) {
+    const html = renderToHtml(fuaran.fileUpload({ id, label: 'Upload', onSelect: noop, ...extra }));
+    // The declared gestures are ADDITIONAL. Whatever the document declares, the
+    // picker and its label are emitted — so the keyboard-accessible route
+    // survives and a no-script host renders a working upload.
+    expect(html, `${id}: the file input is emitted`).toContain('type="file"');
+    expect(html, `${id}: and its label with it`).toContain('fuaran-file-upload-label');
+  }
+};
+
+// ─── Phase 1119 — the modal's inertness claim ───────────────────────────────
+
+const checkAriaModalOnlyWhenBlocking = (): void => {
+  const blocking = renderToHtml(
+    fuaran.modal({ id: 'md', openStateKey: 'open', children: [], heading: 'Confirm' }),
+  );
+  expect(blocking, 'the blocking modality claims the page behind it is inert').toContain(
+    'aria-modal="true"',
+  );
+
+  const popover = renderToHtml(
+    fuaran.modal({
+      id: 'mp',
+      openStateKey: 'open',
+      children: [],
+      heading: 'Details',
+      modality: 'Popover',
+    }),
+  );
+  // The claim is about INERTNESS, and a non-blocking anchored surface leaves the
+  // page genuinely available — so it carries the dialog role WITHOUT the claim.
+  // A host emitting `aria-modal` here tells assistive technology the rest of the
+  // page is unreachable when it is not.
+  expect(popover, 'the anchored surface still carries the dialog role').toContain('role="dialog"');
+  expect(popover, 'but never the inertness claim').not.toContain('aria-modal');
+};
+
+// ─── Phase 1120 — the tree row's accessible name ────────────────────────────
+
+const checkTreeAccessibleNameAlways = (): void => {
+  const html = renderToHtml(
+    fuaran.tree({
+      id: 'tr',
+      items: [
+        { id: 'goods', label: 'Goods', children: [{ id: 'cocoa', label: 'Cocoa' }] },
+        { id: 'ledger', label: 'Ledger' },
+      ],
+    }),
+  );
+  // STATED rather than computed. A treeitem OWNS its child group, so a name
+  // computed from contents reads the whole branch out as the row's own name —
+  // "Goods Cocoa" for the parent here. Asserting the parent's name is exactly
+  // its own visible label is what catches that.
+  expect(html, 'the parent row is named by its OWN label, not its subtree').toContain(
+    'aria-label="Goods"',
+  );
+  expect(html, 'a leaf row is named too — every instance, never only some').toContain(
+    'aria-label="Ledger"',
+  );
+  expect(html, 'and the stated name is byte-identical to the visible label').toContain(
+    '<span class="fuaran-tree-label">Goods</span>',
+  );
+};
+
 /**
  * The registry: which (kind, claim) pairs this host asserts, and how. Keyed by
  * the claim's WIRE token, because the enumeration it is matched against comes
@@ -419,6 +667,18 @@ const CHECKERS: ReadonlyMap<string, () => void> = new Map([
   ['Image/figure-caption-outside-link', checkFigureCaptionOutsideLink],
   ['Image/srcset-ascending-by-width', checkSrcSetAscendingByWidth],
   ['Custom/unregistered-custom-labelled', checkUnregisteredCustomLabelled],
+  // Phase 1128 — the wave's own obligations, each arriving here as a failing
+  // claim on the day the manifest declared it (the Phase 1109 mechanism working
+  // as designed) and leaving as an assertion in emitted HTML.
+  ['Media/authored-child-order', checkAuthoredChildOrder],
+  ['Media/single-default-per-kind', checkSingleDefaultPerKind],
+  ['Media/transcript-disclosure-named', checkTranscriptDisclosureNamed],
+  ['Embed/accessible-name-always', checkEmbedAccessibleNameAlways],
+  ['Embed/sandbox-always-exactly-declared', checkSandboxAlwaysExactlyDeclared],
+  ['Embed/refused-embed-source-omitted', checkRefusedEmbedSourceOmitted],
+  ['FileUpload/picker-always-present', checkPickerAlwaysPresent],
+  ['Modal/aria-modal-only-when-blocking', checkAriaModalOnlyWhenBlocking],
+  ['Tree/accessible-name-always', checkTreeAccessibleNameAlways],
 ]);
 
 /**

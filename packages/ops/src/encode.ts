@@ -53,6 +53,9 @@ import type {
   EmbedSpec,
   MediaKind,
   MediaSpec,
+  TrackEntry,
+  TreeItem,
+  TreeSpec,
   ListSpec,
   ModalSpec,
   ScrollAreaSpec,
@@ -841,7 +844,17 @@ const action = <T>(a: Action<T>): string => {
     case 'CommitLocal':
       return caseObj('CommitLocal', [['nodeId', str(a.nodeId)]]);
     case 'WriteToClipboard':
-      return caseObj('WriteToClipboard', [['text', str(a.text)]]);
+      // Phase 1126 — a `TextSource`. `textSource` emits a `Literal` as the bare
+      // JSON string, so a literal payload is byte-identical to what this arm
+      // emitted before the widening: the change is source-breaking for
+      // construction sites and WIRE-NEUTRAL.
+      return caseObj('WriteToClipboard', [['text', textSource(a.text)]]);
+    case 'Print':
+      // Phase 1124 — the complete encoding is the discriminator. `caseObj` with
+      // no fields emits `{"$type":"Print"}`; an encoder that emitted `{}` for a
+      // case with no fields is exactly what the corpus fixture placing this
+      // inside a `Chain` exists to catch.
+      return caseObj('Print', []);
     case 'ReadFileBody':
       // Phase 136 — only file.id + encoding cross the wire; the blob is
       // host-held (file.handle) and onRead is the closure sentinel (§4).
@@ -1116,6 +1129,47 @@ const mediaSpec = (s: MediaSpec): string => {
   fields.push(['label', textSource(s.label)]);
   if (s.loop) fields.push(['loop', bool(true)]);
   fields.push(['src', binding(s.src)]);
+  // Phase 1110 — `tracks` omits at EMPTY (the encode half of the missing-list
+  // rule) and the AUTHORED order is emitted verbatim: a reader picks a track
+  // from a menu the user agent builds in document order, so re-sorting here
+  // would make this encoder produce bytes it did not decode.
+  if (s.tracks.length > 0) fields.push(['tracks', jArray(s.tracks.map(trackEntry))]);
+  if (s.transcript !== undefined) fields.push(['transcript', textSource(s.transcript)]);
+  return jObject(fields);
+};
+
+// Phase 1110 — one `<track>`. Four members always ride; `default` omits at
+// `false`. `jObject` sorts, so the listed order is cosmetic.
+const trackEntry = (t: TrackEntry): string => {
+  const fields: Field[] = [];
+  if (t.default) fields.push(['default', bool(true)]);
+  fields.push(['kind', str(t.kind)]);
+  fields.push(['label', textSource(t.label)]);
+  fields.push(['src', binding(t.src)]);
+  fields.push(['srcLang', str(t.srcLang)]);
+  return jObject(fields);
+};
+
+// Phase 1120 — the tree. `items` always rides; the two State-slot names and the
+// handler sentinel omit when absent.
+const treeSpec = (s: TreeSpec<unknown>): string => {
+  const fields: Field[] = [['items', jArray(s.items.map(treeItem))]];
+  if (s.expandedStateKey !== undefined) fields.push(['expandedStateKey', str(s.expandedStateKey)]);
+  if (s.onSelect !== undefined) fields.push(['onSelect', CLOSURE]);
+  if (s.selectionStateKey !== undefined)
+    fields.push(['selectionStateKey', str(s.selectionStateKey)]);
+  return jObject(fields);
+};
+
+// Phase 1120 — one row. `children` omits at the EMPTY LIST and `icon` when
+// absent, so a leaf carries two keys and nothing else — a host emitting
+// `"children":[]` on a leaf produces different bytes for most of a file listing.
+const treeItem = (t: TreeItem): string => {
+  const fields: Field[] = [];
+  if (t.children.length > 0) fields.push(['children', jArray(t.children.map(treeItem))]);
+  if (t.icon !== undefined) fields.push(['icon', str(t.icon)]);
+  fields.push(['id', str(t.id)]);
+  fields.push(['label', textSource(t.label)]);
   return jObject(fields);
 };
 
@@ -1383,6 +1437,8 @@ const displayKind = (d: DisplayKind): string => {
       return hoistSpec('Image', imageSpec(d.spec));
     case 'Media':
       return hoistSpec('Media', mediaSpec(d.spec));
+    case 'Tree':
+      return hoistSpec('Tree', treeSpec(d.spec));
     case 'Embed':
       return hoistSpec('Embed', embedSpec(d.spec));
     case 'List':
@@ -1516,6 +1572,39 @@ const formFieldKind = (autoBind: ControlAutoBind, k: FormFieldKind<unknown>): st
       );
       return caseObj('Combobox', fields);
     }
+    case 'Tokens': {
+      // Phase 1121 — `allowFreeText` OMITS at `true`, the opposite polarity to
+      // `Combobox`'s, so the shortest token document is the OPEN one. Ordinal
+      // key order: allowFreeText < onChange < suggestions < value.
+      const fields: Field[] = [];
+      if (!k.allowFreeText) fields.push(['allowFreeText', bool(false)]);
+      fields.push(...handlerField('onChange', k.onChange));
+      if (k.suggestions !== undefined)
+        fields.push(['suggestions', binding(k.suggestions, staticSelectOptions)]);
+      fields.push(
+        ...valueField(k.value, controlValueDefaults.tokens, (v) => binding(v, staticStringList)),
+      );
+      return caseObj('Tokens', fields);
+    }
+    case 'Rating': {
+      // Phase 1130 — `max` always rides (it is the scale); `allowHalf` omits at
+      // `false`, so the shortest rating document is the whole-star one.
+      const fields: Field[] = [];
+      if (k.allowHalf) fields.push(['allowHalf', bool(true)]);
+      fields.push(['max', num(k.max)]);
+      fields.push(...handlerField('onChange', k.onChange));
+      fields.push(...valueField(k.value, controlValueDefaults.number, (v) => binding(v)));
+      return caseObj('Rating', fields);
+    }
+    case 'Color':
+      // Phase 1130 — both members optional, so the bare discriminator is a
+      // complete auto-bound colour field. CASE IS PRESERVED: nothing here
+      // lower-cases the literal, because a codec that did would fail the
+      // round-trip this corpus exists to pin.
+      return caseObj('Color', [
+        ...handlerField('onChange', k.onChange),
+        ...valueField(k.value, controlValueDefaults.color, (v) => binding(v)),
+      ]);
     case 'TextArea':
       return caseObj('TextArea', [
         ...handlerField('onChange', k.onChange),
@@ -1673,6 +1762,10 @@ const fileUploadSpec = (s: FileUploadSpec<unknown>): string => {
   // order is canonical whatever order these pushes happen in.
   if (s.acceptPaste) fields.push(['acceptPaste', bool(true)]);
   if (s.dropTarget) fields.push(['dropTarget', bool(true)]);
+  // Phase 1116 / 1117 — both ordinary optionals, emitted only when declared, so
+  // every upload written before either member existed is byte-identical.
+  if (s.capture !== undefined) fields.push(['capture', str(s.capture)]);
+  if (s.destination !== undefined) fields.push(['destination', str(s.destination)]);
   return jObject(fields);
 };
 
@@ -1864,6 +1957,15 @@ const gridSpec = (s: GridSpec<unknown>): string => {
   if (s.defaultSort !== undefined) fields.push(['defaultSort', defaultSortJson(s.defaultSort)]);
   // Phase 863 — the declared edit destination.
   if (s.editStateKey !== undefined) fields.push(['editStateKey', str(s.editStateKey)]);
+  // Phase 1123 — the two transfer ends, each emitted only when declared, so a
+  // grid declaring neither is byte-identical to every grid written before this
+  // revision.
+  if (s.transferOutKey !== undefined) fields.push(['transferOutKey', str(s.transferOutKey)]);
+  if (s.transferInKey !== undefined) fields.push(['transferInKey', str(s.transferInKey)]);
+  // Phase 1125 / 1473 — three omit-at-`false` declarations on the same terms.
+  if (s.exportable) fields.push(['exportable', bool(true)]);
+  if (s.keepRowsTogether) fields.push(['keepRowsTogether', bool(true)]);
+  if (s.repeatHeader) fields.push(['repeatHeader', bool(true)]);
   // Phase 393 — the static read-only mode; omitted for a data-bound grid so every existing
   // grid fixture stays byte-identical.
   if (s.staticRows !== undefined) {
@@ -1989,6 +2091,10 @@ const boxSpec = (s: BoxSpec<unknown>): string => {
   if (s.heading !== undefined) fields.push(['heading', textSource(s.heading)]);
   fields.push(['layout', boxLayout(s.layout)]);
   fields.push(['role', str(s.role)]);
+  // Phase 1473 — both omitted at `false`, so a document that declares neither is
+  // byte-identical to what it was before this vocabulary existed.
+  if (s.keepTogether) fields.push(['keepTogether', bool(true)]);
+  if (s.breakBefore) fields.push(['breakBefore', bool(true)]);
   return jObject(fields);
 };
 
@@ -2249,6 +2355,11 @@ const nodeKind = (k: NodeKind<unknown>): string => {
       // sort cases < default < stateKey. jObject sorts, so the listed order is
       // cosmetic.
       return caseObj('Switch', [
+        // Phase 1122 — omitted when absent, so every pre-1122 switch stays
+        // byte-identical.
+        ...(k.spec.autoAdvanceMs !== undefined
+          ? ([['autoAdvanceMs', num(k.spec.autoAdvanceMs)]] as const)
+          : []),
         [
           'cases',
           jArray(
@@ -2343,6 +2454,11 @@ const semanticStyle = (s: SemanticStyle): string => {
   if (s.weight !== undefined && s.weight !== 'Standard') fields.push(['weight', str(s.weight)]);
   if (s.role !== undefined && s.role !== 'None') fields.push(['role', str(s.role)]);
   if (s.voice !== undefined && s.voice !== 'Default') fields.push(['voice', str(s.voice)]);
+  // Phase 1472 — `auto` is the identity and is omitted at it, so a document that
+  // declares nothing is byte-identical to what it was before this member
+  // existed.
+  if (s.direction !== undefined && s.direction !== 'auto')
+    fields.push(['direction', str(s.direction)]);
   return jObject(fields);
 };
 
@@ -2368,7 +2484,10 @@ const isDefaultStyle = (s: SemanticStyle): boolean =>
   (s.tone === undefined || s.tone === 'Default') &&
   (s.weight === undefined || s.weight === 'Standard') &&
   (s.role === undefined || s.role === 'None') &&
-  (s.voice === undefined || s.voice === 'Default');
+  (s.voice === undefined || s.voice === 'Default') &&
+  // Phase 1472 — `auto` is this member's identity, so a style that declares only
+  // a direction is NOT all-default and the envelope must carry it.
+  (s.direction === undefined || s.direction === 'auto');
 
 const node = (n: Node<unknown>): string => {
   const fields: Field[] = [

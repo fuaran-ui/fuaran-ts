@@ -373,7 +373,11 @@ const actionArb: fc.Arbitrary<Action<unknown>> = fc.oneof(
     .tuple(nonEmptyStrArb, jsonValueArb)
     .map(([toolName, args]) => ({ kind: 'AiTool', toolName, args }) as Action<unknown>),
   nonEmptyStrArb.map((id) => ({ kind: 'CommitLocal', nodeId: id }) as Action<unknown>),
-  strArb.map((text) => ({ kind: 'WriteToClipboard', text }) as Action<unknown>),
+  // Phase 1126 — the payload is a `TextSource`, so the generator walks the whole
+  // source vocabulary (Literal / Bound / I18n) rather than a bare string.
+  textSourceArb.map((text) => ({ kind: 'WriteToClipboard', text }) as Action<unknown>),
+  // Phase 1124 — the payload-free arm.
+  fc.constant({ kind: 'Print' } as Action<unknown>),
   nonEmptyStrArb.map(
     (id) =>
       ({
@@ -404,7 +408,11 @@ const allActionsChain: Action<unknown> = {
     { kind: 'AiTool', toolName: 'tool', args: 'a' },
     { kind: 'Chain', actions: [] },
     { kind: 'CommitLocal', nodeId: 'node' },
-    { kind: 'WriteToClipboard', text: 'text' },
+    { kind: 'WriteToClipboard', text: { kind: 'Literal', value: 'text' } },
+    // Phase 1124 — placed BESIDE a sibling deliberately: a bare `Print`
+    // exercises the case, where a `Print` in a list exercises what a memberless
+    // object can actually break.
+    { kind: 'Print' },
     { kind: 'ReadFileBody', file: { id: 'file:0' }, encoding: 'Base64', onRead: () => '<r>' },
   ],
 };
@@ -473,6 +481,43 @@ const formFieldsArb: fc.Arbitrary<readonly FormField<unknown>[]> = fc
         value: r.sVal,
         onChange: noopAction,
         orientation: r.orientation,
+      }),
+      // Phase 1121 — BOTH polarities of `allowFreeText`, because it omits at
+      // `true` here and at `false` on `Combobox`: a generator carrying only one
+      // would leave the byte-stability claim resting on the arm that omits.
+      mk('f-tokens-open', {
+        kind: 'Tokens',
+        allowFreeText: true,
+        value: { kind: 'Static', value: ['deu', 'fra'] },
+        onChange: noopAction,
+      }),
+      mk('f-tokens-closed', {
+        kind: 'Tokens',
+        allowFreeText: false,
+        value: { kind: 'Static', value: [] },
+        suggestions: r.sOpts,
+      }),
+      // Phase 1130 — `allowHalf` in both states, and a FRACTIONAL value on the
+      // whole-star control, which is the shape the float slot exists for.
+      mk('f-rating', {
+        kind: 'Rating',
+        max: 5,
+        allowHalf: false,
+        value: { kind: 'Static', value: 4.3 },
+        onChange: noopAction,
+      }),
+      mk('f-rating-half', {
+        kind: 'Rating',
+        max: 10,
+        allowHalf: true,
+        value: r.sNum,
+      }),
+      // Phase 1130 — UPPER-CASE hex, which is what pins that case is preserved
+      // rather than normalised.
+      mk('f-color', {
+        kind: 'Color',
+        value: { kind: 'Static', value: '#FFAA00' },
+        onChange: noopAction,
       }),
     ];
   });

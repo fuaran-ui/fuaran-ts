@@ -59,12 +59,107 @@ const nodeIds = (html: string): string[] => {
   return [...out].sort();
 };
 
+// ─── The DECLARED tier divergences ───────────────────────────────────────────
+//
+// Lock A's premise is that the two tiers paint the same elements, and for almost
+// every kind they do. FOUR CONTROLS ARE THE EXCEPTION, and the exception is the
+// SPECIFICATION'S rather than a defect: for each of them §3.6 states that the
+// static floor is a DIFFERENT CONTROL from the hydrated one, chosen because it
+// is what a zero-JS medium can honour. A combobox floors on the user agent's own
+// `<input list>` + `<datalist>` where the client draws the WAI-ARIA listbox; a
+// token field floors on ONE TEXT INPUT because a chip row is built by a keystroke
+// handler; a writable rating floors on native RADIOS because a `role="slider"`
+// element can be neither adjusted nor submitted without script. The reference
+// (F#) tier renders exactly this same pair on each of the three, so these tokens
+// are what CONFORMANCE looks like, not what drift looks like.
+//
+// So the lock records them, one entry per family, naming the section that states
+// the divergence. Two properties keep this a gate rather than a hole:
+//
+//   * The set is CLOSED and NAMED. Any other token appearing on one tier and not
+//     the other still fails, with the token named — which is the whole of what
+//     Lock A was ever catching.
+//   * A STALE entry FAILS. Each declared token must actually be emitted by the
+//     tier that claims it, on at least one fixture; an entry for a token neither
+//     tier emits any more is reported by the sweep below, so the list cannot
+//     quietly outlive the divergence it records.
+//
+// Adding an entry here is a DELIBERATE act with a spec citation, never a way to
+// make a red test green: a divergence with no section behind it is a defect in
+// one of the two renderers.
+const DECLARED_TIER_DIVERGENCES: readonly {
+  readonly token: string;
+  readonly tier: 'server' | 'client';
+  readonly why: string;
+}[] = [
+  // §3.6.9 — the combobox's static floor is `<input list>` + `<datalist>`; the
+  // client draws the full listbox popup. No hand-written ARIA on the floor: a
+  // static `aria-expanded="false"` that can never become `true` would replace
+  // the user agent's own correct semantics with a claim inert markup cannot keep.
+  { token: 'fuaran-combobox-list', tier: 'client', why: 'WIRE_FORMAT.md §3.6.9' },
+  { token: 'fuaran-combobox-option', tier: 'client', why: 'WIRE_FORMAT.md §3.6.9' },
+  // §3.6.19 — the token field's static floor is ONE TEXT INPUT carrying the
+  // tokens comma-separated. A row of static chips with dead remove buttons would
+  // be an affordance inert markup cannot honour.
+  { token: 'fuaran-tokens-list', tier: 'client', why: 'WIRE_FORMAT.md §3.6.19' },
+  { token: 'fuaran-tokens-chip', tier: 'client', why: 'WIRE_FORMAT.md §3.6.19' },
+  { token: 'fuaran-tokens-chip-label', tier: 'client', why: 'WIRE_FORMAT.md §3.6.19' },
+  { token: 'fuaran-tokens-chip-remove', tier: 'client', why: 'WIRE_FORMAT.md §3.6.19' },
+  { token: 'fuaran-tokens-suggestions', tier: 'client', why: 'WIRE_FORMAT.md §3.6.19' },
+  { token: 'fuaran-tokens-option', tier: 'client', why: 'WIRE_FORMAT.md §3.6.19' },
+  { token: 'fuaran-tokens-status', tier: 'client', why: 'WIRE_FORMAT.md §3.6.19' },
+  // §3.6.17 — a writable rating floors on native radios and hydrates to a
+  // slider. The two markups are named separately BOTH WAYS, which is why this is
+  // the one family with a `server` entry: the floor emits something the client
+  // does not, and the client emits something the floor does not.
+  { token: 'fuaran-rating-choice', tier: 'server', why: 'WIRE_FORMAT.md §3.6.17' },
+  { token: 'fuaran-rating-choice-label', tier: 'server', why: 'WIRE_FORMAT.md §3.6.17' },
+  { token: 'fuaran-rating-hits', tier: 'client', why: 'WIRE_FORMAT.md §3.6.17' },
+  { token: 'fuaran-rating-hit', tier: 'client', why: 'WIRE_FORMAT.md §3.6.17' },
+];
+
+const declaredFor = (tier: 'server' | 'client'): Set<string> =>
+  new Set(DECLARED_TIER_DIVERGENCES.filter((d) => d.tier === tier).map((d) => d.token));
+
+const withoutDeclared = (classes: readonly string[], tier: 'server' | 'client'): string[] => {
+  const declared = declaredFor(tier);
+  return classes.filter((c) => !declared.has(c));
+};
+
 describe('Lock A — server output matches the React client renderer (class + node-id sets)', () => {
   it.each(fixtureFiles)('%s emits the same fuaran-* class set as <FuaranRenderer>', (file) => {
     const tree = decode(file);
     const server = renderToHtml(tree);
     const react = renderToStaticMarkup(<FuaranRenderer tree={tree} />);
-    expect(fuaranClasses(server)).toEqual(fuaranClasses(react));
+    expect(
+      withoutDeclared(fuaranClasses(server), 'server'),
+      `${file}: a class appears on one tier and not the other with no declared divergence — ` +
+        'either a renderer dropped it, or the divergence is real and belongs in ' +
+        'DECLARED_TIER_DIVERGENCES with the section that states it.',
+    ).toEqual(withoutDeclared(fuaranClasses(react), 'client'));
+  });
+
+  // The other half of the declaration, and the half that keeps it honest: an
+  // entry whose token no longer appears on the tier it claims is recording a
+  // divergence that has since closed, and would silently permit a real drift on
+  // that token from then on.
+  it('every declared tier divergence is still observed on the tier that claims it', () => {
+    const serverSeen = new Set<string>();
+    const clientSeen = new Set<string>();
+    for (const file of fixtureFiles) {
+      const tree = decode(file);
+      for (const c of fuaranClasses(renderToHtml(tree))) serverSeen.add(c);
+      for (const c of fuaranClasses(renderToStaticMarkup(<FuaranRenderer tree={tree} />)))
+        clientSeen.add(c);
+    }
+    const stale = DECLARED_TIER_DIVERGENCES.filter(
+      (d) => !(d.tier === 'server' ? serverSeen : clientSeen).has(d.token),
+    ).map((d) => `${d.token} (declared ${d.tier}, ${d.why})`);
+    expect(
+      stale,
+      'a declared divergence names a token its tier no longer emits — remove the entry, ' +
+        'or the lock is permitting drift on a token nothing produces',
+    ).toEqual([]);
   });
 
   it.each(fixtureFiles)('%s emits the same data-fuaran-node-id set as <FuaranRenderer>', (file) => {

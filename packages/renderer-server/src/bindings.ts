@@ -21,9 +21,13 @@ import type {
   DurationUnit,
   Format,
   JsonValue,
+  CaptureSource,
   RelativeTimeUnit,
   Table,
   TextSource,
+  TrackEntry,
+  TrackKind,
+  TreeItem,
 } from '@fuaran-ui/schema';
 import {
   evalPipelineWith,
@@ -658,3 +662,241 @@ export const renderCellValue = (format: CellFormat, value: CellValue): string =>
       return '';
   }
 };
+
+// ─── Tree state (Phase 1120) ─────────────────────────────────────────────────
+//
+// The three readers and the two derivations a `Tree` needs, held HERE rather
+// than in either render leg, because the server rendering and the client's
+// first frame must agree on which rows are open, which row is focusable, and
+// what "visible" means. A hydrating client that disagreed would replace the
+// server's rows. Port of the F# `BindingResolver` tree helpers.
+
+/**
+ * The rows a `Tree` currently has OPEN, read off the named State key.
+ *
+ * The shape the specification fixes for that slot is a JSON ARRAY OF ROW IDS —
+ * an array and not a per-row map, because the question the host asks is set
+ * membership over a hierarchy it walks, and a set has one spelling where a map
+ * of booleans has two for "closed".
+ *
+ * Every non-conforming shape reads as the EMPTY SET rather than as an error: a
+ * key holding a number, an object, or an array with non-string members is a
+ * host's state slot, not a wire document, so there is nothing here to refuse and
+ * refusing would blank a tree over a value the reader never authored. Non-string
+ * members are dropped individually for the same reason — `["a", 3, "b"]` still
+ * says two true things.
+ */
+export const readExpandedItems = (
+  sources: BindingSources,
+  key: string | undefined,
+): ReadonlySet<string> => {
+  if (key === undefined) return new Set<string>();
+  const raw = sources.state?.[key];
+  if (!Array.isArray(raw)) return new Set<string>();
+  return new Set(raw.filter((v): v is string => typeof v === 'string'));
+};
+
+/**
+ * The row a `Tree` currently has SELECTED, read off the named State key. The
+ * fixed shape is a bare row-id STRING, so `undefined` covers both an unset key
+ * and a key holding anything else, on `readExpandedItems`' reasoning.
+ */
+export const readSelectedItem = (
+  sources: BindingSources,
+  key: string | undefined,
+): string | undefined => {
+  if (key === undefined) return undefined;
+  const raw = sources.state?.[key];
+  return typeof raw === 'string' && raw !== '' ? raw : undefined;
+};
+
+/**
+ * Is this row's SUBTREE shown?
+ *
+ * A tree naming NO expansion key renders FULLY EXPANDED, and that is the
+ * grid-behaviour rule read straight across rather than a special case: a grid
+ * with no sort state key still honours its declared order, because an initial
+ * presentation without interactive re-ordering is a legitimate shape.
+ */
+export const treeItemExpanded = (
+  expandedKeyNamed: boolean,
+  expanded: ReadonlySet<string>,
+  item: TreeItem,
+): boolean => item.children.length > 0 && (!expandedKeyNamed || expanded.has(item.id));
+
+/**
+ * Every row a reader can currently see, in document order: the roots, and the
+ * descendants of every open row.
+ */
+export const visibleTreeItems = (
+  expandedKeyNamed: boolean,
+  expanded: ReadonlySet<string>,
+  items: readonly TreeItem[],
+): readonly TreeItem[] =>
+  items.flatMap((item) => [
+    item,
+    ...(treeItemExpanded(expandedKeyNamed, expanded, item)
+      ? visibleTreeItems(expandedKeyNamed, expanded, item.children)
+      : []),
+  ]);
+
+/**
+ * Which row carries `tabindex="0"`.
+ *
+ * The WAI-ARIA tree pattern is ONE tab stop, not one per row, so exactly one
+ * visible row is in the sequential focus order and the arrow keys move within
+ * the widget. That is the property no `List` + `Disclosure` composition has, and
+ * it is computed off STATE alone so both legs put it on the same row.
+ *
+ * The selected row wins when it is visible; otherwise the first visible row
+ * does. A selection scrolled out of view by its parent being closed is not a
+ * focus target — tabbing into the widget must land somewhere the reader can see.
+ */
+export const focusableTreeItem = (
+  expandedKeyNamed: boolean,
+  expanded: ReadonlySet<string>,
+  selected: string | undefined,
+  items: readonly TreeItem[],
+): string | undefined => {
+  const visible = visibleTreeItems(expandedKeyNamed, expanded, items);
+  if (selected !== undefined && visible.some((i) => i.id === selected)) return selected;
+  return visible[0]?.id;
+};
+
+/**
+ * Phase 1110 — which track entries keep their `default` election.
+ *
+ * At most ONE default per KIND survives, FIRST election wins. A document
+ * electing two default captions tracks is legal bytes — the decoder does not
+ * refuse it, because a lenient host would render it anyway and HTML leaves the
+ * case undefined — so the HOST resolves it, and every host resolves it the same
+ * way. The track is still emitted; only its claim on the menu is dropped.
+ */
+export const electedDefaultTracks = (tracks: readonly TrackEntry[]): readonly boolean[] => {
+  const claimed = new Set<string>();
+  return tracks.map((t) => {
+    if (!t.default || claimed.has(t.kind)) return false;
+    claimed.add(t.kind);
+    return true;
+  });
+};
+
+/** Phase 1110 — the lower-case HTML token for a wire `TrackKind`. */
+export const trackKindToken = (kind: TrackKind): string => kind.toLowerCase();
+
+/**
+ * Phase 1116 — the HTML `capture` keyword for a wire `CaptureSource`.
+ *
+ * The keywords name a camera FACING, so the projection is `Camera` →
+ * `environment` and `Microphone` → `user`: both are conforming keywords, the
+ * facing constrains only a camera, and a host MUST NOT emit the device name
+ * itself, which is not a keyword and is non-conforming markup.
+ */
+export const captureKeyword = (source: CaptureSource): string =>
+  source === 'Camera' ? 'environment' : 'user';
+
+// ─── Rating / Tokens / Colour models (Phases 1121, 1130) ─────────────────────
+//
+// The arithmetic and the projections a `Rating`, a `Tokens` field and a `Color`
+// field need, held HERE rather than in either render leg. Both legs read them,
+// so a static rendering and a hydrated one cannot disagree about which star is
+// half-full or how a token list spells itself in a text box. Port of the F#
+// `RatingModel` / `TokensModel` / `HexColor`.
+
+/** The entry granularity: a half-star control moves by 0.5, a whole-star by 1. */
+export const ratingStep = (allowHalf: boolean): number => (allowHalf ? 0.5 : 1);
+
+/**
+ * Hold a value inside `0 .. max`. NaN reads as 0 rather than propagating: a
+ * rating is a magnitude, and there is no position on the scale that "not a
+ * number" names.
+ */
+export const ratingClamp = (max: number, value: number): number =>
+  Number.isNaN(value) ? 0 : value < 0 ? 0 : value > max ? max : value;
+
+/** The nearest enterable position, clamped to the scale. */
+export const ratingSnap = (allowHalf: boolean, max: number, value: number): number => {
+  const s = ratingStep(allowHalf);
+  return ratingClamp(max, Math.round(value / s) * s);
+};
+
+/**
+ * How full each of the `max` positions is, in `0 .. 1`.
+ *
+ * A FRACTIONAL value renders as a partial position rather than rounding, and
+ * that is normative: the commonest rating a reader sees is an AVERAGE arriving
+ * through a `Query` binding, and rounding it would show the reader a figure the
+ * document did not state.
+ */
+export const ratingFills = (max: number, value: number): readonly number[] => {
+  const v = ratingClamp(max, value);
+  return Array.from({ length: max }, (_, i) => {
+    const filled = v - i;
+    return filled <= 0 ? 0 : filled >= 1 ? 1 : filled;
+  });
+};
+
+/**
+ * The whole reading — "3.5 out of 5". `aria-valuetext` is the only ARIA member
+ * that can announce a fraction at all, and it is what a display-only rating
+ * carries as its accessible name.
+ */
+export const ratingValueText = (max: number, value: number): string => {
+  const v = ratingClamp(max, value);
+  const shown =
+    Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : String(Number(v.toFixed(2)));
+  return `${shown} out of ${max}`;
+};
+
+/** The per-position class fragment: empty, full, or partially filled. */
+export const ratingFillClass = (fill: number): string =>
+  fill <= 0
+    ? 'fuaran-rating-star-empty'
+    : fill >= 1
+      ? 'fuaran-rating-star-full'
+      : 'fuaran-rating-star-partial';
+
+/**
+ * The token list as the static floor's single text input spells it.
+ *
+ * The separator lives here and not at the call site, so the projection and its
+ * inverse cannot drift apart.
+ */
+export const tokensToCommaSeparated = (tokens: readonly string[]): string => tokens.join(', ');
+
+/**
+ * The inverse. Empty entries are dropped and duplicates collapse — a token list
+ * the reader SEES as chips cannot honestly carry two identical ones, and the
+ * text floor is the one place a reader can type them.
+ */
+export const tokensFromCommaSeparated = (text: string): readonly string[] => {
+  const seen = new Set<string>();
+  return text
+    .split(',')
+    .map((t) => t.trim())
+    .filter((t) => t !== '' && !seen.has(t) && (seen.add(t), true));
+};
+
+/**
+ * `true` for the canonical `#rrggbb` form and nothing else — six hex digits
+ * after a `#`, either case.
+ *
+ * Deliberately STRICT. `<input type="color">` holds exactly this form: it cannot
+ * carry `#fff`, `rebeccapurple`, `rgb(0 0 0)` or an alpha channel, and a control
+ * that silently narrowed one of those would be answering a question the author
+ * did not ask. Case is accepted and never rewritten — the browser lower-cases on
+ * its own, at the DOM, where that is its business.
+ */
+export const isHexColor = (text: string): boolean => /^#[0-9a-fA-F]{6}$/.test(text);
+
+/**
+ * Can an omitted handler's write-back reach this value slot?
+ *
+ * A `State` or `Filter` binding is writable, so a control with no handler still
+ * changes something; every other binding is read-only, and a control over one is
+ * a DISPLAY. The rating floor turns on exactly this: a slider a reader can focus
+ * and can never move is a fake affordance, and the honest markup for a picture of
+ * a score is a picture.
+ */
+export const isWriteBackTarget = <T>(binding: Binding<T>): boolean =>
+  binding.kind === 'State' || binding.kind === 'Filter';

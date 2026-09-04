@@ -16,16 +16,24 @@ import type {
   LabelValueRowSpec,
   ProgressSpec,
   SparklineSpec,
+  EmbedPermission,
   StateBehaviour,
+  TreeItem,
 } from '@fuaran-ui/schema';
 
 import {
   asArray,
+  electedDefaultTracks,
+  focusableTreeItem,
   formatNumber,
+  readExpandedItems,
+  readSelectedItem,
   renderText,
   resolve,
   resolveScalarFloat,
   type Resolution,
+  trackKindToken,
+  treeItemExpanded,
   tryResolve,
   tryResolveScalarFloat,
 } from '../bindings.js';
@@ -33,7 +41,7 @@ import { imageAspectClass, toneVar, trendSentiment } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { drawingSvg } from '../drawingSvg.js';
 import { mathMl } from '../mathMl.js';
-import { sanitizeUrlForEgress } from '../egress.js';
+import { sanitizeEmbedSrcForEgress, sanitizeUrlForEgress } from '../egress.js';
 import { toHtmlWithEgress } from '../markdown.js';
 import { renderNode } from './core.js';
 import { iconHook } from './iconHook.js';
@@ -387,8 +395,69 @@ export const renderDisplay = <TMsg,>(
         ...semanticAttrs,
         ...Object.fromEntries(egressAttrs),
       };
+      // Phase 1110 — the timed-text tracks, in AUTHORED order (never re-sorted:
+      // a reader picks from a menu the user agent builds in document order). A
+      // track whose source the egress floor refuses is DROPPED — the POSTER's
+      // disposition rather than the source's, because an element must have a
+      // source but need not have this track, and a `<track>` pointing at the
+      // refusal URL is a menu entry that opens onto nothing. At most one
+      // `default` per KIND survives, first election wins; the later track is
+      // still emitted, only its claim on the menu is dropped.
+      const elected = electedDefaultTracks(display.spec.tracks);
+      const trackEls = display.spec.tracks.map((t, i) => {
+        const [trackSrc, trackRefusal] = sanitizeUrlForEgress(
+          ctx.egressPolicy,
+          'media',
+          tryResolve(ctx.sources, t.src) ?? '',
+        );
+        if (trackSrc === '' || trackRefusal.length > 0) return null;
+        return (
+          <track
+            key={i}
+            kind={trackKindToken(t.kind)}
+            src={trackSrc}
+            // The lower-case HTML spelling, spread rather than written as the
+            // camel-case prop: React 19 passes this attribute through UNMAPPED,
+            // so `srcLang={…}` emits `srcLang=` — which an HTML parser still
+            // reads (attribute names are ASCII case-insensitive) but which
+            // differs byte-for-byte from the server tier's emission for no
+            // reason at all. The typings only know the camel-case spelling, so
+            // the spread is what carries the correct one.
+            {...{ srclang: t.srcLang }}
+            label={renderText(ctx.sources, t.label)}
+            {...(elected[i] === true ? { default: true } : {})}
+          />
+        );
+      });
+      // The transcript renders as a disclosure BESIDE the transport, never
+      // inside it: `<video>` / `<audio>` admit only source-ish children, so a
+      // transcript placed there would be fallback content a browser never shows.
+      // The disclosure carries the MEDIA's resolved label as its own accessible
+      // name, so a reader meeting it out of context is told which recording it
+      // transcribes.
+      const withTranscript = (element: ReactNode): ReactNode => {
+        if (display.spec.transcript === undefined) return element;
+        return (
+          <div className="fuaran-media-group">
+            {element}
+            <details
+              className="fuaran-media-transcript"
+              aria-label={renderText(ctx.sources, display.spec.label)}
+            >
+              <summary className="fuaran-media-transcript-summary">Transcript</summary>
+              <div className="fuaran-media-transcript-body">
+                {renderText(ctx.sources, display.spec.transcript)}
+              </div>
+            </details>
+          </div>
+        );
+      };
       if (display.spec.kind.$type === 'Audio') {
-        return <audio className="fuaran-media fuaran-media-audio" {...shared} />;
+        return withTranscript(
+          <audio className="fuaran-media fuaran-media-audio" {...shared}>
+            {trackEls}
+          </audio>,
+        );
       }
       const posterBinding = display.spec.kind.poster;
       let posterAttrs: { poster?: string } = {};
@@ -405,13 +474,121 @@ export const renderDisplay = <TMsg,>(
       // the reader pressed play on, which is the same defect in the other
       // direction.
       const autoplayAttrs = display.spec.kind.autoplay ? { autoPlay: true, muted: true } : {};
-      return (
+      return withTranscript(
         <video
           className="fuaran-media fuaran-media-video"
           {...shared}
           {...posterAttrs}
           {...autoplayAttrs}
+        >
+          {trackEls}
+        </video>,
+      );
+    }
+
+    // Phase 1111 — the sandboxed third-party embed, structural parity with the
+    // server renderer and with both F# renderers. Four contract points, in the
+    // order they appear below: the `sandbox` attribute emitted ALWAYS and EMPTY
+    // when nothing is granted (omitting it on a permissionless embed would be
+    // the same markup as an unsandboxed frame); the tokens in the vocabulary's
+    // DECLARATION order and de-duplicated, so two documents naming the same set
+    // produce identical markup whatever order they authored; fullscreen riding
+    // `allow` rather than `sandbox`, because it is a permissions-policy
+    // directive and not a sandbox token; and a refused `src` OMITTED ENTIRELY
+    // rather than pointed at the refusal URL, because an iframe at that URL
+    // renders that page.
+    case 'Embed': {
+      const [embedSrc, embedEgressAttrs] = sanitizeEmbedSrcForEgress(
+        ctx.egressPolicy,
+        tryResolve(ctx.sources, display.spec.src) ?? '',
+      );
+      const has = (perm: EmbedPermission): boolean => display.spec.permissions.includes(perm);
+      const sandboxTokens: string[] = [];
+      if (has('AllowScripts')) sandboxTokens.push('allow-scripts');
+      if (has('AllowSameOrigin')) sandboxTokens.push('allow-same-origin');
+      if (has('AllowForms')) sandboxTokens.push('allow-forms');
+      const aspectClass =
+        display.spec.aspectRatio === 'Natural'
+          ? ''
+          : display.spec.aspectRatio === 'Square'
+            ? ' fuaran-embed-aspect-square'
+            : display.spec.aspectRatio === 'FourThree'
+              ? ' fuaran-embed-aspect-four-three'
+              : display.spec.aspectRatio === 'ThreeTwo'
+                ? ' fuaran-embed-aspect-three-two'
+                : ' fuaran-embed-aspect-sixteen-nine';
+      return (
+        <iframe
+          className={'fuaran-embed' + aspectClass}
+          title={renderText(ctx.sources, display.spec.title)}
+          sandbox={sandboxTokens.join(' ')}
+          loading="lazy"
+          referrerPolicy="strict-origin-when-cross-origin"
+          {...(embedSrc === undefined ? {} : { src: embedSrc })}
+          {...(has('AllowFullscreen') ? { allow: 'fullscreen' } : {})}
+          {...semanticAttrs}
+          {...Object.fromEntries(embedEgressAttrs)}
         />
+      );
+    }
+
+    // Phase 1120 — the tree. Structurally identical to the server floor, and
+    // deliberately so: this arm renders the SAME elements, the SAME ARIA and the
+    // SAME roving tabindex, computed from the SAME shared state readers, so a
+    // hydrating client cannot replace the server's rows. Movement is this tier's
+    // addition over that identical DOM, never a precondition for the document
+    // being readable.
+    case 'Tree': {
+      const spec = display.spec;
+      const expandedKeyNamed = spec.expandedStateKey !== undefined;
+      const expanded = readExpandedItems(ctx.sources, spec.expandedStateKey);
+      const selected = readSelectedItem(ctx.sources, spec.selectionStateKey);
+      const focusable = focusableTreeItem(expandedKeyNamed, expanded, selected, spec.items);
+      const renderItems = (level: number, items: readonly TreeItem[]): ReactNode[] => {
+        const setSize = items.length;
+        return items.map((item, i) => {
+          const isOpen = treeItemExpanded(expandedKeyNamed, expanded, item);
+          const hasChildren = item.children.length > 0;
+          const label = renderText(ctx.sources, item.label);
+          return (
+            <li
+              key={item.id}
+              className="fuaran-tree-item"
+              role="treeitem"
+              // STATED rather than computed from contents: a treeitem OWNS its
+              // child group, so a name derived from its subtree would read the
+              // whole branch out as the row's own name.
+              aria-label={label}
+              aria-level={level}
+              aria-setsize={setSize}
+              aria-posinset={i + 1}
+              data-fuaran-tree-item={item.id}
+              tabIndex={item.id === focusable ? 0 : -1}
+              // Emitted ONLY on a row that HAS children. On a leaf the attribute
+              // asserts a collapsed subtree that does not exist, and assistive
+              // technology announces such a row as closed.
+              {...(hasChildren ? { 'aria-expanded': isOpen } : {})}
+              // Likewise only where a selection key is named: a tree that never
+              // selects must not declare a selectable widget with nothing
+              // selected.
+              {...(spec.selectionStateKey !== undefined
+                ? { 'aria-selected': item.id === selected }
+                : {})}
+            >
+              <span className="fuaran-tree-label">{label}</span>
+              {isOpen ? (
+                <ul className="fuaran-tree-group" role="group">
+                  {renderItems(level + 1, item.children)}
+                </ul>
+              ) : null}
+            </li>
+          );
+        });
+      };
+      return (
+        <ul className="fuaran-tree" role="tree">
+          {renderItems(1, spec.items)}
+        </ul>
       );
     }
 

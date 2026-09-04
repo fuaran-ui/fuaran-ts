@@ -107,6 +107,18 @@ export const controlValueDefaults = {
    * `(from, to)` pair of ISO-8601 strings (Phase 725, the `range` precedent).
    */
   dateRange: ['', ''] as readonly [string, string],
+  /**
+   * The EMPTY LIST — a token field with nothing in it (Phase 1121). The list is
+   * ordered and the order is the reader's, so an auto-bound field starts with no
+   * chips rather than with a placeholder one.
+   */
+  tokens: [] as readonly string[],
+  /**
+   * The unset swatch (Phase 1130). A native colour input substitutes its own
+   * default when handed nothing, and `#000000` is that default's wire spelling —
+   * the one `#rrggbb` form the control can hold.
+   */
+  color: '#000000' as string,
 };
 
 const noBinding = <T>(): Binding<T> => ({
@@ -125,6 +137,7 @@ const style: SemanticStyle = {
   emphasis: 'Normal',
   role: 'None',
   voice: 'Default',
+  direction: 'auto',
 };
 
 const stateBehaviour = <TMsg>(): StateBehaviour<TMsg> => ({});

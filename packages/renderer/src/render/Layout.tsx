@@ -12,6 +12,7 @@ import { useEffect, useRef } from 'react';
 import type { LayoutKind, Node, TabHeader } from '@fuaran-ui/schema';
 
 import { renderText, tryResolve } from '../bindings.js';
+import { printBreakClasses } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { runAction, writeBackTo } from '../context.js';
 import { renderChildren, renderNode } from './core.js';
@@ -158,9 +159,15 @@ export const renderLayout = <TMsg,>(
     // stack div.
     case 'Box': {
       const spec = layout.spec;
+      // Phase 1473 — the paged-medium declarations, appended to every one of
+      // this kind's six emission arms. The realising rules live in the reference
+      // stylesheet's `@media print` block, so a SCREEN rendering is unchanged
+      // and no script participates — which is why the class string is the whole
+      // of this tier's contribution and it matches the server's byte for byte.
+      const brk = printBreakClasses(spec.keepTogether, spec.breakBefore);
       if (spec.role === 'Card') {
         return (
-          <section className="fuaran-layout-card">
+          <section className={`fuaran-layout-card${brk}`}>
             {spec.heading !== undefined && (
               <header className="fuaran-card-heading">
                 {renderText(ctx.sources, spec.heading)}
@@ -171,10 +178,14 @@ export const renderLayout = <TMsg,>(
         );
       }
       if (spec.role === 'Dashboard' || spec.layout.kind === 'Auto') {
-        return <div className="fuaran-layout-dashboard">{renderChildren(ctx, spec.children)}</div>;
+        return (
+          <div className={`fuaran-layout-dashboard${brk}`}>
+            {renderChildren(ctx, spec.children)}
+          </div>
+        );
       }
       if (spec.role === 'Separator') {
-        return <hr className="fuaran-layout-separator" />;
+        return <hr className={`fuaran-layout-separator${brk}`} />;
       }
       // role === 'Group' with a Flex or Grid layout.
       if (spec.layout.kind === 'Grid') {
@@ -186,7 +197,7 @@ export const renderLayout = <TMsg,>(
         const gridStyle: CSSProperties = { gridTemplateColumns: templateColumns };
         if (g.gap !== undefined) gridStyle.gap = `${g.gap}px`;
         return (
-          <div className="fuaran-layout-grid" style={gridStyle}>
+          <div className={`fuaran-layout-grid${brk}`} style={gridStyle}>
             {renderChildren(ctx, spec.children)}
           </div>
         );
@@ -201,7 +212,7 @@ export const renderLayout = <TMsg,>(
         const masonryStyle: CSSProperties = { columnCount: m.cols };
         if (m.gap !== undefined) masonryStyle.gap = `${m.gap}px`;
         return (
-          <div className="fuaran-layout-masonry" style={masonryStyle}>
+          <div className={`fuaran-layout-masonry${brk}`} style={masonryStyle}>
             {renderChildren(ctx, spec.children)}
           </div>
         );
@@ -219,7 +230,7 @@ export const renderLayout = <TMsg,>(
       const stackStyle: CSSProperties | undefined =
         flexGap !== undefined ? { gap: `${flexGap}px` } : undefined;
       return (
-        <div className={`fuaran-layout-stack ${dir}${wrap}`} style={stackStyle}>
+        <div className={`fuaran-layout-stack ${dir}${wrap}${brk}`} style={stackStyle}>
           {renderChildren(ctx, spec.children)}
         </div>
       );

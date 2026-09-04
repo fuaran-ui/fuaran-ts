@@ -17,7 +17,7 @@ import type {
   NodeKind,
 } from '@fuaran-ui/schema';
 
-import { type BindingSources, resolve } from './bindings.js';
+import { type BindingSources, renderText, resolve } from './bindings.js';
 import {
   type ActionDescriptor,
   describeActionDescriptor,
@@ -92,6 +92,10 @@ export const containsUnwiredAction = <TMsg>(action: Action<TMsg>): boolean => {
     case 'Dispatch':
     case 'CommitLocal':
     case 'WriteToClipboard':
+    // Phase 1124 — `Print` asks the reader's own platform to print the rendered
+    // document. It routes through no runtime substrate, so it is not the
+    // unwired shape this hint exists to warn about.
+    case 'Print':
     case 'ReadFileBody':
       return false;
     case 'Chain':
@@ -288,11 +292,27 @@ export const runAction = <TMsg>(ctx: RenderContext<TMsg>, action: Action<TMsg>):
         window.dispatchEvent(new CustomEvent(`fuaran-commit-local-${action.nodeId}`));
       }
       return;
-    case 'WriteToClipboard':
-      if (ctx.runtime.writeToClipboard) ctx.runtime.writeToClipboard(action.text);
+    case 'WriteToClipboard': {
+      // Phase 1126 — the payload is a `TextSource`, and it is resolved HERE, at
+      // DISPATCH time, through the same binding resolution the renderer draws
+      // text slots with — so what is copied is what the reader was looking at.
+      // Resolving at decode time would freeze the value at the moment the
+      // document arrived, which for the shapes this widening exists for is the
+      // wrong value. An unresolvable binding resolves to the empty string, as it
+      // does at every other text slot.
+      const payload = renderText(ctx.sources, action.text);
+      if (ctx.runtime.writeToClipboard) ctx.runtime.writeToClipboard(payload);
       else if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        void navigator.clipboard.writeText(action.text);
+        void navigator.clipboard.writeText(payload);
       }
+      return;
+    }
+    case 'Print':
+      // Phase 1124 — raise the platform's own print dialogue, and NOTHING is
+      // reported back: no value, no callback, no event. A host must not tell the
+      // tree whether the reader printed, cancelled, or what they chose. A host
+      // with no interactive print path performs nothing rather than refusing.
+      if (typeof window !== 'undefined' && typeof window.print === 'function') window.print();
       return;
     case 'ReadFileBody': {
       // Phase 136. Prefer the wired runtime port; otherwise fall back to a

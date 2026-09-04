@@ -10,6 +10,9 @@ describe('defaults', () => {
       emphasis: 'Normal',
       role: 'None',
       voice: 'Default',
+      // Phase 1472 — `auto` is the declared direction's identity, and it joins
+      // the other omitted-when-default members here on exactly their terms.
+      direction: 'auto',
     });
     expect(defaults.stateBehaviour()).toEqual({});
   });

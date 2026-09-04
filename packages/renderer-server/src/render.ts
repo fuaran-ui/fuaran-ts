@@ -54,6 +54,7 @@ import type {
   Node,
   Orientation,
   SelectOption,
+  TreeItem,
   SortDirection,
   StateBehaviour,
   TabHeader,
@@ -61,7 +62,7 @@ import type {
   VisKind,
 } from '@fuaran-ui/schema';
 
-import { cardVerdictMarker, describeFromCard } from '@fuaran-ui/schema';
+import { cardVerdictMarker, controlValueDefaults, describeFromCard } from '@fuaran-ui/schema';
 
 import {
   accessibilityAttributes,
@@ -74,13 +75,29 @@ import {
 import {
   asArray,
   type BindingSources,
+  captureKeyword,
+  electedDefaultTracks,
   emptySources,
+  focusableTreeItem,
   formatNumber,
+  isHexColor,
+  isWriteBackTarget,
+  ratingClamp,
+  ratingFillClass,
+  ratingFills,
+  ratingSnap,
+  ratingStep,
+  ratingValueText,
+  readExpandedItems,
+  readSelectedItem,
   renderCellValue,
   renderText,
   resolve,
   resolveScalarFloat,
   type Resolution,
+  tokensToCommaSeparated,
+  trackKindToken,
+  treeItemExpanded,
   tryResolve,
   tryResolveScalarFloat,
 } from './bindings.js';
@@ -91,9 +108,11 @@ import { withStateSeeds } from '@fuaran-ui/ops';
 import { isLowered, lower, type ChartRow } from '@fuaran-ui/charts';
 
 import {
+  gridPrintBreakClasses,
   imageAspectClass,
   motionVar,
   nodeClassName,
+  printBreakClasses,
   toneVar,
   trendSentiment,
 } from './classNames.js';
@@ -235,6 +254,10 @@ const containsUnwiredAction = (action: Action<unknown>): boolean => {
     case 'Dispatch':
     case 'CommitLocal':
     case 'WriteToClipboard':
+    // Phase 1124 — `Print` asks the reader's own platform to print the rendered
+    // document. It routes through no runtime substrate, so it is not the
+    // unwired shape this hint exists to warn about.
+    case 'Print':
     case 'ReadFileBody':
       return false;
     case 'Chain':
@@ -442,6 +465,14 @@ const renderLayout = (
     // (parity-locked with the React renderer + F# reference).
     case 'Box': {
       const spec = layout.spec;
+      // Phase 1473 — the paged-medium declarations, appended to every one of
+      // this kind's six emission arms. The realising rules live in the
+      // reference stylesheet's `@media print` block, so a SCREEN rendering is
+      // unchanged and no script participates: `keepTogether` is
+      // `break-inside: avoid` and `breakBefore` is `break-before: page`,
+      // nothing else is derived from either, and a surface with no paged medium
+      // at all satisfies the obligation vacuously.
+      const brk = printBreakClasses(spec.keepTogether, spec.breakBefore);
       if (spec.role === 'Card') {
         const header =
           spec.heading !== undefined
@@ -452,17 +483,17 @@ const renderLayout = (
               )
             : '';
         const body = el('div', [['class', 'fuaran-card-body']], renderChildren(ctx, spec.children));
-        return el('section', [['class', 'fuaran-layout-card']], header + body);
+        return el('section', [['class', `fuaran-layout-card${brk}`]], header + body);
       }
       if (spec.role === 'Dashboard' || spec.layout.kind === 'Auto') {
         return el(
           'div',
-          [['class', 'fuaran-layout-dashboard']],
+          [['class', `fuaran-layout-dashboard${brk}`]],
           renderChildren(ctx, spec.children),
         );
       }
       if (spec.role === 'Separator') {
-        return voidEl('hr', [['class', 'fuaran-layout-separator']]);
+        return voidEl('hr', [['class', `fuaran-layout-separator${brk}`]]);
       }
       if (spec.layout.kind === 'Grid') {
         const g = spec.layout;
@@ -477,7 +508,7 @@ const renderLayout = (
         return el(
           'div',
           [
-            ['class', 'fuaran-layout-grid'],
+            ['class', `fuaran-layout-grid${brk}`],
             ['style', gridStyle],
           ],
           renderChildren(ctx, spec.children),
@@ -495,7 +526,7 @@ const renderLayout = (
         return el(
           'div',
           [
-            ['class', 'fuaran-layout-masonry'],
+            ['class', `fuaran-layout-masonry${brk}`],
             ['style', masonryStyle],
           ],
           renderChildren(ctx, spec.children),
@@ -513,10 +544,10 @@ const renderLayout = (
       const stackAttrs: Attr[] =
         flexGap !== undefined
           ? [
-              ['class', `fuaran-layout-stack ${dir}${wrap}`],
+              ['class', `fuaran-layout-stack ${dir}${wrap}${brk}`],
               ['style', `gap:${flexGap}px`],
             ]
-          : [['class', `fuaran-layout-stack ${dir}${wrap}`]];
+          : [['class', `fuaran-layout-stack ${dir}${wrap}${brk}`]];
       return el('div', stackAttrs, renderChildren(ctx, spec.children));
     }
 
@@ -1132,13 +1163,71 @@ const renderDisplay = (
         ...semanticAttrs,
         ...egressAttrs,
       ];
+      // Phase 1110 — the timed-text tracks, emitted as `<track>` children in
+      // AUTHORED order (never re-sorted: a reader picks from a menu the user
+      // agent builds in document order). A track source the egress floor refuses
+      // DROPS THE TRACK — it takes the POSTER's disposition rather than the
+      // source's, because an element must have a source but need not have this
+      // track, and a `<track>` pointing at the refusal URL is a menu entry that
+      // opens onto nothing. At most one `default` per KIND survives, first
+      // election wins; the later track is still emitted, only its claim on the
+      // menu is dropped.
+      const elected = electedDefaultTracks(display.spec.tracks);
+      const tracksHtml = display.spec.tracks
+        .map((t, i) => {
+          const [trackSrc, trackRefusal] = sanitizeUrlForEgress(
+            ctx.egressPolicy,
+            'media',
+            tryResolve(ctx.sources, t.src) ?? '',
+          );
+          if (trackSrc === '' || trackRefusal.length > 0) return '';
+          return voidEl('track', [
+            ['kind', trackKindToken(t.kind)],
+            ['src', trackSrc],
+            ['srclang', t.srcLang],
+            ['label', renderText(ctx.sources, t.label)],
+            ['default', elected[i] === true],
+          ]);
+        })
+        .join('');
+      // The transcript renders as a disclosure BESIDE the transport, never
+      // inside it: `<video>` / `<audio>` admit only source-ish children, so a
+      // transcript placed there would be fallback content a browser never shows.
+      // The disclosure carries the MEDIA's resolved label as its own accessible
+      // name, so a reader meeting it out of context is told which recording it
+      // transcribes.
+      const withTranscript = (element: string): string => {
+        if (display.spec.transcript === undefined) return element;
+        const mediaLabel = renderText(ctx.sources, display.spec.label);
+        const summary = textEl(
+          'summary',
+          [['class', 'fuaran-media-transcript-summary']],
+          'Transcript',
+        );
+        const body = textEl(
+          'div',
+          [['class', 'fuaran-media-transcript-body']],
+          renderText(ctx.sources, display.spec.transcript),
+        );
+        const details = el(
+          'details',
+          [
+            ['class', 'fuaran-media-transcript'],
+            ['aria-label', mediaLabel],
+          ],
+          summary + body,
+        );
+        return el('div', [['class', 'fuaran-media-group']], element + details);
+      };
       if (display.spec.kind.$type === 'Audio') {
         // `el`, not `voidEl`: `<video>` / `<audio>` are NOT void elements. A
         // self-closed `<video …/>` leaves the parser inside the element and
         // swallows the rest of the document as its fallback content — the one
         // mistake here that produces a page that looks broken everywhere
         // EXCEPT the node that caused it.
-        return el('audio', [['class', 'fuaran-media fuaran-media-audio'], ...shared]);
+        return withTranscript(
+          el('audio', [['class', 'fuaran-media fuaran-media-audio'], ...shared], tracksHtml),
+        );
       }
       const posterBinding = display.spec.kind.poster;
       const posterAttrs: Attr[] = [];
@@ -1157,12 +1246,92 @@ const renderDisplay = (
             ['muted', true],
           ]
         : [];
-      return el('video', [
-        ['class', 'fuaran-media fuaran-media-video'],
-        ...shared,
-        ...posterAttrs,
-        ...autoplayAttrs,
-      ]);
+      return withTranscript(
+        el(
+          'video',
+          [
+            ['class', 'fuaran-media fuaran-media-video'],
+            ...shared,
+            ...posterAttrs,
+            ...autoplayAttrs,
+          ],
+          tracksHtml,
+        ),
+      );
+    }
+
+    // Phase 1120 — the `Tree` SSR floor, and it is NORMATIVE: a server rendering
+    // of a tree is nested lists carrying the full ARIA tree vocabulary, with
+    // `aria-expanded` reflecting the statically-resolvable expanded state and
+    // exactly one row carrying `tabindex="0"`. There is NO SCRIPT at any point,
+    // so the floor is what a reader with JavaScript off, or a client that has
+    // not hydrated yet, actually gets: a complete, navigable, correctly-announced
+    // hierarchy that simply does not toggle.
+    //
+    // Every structural decision is shared with the client leg through
+    // `bindings.ts`, so the two cannot come apart: which rows are open, which row
+    // is focusable, and what "visible" means are all computed there.
+    case 'Tree': {
+      const expandedKeyNamed = display.spec.expandedStateKey !== undefined;
+      const expanded = readExpandedItems(ctx.sources, display.spec.expandedStateKey);
+      const selected = readSelectedItem(ctx.sources, display.spec.selectionStateKey);
+      const focusable = focusableTreeItem(expandedKeyNamed, expanded, selected, display.spec.items);
+      const renderItems = (level: number, items: readonly TreeItem[]): string => {
+        const setSize = items.length;
+        return items
+          .map((item, i) => {
+            const isOpen = treeItemExpanded(expandedKeyNamed, expanded, item);
+            const hasChildren = item.children.length > 0;
+            const label = renderText(ctx.sources, item.label);
+            const attrs: Attr[] = [
+              ['class', 'fuaran-tree-item'],
+              ['role', 'treeitem'],
+              // The accessible name is STATED rather than computed from
+              // contents, and that is deliberate: a treeitem OWNS its child
+              // group, so a name derived from its subtree would read the whole
+              // branch out as the row's own name. The string is byte-identical
+              // to the visible label, so "label in name" holds.
+              ['aria-label', label],
+              ['aria-level', String(level)],
+              ['aria-setsize', String(setSize)],
+              ['aria-posinset', String(i + 1)],
+              ['data-fuaran-tree-item', item.id],
+              ['tabindex', String(item.id === focusable ? 0 : -1)],
+            ];
+            // `aria-expanded` is emitted ONLY on a row that HAS children. On a
+            // leaf the attribute asserts a collapsed subtree that does not
+            // exist, and assistive technology announces such a row as closed —
+            // a reader told there is more when there is not.
+            if (hasChildren) attrs.push(['aria-expanded', isOpen ? 'true' : 'false']);
+            // `aria-selected` likewise appears only where a selection key is
+            // named. Emitting `false` on every row of a tree that never selects
+            // would declare a selectable widget with nothing selected.
+            if (display.spec.selectionStateKey !== undefined)
+              attrs.push(['aria-selected', item.id === selected ? 'true' : 'false']);
+            const body =
+              textEl('span', [['class', 'fuaran-tree-label']], label) +
+              (isOpen
+                ? el(
+                    'ul',
+                    [
+                      ['class', 'fuaran-tree-group'],
+                      ['role', 'group'],
+                    ],
+                    renderItems(level + 1, item.children),
+                  )
+                : '');
+            return el('li', attrs, body);
+          })
+          .join('');
+      };
+      return el(
+        'ul',
+        [
+          ['class', 'fuaran-tree'],
+          ['role', 'tree'],
+        ],
+        renderItems(1, display.spec.items),
+      );
     }
 
     case 'Embed': {
@@ -1844,6 +2013,147 @@ const renderFormControl = (ctx: ServerContext, field: FormField<unknown>): strin
         input + el('datalist', [['id', listId]], optionsHtml),
       );
     }
+    // Phase 1121 — THE SSR FLOOR FOR A TOKEN FIELD IS ONE TEXT INPUT, and it is
+    // not an approximation of the client's chip row so much as the only honest
+    // thing this medium can render. A chip row is BUILT by a keystroke handler:
+    // zero-JS there is no gesture that adds a chip, none that removes one, and a
+    // row of static chips with dead remove buttons would be an affordance inert
+    // markup cannot honour.
+    //
+    // TWO RECORDED KNOWN LIMITS, neither claimed as coverage.
+    //   1. A token CONTAINING A COMMA does not survive the projection — it
+    //      re-parses as two. Escaping it would put a quoting grammar into a
+    //      medium no reader can see, trading a visible limit for an invisible
+    //      one.
+    //   2. `allowFreeText: false` is NOT enforced here and cannot be: a text
+    //      input has no native membership constraint. The declaration rides as
+    //      `data-fuaran-tokens-constrained` so a reader can see it was not
+    //      silently dropped, on the `data-fuaran-combobox-constrained`
+    //      precedent — nothing in the platform reads it. Enforcement is the
+    //      host's server-side re-check on submit.
+    case 'Tokens': {
+      const listId = `${field.id}-suggestions`;
+      const current = tokensToCommaSeparated(
+        asArray<string>(tryResolve(ctx.sources, k.value) ?? []),
+      );
+      const opts =
+        k.suggestions !== undefined
+          ? asArray<SelectOption>(tryResolve(ctx.sources, k.suggestions))
+          : undefined;
+      const input = voidEl('input', [
+        ['class', 'fuaran-form-field-control fuaran-tokens-input'],
+        ['data-fuaran-field', field.id],
+        ['type', 'text'],
+        // A `<datalist>` accompanies the input only where a suggestion source
+        // was DECLARED. An absent source and a resolved-empty one are different
+        // facts, and this is where the difference shows: a declared-but-empty
+        // source still gets its (empty) list, an absent one gets none at all.
+        ...(opts !== undefined ? ([['list', listId]] as Attr[]) : []),
+        // The browser's own history dropdown would otherwise compete with the
+        // datalist popup for the same gesture.
+        ['autocomplete', 'off'],
+        ['data-fuaran-tokens-constrained', k.allowFreeText ? 'false' : 'true'],
+        ['required', field.required],
+        ['value', current],
+      ]);
+      const list =
+        opts === undefined
+          ? ''
+          : el(
+              'datalist',
+              [['id', listId]],
+              opts
+                .map((o) =>
+                  textEl('option', [['value', o.value]], renderText(ctx.sources, o.label)),
+                )
+                .join(''),
+            );
+      return el('span', [['class', 'fuaran-tokens']], input + list);
+    }
+    // Phase 1130 — THE SSR FLOOR FOR A RATING, and it is deliberately not one
+    // markup but two, chosen by what the document can honour.
+    //
+    // A rating that CANNOT be written (no handler, and a value binding the
+    // write-back default cannot reach — the bound-average display case) has no
+    // interaction to floor, so this emits the IDENTICAL `role="img"` star row
+    // the client renders. A WRITABLE rating floors on native RADIOS: zero-JS a
+    // `role="slider"` element can be neither adjusted nor submitted, where
+    // radios are keyboard-adjustable, submit with the form, and let the user
+    // agent supply the group semantics itself. NO HAND-WRITTEN ARIA is emitted
+    // on that markup — the combobox arm's rule, for its reason.
+    //
+    // RECORDED KNOWN LIMIT — a writable rating whose current value is a FRACTION
+    // landing on no enterable position checks no radio here. The floor shows the
+    // positions a reader can choose, not the average; the exact figure rides as
+    // `data-fuaran-rating-value` so it is visibly not dropped, and it is NOT
+    // claimed as coverage.
+    case 'Rating': {
+      const shown = ratingClamp(k.max, Number(tryResolve(ctx.sources, k.value) ?? 0));
+      const starRow = ratingFills(k.max, shown)
+        .map((fill) =>
+          el('span', [
+            ['class', `fuaran-rating-star ${ratingFillClass(fill)}`],
+            ['aria-hidden', 'true'],
+          ]),
+        )
+        .join('');
+      if (k.onChange === undefined && !isWriteBackTarget(k.value)) {
+        return el(
+          'span',
+          [
+            ['class', 'fuaran-form-field-control fuaran-rating fuaran-rating-static'],
+            ['role', 'img'],
+            ['aria-label', ratingValueText(k.max, shown)],
+            ['data-fuaran-field', field.id],
+          ],
+          starRow,
+        );
+      }
+      const stepSize = ratingStep(k.allowHalf);
+      const positions = Math.round(k.max / stepSize);
+      const choices = Array.from({ length: positions }, (_, i) => {
+        const target = ratingSnap(k.allowHalf, k.max, (i + 1) * stepSize);
+        const radio = voidEl('input', [
+          ['type', 'radio'],
+          ['name', field.id],
+          ['value', String(target)],
+          ['checked', Math.abs(target - shown) < 1e-9],
+        ]);
+        const caption = textEl(
+          'span',
+          [['class', 'fuaran-rating-choice-label']],
+          ratingValueText(k.max, target),
+        );
+        return el('label', [['class', 'fuaran-rating-choice']], radio + caption);
+      }).join('');
+      return el(
+        'span',
+        [
+          ['class', 'fuaran-form-field-control fuaran-rating fuaran-rating-choices'],
+          ['data-fuaran-field', field.id],
+          ['data-fuaran-rating-value', ratingValueText(k.max, shown)],
+        ],
+        starRow + choices,
+      );
+    }
+    // Phase 1130 — a native `<input type="color">` IS the control: there is no
+    // ARIA to hand-write and no keyboard model to invent, because the element
+    // carries both. A value the input could not hold falls back to the unset
+    // default rather than being passed through — a native colour input
+    // substitutes its own default silently, so handing it a bad literal would
+    // show a colour the document did not choose while the tree still said
+    // otherwise.
+    case 'Color': {
+      const raw = tryResolve(ctx.sources, k.value);
+      const current = typeof raw === 'string' && isHexColor(raw) ? raw : controlValueDefaults.color;
+      return voidEl('input', [
+        ['class', 'fuaran-form-input'],
+        ['type', 'color'],
+        ['id', field.id],
+        ['required', field.required],
+        ['value', current],
+      ]);
+    }
     case 'Date': {
       const inputType =
         k.variant === 'Time' ? 'time' : k.variant === 'DateTime' ? 'datetime-local' : 'date';
@@ -2020,15 +2330,47 @@ const renderFileUpload = (
   ];
   if (isDisabled) attrs.push(['disabled', true]);
   if (acceptStr !== undefined) attrs.push(['accept', acceptStr]);
+  // Phase 1116 — the capture floor FULLY HOLDS, unlike the two routes below:
+  // `capture` needs no listener, the user agent reads it off the markup, and a
+  // zero-JS document opens the camera exactly as a hydrated one does. The
+  // keyword names a camera FACING, so `Camera` → `environment` and `Microphone`
+  // → `user`; the device name itself is not a keyword and must never be emitted.
+  // `accept` is emitted exactly as declared above and is never synthesised from
+  // the device — that would put a filter in the document's mouth nobody wrote.
+  if (spec.capture !== undefined) attrs.push(['capture', captureKeyword(spec.capture)]);
   // Phase 1115 — the SSR floor for `dropTarget` / `acceptPaste` is the PLAIN
   // PICKER, and that is a decision rather than an omission: both routes need an
   // event listener and no CSS observes a drag, so drop-zone markup a no-script
   // host could never wire would be an invitation the document cannot honour.
   // A marker per declared route records that the declaration was READ; it is
   // explicitly NOT coverage and nothing in this tier acts on it.
-  const labelAttrs: Attr[] = [['class', 'fuaran-file-upload']];
+  // Phase 1115 — the drop zone's CLASS rides the static rendering; its
+  // LISTENERS do not, and the split is the whole of what this tier can honestly
+  // say. `.fuaran-upload-drop` is a dashed border and a padding — presentation,
+  // with no injected content and no words inviting a gesture — so emitting it
+  // advertises nothing the markup cannot do, and the picker inside it is the
+  // fully working control either way. Emitting it also means hydration does not
+  // have to reclassify the element, so the first paint and the hydrated paint
+  // are the same box. What stays client-only is every part that needs an event:
+  // the drag-over highlight, the refusal line, and the ingest itself.
+  const labelAttrs: Attr[] = [
+    [
+      'class',
+      spec.dropTarget || spec.acceptPaste
+        ? 'fuaran-file-upload fuaran-upload-drop'
+        : 'fuaran-file-upload',
+    ],
+  ];
   if (spec.dropTarget) labelAttrs.push(['data-fuaran-upload-drop', 'declared']);
   if (spec.acceptPaste) labelAttrs.push(['data-fuaran-upload-paste', 'declared']);
+  // Phase 1117 — this floor DOES degrade, and says so. A transfer needs a
+  // listener and a sink, so there is nothing a zero-JS document can do with the
+  // declaration; the control it renders is the fully working picker it was
+  // before the member existed. The read-marker records only THAT a destination
+  // was declared and never WHICH: the id is the host's registry key and a static
+  // document is readable by anyone.
+  if (spec.destination !== undefined)
+    labelAttrs.push(['data-fuaran-upload-destination', 'declared']);
   return el('label', labelAttrs, label + voidEl('input', attrs));
 };
 
@@ -2044,7 +2386,11 @@ const renderVis = (
       // Phase 393 — a static read-only grid renders the semantic <table> leg (byte-identical
       // to the retired Table); a data-bound grid takes the ordinary grid path.
       return vis.spec.staticRows !== undefined
-        ? renderTable(ctx, vis.spec.staticRows)
+        ? renderTable(
+            ctx,
+            vis.spec.staticRows,
+            gridPrintBreakClasses(vis.spec.keepRowsTogether, vis.spec.repeatHeader),
+          )
         : renderGrid(ctx, state, vis.spec);
     case 'Chart':
       return renderChart(ctx, state, vis.spec);
@@ -2215,7 +2561,11 @@ const renderGrid = (
     })
     .join('');
   const body = el('tbody', [], bodyRows);
-  const table = el('table', [['class', 'fuaran-grid']], head + body);
+  const table = el(
+    'table',
+    [['class', `fuaran-grid${gridPrintBreakClasses(spec.keepRowsTogether, spec.repeatHeader)}`]],
+    head + body,
+  );
   if (paging === undefined) return table;
   // Phase 862 — the pager is emitted with BOTH steps `disabled`. Three
   // constraints meet here and this is the only shape that satisfies all of
@@ -2609,6 +2959,11 @@ const isChartRow = (row: unknown): row is ChartRow =>
 const renderTable = (
   ctx: ServerContext,
   spec: NonNullable<Extract<VisKind<unknown>, { kind: 'Grid' }>['spec']['staticRows']>,
+  // Phase 1473 — the grid's own two declarations, computed by the caller from
+  // the enclosing `GridSpec` because they live there and not on `staticRows`.
+  // They ride BOTH legs: the static table, where the rows and the header row
+  // group are real elements the print rules reach, and the bound table below.
+  printBreak = '',
 ): string => {
   const headerCells = spec.headers
     .map((h) => textEl('th', [['class', 'fuaran-table-header']], renderText(ctx.sources, h)))
@@ -2629,7 +2984,7 @@ const renderTable = (
   // script honours it without re-parsing the wire. Emitted ONLY when declared (an
   // undeclared table's bytes are unchanged), and in the same order as the F# SSR twin so
   // the two hosts' markup stays parity-locked.
-  const attrs: [string, string][] = [['class', 'fuaran-table']];
+  const attrs: [string, string][] = [['class', `fuaran-table${printBreak}`]];
   if (spec.sortable !== undefined)
     attrs.push(['data-fuaran-sortable', spec.sortable ? 'true' : 'false']);
   if (spec.defaultSort !== undefined) {

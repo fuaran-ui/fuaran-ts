@@ -41,7 +41,19 @@ import type {
   SelectSpec,
 } from '@fuaran-ui/schema';
 
-import { asArray, renderText, tryResolve } from '../bindings.js';
+import {
+  asArray,
+  isHexColor,
+  isWriteBackTarget,
+  ratingClamp,
+  ratingFillClass,
+  ratingFills,
+  ratingSnap,
+  ratingStep,
+  ratingValueText,
+  renderText,
+  tryResolve,
+} from '../bindings.js';
 import { buttonVariantClass } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { containsUnwiredAction, runAction, writeBackTo } from '../context.js';
@@ -648,6 +660,84 @@ const renderFormControl = <TMsg,>(ctx: RenderContext<TMsg>, field: FormField<TMs
           commit={(chosen) => {
             handle(comboOnChange, k.value, chosen, chosen);
           }}
+        />
+      );
+    }
+    // Phase 1121 — the chip row plus the entry input. Stateful in a way the tree
+    // is not (the in-progress entry, the suggestion popup, the refusal
+    // announcement), so it is a function component; the renderer resolves the
+    // bindings here and the component holds only the interaction.
+    case 'Tokens': {
+      const tokensOnChange = k.onChange;
+      const suggestions =
+        k.suggestions !== undefined
+          ? asArray<SelectOption>(tryResolve(ctx.sources, k.suggestions))
+          : undefined;
+      return (
+        <TokensControl
+          fieldId={field.id}
+          required={field.required}
+          allowFreeText={k.allowFreeText}
+          suggestions={suggestions}
+          labelOf={(o) => renderText(ctx.sources, o.label)}
+          tokens={asArray<string>(tryResolve(ctx.sources, k.value) ?? [])}
+          commit={(next) => {
+            handle(tokensOnChange, k.value, next as unknown as JsonValue, next);
+          }}
+        />
+      );
+    }
+    // Phase 1130 — two markups, chosen by what the document can honour, and the
+    // choice is normative rather than cosmetic.
+    //
+    // An ADJUSTABLE rating is `role="slider"`: it is a MAGNITUDE, not a set of
+    // named options, `aria-valuetext` is the only ARIA member that can announce
+    // a fraction at all, and with `allowHalf` a radiogroup would need 2·max
+    // radios for one continuous quantity. ONE tab stop; the arrows move by the
+    // granularity and STOP at both ends — a slider's ends are ends, and wrapping
+    // turns "one more star" into "none".
+    //
+    // A rating NOTHING CAN WRITE is `role="img"` carrying the whole reading as
+    // its accessible name, and takes no focus: a slider a reader can focus and
+    // can never move is a fake affordance, and the honest markup for a picture
+    // of a score is a picture.
+    case 'Rating': {
+      const ratingOnChange = k.onChange;
+      const shown = ratingClamp(k.max, Number(tryResolve(ctx.sources, k.value) ?? 0));
+      const writable = ratingOnChange !== undefined || isWriteBackTarget(k.value);
+      return (
+        <RatingControl
+          fieldId={field.id}
+          max={k.max}
+          allowHalf={k.allowHalf}
+          value={shown}
+          writable={writable}
+          commit={(next) => {
+            handle(ratingOnChange, k.value, next, next);
+          }}
+        />
+      );
+    }
+    // Phase 1130 — the platform's native colour input IS the control: there is
+    // no ARIA to hand-write and no keyboard model to invent. A value the element
+    // could not hold falls back to the unset default rather than being passed
+    // through, because a native colour input substitutes its own default
+    // silently — so handing it a bad literal would show a colour the document
+    // did not choose while the tree still said otherwise.
+    case 'Color': {
+      const colorOnChange = k.onChange;
+      const raw = tryResolve(ctx.sources, k.value);
+      const current = typeof raw === 'string' && isHexColor(raw) ? raw : '#000000';
+      return (
+        <input
+          className="fuaran-form-input"
+          type="color"
+          id={field.id}
+          required={field.required}
+          value={current}
+          onChange={(e: ChangeEvent<HTMLInputElement>) =>
+            handle(colorOnChange, k.value, e.target.value, e.target.value)
+          }
         />
       );
     }
@@ -1379,3 +1469,285 @@ const renderFileUpload = <TMsg,>(
     <label className="fuaran-file-upload">{children}</label>
   );
 };
+
+// ─── `Tokens` (Phase 1121) ───────────────────────────────────────────────────
+//
+//  The chips are a `role="list"` of `role="listitem"`, each carrying a REAL
+//  `<button>` that removes it — NOT a `role="listbox"` of `role="option"`, and
+//  the three reasons are worth stating because the listbox reading is the one a
+//  writer reaches for first. A listbox is for CHOOSING from candidates, and
+//  these are not candidates: they are the value, already chosen, and the
+//  candidates live in the suggestion popup, which IS a listbox. `aria-selected`
+//  has no honest value on a chip — every chip is selected and none can be
+//  deselected. And the gesture a chip offers is REMOVAL, which is a button: a
+//  real one carries the platform's own name, role, focus ring and activation.
+//
+//  Each remove control's accessible name NAMES THE TOKEN IT REMOVES; a row of
+//  buttons all reading "Remove" is a row a screen-reader user cannot tell apart.
+//
+//  The entry input carries `role="combobox"` ONLY where a suggestion source was
+//  declared. With none it is a plain text input and no combobox ARIA is emitted:
+//  a `role="combobox"` with nothing to expand is the overclaim §3.6.9 forbids a
+//  static host to make, and it is no better here.
+//
+//  A refused entry (`allowFreeText: false`, no match) is ANNOUNCED and never
+//  swallowed — a control that ignores a keystroke without saying why reads as
+//  broken. The refusal is an AFFORDANCE and never a gate: client validation is
+//  not a trust boundary, so a host that accepts submissions re-checks membership
+//  and uniqueness server-side.
+
+function TokensControl({
+  fieldId,
+  required,
+  allowFreeText,
+  suggestions,
+  labelOf,
+  tokens,
+  commit,
+}: {
+  fieldId: string;
+  required: boolean;
+  allowFreeText: boolean;
+  suggestions: readonly SelectOption[] | undefined;
+  labelOf: (o: SelectOption) => string;
+  tokens: readonly string[];
+  commit: (next: readonly string[]) => void;
+}): ReactElement {
+  const [entry, setEntry] = useState<string>('');
+  const [status, setStatus] = useState<string>('');
+  const [open, setOpen] = useState<boolean>(false);
+  const [active, setActive] = useState<number>(-1);
+  const listId = `${fieldId}-suggestions`;
+
+  const labelFor = (value: string): string => {
+    const match = suggestions?.find((o) => o.value === value);
+    return match !== undefined ? labelOf(match) : value;
+  };
+
+  const filtered =
+    suggestions === undefined
+      ? []
+      : suggestions.filter(
+          (o) =>
+            !tokens.includes(o.value) &&
+            (entry === '' || labelOf(o).toLowerCase().includes(entry.toLowerCase())),
+        );
+
+  const add = (raw: string): void => {
+    const token = raw.trim();
+    if (token === '') return;
+    // A suggestion is matched on either half — a reader types what they SEE,
+    // and what the list carries is the value.
+    const matched = suggestions?.find((o) => o.value === token || labelOf(o) === token);
+    const resolved = matched?.value ?? token;
+    if (tokens.includes(resolved)) {
+      // Refused rather than appended: two identical chips are one fact drawn
+      // twice, with two remove buttons that do different things.
+      setStatus(`${labelFor(resolved)} is already in the list.`);
+      return;
+    }
+    if (!allowFreeText && matched === undefined) {
+      setStatus(`${token} is not one of the available options.`);
+      return;
+    }
+    setStatus('');
+    setEntry('');
+    setActive(-1);
+    setOpen(false);
+    commit([...tokens, resolved]);
+  };
+
+  const removeAt = (index: number): void => {
+    setStatus('');
+    commit(tokens.filter((_, i) => i !== index));
+  };
+
+  return (
+    <span className="fuaran-tokens">
+      <span className="fuaran-tokens-list" role="list">
+        {tokens.map((t, i) => (
+          <span key={t} className="fuaran-tokens-chip" role="listitem">
+            <span className="fuaran-tokens-chip-label">{labelFor(t)}</span>
+            <button
+              type="button"
+              className="fuaran-tokens-chip-remove"
+              aria-label={`Remove ${labelFor(t)}`}
+              onClick={() => removeAt(i)}
+            >
+              {'×'}
+            </button>
+          </span>
+        ))}
+      </span>
+      <input
+        className="fuaran-form-field-control fuaran-tokens-input"
+        data-fuaran-field={fieldId}
+        type="text"
+        required={required && tokens.length === 0}
+        value={entry}
+        autoComplete="off"
+        {...(suggestions !== undefined
+          ? {
+              role: 'combobox',
+              'aria-expanded': open,
+              'aria-controls': listId,
+              'aria-autocomplete': 'list' as const,
+              ...(open && active >= 0 && active < filtered.length
+                ? { 'aria-activedescendant': `${listId}-option-${String(active)}` }
+                : {}),
+            }
+          : {})}
+        onChange={(e: ChangeEvent<HTMLInputElement>) => {
+          setEntry(e.target.value);
+          setStatus('');
+          if (suggestions !== undefined) setOpen(true);
+        }}
+        onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (open && active >= 0 && active < filtered.length) add(filtered[active]!.value);
+            else add(entry);
+            return;
+          }
+          if (e.key === 'Backspace' && entry === '' && tokens.length > 0) {
+            e.preventDefault();
+            removeAt(tokens.length - 1);
+            return;
+          }
+          if (suggestions === undefined) return;
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setOpen(true);
+            setActive((a) => Math.min(a + 1, filtered.length - 1));
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setActive((a) => Math.max(a - 1, 0));
+          } else if (e.key === 'Escape') {
+            setOpen(false);
+            setActive(-1);
+          }
+        }}
+        onBlur={() => {
+          setOpen(false);
+          setActive(-1);
+        }}
+      />
+      {suggestions !== undefined ? (
+        <ul className="fuaran-tokens-suggestions" id={listId} role="listbox" hidden={!open}>
+          {filtered.map((o, i) => (
+            <li
+              key={o.value}
+              id={`${listId}-option-${String(i)}`}
+              role="option"
+              aria-selected={i === active}
+              className={
+                i === active
+                  ? 'fuaran-tokens-option fuaran-tokens-option-active'
+                  : 'fuaran-tokens-option'
+              }
+              // A pointer commits by `mousedown`, NOT `click`: the input's
+              // `blur` would otherwise fire first, close the popup and unmount
+              // the option before the click landed on it.
+              onMouseDown={(e) => {
+                e.preventDefault();
+                add(o.value);
+              }}
+            >
+              {labelOf(o)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <span className="fuaran-tokens-status" role="status">
+        {status}
+      </span>
+    </span>
+  );
+}
+
+// ─── `Rating` (Phase 1130) ───────────────────────────────────────────────────
+
+function RatingControl({
+  fieldId,
+  max,
+  allowHalf,
+  value,
+  writable,
+  commit,
+}: {
+  fieldId: string;
+  max: number;
+  allowHalf: boolean;
+  value: number;
+  writable: boolean;
+  commit: (next: number) => void;
+}): ReactElement {
+  const stars = ratingFills(max, value).map((fill, i) => (
+    <span key={i} className={`fuaran-rating-star ${ratingFillClass(fill)}`} aria-hidden="true" />
+  ));
+  if (!writable) {
+    return (
+      <span
+        className="fuaran-form-field-control fuaran-rating fuaran-rating-static"
+        role="img"
+        aria-label={ratingValueText(max, value)}
+        data-fuaran-field={fieldId}
+      >
+        {stars}
+      </span>
+    );
+  }
+  const stepSize = ratingStep(allowHalf);
+  const positions = Math.round(max / stepSize);
+  return (
+    <span
+      className="fuaran-form-field-control fuaran-rating fuaran-rating-choices"
+      data-fuaran-field={fieldId}
+      role="slider"
+      tabIndex={0}
+      aria-valuemin={0}
+      aria-valuemax={max}
+      aria-valuenow={value}
+      // The only ARIA member that can announce a FRACTION at all, which is why
+      // it is stated rather than left to `aria-valuenow` alone.
+      aria-valuetext={ratingValueText(max, value)}
+      onKeyDown={(e: KeyboardEvent<HTMLSpanElement>) => {
+        // The ends are ENDS: Arrow past either stops there rather than wrapping,
+        // because wrapping turns "one more star" into "none".
+        const next =
+          e.key === 'ArrowRight' || e.key === 'ArrowUp'
+            ? ratingClamp(max, value + stepSize)
+            : e.key === 'ArrowLeft' || e.key === 'ArrowDown'
+              ? ratingClamp(max, value - stepSize)
+              : e.key === 'Home'
+                ? 0
+                : e.key === 'End'
+                  ? max
+                  : undefined;
+        if (next === undefined) return;
+        e.preventDefault();
+        commit(next);
+      }}
+    >
+      {stars}
+      {/* The pointer targets. They are `aria-hidden` because the slider above
+          already carries the whole widget's semantics — exposing them would
+          announce one quantity as `max / step` separate controls. */}
+      <span className="fuaran-rating-hits" aria-hidden="true">
+        {Array.from({ length: positions }, (_, i) => {
+          const target = ratingSnap(allowHalf, max, (i + 1) * stepSize);
+          return (
+            <span
+              key={i}
+              className="fuaran-rating-hit"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                commit(target);
+              }}
+            />
+          );
+        })}
+      </span>
+    </span>
+  );
+}

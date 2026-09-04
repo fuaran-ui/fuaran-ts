@@ -38,7 +38,7 @@ import {
   type BindingSources,
 } from '../bindings.js';
 import { chartLowerSpecOf } from '../chartLowerSpec.js';
-import { toneVar } from '../classNames.js';
+import { gridPrintBreakClasses, toneVar } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { runAction, writeBackTo } from '../context.js';
 import { drawingSvg } from '../drawingSvg.js';
@@ -66,17 +66,25 @@ export const renderVis = <TMsg,>(
       // Phase 393 — a static read-only grid renders the semantic <table> leg (byte-identical
       // to the retired Table); a data-bound grid takes the ordinary grid path.
       return vis.spec.staticRows !== undefined
-        ? renderTable(ctx, {
-            headers: vis.spec.staticRows.headers,
-            rows: vis.spec.staticRows.rows,
-            // Phase 801 — the declared sort intent rides through to the rendered <table>.
-            ...(vis.spec.staticRows.sortable !== undefined
-              ? { sortable: vis.spec.staticRows.sortable }
-              : {}),
-            ...(vis.spec.staticRows.defaultSort !== undefined
-              ? { defaultSort: vis.spec.staticRows.defaultSort }
-              : {}),
-          })
+        ? renderTable(
+            ctx,
+            {
+              headers: vis.spec.staticRows.headers,
+              rows: vis.spec.staticRows.rows,
+              // Phase 801 — the declared sort intent rides through to the rendered <table>.
+              ...(vis.spec.staticRows.sortable !== undefined
+                ? { sortable: vis.spec.staticRows.sortable }
+                : {}),
+              ...(vis.spec.staticRows.defaultSort !== undefined
+                ? { defaultSort: vis.spec.staticRows.defaultSort }
+                : {}),
+            },
+            // Phase 1473 — the grid's own two declarations, passed from the
+            // enclosing `GridSpec` because they live there and not on
+            // `staticRows`. They ride BOTH legs, so the static table and the bound
+            // one carry the same paged behaviour.
+            gridPrintBreakClasses(vis.spec.keepRowsTogether, vis.spec.repeatHeader),
+          )
         : renderGrid(ctx, parentNodeId, state, vis.spec);
     case 'Chart':
       return renderChart(ctx, state, vis.spec);
@@ -410,7 +418,9 @@ const renderGrid = <TMsg,>(
   };
 
   const gridTable = (
-    <table className="fuaran-grid">
+    <table
+      className={`fuaran-grid${gridPrintBreakClasses(spec.keepRowsTogether, spec.repeatHeader)}`}
+    >
       <thead>
         <tr>
           {reorderHeaderCell()}
@@ -971,9 +981,13 @@ const renderChart = <TMsg,>(
   );
 };
 
-const renderTable = <TMsg,>(ctx: RenderContext<TMsg>, spec: TableSpec<TMsg>): ReactElement => (
+const renderTable = <TMsg,>(
+  ctx: RenderContext<TMsg>,
+  spec: TableSpec<TMsg>,
+  printBreak = '',
+): ReactElement => (
   <table
-    className="fuaran-table"
+    className={`fuaran-table${printBreak}`}
     // Phase 801 — the declared sort intent as data attributes, so a progressive-enhancement
     // script honours it without re-parsing the wire. Emitted ONLY when declared, so an
     // undeclared table's DOM is unchanged and SSR hydration still finds what it expects.
