@@ -108,10 +108,20 @@ export interface MergeSide {
  * `primacyHeld` is the precedence view, and on this tier it is always `false`:
  * `merge3Way` is the author-agnostic entry point, so neither side is pinned.
  * The reference host's precedence slots (`primary` / `secondary` /
- * `secondaryTag` / `choices`) are deliberately NOT mirrored here — they are
- * populated exactly when a pin is held, and this tier has no author classifier
- * to hold one with, so they could only ever be absent. They arrive with the
- * entry point that supplies an author, not before.
+ * `secondaryTag`) are deliberately NOT mirrored here — they are populated
+ * exactly when a pin is held, and this tier has no author classifier to hold one
+ * with, so they could only ever be absent. They arrive with the entry point that
+ * supplies an author, not before.
+ *
+ * The reference host's `choices` menu is not mirrored either, but for a
+ * different reason, and the difference matters to whoever ports it. It is NOT
+ * empty on this tier: every choice the reference offers names a slot the
+ * envelope populated, so an unpinned refusal offers `KeepBase` / `KeepA` /
+ * `KeepB` — all three well-defined here — rather than the `KeepSecondary` that
+ * would name the empty precedence slot. The menu is left out because it is
+ * derivable from the sides plus the pin, which is also why the shared refusal
+ * corpus does not encode it; a port that wants it computes it, and must not
+ * infer from the absence that this tier has no menu to offer.
  */
 export interface MergeConflict {
   readonly nodeId: string;
