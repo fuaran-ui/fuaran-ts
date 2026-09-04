@@ -2712,15 +2712,36 @@ export const tryLowerSparkline = (series: readonly number[]): DrawingSpec | null
   const n = series.length;
   if (n === 0) return null;
 
-  // `Math.min`/`Math.max` pairwise rather than a `<` fold, and never spread over
-  // the series: the pairwise form PROPAGATES NaN (a `<` fold silently skips it,
-  // which would filter the sentinels the corpus requires be propagated), and it
-  // has no argument-count ceiling to blow on a long series.
+  // A `<` / `>` COMPARISON FOLD seeded on the first element, and never a spread.
+  //
+  // The fold mirrors the reference's `Array.min` / `Array.max`, which replace
+  // the accumulator only on a true comparison. An IEEE comparison against NaN
+  // is always false, so a NaN NEVER becomes the extent: it flows on as one
+  // poisoned coordinate while its neighbours keep their true positions. That is
+  // the cross-host contract — `fuaran-go`, `fuaran-rs` and `fuaran-py` all fold
+  // the same way. `Math.min` / `Math.max` would PROPAGATE the NaN into the
+  // extent and through it into every coordinate in the series, which is a
+  // divergence rather than a stricter reading of the sentinel rule: non-finite
+  // values are still not special-cased here, and a NaN element still reaches
+  // the wire as the canonical `"NaN"` sentinel through its own coordinate.
+  //
+  // `sparkline-lowering/nonfinite-sentinel` does NOT discriminate the two, and
+  // that is worth stating because it is why this rule once went the other way:
+  // that fixture carries both infinities, so the comparison fold reaches
+  // -Infinity/+Infinity and the propagating form reaches NaN/NaN, and both then
+  // emit all-NaN coordinates by different routes. The golden is satisfied
+  // either way. A NaN with no infinity is the discriminating input, and it is
+  // pinned by a host test in `test/sparkline-lowering.test.ts`.
+  //
+  // A fold rather than `Math.min(...series)` for the reason that form was
+  // avoided originally, which was sound: a spread has an argument-count ceiling
+  // to blow on a long series.
   let minV = series[0]!;
   let maxV = series[0]!;
   for (let i = 1; i < n; i++) {
-    minV = Math.min(minV, series[i]!);
-    maxV = Math.max(maxV, series[i]!);
+    const v = series[i]!;
+    if (v < minV) minV = v;
+    if (v > maxV) maxV = v;
   }
 
   const range = maxV - minV < SPARKLINE_FLAT_EPSILON ? 1.0 : maxV - minV;
