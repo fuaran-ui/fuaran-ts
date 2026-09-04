@@ -1,0 +1,24 @@
+{
+  "name": "@fuaran-ui/getting-started-sample",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The get-started tour: six short runnable lessons over the @fuaran-ui/* stack — authoring, editing by op, hash-chained replay, default-deny safety, declared operations, and the bring-your-own-key authoring loop. Workspace-internal — never published to npm.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node --enable-source-maps dist/main.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fuaran-ui/op-stream": "workspace:*",
+    "@fuaran-ui/ops": "workspace:*",
+    "@fuaran-ui/renderer-server": "workspace:*",
+    "@fuaran-ui/schema": "workspace:*",
+    "@fuaran-ui/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.6.3"
+  }
+}
