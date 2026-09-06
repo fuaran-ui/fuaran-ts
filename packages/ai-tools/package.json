@@ -26,6 +26,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./introspection": {
+      "types": "./dist/introspection.d.ts",
+      "import": "./dist/introspection.js",
+      "require": "./dist/introspection.cjs"
     }
   },
   "files": [

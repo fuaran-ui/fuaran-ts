@@ -181,6 +181,9 @@ importers:
 
   packages/mcp:
     dependencies:
+      '@fuaran-ui/ai-tools':
+        specifier: workspace:^
+        version: link:../ai-tools
       '@fuaran-ui/client':
         specifier: workspace:^
         version: link:../client
