@@ -131,6 +131,13 @@ const BRIDGE_DISPOSITIONS: Record<keyof ChartSpec<never>, BridgeDisposition> = {
   legendPosition: 'threaded',
   dataLabels: 'threaded',
   xScale: 'threaded',
+  // Phase 1490 — the data-addressed annotations. `threaded` rather than a fifth
+  // disposition: the list crosses as-is, and the `TextSource` inside each
+  // member's `label` rides the same carry-unresolved rule the four
+  // `threaded-text-source` fields do — the bridge does not reach into it, and
+  // the lowering's fit gate is confined to the `Literal` arm precisely so it
+  // never has to.
+  annotations: 'threaded',
 };
 
 const currencyRows = [
@@ -194,6 +201,19 @@ const fieldCases: ReadonlyArray<
   ['legendPosition', { legendPosition: 'Bottom' }, 'Bottom'],
   ['dataLabels', { dataLabels: 'Ends' }, 'Ends'],
   ['xScale', { xScale: 'Temporal' }, 'Temporal'],
+  [
+    // Phase 1490 — one labelled reference line. A LABELLED one deliberately: an
+    // unlabelled line changes the picture too, but a label is the half that has
+    // to survive the bridge unresolved, and the "visibly changes the rendered
+    // picture" leg below is the assertion that would catch a bridge dropping it.
+    'annotations',
+    {
+      annotations: [
+        { kind: 'ReferenceLine', value: 14000000, label: { kind: 'Literal', value: 'Target' } },
+      ],
+    },
+    [{ kind: 'ReferenceLine', value: 14000000, label: { kind: 'Literal', value: 'Target' } }],
+  ],
 ];
 
 describe('the node → lowering bridge threads every declared chart field', () => {
