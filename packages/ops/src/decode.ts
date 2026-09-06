@@ -93,6 +93,7 @@ import type {
   ImageAspect,
   ImageFit,
   ModalityKind,
+  NavigateTarget,
   ImageLoading,
   ImageSpec,
   ImageVariant,
@@ -625,6 +626,16 @@ const decodeImageFit = (p: string, j: JsonAst): R<ImageFit> =>
 // decoder cannot read must be refused rather than recovered from.
 const decodeModalityKind = (p: string, j: JsonAst): R<ModalityKind> =>
   bareEnum(p, j, ['Modal', 'Popover'] as const, 'ModalityKind');
+
+// Phase 1536 — `Action.Navigate.target`. Two cases, closed, and NO lenient
+// spelling: HTML's `_self` / `_blank` / `_parent` / `_top` are not accepted as
+// aliases. Two of them are frame-busting gestures a hosted tree must not be
+// able to ask for, and accepting the two harmless ones would teach an emitter
+// that the HTML vocabulary is the one in force here. Absence is `Self`, the
+// pre-1536 behaviour and the safe answer, so an unknown token is
+// UNKNOWN_DU_CASE and never a fallback.
+const decodeNavigateTarget = (p: string, j: JsonAst): R<NavigateTarget> =>
+  bareEnum(p, j, ['Self', 'Blank'] as const, 'NavigateTarget');
 
 const decodeImageAspect = (p: string, j: JsonAst): R<ImageAspect> =>
   bareEnum(
@@ -3309,15 +3320,29 @@ const decodeAction = (path: string, j: JsonAst): R<Action<unknown>> => {
         : payload;
     }
     case 'Navigate': {
+      // Phase 1536 — the route is a `TextSource`. `decodeTextSource` already
+      // accepts a bare JSON string as `Literal` (the §16 shorthand every text
+      // slot shares), so every pre-1536 document — including one using an
+      // alias — decodes unchanged and re-encodes to the same bytes. The
+      // aliases are resolved before the value is decoded, so there is still
+      // exactly one canonical field a router can be reached through.
       const r = reqFieldAliased(
         path,
         f,
         'route',
         ['href', 'url', 'to'],
-        'route string',
-        requireString,
+        'route TextSource',
+        decodeTextSource,
       );
-      return r.ok ? ok({ kind: 'Navigate', route: r.value }) : r;
+      if (!r.ok) return r;
+      const targetJ = tryField(f, 'target');
+      // `target` is omitted at `Self`, so absence is the pre-1536 behaviour.
+      const target =
+        targetJ === undefined
+          ? ok<NavigateTarget>('Self')
+          : decodeNavigateTarget(`${path}.target`, targetJ);
+      if (!target.ok) return target;
+      return ok({ kind: 'Navigate', route: r.value, target: target.value });
     }
     case 'SetState': {
       // Phase 818 — `value` (a literal JSON value, written verbatim) XOR

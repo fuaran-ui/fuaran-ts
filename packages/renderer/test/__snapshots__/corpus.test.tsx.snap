@@ -18,6 +18,10 @@ exports[`fixture-corpus — decode + render every node fixture > a11y-wrapper-st
 </div></div></div></div>"
 `;
 
+exports[`fixture-corpus — decode + render every node fixture > action-navigate-bound.json matches its rendered-output snapshot 1`] = `"<div id="action-navigate-bound" data-fuaran-node-id="action-navigate-bound" class="fuaran-kind-button fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><button class="fuaran-button fuaran-button-secondary fuaran-button-unwired" title="This action routes through the runtime substrate (Call/Notify/Navigate/SetState/AiTool).">Open the selected order</button></div>"`;
+
+exports[`fixture-corpus — decode + render every node fixture > action-navigate-target.json matches its rendered-output snapshot 1`] = `"<div id="action-navigate-target" data-fuaran-node-id="action-navigate-target" class="fuaran-kind-button fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><button class="fuaran-button fuaran-button-secondary fuaran-button-unwired" title="This action routes through the runtime substrate (Call/Notify/Navigate/SetState/AiTool).">Read the documentation</button></div>"`;
+
 exports[`fixture-corpus — decode + render every node fixture > badge-1.json matches its rendered-output snapshot 1`] = `"<div id="badge-1" data-fuaran-node-id="badge-1" class="fuaran-kind-badge fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><span class="fuaran-badge fuaran-badge-info">Beta</span></div>"`;
 
 exports[`fixture-corpus — decode + render every node fixture > badge-transform-live.json matches its rendered-output snapshot 1`] = `"<div id="badge-transform-live" data-fuaran-node-id="badge-transform-live" class="fuaran-kind-badge fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><span class="fuaran-badge fuaran-badge-info">2</span></div>"`;

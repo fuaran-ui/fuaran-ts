@@ -899,6 +899,36 @@ export const renderText = (sources: BindingSources, text: TextSource): string =>
   }
 };
 
+/**
+ * Phase 1536 — resolve a `TextSource` for a slot where an UNRESOLVED source
+ * must not degrade into a value; `undefined` when it does not resolve.
+ *
+ * `renderText` above is the RENDERING dispatch and its degradations are right
+ * for rendering: an unresolved binding renders empty (an empty label, not a
+ * broken page) and a missing translation renders the loud `[i18n:<key>]`
+ * sentinel so it is visible in the UI. Both are the wrong answer for a
+ * DESTINATION — navigating to `''` is navigating to the current document with
+ * its query and fragment stripped, and `[i18n:route]` is a relative path a
+ * permissive policy would fetch.
+ *
+ * It deliberately does not judge the resolved string: whether a destination is
+ * permitted is `checkDestination`'s question, asked after this one and never
+ * instead of it.
+ */
+export const tryResolveTextSource = (
+  sources: BindingSources,
+  text: TextSource,
+): string | undefined => {
+  switch (text.kind) {
+    case 'Literal':
+      return text.value;
+    case 'Bound':
+      return tryResolveScalarText(sources, text.binding);
+    case 'I18n':
+      return sources.i18n?.[text.key] === undefined ? undefined : renderText(sources, text);
+  }
+};
+
 const jsonToString = (v: JsonValue): string => {
   if (v === null) return '';
   if (typeof v === 'string') return v;

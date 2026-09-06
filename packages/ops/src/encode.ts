@@ -854,8 +854,15 @@ const action = <T>(a: Action<T>): string => {
         ['channel', str(a.channel)],
         ['payload', jsonValue(a.payload)],
       ]);
-    case 'Navigate':
-      return caseObj('Navigate', [['route', str(a.route)]]);
+    case 'Navigate': {
+      // Phase 1536 — the route is a `TextSource`, and `target` rides only when
+      // it is not `Self` (route < target stays alphabetical). A literal route
+      // encodes as the bare JSON string, so every pre-1536 document's bytes are
+      // unchanged.
+      const fields: Field[] = [['route', textSource(a.route)]];
+      if (a.target !== 'Self') fields.push(['target', str(a.target)]);
+      return caseObj('Navigate', fields);
+    }
     case 'SetState': {
       // Phase 818 — `value` / `valueFrom` are XOR siblings; each is emitted
       // only when present (key < value < valueFrom stays alphabetical).
