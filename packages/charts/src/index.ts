@@ -1272,6 +1272,15 @@ const SUMMARY_CLAUSE_SEPARATOR = '. ';
  * count — a legibility bound, not a technical one. */
 const SUMMARY_MAX_SERIES_NAMED = 4;
 
+/** At most this many ANNOTATIONS are named in one annotation clause (Phase 1494)
+ * before that clause folds the rest into a count — the same legibility bound
+ * `SUMMARY_MAX_SERIES_NAMED` states, for the same reason, over a different list.
+ * It is a SEPARATE constant rather than a reuse of that one because the two lists
+ * are different things: a chart carrying twenty markers and four series is an
+ * ordinary chart, and a future decision to fold one list sooner must not silently
+ * move the other. */
+const SUMMARY_MAX_ANNOTATIONS_NAMED = 4;
+
 /** The per-NAME character cap (a series field, a category label) — untrusted
  * strings straight off the data feed. */
 const SUMMARY_MAX_NAME_CHARS = 32;
@@ -3008,7 +3017,8 @@ export const lower = (
   // ── The accessible summary (Phase 921) ───────────────────────────────────
   //
   // The grammar is stated at the section head above and normatively in §4i;
-  // this is its four clauses in order. A REFUSED PIE announces nothing, for the
+  // this is its four data clauses in order, followed since Phase 1494 by one
+  // clause per annotation member. A REFUSED PIE announces nothing, for the
   // reason Phase 880 gave when it stopped emitting the refused pie's legend: a
   // claim about data the drawing declined to show.
   const accessibleSummary = ((): string | undefined => {
@@ -3049,6 +3059,12 @@ export const lower = (
     // number takes the value axis's rendering (the Phase-876 formatter at the
     // axis's step precision, plus the axis's display unit in its own words);
     // the category is the datum's OWN label, verbatim, even on a temporal axis.
+    //
+    // The unit suffix is hoisted out of that clause (Phase 1494) because the
+    // annotation clauses below print numbers on the same axis and must say the
+    // same thing about their magnitude.
+    const unitSuffix = yDisplayUnit.label === '' ? '' : ` ${yDisplayUnit.label}`;
+
     const clauses = [summaryKindWords(spec.kind, stacked), seriesClause, extentClause];
 
     if (n > 0 && m > 0) {
@@ -3065,7 +3081,6 @@ export const lower = (
           }
         }
       }
-      const unitSuffix = yDisplayUnit.label === '' ? '' : ` ${yDisplayUnit.label}`;
       clauses.push(
         `Peak ${clampText(SUMMARY_MAX_NAME_CHARS, spec.yFields[bj]!)} at ${clampText(
           SUMMARY_MAX_NAME_CHARS,
@@ -3073,6 +3088,85 @@ export const lower = (
         )}, ${yTickText(bv)}${unitSuffix}`,
       );
     }
+
+    // ── The annotation clauses (Phase 1494 — §4i, extended) ──
+    //
+    // One clause per MEMBER, appended after the four data clauses, in the
+    // `ChartAnnotation` declaration order: reference lines, event markers,
+    // range bands. After, because clauses 1–4 describe the DATA and an
+    // annotation is the author's mark ON that data — and because appending is
+    // what keeps every chart WITHOUT annotations byte-identical to its
+    // pre-1494 golden.
+    //
+    // WHAT IS ANNOUNCED IS WHAT WAS DRAWN. These read the RESOLVED lists, so a
+    // member the lowering dropped (non-finite, ungrounded key, mismatched axis
+    // form, or any member at all on the polar arm) is announced by nobody —
+    // §4i's refused-pie rule at the level of one annotation. And a marker whose
+    // label the fit gate SUPPRESSED is still announced: suppression is a
+    // decision about ink, not about meaning, and the summary is where
+    // suppressed meaning goes.
+    const annotationLabelWords = (lbl: TextSource | undefined): string =>
+      lbl !== undefined && lbl.kind === 'Literal' && lbl.value !== ''
+        ? ` (${clampText(SUMMARY_MAX_NAME_CHARS, lbl.value)})`
+        : '';
+
+    const annotationClause = (noun: string, plural: string, items: readonly string[]): string[] => {
+      if (items.length === 0) return [];
+      const k = items.length;
+      const head = k === 1 ? `1 ${noun}: ` : `${k} ${plural}: `;
+      const named = items.slice(0, SUMMARY_MAX_ANNOTATIONS_NAMED).join(', ');
+      return [
+        k > SUMMARY_MAX_ANNOTATIONS_NAMED
+          ? `${head}${named}, and ${k - SUMMARY_MAX_ANNOTATIONS_NAMED} more`
+          : `${head}${named}`,
+      ];
+    };
+
+    // A resolved x address in the ADDRESS'S OWN VOCABULARY — a category key on
+    // a band axis, the axis's own Phase-882 tick label on a temporal one. Never
+    // the authored ISO string: clause 3 has already stated how this axis writes
+    // a date, and a summary that wrote it two ways would disagree with the
+    // picture about one of them.
+    const xAddressWords = (i: number): string =>
+      isTemporal
+        ? xTickText(i)
+        : i >= 0 && i < categories.length
+          ? clampText(SUMMARY_MAX_NAME_CHARS, categories[i]!)
+          : '';
+
+    clauses.push(
+      ...annotationClause(
+        'reference line',
+        'reference lines',
+        referenceLines.map(
+          ([v, lbl]) => `${yTickText(v)}${unitSuffix}${annotationLabelWords(lbl)}`,
+        ),
+      ),
+      ...annotationClause(
+        'event',
+        'events',
+        eventMarkers.map(([at, lbl]) => `${xAddressWords(at)}${annotationLabelWords(lbl)}`),
+      ),
+      // The two band arms rejoined on the per-case ordinal they were numbered
+      // with, so the clause cannot disagree with the mark ids about which band
+      // is which. A VALUE PAIR STATES ITS UNIT ONCE, after the second number:
+      // the pair is one measurement in one unit.
+      ...annotationClause(
+        'band',
+        'bands',
+        [
+          ...valueBands.map(
+            ([i, lo, hi, lbl]) =>
+              [i, `${yTickText(lo)} to ${yTickText(hi)}${unitSuffix}`, lbl] as const,
+          ),
+          ...xBands.map(
+            ([i, a, b, lbl]) => [i, `${xAddressWords(a)} to ${xAddressWords(b)}`, lbl] as const,
+          ),
+        ]
+          .sort((p, q) => p[0] - q[0])
+          .map(([, address, lbl]) => `${address}${annotationLabelWords(lbl)}`),
+      ),
+    );
 
     return clampText(SUMMARY_MAX_CHARS, `${clauses.join(SUMMARY_CLAUSE_SEPARATOR)}.`);
   })();
