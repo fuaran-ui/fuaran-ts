@@ -206,6 +206,16 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       if (!frame.ok) return { kind: 'Errored', message: frame.error };
       return { kind: 'Resolved', value: tableToRows(frame.value) as T };
     }
+    case 'Expr': {
+      // Phase 1534 - the scalar expression, parity-locked with the client
+      // renderer's arm. The GENERIC path, for a slot with no coercion; a text or
+      // numeric slot goes through `resolveScalarWith` below. A NULL result is
+      // `NotResolved` - the slot's empty state, not an error.
+      const exprCell = evalExprCell(sources, binding);
+      if (!exprCell.ok) return { kind: 'Errored', message: exprCell.error };
+      if (exprCell.value.kind === 'Null') return { kind: 'NotResolved' };
+      return { kind: 'Resolved', value: cellToJsValue(exprCell.value) as T };
+    }
     case 'Invoke': {
       // Phase 283/284 — dispatch a host-registered capability for a value. Maps
       // the `Deferred` onto the resolution surface exactly as the client
@@ -324,24 +334,32 @@ const evalTransformFrame = (
   return { ok: true, value: out.value };
 };
 
+/**
+ * One `Cell` as its plain JS value (`Null` => `null`). Hoisted out of
+ * `tableToRows` by Phase 1534 so the scalar `Expr` path lowers a cell exactly as
+ * a row cell does; two copies of this switch is how a host ends up rendering a
+ * date one way inside a grid and another beside it.
+ */
+export const cellToJsValue = (c: Cell): unknown => {
+  switch (c.kind) {
+    case 'Int':
+    case 'Float':
+      return c.value;
+    case 'Bool':
+      return c.value;
+    case 'Str':
+    case 'Date':
+    case 'Timestamp':
+      return c.value;
+    case 'Null':
+      return null;
+  }
+};
+
 /** Project an evaluated columnar `Table` into plain row objects (`Null` ⇒ `null`). */
 export const tableToRows = (t: Table): Record<string, unknown>[] => {
   const n = t.columns.length > 0 ? t.columns[0]!.cells.length : 0;
-  const cellToJs = (c: Cell): unknown => {
-    switch (c.kind) {
-      case 'Int':
-      case 'Float':
-        return c.value;
-      case 'Bool':
-        return c.value;
-      case 'Str':
-      case 'Date':
-      case 'Timestamp':
-        return c.value;
-      case 'Null':
-        return null;
-    }
-  };
+  const cellToJs = cellToJsValue;
   const rows: Record<string, unknown>[] = [];
   for (let i = 0; i < n; i += 1) {
     const row: Record<string, unknown> = {};
@@ -537,12 +555,67 @@ export const cellToFloat = (c: Cell): CellCoerce<number> => {
   }
 };
 
+/**
+ * Phase 1534 - evaluate a `Binding.Expr` to ONE cell. The twin of the client
+ * renderer's `evalExprCell`, and a wrapper over `evalTransformFrame` for the
+ * same reason it is there: param resolution, list-param substitution and the
+ * evaluator are then literally the same code the pipeline runs, so SSR and
+ * hydration cannot reach different values for one expression.
+ */
+const evalExprCell = (
+  sources: BindingSources,
+  binding: Extract<Binding<unknown>, { kind: 'Expr' }>,
+): { readonly ok: true; readonly value: Cell } | { readonly ok: false; readonly error: string } => {
+  const unitFrame: Table = {
+    schema: [{ name: '__unit', type: 'bool' }],
+    columns: [{ name: '__unit', type: 'bool', cells: [{ kind: 'Bool', value: true }] }],
+  };
+  const asTransform: Extract<Binding<unknown>, { kind: 'Transform' }> = {
+    kind: 'Transform',
+    source: { kind: 'Data', source: { kind: 'Embedded', table: unitFrame } },
+    pipeline: [
+      { kind: 'derive', name: '__value', expr: binding.expr },
+      { kind: 'project', cols: [{ a: '__value', b: '__value' }] },
+    ],
+    ...(binding.params !== undefined ? { params: binding.params } : {}),
+  };
+  const frame = evalTransformFrame(sources, asTransform);
+  if (!frame.ok) {
+    return {
+      ok: false,
+      error: frame.error
+        .replace(/^Transform /, 'Expr ')
+        .replace('Transform evaluation', 'Expr evaluation'),
+    };
+  }
+  const col = frame.value.columns.find((c) => c.name === '__value');
+  // There by construction; its ABSENCE is a broken invariant, never a null
+  // result, and defaulting to Null here would hide it as the slot's empty state.
+  if (col === undefined || col.cells[0] === undefined) {
+    const present = frame.value.columns.map((c) => c.name).join(', ');
+    return {
+      ok: false,
+      error: `Expr evaluation produced no result column (columns present: ${present}) - a host defect, not a document one`,
+    };
+  }
+  return { ok: true, value: col.cells[0] };
+};
+
 /** Resolve a binding in a SCALAR slot — twin of the client's `resolveScalarWith`. */
 export const resolveScalarWith = <T>(
   coerceCell: (c: Cell) => CellCoerce<T>,
   sources: BindingSources,
   binding: Binding<T>,
 ): Resolution<T> => {
+  if (binding.kind === 'Expr') {
+    // Phase 1534 - the scalar expression in a slot that has a coercion.
+    // Parity-locked with the client renderer.
+    const exprCell = evalExprCell(sources, binding);
+    if (!exprCell.ok) return { kind: 'Errored', message: exprCell.error };
+    if (exprCell.value.kind === 'Null') return { kind: 'NotResolved' };
+    const c = coerceCell(exprCell.value);
+    return c.ok ? { kind: 'Resolved', value: c.value } : { kind: 'Errored', message: c.error };
+  }
   if (binding.kind !== 'Transform') return resolve<T>(sources, binding);
   const frame = evalTransformFrame(sources, binding);
   if (!frame.ok) return { kind: 'Errored', message: frame.error };
@@ -576,6 +649,36 @@ export const resolveScalarWith = <T>(
   };
 };
 
+/**
+ * Phase 1534 - the BOOLEAN coercion, the third of the trio, parity-locked with
+ * the client renderer. Strict: only a `Bool` cell is a boolean, and there is no
+ * truthiness rule - five hosts agreeing on a rendering is the whole point, and
+ * the only truthiness rule they can all agree on is none.
+ */
+export const cellToBool = (c: Cell): CellCoerce<boolean> => {
+  switch (c.kind) {
+    case 'Bool':
+      return { ok: true, value: c.value };
+    case 'Int':
+    case 'Float':
+      return {
+        ok: false,
+        error:
+          'a numeric cell is not a boolean - compare it (=, >, isNull) rather than relying on a truthiness rule the hosts do not share',
+      };
+    case 'Str':
+      return {
+        ok: false,
+        error: `a text cell ('${c.value}') is not a boolean - compare it (=, isNull) rather than relying on a truthiness rule the hosts do not share`,
+      };
+    case 'Date':
+    case 'Timestamp':
+      return { ok: false, error: `a date cell ('${c.value}') is not a boolean` };
+    case 'Null':
+      return { ok: false, error: 'a null cell is not a boolean - test presence with isNull' };
+  }
+};
+
 /** Scalar-slot resolution for a text slot (`TextSource.Bound` and friends). */
 export const resolveScalarText = (
   sources: BindingSources,
@@ -587,6 +690,12 @@ export const resolveScalarFloat = (
   sources: BindingSources,
   binding: Binding<number>,
 ): Resolution<number> => resolveScalarWith(cellToFloat, sources, binding);
+
+/** Phase 1534 - scalar-slot resolution for a BOOLEAN slot. */
+export const resolveScalarBool = (
+  sources: BindingSources,
+  binding: Binding<boolean>,
+): Resolution<boolean> => resolveScalarWith(cellToBool, sources, binding);
 
 /** Best-effort scalar text resolution — the `tryResolve` twin for text slots. */
 export const tryResolveScalarText = (

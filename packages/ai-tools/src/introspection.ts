@@ -184,6 +184,12 @@ export const bindingExpression = <T>(
       // Phase 282 — a declarative dataframe pipeline evaluated as data; labelled
       // distinctly ($transform) so the orchestrator knows the field is computed.
       return { source: 'Computed', expression: '$transform' };
+    case 'Expr':
+      // Phase 1534 - a scalar expression over the binding's own params; labelled
+      // distinctly ($expr) on the same reasoning as $transform. `Computed` is
+      // reused rather than widening the source union, exactly as Now / Local /
+      // Format / Transform do - the expression carries the distinction.
+      return { source: 'Computed', expression: '$expr' };
     case 'Invoke':
       // Phase 283 — a host-registered capability dispatched for a value.
       return { source: 'Computed', expression: '$invoke' };

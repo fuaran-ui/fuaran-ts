@@ -23,6 +23,7 @@ import {
   NODE_KIND_NAMES,
   controlValueDefaults,
   projectSelectionField,
+  MAX_EXPR_NODES,
   MAX_NODES,
   MAX_NODE_DEPTH,
   // WIRE_FORMAT §23 — the host-declared kind admission policy. The type and its
@@ -2213,6 +2214,166 @@ const decodeInvokeArgs = (path: string, j: JsonAst): R<InvokeArg[]> => {
 };
 
 /**
+ * Phase 1534 — the two structural rules a `Binding.Expr`'s expression must
+ * satisfy, checked once at decode over the whole tree.
+ *
+ * Written here rather than taken from the compute layer because neither rule is
+ * the ALGEBRA's: `col` is perfectly ordinary in a pipeline expression, and the
+ * node ceiling is this WIRE's limit. One traversal answers both, and it stops
+ * as soon as either verdict is settled — a hostile expression is exactly the
+ * input that must not be walked to the end.
+ */
+const exprAdmissible = (root: ColExpr): 'ok' | 'col' | 'limit' => {
+  let count = 0;
+  let sawCol = false;
+  const walk = (e: ColExpr): void => {
+    count += 1;
+    if (sawCol || count > MAX_EXPR_NODES) return;
+    switch (e.kind) {
+      case 'col':
+        sawCol = true;
+        return;
+      case 'lit':
+      case 'param':
+        return;
+      case 'binary':
+        walk(e.left);
+        walk(e.right);
+        return;
+      case 'not':
+      case 'cast':
+      case 'isNull':
+        walk(e.expr);
+        return;
+      case 'coalesce':
+        e.exprs.forEach(walk);
+        return;
+      case 'apply':
+        e.args.forEach(walk);
+        return;
+      case 'case':
+        for (const c of e.cases) {
+          walk(c.when);
+          walk(c.then);
+        }
+        walk(e.else);
+        return;
+      case 'in':
+        walk(e.expr);
+        e.items.forEach(walk);
+        return;
+      case 'inParam':
+        walk(e.expr);
+        return;
+    }
+  };
+  walk(root);
+  if (sawCol) return 'col';
+  if (count > MAX_EXPR_NODES) return 'limit';
+  return 'ok';
+};
+
+/** Phase 1534 — every `param` / `inParam` name an expression reads, in order of first sight. */
+const colExprParamNames = (root: ColExpr): readonly string[] => {
+  const seen: string[] = [];
+  const push = (n: string): void => {
+    if (!seen.includes(n)) seen.push(n);
+  };
+  const walk = (e: ColExpr): void => {
+    switch (e.kind) {
+      case 'col':
+      case 'lit':
+        return;
+      case 'param':
+        push(e.name);
+        return;
+      case 'binary':
+        walk(e.left);
+        walk(e.right);
+        return;
+      case 'not':
+      case 'cast':
+      case 'isNull':
+        walk(e.expr);
+        return;
+      case 'coalesce':
+        e.exprs.forEach(walk);
+        return;
+      case 'apply':
+        e.args.forEach(walk);
+        return;
+      case 'case':
+        for (const c of e.cases) {
+          walk(c.when);
+          walk(c.then);
+        }
+        walk(e.else);
+        return;
+      case 'in':
+        walk(e.expr);
+        e.items.forEach(walk);
+        return;
+      case 'inParam':
+        walk(e.expr);
+        push(e.param);
+        return;
+    }
+  };
+  walk(root);
+  return seen;
+};
+
+/**
+ * Phase 1534 — the optional `params` slot, shared by `Binding.Transform` (Phase
+ * 424, where it started) and `Binding.Expr`. Absent yields `undefined`, which
+ * is byte-identical to the Phase-282 shape; the §3.6 name->binding MAP
+ * coercion rides along, so the leniency an author gets on one case they get on
+ * the other.
+ */
+const decodeExprParams = (
+  path: string,
+  f: ReadonlyMap<string, JsonAst>,
+): R<readonly TransformParam[] | undefined> => {
+  const paramsField = tryField(f, 'params');
+  if (paramsField === undefined) return ok(undefined);
+  if (paramsField.kind === 'JObject') {
+    // Lenient AI-ingest (WIRE_FORMAT.md 3.6, 2026-07-17): the name->binding MAP
+    // form coerces to the canonical [{name, from}] array — params are a
+    // name-keyed set, so key order carries no meaning. Mirror of F#
+    // (Map.toList = sorted keys; sorted here to match).
+    const entries = [...paramsField.fields.entries()].sort(([a], [b]) =>
+      a < b ? -1 : a > b ? 1 : 0,
+    );
+    const out: TransformParam[] = [];
+    for (const [name, v] of entries) {
+      const from = decodeBinding(`${path}.params.${name}.from`, v);
+      if (!from.ok) return from;
+      out.push({ name, from: from.value });
+    }
+    return ok(out);
+  }
+  const arr = requireArray(`${path}.params`, paramsField);
+  if (!arr.ok) return arr;
+  return traverseIndexed(arr.value, (_i, el) => {
+    const po = requireObject(`${path}.params[]`, el);
+    if (!po.ok) return po;
+    const name = reqField(`${path}.params[]`, po.value, 'name', 'param name string', requireString);
+    if (!name.ok) return name;
+    // Field alias: value — the observed repair-attempt shape ({name, value}).
+    const from = reqFieldAliased(
+      `${path}.params[]`,
+      po.value,
+      'from',
+      ['value'],
+      'param source Binding',
+      decodeBinding,
+    );
+    if (!from.ok) return from;
+    return ok<TransformParam>({ name: name.value, from: from.value });
+  });
+};
+
+/**
  * Phase 429 — the typed-static-payload seam (mirror of F# `bindingGeneric`'s
  * `parseStatic` / `placeholder` parameters). `parseStatic` decodes the slot's
  * `Static.value` / `State.defaultValue` payload; `placeholder` is the typed
@@ -2573,64 +2734,68 @@ const decodeBinding = (
       }
       const pipe = decodePipelineCore(pipeJ.value);
       if (!pipe.ok) return makeError('WRONG_TYPE', `${path}.pipeline`, pipe.error);
-      // Phase 424 — optional `params`: [{ from: <Binding>, name: <string> }, …] binding each
-      // `ColExpr.Param` name to a scalar source. Absent → omitted (byte-identical to Phase 282).
-      const paramsField = tryField(f, 'params');
-      let params: readonly TransformParam[] | undefined;
-      if (paramsField !== undefined && paramsField.kind === 'JObject') {
-        // Lenient AI-ingest (WIRE_FORMAT.md 3.6, 2026-07-17): the name->binding
-        // MAP form coerces to the canonical [{name, from}] array — params are a
-        // name-keyed set, so key order carries no meaning. Mirror of F#
-        // (Map.toList = sorted keys; sorted here to match).
-        const entries = [...paramsField.fields.entries()].sort(([a], [b]) =>
-          a < b ? -1 : a > b ? 1 : 0,
-        );
-        const out: TransformParam[] = [];
-        let coerceErr: R<never> | undefined;
-        for (const [name, v] of entries) {
-          const from = decodeBinding(`${path}.params.${name}.from`, v);
-          if (!from.ok) {
-            coerceErr = from;
-            break;
-          }
-          out.push({ name, from: from.value });
-        }
-        if (coerceErr !== undefined) return coerceErr;
-        params = out;
-      } else if (paramsField !== undefined) {
-        const arr = requireArray(`${path}.params`, paramsField);
-        if (!arr.ok) return arr;
-        const decoded = traverseIndexed(arr.value, (_i, el) => {
-          const po = requireObject(`${path}.params[]`, el);
-          if (!po.ok) return po;
-          const name = reqField(
-            `${path}.params[]`,
-            po.value,
-            'name',
-            'param name string',
-            requireString,
-          );
-          if (!name.ok) return name;
-          // Field alias: value — the observed repair-attempt shape ({name, value}).
-          const from = reqFieldAliased(
-            `${path}.params[]`,
-            po.value,
-            'from',
-            ['value'],
-            'param source Binding',
-            decodeBinding,
-          );
-          if (!from.ok) return from;
-          return ok<TransformParam>({ name: name.value, from: from.value });
-        });
-        if (!decoded.ok) return decoded;
-        params = decoded.value;
-      }
+      // Phase 424 — the optional `params` slot, shared with `Binding.Expr` since
+      // Phase 1534 (see `decodeExprParams`).
+      const paramsR = decodeExprParams(path, f);
+      if (!paramsR.ok) return paramsR;
+      const params = paramsR.value;
       const b: Binding<unknown> = {
         kind: 'Transform',
         source,
         pipeline: pipe.value,
         ...(params !== undefined ? { params } : {}),
+      };
+      return ok(b);
+    }
+    case 'Expr': {
+      // Phase 1534 — the scalar expression binding (WIRE_FORMAT §3.3.2). `expr`
+      // is one `ColExpr` in Core's own encoding; `params` is the same
+      // name->binding list `Transform` carries, decoded by the same helper.
+      //
+      // Three refusals, all here because each wants a $-rooted path and a code:
+      // a `col` reference (an Expr has no row, so `col` names nothing — the
+      // remedy is a different BINDING, and the message says so), a `param` this
+      // binding's own `params` does not bind (decidable statically here where
+      // it is NOT for `Transform`, whose unbound filter params are pruned under
+      // the deliberate unset-chip leniency), and an expression over
+      // MAX_EXPR_NODES.
+      const exprJ = requireField(path, f, 'expr', 'ColExpr object');
+      if (!exprJ.ok) return exprJ;
+      const expr = decodeColExprCore(exprJ.value);
+      if (!expr.ok) return makeError('WRONG_TYPE', `${path}.expr`, expr.error);
+      const verdict = exprAdmissible(expr.value);
+      if (verdict === 'col') {
+        return makeError(
+          'WRONG_TYPE',
+          `${path}.expr`,
+          'a `col` reference is not admitted inside an Expr binding — an Expr evaluates against its params alone and has no row for a column name to read. Use `Binding.Transform`, whose source supplies the frame, and put the column expression in a `derive` step',
+          'a ColExpr over `param` / `lit` / operators only (no `col`)',
+        );
+      }
+      if (verdict === 'limit') {
+        return makeError(
+          'LIMIT_EXCEEDED',
+          `${path}.expr`,
+          `expression exceeds the maximum of ${MAX_EXPR_NODES} expression nodes (WIRE_FORMAT 21)`,
+          `at most ${MAX_EXPR_NODES} ColExpr nodes in one Expr binding`,
+        );
+      }
+      const exprParams = decodeExprParams(path, f);
+      if (!exprParams.ok) return exprParams;
+      const bound = new Set((exprParams.value ?? []).map((p) => p.name));
+      const missing = colExprParamNames(expr.value).filter((n) => !bound.has(n));
+      if (missing.length > 0) {
+        return makeError(
+          'WRONG_TYPE',
+          `${path}.expr`,
+          `the expression reads param(s) ${missing.map((n) => `'${n}'`).join(', ')} that this binding's \`params\` does not bind — an Expr has no rows and no filter to prune, so an unbound param has no value to take; add a params entry naming each, or drop the reference`,
+          '{"$type":"Expr","expr":{…},"params":[{"name":"<name>","from":<Binding>}]}',
+        );
+      }
+      const b: Binding<unknown> = {
+        kind: 'Expr',
+        expr: expr.value,
+        ...(exprParams.value !== undefined ? { params: exprParams.value } : {}),
       };
       return ok(b);
     }
