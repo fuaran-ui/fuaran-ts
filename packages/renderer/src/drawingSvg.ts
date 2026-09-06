@@ -16,6 +16,7 @@
 import type { CurveCommand, DrawPoint, DrawStyle, DrawingSpec, Shape } from '@fuaran-ui/schema';
 
 import { type BindingSources, renderText, tryResolve } from './bindings.js';
+import { sanitizePaintValue } from './sanitize.js';
 
 /** Canonical SVG number form — matches the F# `DrawingSvg.formatNum` (whole →
  * no decimal; else the shortest round-trip). JS `String` already drops `.0`. */
@@ -70,11 +71,18 @@ const styleAttrs = (
       : defaultFillNone
         ? 'none'
         : undefined;
-  if (fill !== undefined) out += ` fill="${escape(fill)}"`;
+  // A paint is a CLOSED colour grammar, not a free string. `escape` makes a
+  // value safe as MARKUP and says nothing about what it MEANS, and a `url(…)`
+  // paint in an SVG `fill` names a paint server the user agent FETCHES — on
+  // render, with no user act, outside the egress policy. It also contains no
+  // character the generic CSS rule forbids, which is why these two slots need a
+  // positive grammar. A refused paint emits `none`: an empty `fill` INHERITS
+  // the enclosing group's paint instead of clearing it.
+  if (fill !== undefined) out += ` fill="${escape(sanitizePaintValue(fill))}"`;
   const opacity = style.opacity !== undefined ? tryResolve(sources, style.opacity) : undefined;
   if (opacity !== undefined) out += ` opacity="${formatNum(opacity)}"`;
   const stroke = style.stroke !== undefined ? tryResolve(sources, style.stroke) : undefined;
-  if (stroke !== undefined) out += ` stroke="${escape(stroke)}"`;
+  if (stroke !== undefined) out += ` stroke="${escape(sanitizePaintValue(stroke))}"`;
   const strokeWidth =
     style.strokeWidth !== undefined ? tryResolve(sources, style.strokeWidth) : undefined;
   if (strokeWidth !== undefined) out += ` stroke-width="${formatNum(strokeWidth)}"`;

