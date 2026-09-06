@@ -43,6 +43,7 @@ import type { RenderContext } from '../context.js';
 import { runAction, writeBackTo } from '../context.js';
 import { drawingSvg } from '../drawingSvg.js';
 import { sanitizeUrlForEgress } from '../egress.js';
+import { trustedHtml } from '../trustedTypes.js';
 import { renderNode } from './core.js';
 
 // Phase 534 tail / Phase 636–638 — the render dispatch consults the lowering's
@@ -965,7 +966,9 @@ const renderChart = <TMsg,>(
     // which is the ONE place that decision is made (the server twin reads the
     // same helper) and which states the Literal-only `TextSource` rule.
     const drawing = lower(chartLowerSpecOf(spec), rows as readonly ChartRow[]);
-    return <div dangerouslySetInnerHTML={{ __html: drawingSvg(ctx.sources, drawing) }} />;
+    return (
+      <div dangerouslySetInnerHTML={{ __html: trustedHtml(drawingSvg(ctx.sources, drawing)) }} />
+    );
   }
 
   const rowCount = rows.length;

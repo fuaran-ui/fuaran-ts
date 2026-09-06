@@ -4,10 +4,13 @@ import type { TreeIntrospection } from '@fuaran-ui/ai-tools';
 
 import { findIntrospection, flattenTree } from '../src/panel/treeModel.js';
 
+// Phase 1547 — `text` is the per-node text-slot array; these fixtures carry no
+// text slots, so the honest value is an empty list rather than an omission.
 const leaf = (id: string, kind: string): TreeIntrospection => ({
   id,
   kind,
   bindings: [],
+  text: [],
   childIds: [],
   children: [],
 });
@@ -16,12 +19,14 @@ const tree: TreeIntrospection = {
   id: 'dash',
   kind: 'Dashboard',
   bindings: [{ slot: 'Source', expression: '$queries.sales', source: 'Query' }],
+  text: [],
   childIds: ['left', 'right'],
   children: [
     {
       id: 'left',
       kind: 'Card',
       bindings: [],
+      text: [],
       childIds: ['left-text'],
       children: [leaf('left-text', 'Markdown')],
     },

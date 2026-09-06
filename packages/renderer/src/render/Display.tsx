@@ -38,6 +38,7 @@ import {
   tryResolveScalarFloat,
 } from '../bindings.js';
 import { tryLowerSparkline } from '@fuaran-ui/charts';
+import { trustedHtml } from '../trustedTypes.js';
 
 import { imageAspectClass, toneVar, trendSentiment } from '../classNames.js';
 import type { RenderContext } from '../context.js';
@@ -99,7 +100,9 @@ export const renderDisplay = <TMsg,>(
         <div
           className="fuaran-markdown"
           dangerouslySetInnerHTML={{
-            __html: toHtmlWithEgress(ctx.egressPolicy, renderText(ctx.sources, display.spec.text)),
+            __html: trustedHtml(
+              toHtmlWithEgress(ctx.egressPolicy, renderText(ctx.sources, display.spec.text)),
+            ),
           }}
         />
       );
@@ -153,7 +156,11 @@ export const renderDisplay = <TMsg,>(
       // Phase 525 — first-party inline SVG from the canonical builder (the ONE
       // serialisation the string server renderer also emits, so the class sets
       // are parity by construction). Rides dangerouslySetInnerHTML like Markdown.
-      return <div dangerouslySetInnerHTML={{ __html: drawingSvg(ctx.sources, display.spec) }} />;
+      return (
+        <div
+          dangerouslySetInnerHTML={{ __html: trustedHtml(drawingSvg(ctx.sources, display.spec)) }}
+        />
+      );
 
     case 'LabelValueRow':
       return renderLabelValueRow(ctx, state, display.spec);
@@ -682,14 +689,14 @@ export const renderDisplay = <TMsg,>(
             className={className}
             data-math-display={dataDisplay}
             data-fuaran-math-src={spec.source}
-            dangerouslySetInnerHTML={{ __html: markup }}
+            dangerouslySetInnerHTML={{ __html: trustedHtml(markup) }}
           />
         ) : (
           <span
             className={className}
             data-math-display={dataDisplay}
             data-fuaran-math-src={spec.source}
-            dangerouslySetInnerHTML={{ __html: markup }}
+            dangerouslySetInnerHTML={{ __html: trustedHtml(markup) }}
           />
         );
       }
@@ -885,7 +892,7 @@ const renderSparkline = <TMsg,>(ctx: RenderContext<TMsg>, spec: SparklineSpec): 
   return (
     <div
       className="fuaran-sparkline"
-      dangerouslySetInnerHTML={{ __html: drawingSvg(ctx.sources, drawing) }}
+      dangerouslySetInnerHTML={{ __html: trustedHtml(drawingSvg(ctx.sources, drawing)) }}
     />
   );
 };
