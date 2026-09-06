@@ -13,8 +13,8 @@
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 
-import { apply, decodeNode, decodeOp, type TreeOp } from '@fuaran-ui/ops';
-import type { HashStrictness, Node } from '@fuaran-ui/schema';
+import { apply, decodeNode, decodeOps, type TreeOp } from '@fuaran-ui/ops';
+import type { DecodePolicy, HashStrictness, Node } from '@fuaran-ui/schema';
 
 import { FuaranRenderer } from './Renderer.js';
 import type { BindingSources } from './bindings.js';
@@ -71,6 +71,21 @@ export interface MountOptions<TMsg = unknown> {
    * `'StrictReplay'`.
    */
   readonly customHashFloor?: HashStrictness;
+  /**
+   * Phase 1521 — the host's WIRE_FORMAT §23 kind-admission policy, applied to
+   * every tree AND every op this mount decodes.
+   *
+   * The two decode entry points on the package's own API have taken a policy
+   * since §23 landed; this bundle exposed neither, so an embedded deployment —
+   * the case with the LEAST control over what reaches it, since the whole point
+   * is rendering canonical JSON from elsewhere — was the one deployment that
+   * could not narrow the vocabulary. Omitted, every recognised kind is admitted,
+   * which is exactly what the bundle did before.
+   *
+   * Build one with `@fuaran-ui/schema`'s `CLOSED_PROFILE`, `excluding` or
+   * `admitting`.
+   */
+  readonly decodePolicy?: DecodePolicy;
 }
 
 /** A live mount. Keep it to update or tear down the rendered tree. */
@@ -88,8 +103,9 @@ export interface MountHandle<TMsg = unknown> {
 
 function decodeTree<TMsg>(
   json: string,
+  policy?: DecodePolicy,
 ): { ok: true; tree: Node<TMsg> } | { ok: false; error: string } {
-  const decoded = decodeNode(json);
+  const decoded = decodeNode(json, policy);
   return decoded.ok
     ? { ok: true, tree: decoded.value as Node<TMsg> }
     : {
@@ -98,29 +114,29 @@ function decodeTree<TMsg>(
       };
 }
 
+/**
+ * Decode an op batch — one op or an array — through the package's own decoder.
+ *
+ * This used to run `JSON.parse` over the whole payload and then re-stringify
+ * each element for `decodeOp`, which broke three guarantees at once and looked
+ * entirely reasonable doing it: the §21 depth bound never saw the batch (the
+ * native parse ran first), `JSON.parse` is a second parser with different §20
+ * answers whose output the re-stringify laundered into bytes this decoder then
+ * accepted, and `MAX_NODES` was reset per op rather than carried across the
+ * batch. `decodeOps` is the single-parse entry point that closes all three; the
+ * long-form reasoning lives on it in `@fuaran-ui/ops`.
+ */
 function parseOps<TMsg>(
   opsJson: string,
+  policy?: DecodePolicy,
 ): { ok: true; ops: TreeOp<TMsg>[] } | { ok: false; error: string } {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(opsJson);
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
-  // Accept a single op or an array, so a host can send either.
-  const entries: unknown[] = Array.isArray(raw) ? raw : [raw];
-  const ops: TreeOp<TMsg>[] = [];
-  for (const entry of entries) {
-    const decoded = decodeOp(JSON.stringify(entry));
-    if (!decoded.ok) {
-      return {
+  const decoded = decodeOps(opsJson, policy);
+  return decoded.ok
+    ? { ok: true, ops: decoded.value as TreeOp<TMsg>[] }
+    : {
         ok: false,
         error: `${decoded.error.code} at ${decoded.error.path}: ${decoded.error.message}`,
       };
-    }
-    ops.push(decoded.value as TreeOp<TMsg>);
-  }
-  return { ok: true, ops };
 }
 
 /**
@@ -193,7 +209,7 @@ export function mount<TMsg = unknown>(
       render(next);
       return;
     }
-    const decoded = decodeTree<TMsg>(next);
+    const decoded = decodeTree<TMsg>(next, options?.decodePolicy);
     if (decoded.ok) render(decoded.tree);
     else fail(decoded.error);
   };
@@ -207,7 +223,7 @@ export function mount<TMsg = unknown>(
         fail('no tree is mounted');
         return;
       }
-      const parsed = parseOps<TMsg>(opsJson);
+      const parsed = parseOps<TMsg>(opsJson, options?.decodePolicy);
       if (!parsed.ok) {
         fail(parsed.error);
         return;

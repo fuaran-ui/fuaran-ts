@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { FuaranClient, FuaranSession, SURFACE_VERSION, type FetchLike } from '../src/index.js';
 
 /** A mock endpoint that echoes a distinct produced tree per turn and records the
- *  `CurrentTreeJson` each request carried, so a test can assert the loop carries
- *  the tree forward. */
+ *  `currentTree` each request carried, so a test can assert the loop carries the
+ *  tree forward. */
 function trackingEndpoint(): {
   client: FuaranClient;
   sentCurrentTrees: Array<string | undefined>;
@@ -13,13 +13,19 @@ function trackingEndpoint(): {
   let turn = 0;
   const fetch: FetchLike = (_url, init) => {
     const body = JSON.parse(init.body) as Record<string, unknown>;
-    sentCurrentTrees.push(body['CurrentTreeJson'] as string | undefined);
+    sentCurrentTrees.push(body['currentTree'] as string | undefined);
     turn += 1;
     return Promise.resolve({
       status: 200,
       text: () =>
         Promise.resolve(
-          JSON.stringify({ TreeJson: `{"turn":${turn}}`, Ops: [], Version: SURFACE_VERSION }),
+          JSON.stringify({
+            version: SURFACE_VERSION,
+            tree: { turn },
+            opsApplied: 0,
+            provider: 'mock',
+            snapshot: { state: 'mock' },
+          }),
         ),
     });
   };
@@ -65,12 +71,21 @@ describe('FuaranSession — the turn loop carries the tree forward', () => {
             status: 200,
             text: () =>
               Promise.resolve(
-                JSON.stringify({ TreeJson: '{"held":true}', Ops: [], Version: SURFACE_VERSION }),
+                JSON.stringify({
+                  version: SURFACE_VERSION,
+                  tree: { held: true },
+                  opsApplied: 0,
+                  provider: 'mock',
+                  snapshot: { state: 'mock' },
+                }),
               ),
           })
         : Promise.resolve({
             status: 401,
-            text: () => Promise.resolve(JSON.stringify({ Reason: 'token expired' })),
+            text: () =>
+              Promise.resolve(
+                JSON.stringify({ error: { code: 'ACCESS_DENIED', message: 'token expired' } }),
+              ),
           });
     };
     const session = new FuaranSession(new FuaranClient({ endpoint: '/api/fuaran', fetch }));

@@ -70,8 +70,19 @@ describe('fuaran_scaffold ts-react', () => {
     expect(panel).not.toMatch(/accessToken|providerKey/);
     expect(proxy).toContain("requireEnv('FUARAN_ACCESS_TOKEN')");
     expect(proxy).toContain("requireEnv('FUARAN_PROVIDER_KEY')");
-    // Client-supplied credential fields are overwritten, never trusted.
-    expect(proxy).toContain('...parsed, AccessToken: accessToken, ByokKey: providerKey');
+    // The credentials go up as HEADERS and never enter a body — the endpoint
+    // refuses a body that carries either.
+    expect(proxy).toContain("'x-fuaran-provider-key': providerKey");
+    expect(proxy).toContain('authorization: `Bearer ${accessToken}`');
+    expect(proxy).not.toContain('ByokKey: providerKey');
+    // The client's object is REBUILT, never spread, so a client-supplied member
+    // can neither leak upstream nor override what the route controls.
+    expect(proxy).not.toContain('...parsed');
+    // …and the route is not an open spend endpoint.
+    expect(proxy).toContain('isAuthorised');
+    expect(proxy).toContain('MAX_PROMPT_LENGTH');
+    expect(proxy).toContain('withinRateLimit');
+    expect(proxy).toContain("redirect: 'error'");
   });
 });
 

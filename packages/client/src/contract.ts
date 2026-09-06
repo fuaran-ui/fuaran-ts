@@ -34,6 +34,57 @@ export function isSurfaceVersionCompatible(echoed: string): boolean {
   return major(echoed) === major(SURFACE_VERSION) && major(echoed) !== '';
 }
 
+/** Well-known `RecoverableError.code` values this CLIENT synthesises, as
+ *  opposed to the codes the endpoint sends. A caller branching on `code` can
+ *  tell "the endpoint refused" from "the call never reached it", which is a
+ *  different remedy every time. */
+export const CLIENT_CODES = {
+  /** The call did not complete: the fetch rejected, the `AbortSignal` fired, or
+   *  `timeoutMs` elapsed. The message is FIXED — an upstream error string can
+   *  quote a URL, a header, or a proxy's internal hostname, and this result is
+   *  routinely rendered straight into the page. */
+  network: 'NETWORK',
+  /** The endpoint replied 200 with no usable tree. Not a success: a caller that
+   *  accepted it would hold `''` as the current tree and silently repair
+   *  nothing on every subsequent turn. */
+  malformedResponse: 'MALFORMED_RESPONSE',
+  /** The endpoint is a plaintext `http://` URL that is not loopback, and
+   *  `allowInsecureEndpoint` was not set. Refused BEFORE the request is built,
+   *  so neither credential is ever put on a socket. */
+  insecureEndpoint: 'INSECURE_ENDPOINT',
+} as const;
+
+/** The grounding-corpus snapshot the endpoint served a turn against.
+ *  `version` / `contentHash` are present only when a payload was actually
+ *  loaded — a turn generated ungrounded still succeeds. */
+export interface SnapshotState {
+  readonly state: string;
+  readonly version?: string;
+  readonly contentHash?: string;
+}
+
+/** The deployment facts a produced turn carries beyond the tree itself.
+ *
+ *  They hang off {@link FuaranClient.generateDetailed} rather than sitting on
+ *  {@link Produced}, mirroring the F# and Python clients: the three things every
+ *  caller needs stay on the result, and the things a caller needs only when
+ *  auditing a deployment are asked for. */
+export interface ProducedDetail {
+  /** How many ops the turn applied to reach the produced tree — a COUNT. The
+   *  endpoint does not return the op list, so {@link Produced.ops} is populated
+   *  only when something in front of it (a proxy, the mock) supplies one. */
+  readonly opsApplied: number;
+  /** The allowlisted provider id the deployment chose. */
+  readonly provider?: string;
+  /** The model the provider's own reply named as having served. Absent means
+   *  UNREPORTED, and is deliberately not the model the deployment asked for: a
+   *  substituted value would look like a report and hide an alias re-point,
+   *  which is the one thing this field exists to expose. */
+  readonly servedModel?: string;
+  /** The grounding snapshot's state for this turn. */
+  readonly snapshot?: SnapshotState;
+}
+
 /** One op the turn applied to reach the produced tree. Mirrors the surface's
  *  applied-op record: a dedup `opId` and the canonical wire JSON of the op.
  *  Decode `opJson` with `@fuaran-ui/ops` `decodeOp` for a typed `TreeOp`. */
@@ -107,4 +158,9 @@ export interface GenerateArgs {
   /** Opt IN to contributing this turn (prompt + emitted tree) as a candidate
    *  for the next corpus version. Absent / false contributes nothing. */
   readonly contributeCorpus?: boolean;
+  /** Your OPAQUE correlation id, joining this turn's records at the endpoint
+   *  with your own render / op-stream telemetry into one reconstructable
+   *  change. The endpoint mints none — an id minted there could not reach your
+   *  legs. */
+  readonly interactionId?: string;
 }
