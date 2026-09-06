@@ -91,7 +91,7 @@ describe('node-visible — presence, not concealment', () => {
     // `visible-until-dismissed` declares `defaultValue: true`. This is the
     // spelling an author needs, because a DEFAULT-LESS State predicate follows
     // the shared `Binding.State` rule and resolves false — which is what
-    // FUARAN143 reports.
+    // FUARAN148 reports.
     expect(render('node-visible')).toContain('Shown until the reader dismisses it');
     expect(render('node-visible', { state: { 'banner.dismissed': false } })).not.toContain(
       'Shown until the reader dismisses it',

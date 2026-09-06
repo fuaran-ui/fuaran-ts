@@ -70,7 +70,7 @@ export type PreEmitDefect =
    */
   | { readonly code: 'DUPLICATE_SWITCH_MATCH'; readonly nodeId: string; readonly match: string }
   /**
-   * FUARAN142 (error) — a `SwitchCase` carries BOTH a string `match` and a
+   * FUARAN147 (error) — a `SwitchCase` carries BOTH a string `match` and a
    * predicate `when`, or NEITHER (Phase 1535). Exactly one is meaningful:
    * `match` compares the switch's `on` selector against a literal, `when`
    * evaluates a `Binding<boolean>` and needs no selector at all.
@@ -492,7 +492,7 @@ export function preEmitValidate<TMsg>(
         // duplicates of each other: `when` carries a binding, two bindings that
         // happen to be equal today may resolve differently tomorrow, and
         // structural equality of two predicates is not the question this rule
-        // asks. FUARAN142 below is the shape rule for the case itself.
+        // asks. FUARAN147 below is the shape rule for the case itself.
         const seen = new Set<string>();
         const reported = new Set<string>();
         k.spec.cases.forEach((c, i) => {
