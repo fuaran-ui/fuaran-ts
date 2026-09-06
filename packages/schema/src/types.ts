@@ -462,7 +462,7 @@ export type Binding<T> =
    * replay-time "now". The ISO-8601 form composes with the core
    * `dateDiffDays`, which reads the leading `YYYY-MM-DD`.
    */
-  | { readonly kind: 'Now'; readonly project: (iso: string) => T }
+  | { readonly kind: 'Now'; readonly project: (iso: string) => T; readonly grain?: TimeGrain }
   | {
       readonly kind: 'I18n';
       readonly key: string;
@@ -708,11 +708,26 @@ export type DateStyle = 'Short' | 'Medium' | 'Long' | 'Full';
 export type RelativeTimeUnit = 'Second' | 'Minute' | 'Hour' | 'Day' | 'Week' | 'Month' | 'Year';
 
 /**
+ * Phase 1533 — the resolution a `Binding.Now` declares for the host-furnished
+ * instant. Absent means `Second`, and `Second` is omitted on the wire, so a
+ * grain-less `Now` is the bare `{"$type":"Now"}` it has always been.
+ *
+ * FOUR members and not `RelativeTimeUnit`'s seven, deliberately: this is a
+ * TRUNCATION of a calendar instant, and a week, a month or a year has no
+ * truncation every host agrees on (which weekday starts a week; which
+ * calendar). The four here truncate the canonical ISO-8601 form by prefix and
+ * nothing else.
+ */
+export type TimeGrain = 'Second' | 'Minute' | 'Hour' | 'Day';
+
+/**
  * Bounded, semantic locale-aware formatting intent carried by `Binding.Format`.
  * The numeric source is read as a plain number (`Number` / `Currency` /
  * `Percent` — `Percent` a ratio), whole Unix-epoch seconds (`Date`), or a
  * signed count of the unit (`RelativeTime` / `Duration` — Phase 819; Duration
- * renders locale-independently, see `DurationStyle`). No raw Intl option-bag escape.
+ * renders locale-independently, see `DurationStyle`), or an INSTANT in whole
+ * Unix-epoch seconds whose delta is taken against the host's own instant
+ * (`Since` — Phase 1533). No raw Intl option-bag escape.
  */
 export type Format =
   | { readonly kind: 'Number'; readonly decimals?: number }
@@ -720,7 +735,18 @@ export type Format =
   | { readonly kind: 'Percent'; readonly decimals?: number }
   | { readonly kind: 'Date'; readonly dateStyle: DateStyle }
   | { readonly kind: 'RelativeTime'; readonly unit: RelativeTimeUnit }
-  | { readonly kind: 'Duration'; readonly unit: DurationUnit; readonly style: DurationStyle };
+  | { readonly kind: 'Duration'; readonly unit: DurationUnit; readonly style: DurationStyle }
+  /**
+   * Phase 1533 — the INSTANT-reading twin of `RelativeTime`. `RelativeTime`'s
+   * source is a signed COUNT of its unit, already computed by whoever produced
+   * it; this one's source is an instant in whole Unix-epoch seconds (`Date`'s
+   * convention) and the count is the delta the HOST takes against its own
+   * furnished instant.
+   *
+   * `unit` absent is NOT a default — it is the auto-selection request, resolved
+   * from the fixed threshold ladder in WIRE_FORMAT.md §4b.
+   */
+  | { readonly kind: 'Since'; readonly unit?: RelativeTimeUnit };
 
 /**
  * Locale selector for `Binding.Format`. `Ambient` defers to the host-supplied

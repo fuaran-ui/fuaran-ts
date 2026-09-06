@@ -17,3 +17,4 @@ export * from './renderFidelity.js';
 export * from './customCard.js';
 export * from './limits.js';
 export * from './kindPolicy.js';
+export * from './instant.js';

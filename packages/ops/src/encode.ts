@@ -721,9 +721,12 @@ const binding = <T>(b: Binding<T>, staticEnc: (v: T) => string = objValue): stri
     }
     case 'Computed':
       return caseObj('Computed', [['fn', CLOSURE]]);
-    // No wire fields: the instant is host-furnished at resolve time.
+    // Phase 765 — the INSTANT is never on the wire: it is host-furnished at
+    // resolve time. Phase 1533 — the declared GRAIN is, and only when it is not
+    // the `Second` default, so a grain-less `Now` is the same bytes it has
+    // always been.
     case 'Now':
-      return caseObj('Now', []);
+      return caseObj('Now', b.grain !== undefined ? [['grain', str(b.grain)]] : []);
     case 'I18n': {
       const fields: Field[] = [];
       if (b.args !== undefined) {
@@ -944,6 +947,10 @@ const formatIntent = (f: Format): string => {
         ['style', str(f.style)],
         ['unit', str(f.unit)],
       ]);
+    // Phase 1533 — `unit` omitted when absent: its absence is the
+    // auto-selection request, not a default that could be spelled out.
+    case 'Since':
+      return caseObj('Since', f.unit !== undefined ? [['unit', str(f.unit)]] : []);
     default:
       return assertNever(f);
   }

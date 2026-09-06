@@ -30,6 +30,11 @@ import type {
   TreeItem,
 } from '@fuaran-ui/schema';
 import {
+  epochSecondsOfInstant,
+  sinceUnitAndCount,
+  truncateToGrain,
+} from '@fuaran-ui/schema';
+import {
   evalPipelineWith,
   evalPipelineWithInEnv,
   stepParams,
@@ -149,8 +154,16 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
     case 'Now': {
       // Phase 765 — host-furnished, resolved once per render pass; never a
       // clock read here, so SSR output is reproducible for a pinned instant.
+      //
+      // Phase 1533 — the declared GRAIN truncates the instant BEFORE the
+      // projection sees it, through the ONE shared implementation in
+      // `@fuaran-ui/schema`: this renderer's markup and the client renderer's
+      // hydration must agree about what "now" was, so they cannot each carry
+      // their own truncation.
       if (sources.now === undefined || sources.now === '') return { kind: 'NotResolved' };
-      return { kind: 'Resolved', value: binding.project(sources.now) };
+      const instant =
+        binding.grain === undefined ? sources.now : truncateToGrain(binding.grain, sources.now);
+      return { kind: 'Resolved', value: binding.project(instant) };
     }
     case 'Computed': {
       const merged = { ...(sources.computedContext?.state ?? {}), ...(sources.state ?? {}) };
@@ -173,6 +186,18 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       const inner = resolve<number>(sources, binding.source);
       if (inner.kind !== 'Resolved') return inner as Resolution<T>;
       const tag = binding.locale.kind === 'Explicit' ? binding.locale.tag : (sources.locale ?? '');
+      // Phase 1533 — `Since` is the one `Format` case whose rendering is a
+      // function of the HOST instant as well as of its source, so the delta is
+      // taken here, where the instant lives, and `formatLocaleValue` stays a
+      // pure projection of its arguments.
+      if (binding.format.kind === 'Since') {
+        const nowEpoch = epochSecondsOfInstant(sources.now ?? '');
+        if (nowEpoch === undefined) return { kind: 'NotResolved' };
+        return {
+          kind: 'Resolved',
+          value: formatLocaleValue(tag, binding.format, inner.value - nowEpoch) as T,
+        };
+      }
       return { kind: 'Resolved', value: formatLocaleValue(tag, binding.format, inner.value) as T };
     }
     case 'Transform': {
@@ -445,6 +470,15 @@ export const formatLocaleValue = (localeTag: string, fmt: Format, value: number)
       // Phase 819 — locale-independent by design (see formatDuration above):
       // the one Format case with exact cross-host parity.
       return formatDuration(fmt.unit, fmt.style, value);
+    case 'Since': {
+      // Phase 1533 — `value` is the signed delta in SECONDS the binding resolver
+      // already took against the host instant. No clock is read here.
+      const [unit, count] = sinceUnitAndCount(fmt.unit, value);
+      return new Intl.RelativeTimeFormat(loc, { numeric: 'auto' }).format(
+        count,
+        relUnitLower(unit),
+      );
+    }
   }
 };
 

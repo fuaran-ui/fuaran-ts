@@ -169,6 +169,7 @@ import type {
   DurationUnit,
   DurationStyle,
   RelativeTimeUnit,
+  TimeGrain,
   SparklineSpec,
   SplitPanelSpec,
   StateBehaviour,
@@ -1016,6 +1017,14 @@ const decodeRelativeTimeUnit = (p: string, j: JsonAst): R<RelativeTimeUnit> =>
     'RelativeTimeUnit',
   );
 
+/**
+ * Phase 1533 — the `Binding.Now` grain: a strict SUBSET of `RelativeTimeUnit`.
+ * `Week` / `Month` / `Year` are refused rather than quietly accepted, because a
+ * calendar instant has no truncation to those that every host agrees on.
+ */
+const decodeTimeGrain = (p: string, j: JsonAst): R<TimeGrain> =>
+  bareEnum(p, j, ['Second', 'Minute', 'Hour', 'Day'] as const, 'TimeGrain');
+
 const decodeCellFormat = (path: string, j: JsonAst): R<CellFormat> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
@@ -1118,11 +1127,19 @@ const decodeFormat = (path: string, j: JsonAst): R<Format> => {
       if (!style.ok) return style;
       return ok<Format>({ kind: 'Duration', unit: unit.value, style: style.value });
     }
+    case 'Since': {
+      // Phase 1533 — `unit` is OPTIONAL and its absence is the auto-selection
+      // request, not a default. Present-but-unreadable is still a refusal.
+      const u = tryField(f, 'unit');
+      if (u === undefined) return ok<Format>({ kind: 'Since' });
+      const r = decodeRelativeTimeUnit(`${path}.unit`, u);
+      return r.ok ? ok<Format>({ kind: 'Since', unit: r.value }) : r;
+    }
     default:
       return unknownDuCase(
         path,
         d.value,
-        'Number | Currency | Percent | Date | RelativeTime | Duration',
+        'Number | Currency | Percent | Date | RelativeTime | Duration | Since',
       );
   }
 };
@@ -2310,8 +2327,17 @@ const decodeBinding = (
     // so a decoded reader receives it as-is. A value-discarding placeholder
     // here would make every decoded `Now` resolve to nothing even when the
     // host furnishes the instant.
-    case 'Now':
-      return ok({ kind: 'Now', project: (iso) => iso });
+    case 'Now': {
+      // Phase 1533 — `grain` is the ONE wire field, optional, absent meaning
+      // `Second`. Absence is the default; PRESENT and unreadable is a refusal,
+      // never a silent fallback, because a document that names a grain the host
+      // cannot honour would otherwise render at a resolution it did not ask for
+      // and say nothing about it.
+      const g = tryField(f, 'grain');
+      if (g === undefined) return ok({ kind: 'Now', project: (iso) => iso });
+      const r = decodeTimeGrain(`${path}.grain`, g);
+      return r.ok ? ok({ kind: 'Now', project: (iso) => iso, grain: r.value }) : r;
+    }
     case 'I18n': {
       const key = reqField(path, f, 'key', 'i18n key string', requireString);
       if (!key.ok) return key;

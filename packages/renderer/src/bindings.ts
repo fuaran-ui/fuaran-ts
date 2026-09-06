@@ -29,6 +29,11 @@ import type {
   TreeItem,
 } from '@fuaran-ui/schema';
 import {
+  epochSecondsOfInstant,
+  sinceUnitAndCount,
+  truncateToGrain,
+} from '@fuaran-ui/schema';
+import {
   evalPipelineWith,
   evalPipelineWithInEnv,
   liveValueToTable,
@@ -201,8 +206,16 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
     case 'Now': {
       // Phase 765 — the clock is never read here: `sources.now` was resolved
       // host-side once for the whole pass, which is what keeps replay exact.
+      //
+      // Phase 1533 — the declared GRAIN truncates the instant BEFORE the
+      // projection sees it. Before, not after: the projection is the document's
+      // cast onto its slot type, and a `Transform` param projecting to a string
+      // would otherwise carry a full datetime into `dateDiffDays`, which reads
+      // only the leading `YYYY-MM-DD`.
       if (sources.now === undefined || sources.now === '') return { kind: 'NotResolved' };
-      return { kind: 'Resolved', value: binding.project(sources.now) };
+      const instant =
+        binding.grain === undefined ? sources.now : truncateToGrain(binding.grain, sources.now);
+      return { kind: 'Resolved', value: binding.project(instant) };
     }
     case 'Computed': {
       // Phase 137: hand the closure a context with typed read access to the
@@ -233,6 +246,21 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       const inner = resolve<number>(sources, binding.source);
       if (inner.kind !== 'Resolved') return inner as Resolution<T>;
       const tag = binding.locale.kind === 'Explicit' ? binding.locale.tag : (sources.locale ?? '');
+      // Phase 1533 — `Since` is the one `Format` case whose rendering is a
+      // function of the HOST instant as well as of its source, so the delta is
+      // taken HERE, where the instant lives, and `formatLocaleValue` stays a
+      // pure projection of its arguments. An unset or unreadable instant is
+      // `NotResolved`, for the reason `Now` gives above: a relative time taken
+      // against an invented "now" is a plausible wrong answer, which is worse
+      // than a visible placeholder.
+      if (binding.format.kind === 'Since') {
+        const nowEpoch = epochSecondsOfInstant(sources.now ?? '');
+        if (nowEpoch === undefined) return { kind: 'NotResolved' };
+        return {
+          kind: 'Resolved',
+          value: formatLocaleValue(tag, binding.format, inner.value - nowEpoch) as T,
+        };
+      }
       return { kind: 'Resolved', value: formatLocaleValue(tag, binding.format, inner.value) as T };
     }
     case 'Transform': {
@@ -549,6 +577,15 @@ export const formatLocaleValue = (localeTag: string, fmt: Format, value: number)
       // Phase 819 — locale-independent by design (see formatDuration above):
       // the one Format case with exact cross-host parity.
       return formatDuration(fmt.unit, fmt.style, value);
+    case 'Since': {
+      // Phase 1533 — `value` is the signed delta in SECONDS the binding
+      // resolver already took against the host instant. No clock is read here.
+      const [unit, count] = sinceUnitAndCount(fmt.unit, value);
+      return new Intl.RelativeTimeFormat(loc, { numeric: 'auto' }).format(
+        count,
+        relUnitLower(unit),
+      );
+    }
   }
 };
 
