@@ -22,6 +22,7 @@
 
 import {
   MAX_ARRAY_LENGTH,
+  MAX_DOCUMENT_BYTES,
   MAX_JSON_DEPTH,
   MAX_STRING_LENGTH,
   type Result,
@@ -110,59 +111,116 @@ const expectChar = (s: ParseState, ch: string): Result<true, ParseError> => {
 
 const HEX_DIGIT = /[0-9a-fA-F]/;
 
+const HIGH_SURROGATE_FIRST = 0xd800;
+const HIGH_SURROGATE_LAST = 0xdbff;
+const LOW_SURROGATE_FIRST = 0xdc00;
+const LOW_SURROGATE_LAST = 0xdfff;
+
 const parseStringRaw = (s: ParseState): Result<string, ParseError> => {
   const open = expectChar(s, '"');
   if (!open.ok) return open;
 
   let out = '';
+  // §21.6 — the bound counts Unicode CODE POINTS, so a surrogate pair counts
+  // once. `out.length` is UTF-16 units and is a DIFFERENT number for any
+  // document above the BMP; using it made this host's limit a property of its
+  // own string type rather than of the format.
+  let codePoints = 0;
+  // §20.2 row 6 — a `\uD800`-`\uDBFF` unit has been appended and its low half
+  // is owed. The pairing check has to run on the way down: once the string is
+  // assembled, a high followed by a low and a lone high followed by a lone low
+  // are the same two units in the same order.
+  let pendingHigh = false;
+
+  /** Append one UTF-16 unit, maintaining §20.2 row 6 and §21.6. */
+  const append = (unit: string): ParseError | undefined => {
+    const code = unit.charCodeAt(0);
+    const isHigh = code >= HIGH_SURROGATE_FIRST && code <= HIGH_SURROGATE_LAST;
+    const isLow = code >= LOW_SURROGATE_FIRST && code <= LOW_SURROGATE_LAST;
+
+    if (isHigh) {
+      if (pendingHigh) {
+        return {
+          message: 'unpaired high surrogate: it must be followed by a low surrogate',
+          offset: s.pos,
+        };
+      }
+      pendingHigh = true;
+      codePoints += 1;
+    } else if (isLow) {
+      if (!pendingHigh) {
+        return {
+          message: 'unpaired low surrogate: it must be preceded by a high surrogate',
+          offset: s.pos,
+        };
+      }
+      pendingHigh = false;
+    } else if (pendingHigh) {
+      return {
+        message: 'unpaired high surrogate: it must be followed by a low surrogate',
+        offset: s.pos,
+      };
+    } else {
+      codePoints += 1;
+    }
+
+    // §21.6 / §21.2 rule 4 — bound the string ON THE WAY DOWN, in code points,
+    // and check AFTER the increment. The check used to sit at the top of the
+    // accumulation loop, which is one append too late: the final character was
+    // appended after the last check, so a string of exactly MAX+1 passed.
+    if (codePoints > MAX_STRING_LENGTH) {
+      return {
+        message: `string is longer than the wire limit MAX_STRING_LENGTH = ${MAX_STRING_LENGTH}`,
+        offset: s.pos,
+        limit: true,
+      };
+    }
+
+    out += unit;
+    return undefined;
+  };
+
   for (;;) {
     if (s.pos >= s.text.length) return fail(s, 'unterminated string');
     const c = s.text[s.pos]!;
     advance(s);
 
     if (c === '"') {
+      if (pendingHigh) {
+        return fail(s, 'unpaired high surrogate at the end of a string');
+      }
       return { ok: true, value: out };
-    }
-
-    // §21.1 max string length. Checked inside the accumulation loop rather
-    // than on the finished string, so a hostile 100 MB literal is refused
-    // partway through rather than after it has been built in memory — the
-    // same on-the-way-down principle rule 4 states for depth.
-    if (out.length > MAX_STRING_LENGTH) {
-      return failLimit(
-        s,
-        `string is longer than the wire limit MAX_STRING_LENGTH = ${MAX_STRING_LENGTH}`,
-      );
     }
 
     if (c === '\\') {
       if (s.pos >= s.text.length) return fail(s, 'unterminated escape');
       const esc = s.text[s.pos]!;
       advance(s);
+      let unit: string;
       switch (esc) {
         case '"':
-          out += '"';
+          unit = '"';
           break;
         case '\\':
-          out += '\\';
+          unit = '\\';
           break;
         case '/':
-          out += '/';
+          unit = '/';
           break;
         case 'b':
-          out += '\b';
+          unit = '\b';
           break;
         case 'f':
-          out += '\f';
+          unit = '\f';
           break;
         case 'n':
-          out += '\n';
+          unit = '\n';
           break;
         case 'r':
-          out += '\r';
+          unit = '\r';
           break;
         case 't':
-          out += '\t';
+          unit = '\t';
           break;
         case 'u': {
           if (s.pos + 4 > s.text.length) return fail(s, 'incomplete \\u escape');
@@ -176,14 +234,26 @@ const parseStringRaw = (s: ParseState): Result<string, ParseError> => {
             return fail(s, `invalid \\u escape '${hex}'`);
           }
           s.pos += 4;
-          out += String.fromCharCode(parseInt(hex, 16));
+          unit = String.fromCharCode(parseInt(hex, 16));
           break;
         }
         default:
           return fail(s, `unknown escape '\\${esc}'`);
       }
+      const bad = append(unit);
+      if (bad) return { ok: false, error: bad };
+    } else if (c.charCodeAt(0) < 0x20) {
+      // §20.2 row 5 — RFC 8259 requires a C0 control character to be escaped
+      // and §2 rule 6 requires a conformant encoder to escape it, so accepting
+      // the raw byte admits input this host's own encoder cannot produce. The
+      // escaped spelling stays legal: it is the specified one.
+      return fail(
+        s,
+        `raw control character U+${c.charCodeAt(0).toString(16).padStart(4, '0').toUpperCase()} in a string must be escaped`,
+      );
     } else {
-      out += c;
+      const bad = append(c);
+      if (bad) return { ok: false, error: bad };
     }
   }
 };
@@ -191,14 +261,68 @@ const parseStringRaw = (s: ParseState): Result<string, ParseError> => {
 const isNumberChar = (c: string): boolean =>
   c === '-' || c === '+' || c === '.' || c === 'e' || c === 'E' || (c >= '0' && c <= '9');
 
+/**
+ * The RFC 8259 number grammar, exactly:
+ *
+ *     number = [ '-' ] int [ frac ] [ exp ]
+ *     int    = '0' | digit1-9 *digit
+ *     frac   = '.' 1*digit
+ *     exp    = ('e' | 'E') [ '+' | '-' ] 1*digit
+ *
+ * Written out rather than delegated to `Number(...)`, and that IS the fix
+ * (WIRE_FORMAT §20.2 row 3): `Number` accepts a leading `+`, a leading zero,
+ * `.5`, `1.`, `0x1f`, `Infinity` and the empty string, and which superset a
+ * platform's own parser accepts is a property of that platform rather than of
+ * this format. Asking `Number` "is this a number" was asking about JavaScript.
+ *
+ * A regular expression would do it in one line; a hand-rolled scan is used for
+ * the same reason the parser around it is hand-rolled — no backtracking cost on
+ * a hostile token, and it is trivially portable to the other hosts, which is
+ * where the identical check has to appear.
+ */
+const isRfc8259Number = (slice: string): boolean => {
+  const n = slice.length;
+  let i = 0;
+  const digit = (k: number): boolean => k < n && slice[k]! >= '0' && slice[k]! <= '9';
+
+  if (i < n && slice[i] === '-') i += 1;
+
+  // int: a single '0', or a non-zero digit followed by any digits.
+  if (!digit(i)) return false;
+  if (slice[i] === '0') {
+    i += 1;
+  } else {
+    while (digit(i)) i += 1;
+  }
+
+  // frac: the point must be followed by at least one digit.
+  if (i < n && slice[i] === '.') {
+    i += 1;
+    if (!digit(i)) return false;
+    while (digit(i)) i += 1;
+  }
+
+  // exp: at least one digit after the optional sign.
+  if (i < n && (slice[i] === 'e' || slice[i] === 'E')) {
+    i += 1;
+    if (i < n && (slice[i] === '+' || slice[i] === '-')) i += 1;
+    if (!digit(i)) return false;
+    while (digit(i)) i += 1;
+  }
+
+  // Trailing characters inside the token ('1..2') are a refusal, not a prefix
+  // match: the caller has already consumed the whole run.
+  return i === n;
+};
+
 const parseNumberRaw = (s: ParseState): Result<number, ParseError> => {
   const start = s.pos;
   while (s.pos < s.text.length && isNumberChar(s.text[s.pos]!)) {
     advance(s);
   }
   const slice = s.text.substring(start, s.pos);
-  if (slice.length === 0) {
-    return fail(s, `invalid number '${slice}'`);
+  if (!isRfc8259Number(slice)) {
+    return fail(s, `'${slice}' is not a JSON number (RFC 8259 grammar)`);
   }
   const n = Number(slice);
   if (Number.isNaN(n)) {
@@ -293,6 +417,17 @@ const parseObjectValue = (s: ParseState): Result<JsonAst, ParseError> => {
         `object has more members than the wire limit MAX_ARRAY_LENGTH = ${MAX_ARRAY_LENGTH}`,
       );
     }
+    if (fields.has(keyR.value)) {
+      // §20.2 row 1. The one §20 row that changes what a document MEANS rather
+      // than whether it is accepted: this host kept the LAST occurrence and the
+      // reference host the first, so `{"href":"https://ok","href":"javascript:…"}`
+      // was a different tree on a vetting host than on a rendering one, with no
+      // error anywhere. Rejection is the only answer two hosts cannot silently
+      // differ on, and it costs nothing: no conformant encoder can emit a
+      // repeated member.
+      s.depth -= 1;
+      return fail(s, `duplicate object member '${keyR.value}'`);
+    }
     fields.set(keyR.value, valR.value);
     skipWs(s);
     const c = peek(s);
@@ -359,18 +494,78 @@ const parseArrayValue = (s: ParseState): Result<JsonAst, ParseError> => {
 };
 
 /**
+ * UTF-8 byte length of a JavaScript string, computed from its UTF-16 units.
+ *
+ * Derived rather than delegated because `TextEncoder` is not universally
+ * present in the runtimes this package targets, and derived rather than
+ * SUBSTITUTED because `String.length` is UTF-16 units, which under-counts a CJK
+ * document threefold — and under-counting is the direction that ADMITS a
+ * document §21.7 requires the host to refuse.
+ *
+ * The bounds short-circuit is the difference between an O(n) walk on every
+ * decode and one on the rare large document: every UTF-16 unit costs at least
+ * one byte and at most three (a surrogate PAIR costs four across two units, so
+ * two per unit), so a string shorter than a third of the ceiling cannot breach
+ * it and one longer than the ceiling must.
+ */
+const documentBytes = (input: string): number => {
+  if (input.length > MAX_DOCUMENT_BYTES) return input.length;
+  if (input.length <= MAX_DOCUMENT_BYTES / 3) return input.length;
+
+  let total = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    const c = input.charCodeAt(i);
+    if (c < 0x80) {
+      total += 1;
+    } else if (c < 0x800) {
+      total += 2;
+    } else if (c >= HIGH_SURROGATE_FIRST && c <= HIGH_SURROGATE_LAST && i + 1 < input.length) {
+      total += 4;
+      i += 1;
+    } else {
+      total += 3;
+    }
+  }
+  return total;
+};
+
+/**
  * Parse a JSON document into the local AST. Mirrors the F# `tryParse`: empty /
- * whitespace-only input is a structural error; otherwise a single top-level
- * value is parsed (trailing content after the first value is not inspected,
- * matching the F# parser).
+ * whitespace-only input is a structural error; a document past the §21.7
+ * ceiling is refused BEFORE the parse; and per §20.2 row 2 the root value must
+ * be followed by nothing but whitespace — §1 makes a wire artefact a single
+ * JSON document, and this parser used to stop at the first value and ignore the
+ * remainder, which is a framing ambiguity rather than a tolerance.
  */
 export const parse = (input: string): Result<JsonAst, ParseError> => {
+  const bytes = documentBytes(input);
+  if (bytes > MAX_DOCUMENT_BYTES) {
+    return {
+      ok: false,
+      error: {
+        message: `document of ${bytes} UTF-8 bytes exceeds the wire limit MAX_DOCUMENT_BYTES = ${MAX_DOCUMENT_BYTES}`,
+        offset: 0,
+        limit: true,
+      },
+    };
+  }
+
   const s: ParseState = { text: input, pos: 0, depth: 0 };
   skipWs(s);
   if (s.pos >= s.text.length) {
     return { ok: false, error: { message: 'input is empty', offset: 0 } };
   }
-  return parseValue(s);
+  const value = parseValue(s);
+  if (!value.ok) return value;
+
+  skipWs(s);
+  if (s.pos < s.text.length) {
+    return fail(
+      s,
+      `unexpected content after the root value ('${s.text[s.pos]!}'); a wire artefact is a single JSON document`,
+    );
+  }
+  return value;
 };
 
 // ─── AST field-lookup helpers (used by decode.ts) ────────────────────────────

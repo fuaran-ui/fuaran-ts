@@ -324,9 +324,48 @@ const requireFloat = (path: string, jRaw: JsonAst): R<number> => {
   return wrongType(path, "JSON number (or 'NaN' / 'Infinity' / '-Infinity' sentinel string)");
 };
 
+/**
+ * A value admissible at a typed INT32 slot (WIRE_FORMAT §7.1): finite, no
+ * fractional part, inside the signed 32-bit range.
+ */
+const INT32_MIN = -2147483648;
+const INT32_MAX = 2147483647;
+const isInt32Slot = (n: number): boolean =>
+  Number.isFinite(n) && Number.isInteger(n) && n >= INT32_MIN && n <= INT32_MAX;
+
+/**
+ * WIRE_FORMAT §7.1 — a typed integer slot admits a finite number with no
+ * fractional part inside the signed 32-bit range, and nothing else.
+ *
+ * `Math.trunc` retired two silent behaviours. It TRUNCATED, so `2.5` at an
+ * integer slot decoded as `2` — the author's value discarded at a slot the
+ * author typed — and it silently absorbed `Infinity` (as `Infinity`) and any
+ * magnitude at all, so `1e10` reached an int32 slot whose other hosts wrapped
+ * it to two different numbers from the same bytes. A refusal is the only answer
+ * that neither invents data nor discards it.
+ */
 const requireInt = (path: string, jRaw: JsonAst): R<number> => {
   const j = unwrapStaticEnvelope(jRaw);
-  return j.kind === 'JNumber' ? ok(Math.trunc(j.value)) : wrongType(path, 'JSON number (integer)');
+  if (j.kind !== 'JNumber') return wrongType(path, 'JSON number (integer)');
+  if (!Number.isFinite(j.value)) {
+    return wrongType(
+      path,
+      "JSON number (a finite 32-bit integer; the non-finite sentinels are a float slot's, not an integer slot's)",
+    );
+  }
+  if (!Number.isInteger(j.value)) {
+    return wrongType(
+      path,
+      'JSON number (a 32-bit integer; a fractional value is not truncated at an integer slot)',
+    );
+  }
+  if (!isInt32Slot(j.value)) {
+    return wrongType(
+      path,
+      'JSON number (a 32-bit integer; the value is outside the range this slot can hold)',
+    );
+  }
+  return ok(j.value);
 };
 
 const requireArray = (path: string, j: JsonAst): R<readonly JsonAst[]> =>
@@ -1303,10 +1342,18 @@ const cStr = (j: JsonAst): CR<string> =>
   j.kind === 'JString' ? cok(j.value) : cerr('malformed: expected string, got ' + astKind(j));
 const cArr = (j: JsonAst): CR<readonly JsonAst[]> =>
   j.kind === 'JArray' ? cok(j.items) : cerr('malformed: expected array, got ' + astKind(j));
-const cInt = (j: JsonAst): CR<number> =>
-  j.kind === 'JNumber'
-    ? cok(Math.trunc(j.value))
-    : cerr('malformed: expected int, got ' + astKind(j));
+/**
+ * The data-frame codec's integer reader. §7.1 applies here for the same reason
+ * it applies at a node slot — a column declared `Int` holds integers — and the
+ * defect was the same `Math.trunc`.
+ */
+const cInt = (j: JsonAst): CR<number> => {
+  if (j.kind !== 'JNumber') return cerr('malformed: expected int, got ' + astKind(j));
+  if (!isInt32Slot(j.value)) {
+    return cerr(`malformed: expected a 32-bit integer, got ${j.value}`);
+  }
+  return cok(j.value);
+};
 
 const cMapM = <A, B>(xs: readonly A[], fn: (a: A) => CR<B>): CR<B[]> => {
   const out: B[] = [];
@@ -1341,7 +1388,10 @@ const decodeCellLit = (j: JsonAst): CR<Cell> => {
   if (v === undefined) return mismatch;
   switch (t) {
     case 'Int':
-      return v.kind === 'JNumber' ? cok({ kind: 'Int', value: Math.trunc(v.value) }) : mismatch;
+      // §7.1 again — a literal cell declared `Int` is not a place to truncate.
+      return v.kind === 'JNumber' && isInt32Slot(v.value)
+        ? cok({ kind: 'Int', value: v.value })
+        : mismatch;
     case 'Float':
       return v.kind === 'JNumber' ? cok({ kind: 'Float', value: v.value }) : mismatch;
     case 'Bool':
@@ -7337,4 +7387,50 @@ export const decodeOp = (json: string, policy?: DecodePolicy): R<TreeOp<unknown>
   if (!parsed.ok) return parseFailure(parsed.error);
   resetWalk(policy);
   return decodeTreeOpAst('$', parsed.value);
+};
+
+/**
+ * Decode a canonical-JSON payload holding EITHER one `TreeOp` or an array of
+ * them — the shape a host sends down an op channel.
+ *
+ * It exists because the obvious composition is unsound. A consumer holding
+ * "one op or an array" reaches for `JSON.parse`, walks the array, and calls
+ * `decodeOp(JSON.stringify(entry))` per element; the embedded standalone bundle
+ * did exactly that. Three things go wrong, and none of them is visible from the
+ * call site:
+ *
+ *  - The whole payload passes through `JSON.parse` BEFORE any bound applies, so
+ *    the §21 depth gate never sees it. `JSON.parse` is native and will not
+ *    overflow, but the document it hands back is unbounded, and the per-op
+ *    decode that follows measures each op against a limit the batch already
+ *    escaped.
+ *  - `JSON.parse` is a different parser with different §20 answers: it keeps the
+ *    LAST duplicate member, reads `1e999` as `Infinity`, and accepts nothing
+ *    this parser refuses. Re-stringifying its output launders every one of those
+ *    differences into bytes this decoder then accepts without complaint — the
+ *    §20.1 undeclared-entry-point defect, arrived at by composition.
+ *  - `MAX_NODES` is reset per `decodeOp` call, so it bounded ONE op rather than
+ *    the batch: 1 000 ops of 100 000 nodes each passed every check.
+ *
+ * So the batch is parsed ONCE through this package's own parser, the array is
+ * split at the AST, and the node budget is carried ACROSS the ops rather than
+ * reset per op.
+ */
+export const decodeOps = (json: string, policy?: DecodePolicy): R<readonly TreeOp<unknown>[]> => {
+  const parsed = parse(json);
+  if (!parsed.ok) return parseFailure(parsed.error);
+  resetWalk(policy);
+
+  const entries = parsed.value.kind === 'JArray' ? parsed.value.items : [parsed.value];
+  const ops: TreeOp<unknown>[] = [];
+  for (let i = 0; i < entries.length; i += 1) {
+    // The path names the batch position, so a failure in a 200-op batch says
+    // WHICH op. `resetWalk` is deliberately NOT called here: the node budget is
+    // the batch's, not each op's.
+    const path = parsed.value.kind === 'JArray' ? `$[${i}]` : '$';
+    const decoded = decodeTreeOpAst(path, entries[i]!);
+    if (!decoded.ok) return decoded;
+    ops.push(decoded.value);
+  }
+  return ok(ops);
 };

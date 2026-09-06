@@ -2,7 +2,7 @@
 // UI wire format.
 //
 // Canonical import:
-//   import { encodeNode, decodeNode, encodeOp, decodeOp, apply } from '@fuaran-ui/ops';
+//   import { encodeNode, decodeNode, encodeOp, decodeOp, decodeOps, apply } from '@fuaran-ui/ops';
 //   import type { TreeOp, DecodeError } from '@fuaran-ui/ops';
 //
 // A conformant TypeScript host of the language-neutral wire-format contract in
@@ -30,6 +30,7 @@ export {
 export {
   decodeNode,
   decodeOp,
+  decodeOps,
   coerce,
   liveValueToTable,
   // The dataframe half of the structural decoder. Public since the transform

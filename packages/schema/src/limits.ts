@@ -49,7 +49,19 @@ export const MAX_NODE_DEPTH = 24;
  */
 export const MAX_JSON_DEPTH = 256;
 
-/** Maximum length in characters of a single decoded JSON string. */
+/**
+ * Maximum length of a single decoded JSON string, in **Unicode code points**
+ * (WIRE_FORMAT §21.6). A surrogate pair counts as ONE.
+ *
+ * The unit is the whole of this constant's content: the row said "characters",
+ * which is not a unit, and measured across the hosts it was three — UTF-16 code
+ * units here and on the F# host, code points on Python, UTF-8 bytes on Go. A
+ * 600 000-character CJK string was therefore inside the limit on three hosts and
+ * outside it on one, with every host believing it enforced the same number.
+ * Code points are the only reading that is a property of the TEXT rather than of
+ * a host's string representation or of the alphabet the author writes in, so
+ * this host counts them — `s.length` is UTF-16 units and is NOT this bound.
+ */
 export const MAX_STRING_LENGTH = 1048576;
 
 /**
@@ -68,3 +80,25 @@ export const MAX_ARRAY_LENGTH = 100000;
  * the bytes that produced it.
  */
 export const MAX_NODES = 100000;
+
+/**
+ * Maximum size of a whole input document, in **UTF-8 bytes**
+ * (WIRE_FORMAT §21.7).
+ *
+ * The five structural limits compose MULTIPLICATIVELY: 100 000 array elements
+ * each carrying a maximal string satisfies every one of them and is a hundred
+ * gigabytes. Each individual check refuses nothing, because each individual
+ * check is satisfied, so nothing bounded the total until this bound.
+ *
+ * UTF-8 bytes rather than code points or `String.length`, and it is the one
+ * limit whose unit differs from `MAX_STRING_LENGTH`'s: this bounds the CARRIAGE
+ * — what an attacker sends and what the host allocates — and carriage is bytes.
+ * Measuring it in UTF-16 units would under-count a CJK document threefold,
+ * which is the direction that ADMITS rather than refuses.
+ *
+ * The figure is constrained from below by `MAX_NODES`: a document at exactly
+ * 100 000 nodes is about 8 MB of small nodes, so an 8 MiB ceiling would refuse a
+ * document §21.2 rule 1 requires every host to accept — silently lowering
+ * `MAX_NODES` while leaving its stated value in the table.
+ */
+export const MAX_DOCUMENT_BYTES = 33554432;
