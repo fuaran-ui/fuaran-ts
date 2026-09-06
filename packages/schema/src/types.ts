@@ -33,7 +33,7 @@
 // ============================================================================
 
 import type { Result } from './result.js';
-import type { DataSource, InvokeArg, Transform } from './compute.js';
+import type { ColExpr, DataSource, InvokeArg, Transform } from './compute.js';
 
 // ─── Branded primitives ─────────────────────────────────────────────────────
 //
@@ -499,6 +499,21 @@ export type Binding<T> =
       // Phase 424 — bind each `ColExpr.Param` name the pipeline references to a scalar `Binding`
       // source (`Filter` / `State` / `Static` / `Selection`). Optional (omitted-when-empty), so a
       // param-free Transform is byte-identical to the Phase 282 shape.
+      readonly params?: readonly TransformParam[];
+    }
+  | {
+      // Phase 1534 — scalar logic over bound values. `Binding.Transform`'s
+      // sibling with the ROW removed: one `ColExpr` evaluated against the param
+      // environment alone, yielding one cell. It mints NO operator — the
+      // algebra is `Fuaran.Core`'s existing `ColExpr`, reused in its own
+      // encoding, so an expression means the same thing here as inside a
+      // `derive` step. Two decode refusals, both because an `Expr` has no row:
+      // a `col` reference (remedy: `Binding.Transform`, which has a frame) and
+      // a `param` this binding's own `params` does not bind. Structurally
+      // independent of `T`.
+      readonly kind: 'Expr';
+      readonly expr: ColExpr;
+      // The SAME slot `Transform` carries, deliberately, and omitted-when-empty.
       readonly params?: readonly TransformParam[];
     }
   | {

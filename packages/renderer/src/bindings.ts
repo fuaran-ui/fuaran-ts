@@ -271,6 +271,18 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       if (!frame.ok) return { kind: 'Errored', message: frame.error };
       return { kind: 'Resolved', value: tableToRows(frame.value) as T };
     }
+    case 'Expr': {
+      // Phase 1534 - the scalar expression. This is the GENERIC arm, for a slot
+      // that reached the resolver without a coercion; a slot that HAS one -
+      // every text and numeric slot - goes through `resolveScalarWith` and gets
+      // `cellToText` / `cellToFloat` / `cellToBool` instead. A NULL result is
+      // `NotResolved`, matching what the scalar Transform path already does with
+      // a null cell: the slot's empty state, not an error.
+      const exprCell = evalExprCell(sources, binding);
+      if (!exprCell.ok) return { kind: 'Errored', message: exprCell.error };
+      if (exprCell.value.kind === 'Null') return { kind: 'NotResolved' };
+      return { kind: 'Resolved', value: cellToJsValue(exprCell.value) as T };
+    }
     case 'Invoke': {
       // Phase 283/284 — dispatch a host-registered capability for a value. The
       // host invoker resolves (capabilityId, args) to a `Deferred`; map
@@ -428,27 +440,93 @@ const evalTransformFrame = (
 };
 
 /**
+ * Phase 1534 - evaluate a `Binding.Expr` to ONE cell.
+ *
+ * It is `evalTransformFrame` over a one-row frame and a two-step pipeline, and
+ * that is the whole implementation on purpose: param resolution, the list-param
+ * substitution, the unbound-name handling and the evaluator are then literally
+ * the same code the pipeline runs, so an expression cannot mean one thing
+ * inside a `derive` and another inside an `Expr`. A second evaluator here would
+ * be a second thing to specify, certify on five hosts, and keep in step.
+ *
+ * The frame carries one column of one row so `derive` has a row to produce; the
+ * expression never reads it (a `col` reference is refused at decode), and the
+ * trailing `project` drops it so what comes back is 1x1 by construction rather
+ * than by inspection.
+ */
+const evalExprCell = (
+  sources: BindingSources,
+  binding: Extract<Binding<unknown>, { kind: 'Expr' }>,
+): { readonly ok: true; readonly value: Cell } | { readonly ok: false; readonly error: string } => {
+  const unitFrame: Table = {
+    schema: [{ name: '__unit', type: 'bool' }],
+    columns: [{ name: '__unit', type: 'bool', cells: [{ kind: 'Bool', value: true }] }],
+  };
+  const asTransform: Extract<Binding<unknown>, { kind: 'Transform' }> = {
+    kind: 'Transform',
+    source: { kind: 'Data', source: { kind: 'Embedded', table: unitFrame } },
+    pipeline: [
+      { kind: 'derive', name: '__value', expr: binding.expr },
+      { kind: 'project', cols: [{ a: '__value', b: '__value' }] },
+    ],
+    ...(binding.params !== undefined ? { params: binding.params } : {}),
+  };
+  const frame = evalTransformFrame(sources, asTransform);
+  if (!frame.ok) {
+    // `evalTransformFrame`'s messages say "Transform"; an author looking at an
+    // `Expr` binding has no Transform to look for.
+    return {
+      ok: false,
+      error: frame.error
+        .replace(/^Transform /, 'Expr ')
+        .replace('Transform evaluation', 'Expr evaluation'),
+    };
+  }
+  const col = frame.value.columns.find((c) => c.name === '__value');
+  // The column is there by construction - `derive` writes it and `project`
+  // keeps only it - so its ABSENCE is a broken invariant here, never a null
+  // result. Defaulting to Null would render the invariant break as the slot's
+  // ordinary empty state and hide it completely.
+  if (col === undefined || col.cells[0] === undefined) {
+    const present = frame.value.columns.map((c) => c.name).join(', ');
+    return {
+      ok: false,
+      error: `Expr evaluation produced no result column (columns present: ${present}) - a host defect, not a document one`,
+    };
+  }
+  return { ok: true, value: col.cells[0] };
+};
+
+/**
+ * One `Cell` as its plain JS value - a `Null` becomes `null`. Hoisted out of
+ * `tableToRows` by Phase 1534 so the scalar `Expr` path lowers a cell exactly as
+ * a row cell does; two copies of this switch is how a host ends up rendering a
+ * date one way inside a grid and another beside it.
+ */
+export const cellToJsValue = (c: Cell): unknown => {
+  switch (c.kind) {
+    case 'Int':
+    case 'Float':
+      return c.value;
+    case 'Bool':
+      return c.value;
+    case 'Str':
+    case 'Date':
+    case 'Timestamp':
+      return c.value;
+    case 'Null':
+      return null;
+  }
+};
+
+/**
  * Project an evaluated columnar `Table` into plain row objects (one per row,
- * `{ [columnName]: jsValue }`) — the shape a data-bearing node's source slot
+ * `{ [columnName]: jsValue }`) - the shape a data-bearing node's source slot
  * consumes. A `Null` cell becomes `null`.
  */
 export const tableToRows = (t: Table): Record<string, unknown>[] => {
   const n = t.columns.length > 0 ? t.columns[0]!.cells.length : 0;
-  const cellToJs = (c: Cell): unknown => {
-    switch (c.kind) {
-      case 'Int':
-      case 'Float':
-        return c.value;
-      case 'Bool':
-        return c.value;
-      case 'Str':
-      case 'Date':
-      case 'Timestamp':
-        return c.value;
-      case 'Null':
-        return null;
-    }
-  };
+  const cellToJs = cellToJsValue;
   const rows: Record<string, unknown>[] = [];
   for (let i = 0; i < n; i += 1) {
     const row: Record<string, unknown> = {};
@@ -661,6 +739,18 @@ export const resolveScalarWith = <T>(
   sources: BindingSources,
   binding: Binding<T>,
 ): Resolution<T> => {
+  if (binding.kind === 'Expr') {
+    // Phase 1534 - the scalar expression in a slot that has a coercion. `Null`
+    // is `NotResolved` (the slot's empty state, exactly as a null cell out of a
+    // scalar `Transform` is); an unbound param or a type error is `Errored`,
+    // never a substituted default - a wrong number rendered confidently is
+    // worse than a slot that says it could not be computed.
+    const exprCell = evalExprCell(sources, binding);
+    if (!exprCell.ok) return { kind: 'Errored', message: exprCell.error };
+    if (exprCell.value.kind === 'Null') return { kind: 'NotResolved' };
+    const c = coerceCell(exprCell.value);
+    return c.ok ? { kind: 'Resolved', value: c.value } : { kind: 'Errored', message: c.error };
+  }
   if (binding.kind !== 'Transform') return resolve<T>(sources, binding);
   const frame = evalTransformFrame(sources, binding);
   if (!frame.ok) return { kind: 'Errored', message: frame.error };
@@ -697,6 +787,41 @@ export const resolveScalarWith = <T>(
   };
 };
 
+/**
+ * Phase 1534 - the BOOLEAN coercion, the third of the trio beside `cellToText`
+ * and `cellToFloat`. Strict: only a `Bool` cell is a boolean.
+ *
+ * No truthiness. Zero, the empty string and the text "false" are all refused
+ * rather than read as `false`, because every language that has guessed at this
+ * has guessed differently, and five hosts agreeing on a rendering is the whole
+ * point of the corpus. The vocabulary already carries the total spellings -
+ * `isNull` for presence, `=` for a value, `not` for negation - so refusing here
+ * costs an author nothing but the explicit operator.
+ */
+export const cellToBool = (c: Cell): CellCoerce<boolean> => {
+  switch (c.kind) {
+    case 'Bool':
+      return { ok: true, value: c.value };
+    case 'Int':
+    case 'Float':
+      return {
+        ok: false,
+        error:
+          'a numeric cell is not a boolean - compare it (=, >, isNull) rather than relying on a truthiness rule the hosts do not share',
+      };
+    case 'Str':
+      return {
+        ok: false,
+        error: `a text cell ('${c.value}') is not a boolean - compare it (=, isNull) rather than relying on a truthiness rule the hosts do not share`,
+      };
+    case 'Date':
+    case 'Timestamp':
+      return { ok: false, error: `a date cell ('${c.value}') is not a boolean` };
+    case 'Null':
+      return { ok: false, error: 'a null cell is not a boolean - test presence with isNull' };
+  }
+};
+
 /** Scalar-slot resolution for a text slot (`TextSource.Bound` and friends). */
 export const resolveScalarText = (
   sources: BindingSources,
@@ -708,6 +833,16 @@ export const resolveScalarFloat = (
   sources: BindingSources,
   binding: Binding<number>,
 ): Resolution<number> => resolveScalarWith(cellToFloat, sources, binding);
+
+/**
+ * Phase 1534 - scalar-slot resolution for a BOOLEAN slot. Completes the trio so
+ * an `Expr` reaches a boolean slot through the same coercion seam a text or
+ * numeric one does, rather than through the generic unbox.
+ */
+export const resolveScalarBool = (
+  sources: BindingSources,
+  binding: Binding<boolean>,
+): Resolution<boolean> => resolveScalarWith(cellToBool, sources, binding);
 
 /** Best-effort scalar text resolution — the `tryResolve` twin for text slots. */
 export const tryResolveScalarText = (

@@ -793,6 +793,30 @@ const binding = <T>(b: Binding<T>, staticEnc: (v: T) => string = objValue): stri
         ],
       ]);
     }
+    case 'Expr': {
+      // Phase 1534 — the scalar expression. `expr` splices the SAME canonical
+      // `ColExpr` rendering the pipeline's steps use, and `params` is the same
+      // omitted-when-empty list `Transform` carries above — reusing both is what
+      // keeps the two cases from drifting into two dialects. `$type` (0x24)
+      // sorts before `expr` < `params`, so the composite is canonical.
+      const exprParams: readonly Field[] =
+        b.params !== undefined && b.params.length > 0
+          ? [
+              [
+                'params',
+                jArray(
+                  b.params.map((p) =>
+                    jObject([
+                      ['from', binding(p.from)],
+                      ['name', str(p.name)],
+                    ]),
+                  ),
+                ),
+              ],
+            ]
+          : [];
+      return caseObj('Expr', [['expr', colExpr(b.expr)], ...exprParams]);
+    }
     case 'Invoke':
       // Phase 283 — host-registered capability for a value; the body never on the wire.
       return caseObj('Invoke', [

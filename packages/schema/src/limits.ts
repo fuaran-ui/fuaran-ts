@@ -102,3 +102,22 @@ export const MAX_NODES = 100000;
  * `MAX_NODES` while leaving its stated value in the table.
  */
 export const MAX_DOCUMENT_BYTES = 33554432;
+
+/**
+ * Maximum number of `ColExpr` nodes in ONE `Binding.Expr` expression
+ * (WIRE_FORMAT §21.8, Phase 1534). Counted per expression, not per document: a
+ * tree may carry many `Expr` bindings, each bounded here, with the whole still
+ * bounded by `MAX_DOCUMENT_BYTES`. A breach is `LIMIT_EXCEEDED` at the path of
+ * the `expr` member.
+ *
+ * ONE count and not a count plus a depth: depth <= node count for every
+ * expression, so an expression 600 deep is already 600 nodes and already
+ * refused; a second number would be one more figure to keep in step across the
+ * hosts and would refuse nothing this one does not.
+ *
+ * Its SCOPE is `Binding.Expr` and nothing else. A `ColExpr` inside a
+ * `Binding.Transform` pipeline is NOT bounded by it, and was not bounded before
+ * it either — stated rather than left to be inferred, because a limit whose
+ * scope is guessed at is worse than no limit.
+ */
+export const MAX_EXPR_NODES = 512;
