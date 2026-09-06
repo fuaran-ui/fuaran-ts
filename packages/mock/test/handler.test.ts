@@ -100,7 +100,9 @@ describe('@fuaran-ui/mock — the contract-faithful handler', () => {
   it('refuses a body carrying a secret, exactly as the endpoint does', () => {
     // The point of the mock is that what passes here passes there. A client
     // that has not moved its secrets into headers must fail HERE.
-    const reply = handleTurnBody(JSON.stringify({ prompt: 'a metric', ByokKey: 'sk-super-secret' }));
+    const reply = handleTurnBody(
+      JSON.stringify({ prompt: 'a metric', ByokKey: 'sk-super-secret' }),
+    );
     expect(reply.status).toBe(400);
     const body = reply.body as ErrorBody;
     expect(body.error.code).toBe('SECRETS_IN_BODY');

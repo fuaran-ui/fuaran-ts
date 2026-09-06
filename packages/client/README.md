@@ -137,11 +137,11 @@ to an origin you never named.
 (`ACCESS_DENIED`, `APPLY_REJECTED`, `SECRETS_IN_BODY`, `MISSING_PROVIDER_KEY`,
 …). Three codes are this client's own, exported as `CLIENT_CODES`:
 
-| Code | Means |
-|---|---|
-| `NETWORK` | the call did not complete — the fetch rejected, a redirect was refused, your `AbortSignal` fired, or `timeoutMs` elapsed. The message is fixed: upstream error text can quote a URL or an internal hostname, and this result is often rendered straight into the page. |
-| `MALFORMED_RESPONSE` | a 200 with no usable tree. Not a success — accepting it would leave the session holding `''` and silently repairing nothing on every later turn. |
-| `INSECURE_ENDPOINT` | the endpoint is plaintext and not loopback; see above. |
+| Code                 | Means                                                                                                                                                                                                                                                                  |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NETWORK`            | the call did not complete — the fetch rejected, a redirect was refused, your `AbortSignal` fired, or `timeoutMs` elapsed. The message is fixed: upstream error text can quote a URL or an internal hostname, and this result is often rendered straight into the page. |
+| `MALFORMED_RESPONSE` | a 200 with no usable tree. Not a success — accepting it would leave the session holding `''` and silently repairing nothing on every later turn.                                                                                                                       |
+| `INSECURE_ENDPOINT`  | the endpoint is plaintext and not loopback; see above.                                                                                                                                                                                                                 |
 
 ## API surface
 

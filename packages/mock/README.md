@@ -54,7 +54,7 @@ URL and supply your access token + BYOK key — nothing else in your code change
   (`opsApplied: 0`); a request carrying a current tree is a repair (a small
   canonical `TreeOp`, counted).
 - **The endpoint's own shape.** A 200 is `{version, tree, opsApplied, provider,
-  servedModel, snapshot}` with `tree` as a JSON OBJECT, and every refusal is
+servedModel, snapshot}` with `tree` as a JSON OBJECT, and every refusal is
   `{"error": {"code", "message", "stage"?}}` — so a client this mock certifies
   can talk to a deployment. (`ops` is carried beside `opsApplied` even though
   the endpoint sends only the count: withholding it would make the repair half

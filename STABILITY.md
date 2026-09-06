@@ -369,7 +369,6 @@ authorises the caller, caps prompt length and rate-limits per caller before spen
 `proxyFuaranRequest` therefore takes a second argument (the caller key). The emitted F#/Fable panel
 moves to the same wire, and stays byte-identical to the F# CLI's copy of the template.
 
-
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:

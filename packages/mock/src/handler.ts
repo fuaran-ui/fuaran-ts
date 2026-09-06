@@ -185,7 +185,11 @@ export function handleTurn(req: MockTurnRequest): MockReply {
 export function handleTurnBody(bodyText: string): MockReply {
   const trimmed = bodyText.trim();
   if (trimmed === '') {
-    return errorReply(400, 'BAD_REQUEST', "request body is empty — expected a JSON object with a 'prompt'");
+    return errorReply(
+      400,
+      'BAD_REQUEST',
+      "request body is empty — expected a JSON object with a 'prompt'",
+    );
   }
   let parsed: unknown;
   try {
