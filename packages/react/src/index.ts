@@ -24,3 +24,12 @@ export {
   describeTurnError,
   type FuaranGeneratedProps,
 } from './FuaranGenerated.js';
+
+// Phase 1546 — this adapter holds no raw-HTML sink of its own; every one it can
+// reach belongs to `@fuaran-ui/renderer`, which mints through the
+// `fuaran-renderer` Trusted Types policy. The name is re-exported here so an app
+// wiring its CSP from this package alone has the string it must pin:
+//
+//   Content-Security-Policy: require-trusted-types-for 'script';
+//                            trusted-types fuaran-renderer
+export { TRUSTED_TYPES_POLICY_NAME } from '@fuaran-ui/renderer';

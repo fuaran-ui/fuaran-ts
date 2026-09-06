@@ -18,6 +18,13 @@ export {
 
 export { runValidate, type ValidateArgs, type ValidateResult } from './tools/validate.js';
 export {
+  runInspect,
+  UNTRUSTED_TEXT_OBLIGATION,
+  type InspectArgs,
+  type InspectResult,
+  type UntrustedTextEntry,
+} from './tools/inspect.js';
+export {
   runAsk,
   buildAnswerPage,
   coerceAnswer,
