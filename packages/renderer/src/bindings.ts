@@ -28,11 +28,7 @@ import type {
   TrackKind,
   TreeItem,
 } from '@fuaran-ui/schema';
-import {
-  epochSecondsOfInstant,
-  sinceUnitAndCount,
-  truncateToGrain,
-} from '@fuaran-ui/schema';
+import { epochSecondsOfInstant, sinceUnitAndCount, truncateToGrain } from '@fuaran-ui/schema';
 import {
   evalPipelineWith,
   evalPipelineWithInEnv,
