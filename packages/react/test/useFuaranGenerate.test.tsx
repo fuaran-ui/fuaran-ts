@@ -122,9 +122,11 @@ describe('useFuaranGenerate — the turn-loop as React state', () => {
     });
 
     expect(bodies).toHaveLength(2);
-    // Turn 1 is a fresh generation; turn 2 carries the held tree.
-    expect(bodies[0]).not.toContain('CurrentTreeJson');
-    expect(bodies[1]).toContain('CurrentTreeJson');
+    // Turn 1 is a fresh generation; turn 2 carries the held tree. The body member
+    // is `currentTree` — the name the endpoint reads — and the quotes keep this
+    // matching the KEY rather than any occurrence inside the embedded tree string.
+    expect(bodies[0]).not.toContain('"currentTree"');
+    expect(bodies[1]).toContain('"currentTree"');
   });
 
   it('reset() drops the held tree so the next turn is fresh again', async () => {
@@ -148,7 +150,7 @@ describe('useFuaranGenerate — the turn-loop as React state', () => {
     await act(async () => {
       await probe.state().generate('a form');
     });
-    expect(bodies[1]).not.toContain('CurrentTreeJson');
+    expect(bodies[1]).not.toContain('"currentTree"');
   });
 
   it('surfaces a typed error and leaves the held tree untouched', async () => {
