@@ -16,6 +16,7 @@ import { printBreakClasses } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { runAction, writeBackTo } from '../context.js';
 import { renderChildren, renderNode } from './core.js';
+import { sanitizeCssValueForSlot } from '../sanitize.js';
 import { iconHook } from './iconHook.js';
 
 // ─── Popover (Phase 1119) ────────────────────────────────────────────────────
@@ -190,14 +191,31 @@ export const renderLayout = <TMsg,>(
       // role === 'Group' with a Flex or Grid layout.
       if (spec.layout.kind === 'Grid') {
         const g = spec.layout;
-        const templateColumns =
+        const declaredTemplateColumns =
           g.templateColumns !== undefined ? g.templateColumns : `repeat(${g.cols}, 1fr)`;
+        // The SAME grammar the server renderers apply, applied here for a
+        // reason that is easy to get backwards. A React client is not the
+        // vulnerable tier: this assigns a style OBJECT, and the browser drops an
+        // invalid value, so a hostile `templateColumns` was inert here and live
+        // in SSR. That DISAGREEMENT is the defect. A tree is supposed to render
+        // the same on every conformant host, so a value one host refuses and
+        // another silently ignores must be refused by both, visibly, in the same
+        // way — otherwise the refusal marker is absent from exactly the document
+        // a reader is looking at.
+        const [templateColumns, cssRefusalAttrs] = sanitizeCssValueForSlot(
+          'grid-template-columns',
+          declaredTemplateColumns,
+        );
         // `gap` (Phase 459 — the Spacer replacement) emits only when set, so
         // gap-free grids stay byte-identical to the pre-459 emission.
         const gridStyle: CSSProperties = { gridTemplateColumns: templateColumns };
         if (g.gap !== undefined) gridStyle.gap = `${g.gap}px`;
         return (
-          <div className={`fuaran-layout-grid${brk}`} style={gridStyle}>
+          <div
+            className={`fuaran-layout-grid${brk}`}
+            style={gridStyle}
+            {...Object.fromEntries(cssRefusalAttrs)}
+          >
             {renderChildren(ctx, spec.children)}
           </div>
         );

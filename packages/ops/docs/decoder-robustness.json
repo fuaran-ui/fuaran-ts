@@ -1,0 +1,28 @@
+{
+  "host": "fuaran-ts",
+  "entryPoints": [
+    "decodeNode",
+    "decodeOp"
+  ],
+  "config": "long",
+  "seed": "20260906",
+  "iterations": 250000,
+  "inputs": 500000,
+  "corpusSeeds": 450,
+  "corpusPresent": true,
+  "accepted": 4805,
+  "rejectCodes": {
+    "INVALID_JSON": 362260,
+    "MISSING_FIELD": 57266,
+    "WRONG_TYPE": 53523,
+    "WRONG_NODE_KIND": 6061,
+    "LIMIT_EXCEEDED": 12396,
+    "UNKNOWN_DU_CASE": 3587,
+    "EMPTY_NODE_ID": 102
+  },
+  "counterexamples": 0,
+  "maxDecodeMs": 261.297,
+  "maxCanonicalAmplification": 1.987,
+  "elapsedSeconds": 284.235,
+  "generatedAt": "2026-09-06T21:51:26.307Z"
+}

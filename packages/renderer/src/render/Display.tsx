@@ -45,6 +45,7 @@ import type { RenderContext } from '../context.js';
 import { drawingSvg } from '../drawingSvg.js';
 import { mathMl } from '../mathMl.js';
 import { sanitizeEmbedSrcForEgress, sanitizeUrlForEgress } from '../egress.js';
+import { sanitizeLinkAnchor } from '../sanitize.js';
 import { toHtmlWithEgress } from '../markdown.js';
 import { renderNode } from './core.js';
 import { iconHook } from './iconHook.js';
@@ -227,6 +228,20 @@ export const renderDisplay = <TMsg,>(
           </span>
         );
       }
+      // `rel` and `target` were emitted VERBATIM, so a decoded tree could write
+      // `rel="opener"` on a `_blank` link and re-enable `window.opener` (handing
+      // the opened document a live reference to this one), or name an arbitrary
+      // browsing context in `target`. Both are closed token sets now, resolved
+      // TOGETHER because the `rel` rule depends on the sanitised target:
+      // `noopener noreferrer` is FORCED on `_blank` whether or not the document
+      // asked. Browsers imply `noopener` there, which is exactly why the
+      // omission mattered — it is a user-agent DEFAULT that an explicit
+      // `rel="opener"` overrides, and no document can know its reader's version
+      // floor. Same grammar, same order, same bytes as every other host.
+      const [safeTarget, safeRel] = sanitizeLinkAnchor(
+        display.spec.target,
+        display.spec.rel,
+      );
       // The refusal marker rides the element that carries the refused href, so
       // a reader of the DOM sees WHY this anchor points at about:blank. Empty
       // on an allow.
@@ -234,8 +249,8 @@ export const renderDisplay = <TMsg,>(
         <a
           className="fuaran-link"
           href={href}
-          {...(display.spec.rel !== undefined ? { rel: display.spec.rel } : {})}
-          {...(display.spec.target !== undefined ? { target: display.spec.target } : {})}
+          {...(safeRel !== undefined ? { rel: safeRel } : {})}
+          {...(safeTarget !== undefined ? { target: safeTarget } : {})}
           {...(display.spec.download ? { download: '' } : {})}
           {...semanticAttrs}
           {...Object.fromEntries(egressAttrs)}

