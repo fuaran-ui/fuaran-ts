@@ -197,6 +197,14 @@ export {
   isSafeExtraAttributeValue,
 } from './sanitize.js';
 
+// Phase 1546 — the Trusted Types policy every raw-HTML sink in this renderer
+// mints through. `TRUSTED_TYPES_POLICY_NAME` is what a host writes into its
+// `trusted-types` CSP directive, beside `require-trusted-types-for 'script'`;
+// `trustedHtml` is exported so a host-registered custom renderer reaching a
+// raw-HTML sink of its own can mint through the same policy rather than a
+// second one.
+export { TRUSTED_TYPES_POLICY_NAME, createHtml, trustedHtml } from './trustedTypes.js';
+
 // The destination policy (WIRE_FORMAT §14.1) — the second, orthogonal gate the
 // scheme floor above does not provide: a scheme allowlist says what a URL may
 // BE, an origin allowlist says where it may GO. Host-constructed only; there is

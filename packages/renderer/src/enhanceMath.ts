@@ -20,6 +20,8 @@
 // Hosts must also load KaTeX's stylesheet once (`import 'katex/dist/katex.min.css'`).
 import katex from 'katex';
 
+import { trustedHtml } from './trustedTypes.js';
+
 const DONE_ATTR = 'data-fuaran-math-done';
 
 // Phase 658 — the deterministic Math container carries the original LaTeX in
@@ -36,11 +38,16 @@ interface RenderOpts {
 
 function renderTo(el: Element, tex: string, opts: RenderOpts): void {
   try {
-    el.innerHTML = katex.renderToString(tex, {
-      displayMode: opts.displayMode,
-      throwOnError: false,
-      output: 'htmlAndMathml',
-    });
+    // Phase 1546: `innerHTML` is a Trusted Types sink like the renderer's
+    // `dangerouslySetInnerHTML` seams, so KaTeX's output is minted through the
+    // same `fuaran-renderer` policy.
+    el.innerHTML = trustedHtml(
+      katex.renderToString(tex, {
+        displayMode: opts.displayMode,
+        throwOnError: false,
+        output: 'htmlAndMathml',
+      }),
+    );
   } catch {
     // Leave the deterministic source fallback untouched on any failure — the
     // reader still sees the raw LaTeX, never a blank.
