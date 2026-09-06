@@ -297,7 +297,7 @@ export const sanitizeMarkdownHtml = (html: string): string => {
     const closeTag = '</' + tag + '>';
     let keepGoing = true;
     while (keepGoing) {
-      const i = indexOfCI(result, openTag, 0);
+      const i = indexOfElementOpen(result, openTag);
       if (i < 0) {
         keepGoing = false;
       } else {
@@ -336,6 +336,38 @@ export const sanitizeMarkdownHtml = (html: string): string => {
 
 const indexOfCI = (haystack: string, needle: string, from: number): number =>
   asciiLower(haystack).indexOf(asciiLower(needle), from);
+
+/**
+ * An HTML tag name ends at whitespace, `/` or `>`, so a match on the bare prefix
+ * is a match on a DIFFERENT element: `<metadata>` is not `<meta>`, and
+ * `<linearGradient>` is not `<link>`. Both are real SVG elements, and since
+ * Phase 1546 this sweep runs over the renderer's SVG payloads as well as its
+ * markdown (it is the Trusted Types policy's `createHTML` body), where the bare
+ * prefix stripped the opening tag of a provenance `<metadata>` element.
+ *
+ * Requiring the boundary narrows only false positives: no spelling of a real
+ * `<meta>` element survives it, because the name has to be delimited for a
+ * parser to read it as that element in the first place. End of input counts as a
+ * boundary, so a truncated `…<script` is still stripped.
+ *
+ * Parity-locked with the F# `Sanitize.sanitizeMarkdownHtml`.
+ */
+const isTagNameBoundary = (s: string, index: number): boolean => {
+  if (index >= s.length) return true;
+  const c = s[index];
+  return c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '/' || c === '>';
+};
+
+const indexOfElementOpen = (s: string, openTag: string): number => {
+  let from = 0;
+  while (from <= s.length - openTag.length) {
+    const i = indexOfCI(s, openTag, from);
+    if (i < 0) return -1;
+    if (isTagNameBoundary(s, i + openTag.length)) return i;
+    from = i + 1;
+  }
+  return -1;
+};
 
 /**
  * Strip inline `on*="..."` event-handler attributes (tag-interior anchored).

@@ -9,6 +9,7 @@ export default defineConfig([
     sourcemap: true,
     treeshake: true,
     external: [
+      '@fuaran-ui/ai-tools/introspection',
       '@fuaran-ui/client',
       '@fuaran-ui/ops',
       '@fuaran-ui/renderer-server',
@@ -23,6 +24,7 @@ export default defineConfig([
     sourcemap: true,
     banner: { js: '#!/usr/bin/env node' },
     external: [
+      '@fuaran-ui/ai-tools/introspection',
       '@fuaran-ui/client',
       '@fuaran-ui/ops',
       '@fuaran-ui/renderer-server',

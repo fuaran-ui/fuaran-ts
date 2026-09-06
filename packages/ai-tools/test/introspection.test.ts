@@ -213,11 +213,14 @@ describe('getNodeState / findNodes / inspectTree', () => {
     button('go', { kind: 'State', key: 'busy', defaultValue: false }),
   ]);
 
-  it('getNodeState returns the kind, bindings, and childIds', () => {
+  it('getNodeState returns the kind, bindings, text slots, and childIds', () => {
+    // Phase 1547 — the `text` array is part of the envelope: the Metric's
+    // `Label` is a literal `TextSource`, so it is marked and carries no flag.
     expect(getNodeState(tree, 'rev')).toEqual({
       id: 'rev',
       kind: 'Metric',
       bindings: [{ slot: 'Value', expression: '$state.revenue', source: 'State' }],
+      text: [{ slot: 'Label', provenance: 'literal' }],
       childIds: [],
     });
     expect(getNodeState(tree, 'root')?.childIds).toEqual(['rev', 'go']);

@@ -44,6 +44,7 @@
     "lint": "tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
+    "@fuaran-ui/ai-tools": "workspace:^",
     "@fuaran-ui/client": "workspace:^",
     "@fuaran-ui/ops": "workspace:^",
     "@fuaran-ui/renderer-server": "workspace:^",
