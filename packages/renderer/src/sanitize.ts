@@ -319,18 +319,78 @@ export const sanitizeMarkdownHtml = (html: string): string => {
 
   result = stripEventHandlers(result);
 
+  result = stripDangerousProtocols(result);
+
+  return result;
+};
+
+/**
+ * Rewrite `javascript:` / `vbscript:` URLs to `about:blank` — TAG-INTERIOR
+ * ANCHORED, the same discipline `stripEventHandlers` already keeps and for the
+ * same reason.
+ *
+ * Unanchored, this sweep rewrote VISIBLE PROSE. The markdown source
+ * `` Never write `javascript:` in an href `` renders to a `<code>` element whose
+ * TEXT is the literal token, and the scan replaced it with `about:blank` — so a
+ * document explaining the hazard could not state it, and the reader was shown a
+ * sentence the author never wrote. The same applies to any body text mentioning
+ * the scheme: a security changelog, a code sample, a refusal message quoted back
+ * to a user.
+ *
+ * A real `javascript:` URL can only do harm as the VALUE of an attribute —
+ * `href`, `src`, `action`, `formaction`, `xlink:href`, `data`, `poster`. Every
+ * one of those sits inside a `<…>` tag, so restricting the scan to tag interiors
+ * is not a heuristic narrowing: it is the precise set of positions where the
+ * token is a URL rather than a word. Outside a tag the token is text, and the
+ * markdown renderer has already escaped that text by construction — which is
+ * what makes leaving it alone safe as well as correct.
+ *
+ * The interior test is the same single backward scan the F# twin runs: from the
+ * match, the nearest preceding `<` means the interior is open, the nearest
+ * preceding `>` (or the start of the document) means it is not. That is
+ * approximate on arbitrary HTML — a `>` inside a quoted attribute value ends the
+ * interior early — and sound on this function's documented input, the
+ * deterministic GFM renderer's output. Erring early SKIPS a rewrite, the
+ * direction of error that leaves prose intact.
+ *
+ * Parity-locked with the F# `Sanitize.sanitizeMarkdownHtml`.
+ */
+const stripDangerousProtocols = (input: string): string => {
+  let result = input;
   for (const proto of dangerousProtocols) {
+    let searchFrom = 0;
     let keepGoing = true;
     while (keepGoing) {
-      const i = asciiLower(result).indexOf(proto);
+      const lower = asciiLower(result);
+      const i = lower.indexOf(proto, searchFrom);
       if (i < 0) {
         keepGoing = false;
       } else {
-        result = result.slice(0, i) + 'about:blank' + result.slice(i + proto.length);
+        let j = i - 1;
+        let insideTag = false;
+        let settled = false;
+        while (j >= 0 && !settled) {
+          if (lower[j] === '<') {
+            insideTag = true;
+            settled = true;
+          } else if (lower[j] === '>') {
+            settled = true;
+          } else {
+            j -= 1;
+          }
+        }
+        if (insideTag) {
+          result = result.slice(0, i) + 'about:blank' + result.slice(i + proto.length);
+          searchFrom = i + 'about:blank'.length;
+        } else {
+          // Body text — left exactly as the author wrote it. Advancing is what
+          // keeps the loop terminating now that a match no longer always
+          // shortens the string.
+          searchFrom = i + proto.length;
+        }
       }
     }
   }
-
   return result;
 };
 
