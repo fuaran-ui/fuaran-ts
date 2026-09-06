@@ -12,11 +12,15 @@ import {
   type RecoverableError,
 } from '../src/index.js';
 
-const producedBody = JSON.stringify({ TreeJson: 't', Ops: [], Version: SURFACE_VERSION });
+const producedBody = JSON.stringify({
+  version: SURFACE_VERSION,
+  tree: { id: 't', kind: { $type: 'Badge', label: 'A', variant: 'Info' } },
+  opsApplied: 0,
+  provider: 'mock',
+  snapshot: { state: 'mock' },
+});
 const applyFailBody = JSON.stringify({
-  Stage: 'apply',
-  Code: 'APPLY_REJECTED',
-  Message: 'no node #x',
+  error: { stage: 'apply', code: 'APPLY_REJECTED', message: 'no node #x' },
 });
 
 /** A fetch that replays a scripted list of (status, body) replies (one per call)

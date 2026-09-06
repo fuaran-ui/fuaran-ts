@@ -50,11 +50,26 @@ URL and supply your access token + BYOK key — nothing else in your code change
 - **Prompt → tree.** The prompt is matched to a bundled fixture by keyword
   (`metric` / `dashboard` / `form` / `button` / `callout` / `heading` / `badge`);
   a no-match returns a deterministic **placeholder** tree, never an error.
-- **Fresh vs. repair.** A request with no `CurrentTreeJson` is a fresh
-  generation (an empty op list); a request carrying a current tree is a repair
-  (a small canonical `TreeOp` in `Ops`).
-- **Zero-secret.** `AccessToken` / `ByokKey` are read from nowhere and required
-  by nothing; nothing is logged per request.
+- **Fresh vs. repair.** A request with no `currentTree` is a fresh generation
+  (`opsApplied: 0`); a request carrying a current tree is a repair (a small
+  canonical `TreeOp`, counted).
+- **The endpoint's own shape.** A 200 is `{version, tree, opsApplied, provider,
+  servedModel, snapshot}` with `tree` as a JSON OBJECT, and every refusal is
+  `{"error": {"code", "message", "stage"?}}` — so a client this mock certifies
+  can talk to a deployment. (`ops` is carried beside `opsApplied` even though
+  the endpoint sends only the count: withholding it would make the repair half
+  of a turn loop untestable, and every conformant client prefers the count.)
+- **Zero-secret.** The access token and provider key are read from nowhere and
+  required by nothing; nothing is logged per request. A body CARRYING one is
+  refused `400 SECRETS_IN_BODY`, exactly as the endpoint does, so a client that
+  has not moved its secrets into headers fails here rather than in production.
+- **Refusals you can ask for.** A client's error paths are only testable
+  against an endpoint that can fail, and this one cannot fail for the real
+  reasons (an expired token, a provider outage). Put a marker in the prompt and
+  the mock replies with that refusal: `mock:access-denied` (401),
+  `mock:turn-failed` (422, apply stage), `mock:secrets-in-body` (400),
+  `mock:missing-key` (400), `mock:faulted` (500), `mock:unconfigured` (503). An
+  empty, unparseable or prompt-less body is `400 BAD_REQUEST` on its own.
 - **Surface version.** Every produced turn echoes the surface-version stamp the
   SDKs are built against.
 

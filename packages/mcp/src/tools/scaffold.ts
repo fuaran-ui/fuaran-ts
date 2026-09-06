@@ -107,13 +107,25 @@ export function FuaranPanel(): ReactElement {
 `;
 
 const PROXY_SERVER = `// Same-origin Fuaran proxy — the browser posts a secret-free request body to
-// this route; the handler injects the access token + BYOK provider key from
-// server-side env and forwards the call to the Fuaran generation endpoint.
-// No secret ever reaches the browser bundle.
+// this route; the handler adds the access token + BYOK provider key from
+// server-side env AS HEADERS and forwards the call to the Fuaran generation
+// endpoint. No secret ever reaches the browser bundle, and none is ever put in
+// a body: the endpoint REFUSES a body carrying \`ByokKey\` or \`AccessToken\`
+// (\`400 SECRETS_IN_BODY\`) without reading the value, because a body is the
+// thing most likely to be logged wholesale by an intermediary.
+//
+// IT IS NOT AN OPEN SPEND ENDPOINT. This route holds your BYOK key, so it
+// authorises the caller, caps the prompt length (prompt length is the
+// input-token bill) and rate-limits per caller. All three are deliberately
+// crude — replace them with whatever your app already uses; do not delete them.
 //
 // Framework-agnostic core: adapt to your router (Express / Fastify / Next /
-// etc.) by passing the raw request-body string and relaying the returned
+// etc.) by passing the raw request-body string, a caller key you can identify
+// (a session id, an API-key hash, a remote address) and relaying the returned
 // (status, body) pair.
+
+const MAX_PROMPT_LENGTH = 4000;
+const RATE_LIMIT = { maxTurns: 30, windowMs: 60_000 };
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -123,29 +135,83 @@ function requireEnv(name: string): string {
   return value;
 }
 
+function refuse(status: number, code: string, message: string): { status: number; body: string } {
+  // The endpoint's own envelope, so the browser decodes ONE contract whether it
+  // is talking to this proxy or to a deployment directly.
+  return { status, body: JSON.stringify({ error: { code, message } }) };
+}
+
+/** Replace this with your app's real authorisation. Returning \`true\`
+ *  unconditionally makes this route an open spend endpoint — if that is what
+ *  you want, make it say so here rather than by omission. */
+function isAuthorised(_caller: string): boolean {
+  const secret = process.env['FUARAN_PROXY_SECRET'];
+  if (secret === undefined || secret === '') {
+    throw new Error(
+      'FUARAN_PROXY_SECRET is not set. This route holds a BYOK key: wire your own ' +
+        'authorisation here, or set the variable, before serving it.',
+    );
+  }
+  return true;
+}
+
+const windows = new Map<string, { started: number; turns: number }>();
+
+function withinRateLimit(caller: string): boolean {
+  const now = Date.now();
+  const current = windows.get(caller);
+  if (current === undefined || now - current.started >= RATE_LIMIT.windowMs) {
+    windows.set(caller, { started: now, turns: 1 });
+    return true;
+  }
+  current.turns += 1;
+  return current.turns <= RATE_LIMIT.maxTurns;
+}
+
 export async function proxyFuaranRequest(
   rawBody: string,
+  caller: string,
 ): Promise<{ status: number; body: string }> {
   const endpoint = requireEnv('FUARAN_ENDPOINT');
   const accessToken = requireEnv('FUARAN_ACCESS_TOKEN');
   const providerKey = requireEnv('FUARAN_PROVIDER_KEY');
 
+  if (!isAuthorised(caller)) {
+    return refuse(401, 'ACCESS_DENIED', 'this route requires authorisation');
+  }
+
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(rawBody) as Record<string, unknown>;
   } catch {
-    return { status: 400, body: JSON.stringify({ Message: 'invalid JSON body' }) };
+    return refuse(400, 'BAD_REQUEST', 'invalid JSON body');
   }
 
-  // Overwrite — never merge — so a client-supplied credential field can
-  // neither leak in nor override the server's own.
-  const wireBody = { ...parsed, AccessToken: accessToken, ByokKey: providerKey };
+  const prompt = typeof parsed['prompt'] === 'string' ? parsed['prompt'] : '';
+  if (prompt.trim() === '') {
+    return refuse(400, 'BAD_REQUEST', 'a prompt is required');
+  }
+  if (prompt.length > MAX_PROMPT_LENGTH) {
+    return refuse(400, 'PROMPT_TOO_LONG', \`a prompt may be at most \${MAX_PROMPT_LENGTH} characters\`);
+  }
+  if (!withinRateLimit(caller)) {
+    return refuse(429, 'RATE_LIMITED', 'too many turns from this caller; try again shortly');
+  }
+
+  // Rebuild — never spread the client's object — so a client-supplied member
+  // can neither leak upstream nor override what this route controls.
+  const wireBody: Record<string, unknown> = { prompt };
+  if (parsed['currentTree'] !== undefined) wireBody['currentTree'] = parsed['currentTree'];
+  if (parsed['interactionId'] !== undefined) wireBody['interactionId'] = parsed['interactionId'];
 
   const response = await fetch(endpoint, {
     method: 'POST',
+    // A 307/308 must never re-POST these headers to another origin.
+    redirect: 'error',
     headers: {
       'content-type': 'application/json',
       authorization: \`Bearer \${accessToken}\`,
+      'x-fuaran-provider-key': providerKey,
     },
     body: JSON.stringify(wireBody),
   });
@@ -259,11 +325,15 @@ open Fuaran.UI.Renderer
 /// repair diff) to the proxy; return the produced tree JSON or an error.
 let private generate (prompt: string) (currentTreeJson: string option) : JS.Promise<Result<string, string>> =
     promise {
+        // The endpoint's own body shape, which your proxy passes through, so
+        // nothing here changes if you later point at a deployment directly. No
+        // secret is present: the proxy adds the access token and the BYOK key
+        // server-side, and the endpoint REFUSES a body that carries either.
         let body =
             createObj
-                [ "Prompt" ==> prompt
+                [ "prompt" ==> prompt
                   match currentTreeJson with
-                  | Some t -> "CurrentTreeJson" ==> t
+                  | Some t -> "currentTree" ==> t
                   | None -> () ]
 
         let! response =
@@ -277,7 +347,14 @@ let private generate (prompt: string) (currentTreeJson: string option) : JS.Prom
 
         if response.Ok then
             let parsed = JS.JSON.parse text
-            return Ok(parsed?TreeJson |> string)
+            let tree = parsed?tree
+
+            // A 200 with no tree is a FAILURE, not an empty tree: holding "" as
+            // the current tree would silently repair nothing on every later turn.
+            if isNull (box tree) then
+                return Error "the endpoint replied 200 with no tree"
+            else
+                return Ok(JS.JSON.stringify tree)
         else
             return Error(sprintf "generation failed (HTTP %d): %s" response.Status text)
     }
@@ -379,7 +456,8 @@ export function runScaffold(args: ScaffoldArgs): ScaffoldResult {
     install:
       'npm install @fuaran-ui/client @fuaran-ui/renderer @fuaran-ui/ops @fuaran-ui/schema react react-dom',
     notes: [
-      'Wire server/fuaranProxy.ts into your server router at POST /api/fuaran (pass the raw body string; relay the returned status + body).',
+      'Wire server/fuaranProxy.ts into your server router at POST /api/fuaran (pass the raw body string and a caller key you can identify; relay the returned status + body).',
+      'The proxy route holds your BYOK key: it authorises the caller, caps prompt length and rate-limits per caller before spending anything. Replace isAuthorised with your own check — do not delete it.',
       'Set FUARAN_ENDPOINT, FUARAN_ACCESS_TOKEN, and FUARAN_PROVIDER_KEY in server-side env — they never appear client-side.',
       'Render <FuaranPanel /> anywhere in your React tree.',
     ],

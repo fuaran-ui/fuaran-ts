@@ -7,7 +7,7 @@
 
 import { createServer, type Server } from 'node:http';
 
-import { handleTurnBody } from './handler.js';
+import { errorReply, handleTurnBody } from './handler.js';
 
 /** Options for {@link createMockServer}. */
 export interface MockServerOptions {
@@ -45,8 +45,16 @@ export function createMockServer(): Server {
       }
 
       if (req.method !== 'POST') {
-        res.writeHead(405, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ Reason: 'method not allowed; POST a TurnRequest' }));
+        // The endpoint's own 405, in the endpoint's own envelope. It used to be
+        // a bare `{Reason}` — a shape no client parses and the real surface
+        // never sends.
+        const reply = errorReply(
+          405,
+          'METHOD_NOT_ALLOWED',
+          'the generation surface accepts POST only',
+        );
+        res.writeHead(reply.status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(reply.body));
         return;
       }
 

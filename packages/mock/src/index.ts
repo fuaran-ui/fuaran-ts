@@ -8,7 +8,10 @@
 export {
   handleTurn,
   handleTurnBody,
+  errorReply,
   MOCK_SURFACE_VERSION,
+  MOCK_PROVIDER,
+  MOCK_SERVED_MODEL,
   type MockTurnRequest,
   type MockReply,
 } from './handler.js';

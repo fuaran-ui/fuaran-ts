@@ -12,8 +12,11 @@
 
 export {
   SURFACE_VERSION,
+  CLIENT_CODES,
   isSurfaceVersionCompatible,
   type AppliedOp,
+  type SnapshotState,
+  type ProducedDetail,
   type TurnStage,
   type RecoverableError,
   type Produced,
@@ -23,7 +26,13 @@ export {
   type GenerateArgs,
 } from './contract.js';
 
-export { FuaranClient, type FuaranClientConfig, type FetchLike } from './client.js';
+export {
+  FuaranClient,
+  isSecureEndpoint,
+  type FuaranClientConfig,
+  type FetchLike,
+  type GenerateOptions,
+} from './client.js';
 
 export { FuaranSession, type FuaranSessionOptions, type SessionTurnOptions } from './session.js';
 
@@ -40,4 +49,10 @@ export {
 // The wire mapping is exported for advanced hosts that drive their own
 // transport (e.g. a custom proxy that re-serialises the body); most callers use
 // `FuaranClient` and never touch it.
-export { toWireBody, parseTurnResponse, type ResolvedSecrets } from './wire.js';
+export {
+  toWireBody,
+  parseTurnResponse,
+  parseProducedDetail,
+  malformedResponse,
+  type ResolvedSecrets,
+} from './wire.js';
