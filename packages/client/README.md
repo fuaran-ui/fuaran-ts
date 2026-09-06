@@ -104,20 +104,63 @@ const client = new FuaranClient({
 **Never bundle a BYOK key (or a long-lived access token) into shipped
 client-side code.** A key is safe in the browser only when it is the _user's
 own_ key, supplied at runtime — never a key you ship. When in doubt, use the
-server-proxied pattern. By default the client also sends the access token as an
-`Authorization: Bearer` header (set `sendBearerHeader: false` to disable).
+server-proxied pattern.
+
+## Where the credentials go, and where the endpoint refuses them
+
+Both credentials travel as HEADERS — the access token as `Authorization: Bearer`
+and the provider key as `X-Fuaran-Provider-Key` — and **never in the request
+body**. A body is the thing most likely to be logged wholesale by an
+intermediary; a header is the thing most likely to be redacted by one. The
+endpoint enforces it: a body carrying `ByokKey` or `AccessToken` is refused
+`400 SECRETS_IN_BODY` and the value is not read. This package gives you no way
+to write one.
+
+`sendBearerHeader: false` suppresses the `Authorization` header. That is the
+endpoint's only auth channel, so set it only when pointing at a proxy that
+authenticates some other way — and supply that header via `headers`.
+
+## The endpoint must be https, or loopback, or opted out of
+
+Because both credentials ride headers on every call, a plaintext hop hands them
+to anyone on the path. `http://127.0.0.1` and `http://localhost` are admitted
+(that is where the offline mock and a local proxy live, and no packet leaves the
+machine); a relative path like `/api/fuaran` is admitted (its security is the
+page's own origin); anything else plaintext is refused as `INSECURE_ENDPOINT`
+before the request is built, unless you set `allowInsecureEndpoint: true`. Every
+request also sets `redirect: 'error'`, so a 307/308 can never re-POST your key
+to an origin you never named.
+
+## Failures the CLIENT reports, as distinct from the endpoint's
+
+`RecoverableError.code` carries the endpoint's own code whenever there is one
+(`ACCESS_DENIED`, `APPLY_REJECTED`, `SECRETS_IN_BODY`, `MISSING_PROVIDER_KEY`,
+…). Three codes are this client's own, exported as `CLIENT_CODES`:
+
+| Code                 | Means                                                                                                                                                                                                                                                                  |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NETWORK`            | the call did not complete — the fetch rejected, a redirect was refused, your `AbortSignal` fired, or `timeoutMs` elapsed. The message is fixed: upstream error text can quote a URL or an internal hostname, and this result is often rendered straight into the page. |
+| `MALFORMED_RESPONSE` | a 200 with no usable tree. Not a success — accepting it would leave the session holding `''` and silently repairing nothing on every later turn.                                                                                                                       |
+| `INSECURE_ENDPOINT`  | the endpoint is plaintext and not loopback; see above.                                                                                                                                                                                                                 |
 
 ## API surface
 
-- `FuaranClient` — `generate(args)` → `TurnResult`. Config: `endpoint`,
-  `accessToken?`, `providerKey?`, `fetch?` (injectable), `headers?`,
-  `sendBearerHeader?`.
+- `FuaranClient` — `generate(args, options?)` → `TurnResult`, and
+  `generateDetailed(args, options?)` → the result plus `opsApplied` /
+  `provider` / `servedModel` / `snapshot`. Config: `endpoint`, `accessToken?`,
+  `providerKey?`, `provider?`, `fetch?` (injectable), `headers?`,
+  `sendBearerHeader?`, `timeoutMs?`, `allowInsecureEndpoint?`. Per-call options:
+  `{ signal? }`.
 - `FuaranSession` — the turn loop. `next(prompt, opts?)`, `currentTreeJson`,
   `reset()`; seed with `{ initialTreeJson }`.
 - `@fuaran-ui/client/render` — `mountProduced(container, produced, props?)` and
   `decodeProducedTree(produced)`.
+- `isSecureEndpoint(url)` — the same rule the client applies, so a host can
+  check a URL it is about to configure rather than discovering it on the first
+  turn.
 - Types: `TurnResult` (`Produced` | `AccessDenied` | `TurnFailed`),
-  `GenerateArgs`, `AppliedOp`, `RecoverableError`, `TurnStage`.
+  `GenerateArgs`, `AppliedOp`, `RecoverableError`, `TurnStage`,
+  `ProducedDetail`, `SnapshotState`.
 
 ## License
 

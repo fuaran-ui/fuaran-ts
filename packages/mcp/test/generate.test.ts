@@ -39,42 +39,57 @@ function mockEndpoint(
 describe('fuaran_generate', () => {
   it('maps a 200 onto produced with tree + ops + version', async () => {
     const { fetch, requests } = mockEndpoint(200, {
-      TreeJson: TREE,
-      Ops: [{ OpId: 'op-1', OpJson: '{"$type":"ReplaceRoot"}' }],
-      Version: '1.2.0',
+      version: '1.6.0',
+      tree: JSON.parse(TREE) as unknown,
+      opsApplied: 1,
+      provider: 'mock',
+      ops: [{ opId: 'op-1', opJson: '{"$type":"ReplaceRoot"}' }],
+      snapshot: { state: 'mock' },
     });
     const result = await runGenerate({ prompt: 'a hello panel' }, CONFIG, fetch);
     expect(result).toEqual({
       status: 'produced',
       treeJson: TREE,
       ops: [{ opId: 'op-1', opJson: '{"$type":"ReplaceRoot"}' }],
-      version: '1.2.0',
+      version: '1.6.0',
     });
 
-    // The wire body carries the prompt + the env-sourced credentials.
+    // The wire body carries the prompt and NO credential: the access token and
+    // the BYOK key are headers, and the endpoint refuses a body carrying either.
     const sent = JSON.parse(requests[0]!.body) as Record<string, unknown>;
-    expect(sent['Prompt']).toBe('a hello panel');
-    expect(sent['AccessToken']).toBe('token-abc');
-    expect(sent['ByokKey']).toBe('key-def');
+    expect(sent['prompt']).toBe('a hello panel');
+    expect(sent['AccessToken']).toBeUndefined();
+    expect(sent['ByokKey']).toBeUndefined();
+    expect(requests[0]!.body).not.toContain('token-abc');
+    expect(requests[0]!.body).not.toContain('key-def');
     expect(requests[0]!.headers['authorization']).toBe('Bearer token-abc');
+    expect(requests[0]!.headers['x-fuaran-provider-key']).toBe('key-def');
   });
 
   it('threads currentTreeJson through as a repair turn', async () => {
-    const { fetch, requests } = mockEndpoint(200, { TreeJson: TREE, Ops: [], Version: '1.2.0' });
+    const { fetch, requests } = mockEndpoint(200, {
+      version: '1.6.0',
+      tree: JSON.parse(TREE) as unknown,
+      opsApplied: 0,
+      provider: 'mock',
+      snapshot: { state: 'mock' },
+    });
     await runGenerate({ prompt: 'rename it', currentTreeJson: TREE }, CONFIG, fetch);
     const sent = JSON.parse(requests[0]!.body) as Record<string, unknown>;
-    expect(sent['CurrentTreeJson']).toBe(TREE);
+    expect(sent['currentTree']).toBe(TREE);
   });
 
   it('maps a 401 onto accessDenied', async () => {
-    const { fetch } = mockEndpoint(401, { Reason: 'token expired' });
+    const { fetch } = mockEndpoint(401, {
+      error: { code: 'ACCESS_DENIED', message: 'token expired' },
+    });
     const result = await runGenerate({ prompt: 'x' }, CONFIG, fetch);
     expect(result).toEqual({ status: 'accessDenied', reason: 'token expired' });
   });
 
   it('maps a 422 onto a staged failure envelope', async () => {
     const { fetch } = mockEndpoint(422, {
-      Error: { Stage: 'apply', Code: 'OUT_OF_SHAPE', Message: 're-emit against the hint' },
+      error: { stage: 'apply', code: 'OUT_OF_SHAPE', message: 're-emit against the hint' },
     });
     const result = await runGenerate({ prompt: 'x' }, CONFIG, fetch);
     expect(result).toEqual({

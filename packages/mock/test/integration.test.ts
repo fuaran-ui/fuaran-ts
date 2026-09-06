@@ -55,4 +55,36 @@ describe('@fuaran-ui/mock — end-to-end against the real @fuaran-ui/client', ()
       expect(second.ops).toHaveLength(1);
     }
   });
+
+  it('a client certified here meets the same refusals a deployment sends', async () => {
+    // The whole claim of the mock, made falsifiable: the SDK's refusal paths
+    // are exercised against the mock's envelope, which is the endpoint's.
+    const client = new FuaranClient({ endpoint: baseUrl });
+
+    const denied = await client.generate({ prompt: 'mock:access-denied' });
+    expect(denied.kind).toBe('accessDenied');
+
+    const failed = await client.generate({ prompt: 'mock:turn-failed' });
+    expect(failed.kind).toBe('turnFailed');
+    if (failed.kind === 'turnFailed') {
+      expect(failed.error.stage).toBe('apply');
+      expect(failed.error.code).toBe('APPLY_REJECTED');
+    }
+
+    const unconfigured = await client.generate({ prompt: 'mock:unconfigured' });
+    expect(unconfigured.kind).toBe('turnFailed');
+    if (unconfigured.kind === 'turnFailed') {
+      // The endpoint's own code survives the 503, rather than becoming HTTP_503.
+      expect(unconfigured.error.code).toBe('HOST_NOT_CONFIGURED');
+    }
+  });
+
+  it('reports the deployment facts the endpoint carries', async () => {
+    const client = new FuaranClient({ endpoint: baseUrl });
+    const { detail } = await client.generateDetailed({ prompt: 'a sign up form' });
+
+    expect(detail?.opsApplied).toBe(0);
+    expect(detail?.provider).toBeTypeOf('string');
+    expect(detail?.servedModel).toBeTypeOf('string');
+  });
 });

@@ -319,6 +319,56 @@ same reason rather than defaulted.
 outside the DAG codec is touched — the Node/TreeOp vocabulary, the linear op-stream chain, and every
 non-DAG fixture family are byte-identical to 0.19.0.
 
+### `@fuaran-ui/client` 0.12.0, `@fuaran-ui/mock` 0.12.0, `@fuaran-ui/mcp` 0.12.0 — one generation wire
+
+**Breaking, pre-1.0, and deliberately so: these packages spoke a protocol the generation endpoint
+does not serve.** They wrote `{Prompt, CurrentTreeJson, ByokKey, AccessToken, …}` and read
+`{TreeJson, Ops, Version}` across a 200/401/422 status map — faithful to the endpoint's published
+OpenAPI document, and refused by the endpoint itself, which reads `prompt` / `currentTree`, takes
+secrets from HEADERS ONLY, replies `{version, tree, opsApplied, provider, servedModel?, snapshot}`
+and refuses with `{error:{code,message,stage?}}` at 400 / 401 / 405 / 422 / 500 / 503. The document
+was corrected to describe the deployed surface, and these packages follow it.
+
+**`@fuaran-ui/client`.**
+
+- `toWireBody(args)` takes ONE argument and writes the camelCase body. The secrets parameter is
+  gone, because there is no secret member: `FuaranClient` sends the access token as
+  `Authorization: Bearer` and the BYOK key as `X-Fuaran-Provider-Key`, and the endpoint refuses a
+  body carrying either without reading the value.
+- `parseTurnResponse` reads the deployed 200 (an object `tree`, a numeric `opsApplied`) and the one
+  nested error envelope at every non-200, keeping the endpoint's own `code` rather than
+  synthesising `HTTP_<status>`. The retired PascalCase forms still PARSE — a proxy or mock in front
+  of the endpoint may not have moved — but nothing writes them.
+- **New:** `generateDetailed` (the result plus `opsApplied` / `provider` / `servedModel` /
+  `snapshot`), `CLIENT_CODES`, `isSecureEndpoint`, `parseProducedDetail`, `ProducedDetail`,
+  `SnapshotState`, `GenerateOptions`, `GenerateArgs.interactionId`, and four config members:
+  `provider`, `timeoutMs`, `allowInsecureEndpoint`, plus the existing `sendBearerHeader` now
+  documented as the endpoint's only auth channel.
+- **Three new refusals a caller can branch on.** `MALFORMED_RESPONSE` — a 200 with no tree is a
+  failure, not a `produced` with `treeJson: ''` that poisons the session's held tree one turn later.
+  `INSECURE_ENDPOINT` — a plaintext non-loopback endpoint is refused before the request is built,
+  since both credentials ride headers; loopback, `https` and a relative same-origin path are
+  admitted, and `allowInsecureEndpoint` is the written-down opt-out. `NETWORK` now carries a FIXED
+  message: a fetch error string can quote a URL, a header name or a proxy's internal hostname, and
+  this result is routinely rendered straight into the page.
+- Every request sets `redirect: 'error'`, so a 307/308 can never re-POST the BYOK key to an origin
+  the caller never named.
+
+**`@fuaran-ui/mock`.** It replies in the deployed shape at 200 and in the endpoint's envelope at
+every refusal, and it refuses a body carrying a secret exactly as the endpoint does. Three things
+that were previously always-200 are now the endpoint's own `400 BAD_REQUEST`: an empty body, an
+unparseable body, and a body with no prompt. Six refusals are REQUESTABLE through a `mock:` prompt
+marker (`mock:access-denied`, `mock:turn-failed`, `mock:secrets-in-body`, `mock:missing-key`,
+`mock:faulted`, `mock:unconfigured`), because a client's error paths are only testable against an
+endpoint that can fail and this one cannot fail for the real reasons. `MOCK_SURFACE_VERSION` is
+`1.6.0`; `MOCK_PROVIDER` / `MOCK_SERVED_MODEL` are new and deliberately fictional.
+
+**`@fuaran-ui/mcp`.** The emitted `server/fuaranProxy.ts` sends the credentials as headers, rebuilds
+the forwarded body rather than spreading the caller's object, sets `redirect: 'error'`, and — new —
+authorises the caller, caps prompt length and rate-limits per caller before spending anything. Its
+`proxyFuaranRequest` therefore takes a second argument (the caller key). The emitted F#/Fable panel
+moves to the same wire, and stays byte-identical to the F# CLI's copy of the template.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:
