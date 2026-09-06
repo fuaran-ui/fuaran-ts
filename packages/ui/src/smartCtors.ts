@@ -95,6 +95,7 @@ import type {
   TabHeader,
   TabsSpec,
   TextSource,
+  NavigateTarget,
   TrackEntry,
   TrackKind,
   TreeItem,
@@ -440,8 +441,24 @@ export const action = {
   notify<TMsg>(channel: string, payload: JsonValue): Action<TMsg> {
     return { kind: 'Notify', channel, payload };
   },
+  /**
+   * Navigate to a literal `route` in the current browsing context — the
+   * shortest spelling of the commonest intent, and unchanged in signature by
+   * Phase 1536. `navigateTo` takes the general form: any `TextSource` (a
+   * literal, a `Bound` value resolved at dispatch time, an i18n lookup) into a
+   * named browsing context.
+   */
   navigate<TMsg>(route: string): Action<TMsg> {
-    return { kind: 'Navigate', route };
+    return { kind: 'Navigate', route: { kind: 'Literal', value: route }, target: 'Self' };
+  },
+  /**
+   * Phase 1536 — the general form. A `Bound` route is resolved at dispatch
+   * time and only THEN egress-checked and gated, so the policy judges the
+   * destination rather than the template; `'Blank'` opens a fresh context with
+   * `noopener,noreferrer`.
+   */
+  navigateTo<TMsg>(route: TextSource, target: NavigateTarget = 'Self'): Action<TMsg> {
+    return { kind: 'Navigate', route, target };
   },
   setState<TMsg>(key: string, value: JsonValue): Action<TMsg> {
     return { kind: 'SetState', key, value };

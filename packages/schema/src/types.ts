@@ -110,6 +110,14 @@ export type ImageFit = 'Natural' | 'Cover' | 'Contain';
 export type ModalityKind = 'Modal' | 'Popover';
 
 /**
+ * Which browsing context an `Action.Navigate` lands in (Phase 1536). `Self` is
+ * the default and is omitted on the wire; `Blank` is opened with
+ * `noopener,noreferrer` — the renderer's obligation on every host, because a
+ * property every host must remember to apply is owned by nobody.
+ */
+export type NavigateTarget = 'Self' | 'Blank';
+
+/**
  * `DisplayKind.Image.aspectRatio` — the box the element reserves BEFORE the
  * image arrives (Phase 1077); the cumulative-layout-shift slot. A closed set of
  * TOKENS, never a CSS ratio: a numeric pair would reach a style attribute,
@@ -600,7 +608,19 @@ export type Action<TMsg> =
       readonly into?: CallResultTarget;
     }
   | { readonly kind: 'Notify'; readonly channel: string; readonly payload: JsonValue }
-  | { readonly kind: 'Navigate'; readonly route: string }
+  /**
+   * Navigate the reader to `route`, in the browsing context `target` names.
+   *
+   * Phase 1536 — the route is a `TextSource`, not a bare string, so a tree can
+   * say "open the selected order" (`/orders/{selection.id}`) rather than only
+   * naming a route the author typed. The wire does not move for a literal
+   * route: `TextSource.Literal`'s canonical form IS the bare JSON string.
+   *
+   * `target` is omitted at `Self`. It is a closed enum where `LinkSpec.target`
+   * is a free string, deliberately: `_parent` and `_top` are frame-busting
+   * gestures a hosted tree must not be able to ask for.
+   */
+  | { readonly kind: 'Navigate'; readonly route: TextSource; readonly target: NavigateTarget }
   // Phase 818 — `valueFrom` (a Binding evaluated at dispatch time inside the
   // existing gate) is a SIBLING of the literal `value`; decode enforces
   // value XOR valueFrom. `value` became optional in the same change so the

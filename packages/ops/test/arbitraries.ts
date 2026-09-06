@@ -365,7 +365,14 @@ const actionArb: fc.Arbitrary<Action<unknown>> = fc.oneof(
   fc
     .tuple(nonEmptyStrArb, jsonValueArb)
     .map(([channel, payload]) => ({ kind: 'Notify', channel, payload }) as Action<unknown>),
-  nonEmptyStrArb.map((route) => ({ kind: 'Navigate', route }) as Action<unknown>),
+  nonEmptyStrArb.map(
+    (route) =>
+      ({
+        kind: 'Navigate',
+        route: { kind: 'Literal', value: route },
+        target: 'Self',
+      }) as Action<unknown>,
+  ),
   fc
     .tuple(nonEmptyStrArb, jsonValueArb)
     .map(([key, value]) => ({ kind: 'SetState', key, value }) as Action<unknown>),
@@ -391,7 +398,11 @@ const actionArb: fc.Arbitrary<Action<unknown>> = fc.oneof(
     (routes) =>
       ({
         kind: 'Chain',
-        actions: routes.map((route) => ({ kind: 'Navigate', route })),
+        actions: routes.map((route) => ({
+          kind: 'Navigate',
+          route: { kind: 'Literal', value: route },
+          target: 'Self' as const,
+        })),
       }) as Action<unknown>,
   ),
 );
@@ -403,7 +414,7 @@ const allActionsChain: Action<unknown> = {
     { kind: 'Dispatch', msg: '<msg>' },
     { kind: 'Call', endpoint: apiEndpoint('/api'), onResult: () => '<r>' },
     { kind: 'Notify', channel: 'ch', payload: 'p' },
-    { kind: 'Navigate', route: '/route' },
+    { kind: 'Navigate', route: { kind: 'Literal', value: '/route' }, target: 'Self' },
     { kind: 'SetState', key: 'k', value: 'v' },
     { kind: 'AiTool', toolName: 'tool', args: 'a' },
     { kind: 'Chain', actions: [] },
