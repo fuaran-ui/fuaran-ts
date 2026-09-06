@@ -243,6 +243,68 @@ export type ChartDataLabels = 'Off' | 'Ends';
  */
 export type ChartXScale = 'Category' | 'Temporal';
 
+/**
+ * Phase 1491 — an annotation's X ADDRESS (§4l "The three addressing forms"), in
+ * the two forms the x axis already distinguishes: a `Category` key naming a
+ * band, and an ISO-8601 `Date` read under `xScale: 'Temporal'`.
+ *
+ * Its own type rather than two inline fields, because Phase 1492's range band
+ * addresses an x-axis interval with a PAIR of these.
+ */
+export type ChartAnnotationX =
+  | { readonly kind: 'Category'; readonly key: string }
+  | { readonly kind: 'Date'; readonly iso: string };
+
+/**
+ * Phase 1492 — a `RangeBand`'s PAIR (§4l "The three addressing forms", third
+ * row): two of the same address form, on one axis.
+ *
+ * THE AXIS IS THE CASE. §4l requires a band to declare which axis it sits on;
+ * carrying that as a separate flag beside an untyped pair would admit a
+ * document declaring the value axis and addressing it with two category keys.
+ * The union tag declares the axis AND types the pair with it, so that document
+ * cannot be written by any conformant emitter.
+ *
+ * `ValueRange` is two floats in the VALUE axis's own units; `XRange` is two
+ * `ChartAnnotationX`. Both ends enter the domain before the axis is nice-d
+ * (§4l rule 3), and an UNORDERED pair is refused rather than silently
+ * normalised — a band written backwards is an author's mistake about their own
+ * data, and swapping the ends would draw a picture they did not describe.
+ */
+export type ChartAnnotationRange =
+  | { readonly kind: 'ValueRange'; readonly from: number; readonly to: number }
+  | { readonly kind: 'XRange'; readonly from: ChartAnnotationX; readonly to: ChartAnnotationX };
+
+/**
+ * Phase 1490 — a chart's data-addressed annotations (§4l of
+ * `docs/CHARTS-DRAWING-PRIMITIVE-DESIGN.md`): one closed union carried in
+ * `ChartSpec.annotations`, so a further member is a case rather than a further
+ * widening of `ChartSpec`.
+ *
+ * An annotation names a place in the DATA's coordinates and, optionally, a
+ * label; it carries no geometry and no style at all — every pixel and every
+ * drop of ink comes from the host's own chart-style record. That is what makes
+ * it survive a data change, a theme flip, a restyle and a resize.
+ *
+ * `ReferenceLine` is a horizontal line at `value` in the VALUE axis's own
+ * units; the value ENTERS the value domain before the axis is nice-d, so a
+ * threshold above every bar is still drawn and the axis says so.
+ * `EventMarker` is a VERTICAL line at an x address — a policy change, a launch,
+ * a shock — and is the mirror of `ReferenceLine` across the axes.
+ * `RangeBand` is a shaded interval on either axis, addressed by a PAIR that
+ * carries the axis; it is the one member that draws BEHIND every series.
+ *
+ * Every label rides the Phase 1143 text contract — carried, never resolved.
+ */
+export type ChartAnnotation =
+  | { readonly kind: 'ReferenceLine'; readonly value: number; readonly label?: TextSource }
+  | { readonly kind: 'EventMarker'; readonly at: ChartAnnotationX; readonly label?: TextSource }
+  | {
+      readonly kind: 'RangeBand';
+      readonly range: ChartAnnotationRange;
+      readonly label?: TextSource;
+    };
+
 /** `aria-live` politeness. Wire form is lower-case (WIRE_FORMAT.md §3.5). */
 export type LiveRegionKind = 'polite' | 'assertive' | 'off';
 
@@ -2787,6 +2849,18 @@ export interface ChartSpec<TMsg> {
   // column type (`FUARAN097`) — never an inference from the data, which would
   // make the same tree draw differently depending on where its rows came from.
   readonly xScale?: ChartXScale;
+  // Phase 1490 — the data-addressed annotations (§4l): reference lines, event
+  // markers and range bands, one closed union so a further member is a case
+  // rather than a further widening of this record. Semantic in the same way the
+  // fields above are: WHERE in the data a threshold or an episode sits is the
+  // author's meaning; the stroke weights, opacities and label offsets that draw
+  // it are the host's.
+  //
+  // Absent OMITS on the wire, so every pre-1490 chart is byte-identical on the
+  // wire AND in the picture. An EMPTY list is a DIFFERENT document from an
+  // absent field and round-trips as `"annotations":[]` — it is what an author
+  // who declared a list and then removed its last member wrote.
+  readonly annotations?: readonly ChartAnnotation[];
   readonly onPointClick?: (point: unknown) => Action<TMsg>;
   readonly stacked: boolean;
 }

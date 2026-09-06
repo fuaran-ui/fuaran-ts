@@ -83,6 +83,32 @@ can never drift apart.
 `stacked: true` on a kind where stacking is meaningless (`Line`, `Scatter`,
 `Pie`) is ignored — the flag only changes `Bar` / `Area` geometry.
 
+## Data-addressed annotations
+
+`ChartLowerSpec.annotations` carries the closed `ChartAnnotation` union — a
+horizontal `ReferenceLine` at a value, a vertical `EventMarker` at an x address,
+and a shaded `RangeBand` over a pair on either axis. An annotation names a place
+in the **data's** coordinates and, optionally, a label; it carries no geometry and
+no style at all, so it survives a data change, a theme flip, a restyle and a
+resize.
+
+Three rules the lowering applies, each pinned by the shared goldens:
+
+- **An address participates in the domain it addresses**, before the axis is
+  nice-d. A target above every bar still draws and the axis moves to say so;
+  clamping it would draw a line at a value that is not the value declared.
+- **Draw order is part of the lowering, not the stylesheet.** Bands sit behind
+  everything (the grid included), lines and markers sit in front of the series,
+  and every annotation label is painted last. In inline SVG z-order **is**
+  emission order, so a host that reordered these would still emit a valid
+  document showing a different picture.
+- **A label is fit-gated and suppressed, never clipped** — and the gate is asked
+  only of a `Literal`, because the text behind a `Bound` or `I18n` arm is not
+  known at lowering time. A suppressed label never suppresses its annotation.
+
+`Pie` is neutralised for all three members: a polar arm has neither axis for an
+address to name.
+
 ## Mark identity
 
 Every **data-bearing** shape carries a derivation-based `markId` on its
@@ -99,7 +125,7 @@ The layout is a **byte-for-byte** port of the F# reference lowering: a fixed pix
 viewBox, a `{1,2,5}·10ⁿ` nice-tick rule, and round-half-up coordinate rounding to
 2 dp, so the output depends only on the spec + data. The shared
 `wire-format-fixtures/chart-lowering/*` corpus certifies parity across the F#,
-TypeScript, and Python hosts.
+TypeScript, Python and Rust hosts — every golden, the annotation family included.
 
 ## Theme
 

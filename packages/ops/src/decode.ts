@@ -71,6 +71,9 @@ import type {
   CellFormat,
   CellKindErased,
   ChartKind,
+  ChartAnnotation,
+  ChartAnnotationRange,
+  ChartAnnotationX,
   ChartDataLabels,
   ChartLegendPosition,
   ChartSpec,
@@ -744,6 +747,225 @@ const decodeChartDataLabels = (p: string, j: JsonAst): R<ChartDataLabels> =>
 
 const decodeChartXScale = (p: string, j: JsonAst): R<ChartXScale> =>
   bareEnum(p, j, ['Category', 'Temporal'] as const, 'ChartXScale');
+
+// ─── Chart annotations (Phase 1490/1491/1492 — §4l) ──────────────────────────
+
+const annotationIsLeapYear = (y: number): boolean =>
+  (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+
+const annotationDaysInMonth = (y: number, m: number): number =>
+  m === 2
+    ? annotationIsLeapYear(y)
+      ? 29
+      : 28
+    : m === 4 || m === 6 || m === 9 || m === 11
+      ? 30
+      : 31;
+
+/**
+ * `true` when `text` is a canonical ISO-8601 date the temporal axis can place —
+ * `YYYY-MM-DD`, optionally followed by `T…` whose time-of-day is discarded.
+ *
+ * STRICT by shape AND by calendar: four digits, two, two, both hyphens, a month
+ * in 1–12 and a day the month actually has. A locale spelling (`15/01/2026`)
+ * and a bare year are both refused — admitting either would be the
+ * string-sniffing the temporal axis exists to avoid.
+ */
+const isCanonicalIsoDay = (text: string): boolean => {
+  if (text.length < 10) return false;
+  if (text[4] !== '-' || text[7] !== '-') return false;
+  if (text.length > 10 && text[10] !== 'T') return false;
+  const digits = (start: number, len: number): number | undefined => {
+    let acc = 0;
+    for (let k = start; k < start + len; k += 1) {
+      const c = text.charCodeAt(k);
+      if (c < 48 || c > 57) return undefined;
+      acc = acc * 10 + (c - 48);
+    }
+    return acc;
+  };
+  const y = digits(0, 4);
+  const m = digits(5, 2);
+  const d = digits(8, 2);
+  if (y === undefined || m === undefined || d === undefined) return false;
+  return m >= 1 && m <= 12 && d >= 1 && d <= annotationDaysInMonth(y, m);
+};
+
+/**
+ * An annotation's X ADDRESS (Phase 1491, §4l "The three addressing forms").
+ * Two cases, matching the two forms the x axis already distinguishes: a
+ * `Category` key on a band axis, an ISO-8601 `Date` under `xScale: 'Temporal'`.
+ *
+ * THE DATE MUST BE A DATE, and this refusal is the twin of `ReferenceLine`'s
+ * finite-value narrowing rather than a new posture. The lowering's calendar is
+ * deliberately TOTAL — an unparseable x CELL reads as 1970-01-01, because
+ * FUARAN097 makes a non-date COLUMN loud upstream and refusing per-cell would be
+ * worse. An annotation has no column to be loud about: the string is authored
+ * directly, so nothing upstream can catch it. And because §4l rule 3 has a
+ * temporal address ENTER the axis extent before the ticks are chosen, a typo
+ * does not misplace one marker — it drags the domain back to the epoch and
+ * rescales the whole picture.
+ */
+const decodeChartAnnotationX = (path: string, j: JsonAst): R<ChartAnnotationX> => {
+  const fo = requireObject(path, j);
+  if (!fo.ok) return fo;
+  const f = fo.value;
+  const disc = requireDiscriminator(path, f);
+  if (!disc.ok) return disc;
+  switch (disc.value) {
+    case 'Category': {
+      const key = reqField(path, f, 'key', "category key (the band's own label)", requireString);
+      if (!key.ok) return key;
+      return ok({ kind: 'Category', key: key.value });
+    }
+    case 'Date': {
+      const iso = reqField(path, f, 'iso', 'ISO-8601 date (YYYY-MM-DD)', requireString);
+      if (!iso.ok) return iso;
+      if (!isCanonicalIsoDay(iso.value))
+        return wrongType(
+          `${path}.iso`,
+          'a canonical ISO-8601 date (YYYY-MM-DD, optionally followed by a time) naming a real calendar day — an event marker’s date is the address it is drawn at, and an unreadable one would place the marker at 1970-01-01 and drag the axis back with it',
+        );
+      return ok({ kind: 'Date', iso: iso.value });
+    }
+    default:
+      return unknownDuCase(path, disc.value, 'Category, Date');
+  }
+};
+
+/**
+ * A range band's PAIR (Phase 1492, §4l "The three addressing forms"). The case
+ * carries the AXIS as well as the pair, so a value axis addressed by category
+ * keys is not a document this decoder has to refuse — it is one no encoder can
+ * write.
+ *
+ * TWO REFUSALS, and they are the pair rules the WIRE can decide by itself. A
+ * non-finite endpoint is `ReferenceLine`'s narrowing at two slots instead of
+ * one, for its reason exactly: §4l rule 3 has both ends enter the value domain,
+ * so a NaN takes the nice-domain, every gridline and every mark with it. An
+ * UNORDERED pair is refused at the pair's own slot — the defect is the pair's,
+ * not either end's — rather than silently swapped.
+ *
+ * A CATEGORY pair's order is NOT decided here: the order of two band keys is
+ * the ROWS' order, a cross-reference rather than a local property of the
+ * address, and pre-emit owns it.
+ */
+const decodeChartAnnotationRange = (path: string, j: JsonAst): R<ChartAnnotationRange> => {
+  const finite = (slot: string, v: JsonAst): R<number> => {
+    const r = requireFloat(`${path}.${slot}`, v);
+    if (!r.ok) return r;
+    return Number.isFinite(r.value)
+      ? r
+      : wrongType(
+          `${path}.${slot}`,
+          "a FINITE JSON number — a range band's end names a place on the value axis, and NaN / Infinity names none; give the value in the axis's own units, or drop the annotation",
+        );
+  };
+  const fo = requireObject(path, j);
+  if (!fo.ok) return fo;
+  const f = fo.value;
+  const disc = requireDiscriminator(path, f);
+  if (!disc.ok) return disc;
+  switch (disc.value) {
+    case 'ValueRange': {
+      const fromJ = requireField(path, f, 'from', 'range-band lower value (a finite JSON number)');
+      if (!fromJ.ok) return fromJ;
+      const from = finite('from', fromJ.value);
+      if (!from.ok) return from;
+      const toJ = requireField(path, f, 'to', 'range-band upper value (a finite JSON number)');
+      if (!toJ.ok) return toJ;
+      const to = finite('to', toJ.value);
+      if (!to.ok) return to;
+      if (from.value > to.value)
+        return wrongType(
+          path,
+          'an ORDERED pair — a range band runs from its lower value to its upper one, and this pair runs backwards; swapping the ends silently would draw a band the author did not describe',
+        );
+      return ok({ kind: 'ValueRange', from: from.value, to: to.value });
+    }
+    case 'XRange': {
+      const fromJ = requireField(
+        path,
+        f,
+        'from',
+        'range-band lower x address (a ChartAnnotationX)',
+      );
+      if (!fromJ.ok) return fromJ;
+      const from = decodeChartAnnotationX(`${path}.from`, fromJ.value);
+      if (!from.ok) return from;
+      const toJ = requireField(path, f, 'to', 'range-band upper x address (a ChartAnnotationX)');
+      if (!toJ.ok) return toJ;
+      const to = decodeChartAnnotationX(`${path}.to`, toJ.value);
+      if (!to.ok) return to;
+      // Both dates are already known canonical and calendar-valid (the address
+      // decoder refused anything else), and a canonical `YYYY-MM-DD` sorts
+      // lexicographically exactly as it sorts chronologically — so no calendar
+      // arithmetic is needed to decide the order at this boundary.
+      if (from.value.kind === 'Date' && to.value.kind === 'Date' && from.value.iso > to.value.iso)
+        return wrongType(
+          path,
+          'an ORDERED pair — a range band runs from its earlier date to its later one, and this pair runs backwards; swapping the ends silently would draw a band the author did not describe',
+        );
+      return ok({ kind: 'XRange', from: from.value, to: to.value });
+    }
+    default:
+      return unknownDuCase(path, disc.value, 'ValueRange, XRange');
+  }
+};
+
+/**
+ * A chart's data-addressed annotation (Phase 1490, §4l). One closed
+ * `$type`-discriminated union.
+ *
+ * THE REFERENCE LINE'S VALUE MUST BE FINITE, and that is a slot-specific
+ * NARROWING of §7 rather than a disagreement with it. §7 admits the quoted
+ * `"NaN"` / `"Infinity"` / `"-Infinity"` sentinels at every float slot and the
+ * float reader reads them — the widening is deliberate and stays. But a
+ * reference line addresses a place on the VALUE AXIS, and a non-finite value
+ * names no such place: it would enter the domain computation and put every
+ * gridline, tick and mark on the chart at a NaN coordinate. The picture is not
+ * merely wrong at the annotation, it is wrong everywhere.
+ */
+const decodeChartAnnotation = (path: string, j: JsonAst): R<ChartAnnotation> => {
+  const fo = requireObject(path, j);
+  if (!fo.ok) return fo;
+  const f = fo.value;
+  const disc = requireDiscriminator(path, f);
+  if (!disc.ok) return disc;
+  const label = optField(path, f, 'label', decodeTextSource);
+  if (!label.ok) return label;
+  const withLabel = label.value !== undefined ? { label: label.value } : {};
+  switch (disc.value) {
+    case 'ReferenceLine': {
+      const valueJ = requireField(path, f, 'value', 'reference-line value (a finite JSON number)');
+      if (!valueJ.ok) return valueJ;
+      const value = requireFloat(`${path}.value`, valueJ.value);
+      if (!value.ok) return value;
+      if (!Number.isFinite(value.value))
+        return wrongType(
+          `${path}.value`,
+          "a FINITE JSON number — a reference line names a place on the value axis, and NaN / Infinity names none; give the value in the axis's own units, or drop the annotation",
+        );
+      return ok({ kind: 'ReferenceLine', value: value.value, ...withLabel });
+    }
+    case 'EventMarker': {
+      const atJ = requireField(path, f, 'at', 'event-marker x address (a ChartAnnotationX)');
+      if (!atJ.ok) return atJ;
+      const at = decodeChartAnnotationX(`${path}.at`, atJ.value);
+      if (!at.ok) return at;
+      return ok({ kind: 'EventMarker', at: at.value, ...withLabel });
+    }
+    case 'RangeBand': {
+      const rangeJ = requireField(path, f, 'range', 'range-band pair (a ChartAnnotationRange)');
+      if (!rangeJ.ok) return rangeJ;
+      const range = decodeChartAnnotationRange(`${path}.range`, rangeJ.value);
+      if (!range.ok) return range;
+      return ok({ kind: 'RangeBand', range: range.value, ...withLabel });
+    }
+    default:
+      return unknownDuCase(path, disc.value, 'ReferenceLine, EventMarker, RangeBand');
+  }
+};
 
 const decodeFileReadEncoding = (p: string, j: JsonAst): R<FileReadEncoding> =>
   bareEnum(p, j, ['Text', 'Base64', 'DataUrl'] as const, 'FileReadEncoding');
@@ -5465,6 +5687,24 @@ const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
   // carry the author's claim faithfully, not to second-guess it against the rows.
   const xScale = optField(path, f, 'xScale', decodeChartXScale);
   if (!xScale.ok) return xScale;
+  // Phase 1490 — `annotations` (§4l): the data-addressed attachments — reference
+  // lines, event markers and range bands — as one closed union, so a further
+  // member is a case rather than a further widening of this record. Absent OMITS
+  // on the wire, so every pre-1490 document decodes and lowers byte-for-byte as
+  // it did. An EMPTY list is a different document from an absent field and is
+  // carried as such: it round-trips to `"annotations":[]`, which is what an
+  // author who declared a list and then removed its last member wrote.
+  const annotationsJ = tryField(f, 'annotations');
+  let annotations: readonly ChartAnnotation[] | undefined;
+  if (annotationsJ !== undefined) {
+    const arr = requireArray(`${path}.annotations`, annotationsJ);
+    if (!arr.ok) return arr;
+    const decoded = traverseIndexed(arr.value, (i, item) =>
+      decodeChartAnnotation(`${path}.annotations[${i}]`, item),
+    );
+    if (!decoded.ok) return decoded;
+    annotations = decoded.value;
+  }
   const hasPointClick = tryField(f, 'onPointClick') !== undefined;
   // stacked (Phase 126) now round-trips; absent (legacy wire) defaults to false.
   const stacked = optField(path, f, 'stacked', requireBool);
@@ -5483,6 +5723,7 @@ const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
     ...(legendPosition.value !== undefined ? { legendPosition: legendPosition.value } : {}),
     ...(dataLabels.value !== undefined ? { dataLabels: dataLabels.value } : {}),
     ...(xScale.value !== undefined ? { xScale: xScale.value } : {}),
+    ...(annotations !== undefined ? { annotations } : {}),
     ...(hasPointClick ? { onPointClick: () => placeholderAction } : {}),
   });
 };

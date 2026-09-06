@@ -24,7 +24,12 @@ import {
   type ChartLowerStyle,
   type ChartRow,
 } from '../src/index.js';
-import type { TextSource } from '@fuaran-ui/schema';
+import type {
+  ChartAnnotation,
+  ChartAnnotationRange,
+  ChartAnnotationX,
+  TextSource,
+} from '@fuaran-ui/schema';
 
 /** A `TextSource` in canonical wire JSON: the bare string (the canonical
  * `Literal` form, §16) or a `$type`-tagged arm. */
@@ -71,8 +76,62 @@ interface ChartInput {
   // enum string; omitted when absent (so every pre-882 input AND golden is
   // byte-unchanged — `Category` is what absence means and what it always did).
   readonly xScale?: ChartLowerSpec['xScale'];
+  // Phase 1490/1491/1492 — the data-addressed annotations, a WIRE field carried
+  // in canonical `$type` JSON; omitted when absent (so every pre-1490 input AND
+  // golden is byte-unchanged).
+  readonly annotations?: readonly WireCase[];
   readonly data: readonly ChartRow[];
 }
+
+/** A `$type`-discriminated case in canonical wire JSON. */
+type WireCase = { readonly $type: string; readonly [k: string]: unknown };
+
+/** The corpus carries an annotation's x address in canonical wire JSON; the
+ * lowering takes the host's tagged-union shape. */
+const annotationXOf = (raw: WireCase): ChartAnnotationX => {
+  switch (raw['$type']) {
+    case 'Category':
+      return { kind: 'Category', key: raw['key'] as string };
+    case 'Date':
+      return { kind: 'Date', iso: raw['iso'] as string };
+    default:
+      throw new Error(`chart-lowering input: unsupported ChartAnnotationX ${String(raw['$type'])}`);
+  }
+};
+
+const annotationRangeOf = (raw: WireCase): ChartAnnotationRange => {
+  switch (raw['$type']) {
+    case 'ValueRange':
+      return { kind: 'ValueRange', from: raw['from'] as number, to: raw['to'] as number };
+    case 'XRange':
+      return {
+        kind: 'XRange',
+        from: annotationXOf(raw['from'] as WireCase),
+        to: annotationXOf(raw['to'] as WireCase),
+      };
+    default:
+      throw new Error(
+        `chart-lowering input: unsupported ChartAnnotationRange ${String(raw['$type'])}`,
+      );
+  }
+};
+
+/** Every annotation's label crosses UNRESOLVED, whichever arm it carries — the
+ * Phase 1143 text contract at a new slot. */
+const annotationOf = (raw: WireCase): ChartAnnotation => {
+  const label =
+    raw['label'] !== undefined ? { label: textSourceOf(raw['label'] as WireTextSource) } : {};
+  switch (raw['$type']) {
+    case 'ReferenceLine':
+      return { kind: 'ReferenceLine', value: raw['value'] as number, ...label };
+    case 'EventMarker':
+      return { kind: 'EventMarker', at: annotationXOf(raw['at'] as WireCase), ...label };
+    case 'RangeBand':
+      return { kind: 'RangeBand', range: annotationRangeOf(raw['range'] as WireCase), ...label };
+    default:
+      throw new Error(`chart-lowering input: unsupported ChartAnnotation ${String(raw['$type'])}`);
+  }
+};
 
 /** The corpus carries a `Format` in canonical `$type` wire JSON; the lowering
  * takes the host's tagged-union shape. Only the numeric arms appear here. */
@@ -152,6 +211,8 @@ const specAndRows = (
     ...(inp.dataLabels !== undefined ? { dataLabels: inp.dataLabels } : {}),
     // Phase 882 — same omitted-when-absent posture; a real wire field.
     ...(inp.xScale !== undefined ? { xScale: inp.xScale } : {}),
+    // Phase 1490/1491/1492 — same omitted-when-absent posture; a real wire field.
+    ...(inp.annotations !== undefined ? { annotations: inp.annotations.map(annotationOf) } : {}),
   },
   rows: inp.data,
   style: inp.axisUnitMode !== undefined ? { axisUnitMode: inp.axisUnitMode } : {},

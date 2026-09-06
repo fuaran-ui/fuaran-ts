@@ -78,5 +78,12 @@ export const chartLowerSpecOf = <TMsg>(spec: ChartSpec<TMsg>): ChartLowerSpec =>
     // Phase 882 — what the x column MEANS. Absent means `'Category'`, which is
     // also the default, so a pre-882 chart lowers unchanged.
     ...(spec.xScale !== undefined ? { xScale: spec.xScale } : {}),
+    // Phase 1490 — the data-addressed annotations (§4l). Semantic through and
+    // through: WHERE in the data a threshold, an episode or a shock sits is the
+    // author's meaning, and the lowering owns every pixel that draws it. Each
+    // annotation's LABEL crosses UNRESOLVED, whichever arm it carries, on exactly
+    // the `TextSource` rule above — the lowering's fit gate is confined to the
+    // `Literal` arm precisely so it never has to measure text it cannot know.
+    ...(spec.annotations !== undefined ? { annotations: spec.annotations } : {}),
   };
 };

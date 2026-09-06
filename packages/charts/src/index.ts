@@ -30,6 +30,9 @@
 
 import type {
   Binding,
+  ChartAnnotation,
+  ChartAnnotationRange,
+  ChartAnnotationX,
   ChartKind,
   ChartDataLabels,
   ChartLegendPosition,
@@ -209,6 +212,53 @@ const DATA_LABEL_END_OFFSET_X = 6.0;
 /** Rise from a line/area endpoint to its label's baseline — the nudge that
  * takes the text off the line it belongs to. */
 const DATA_LABEL_END_NUDGE_Y = 5.0;
+
+// ─── Annotation ink + geometry (Phase 1490/1491/1492 — §4l) ──────────────────
+//
+// §4l's "never geometry, never style" prohibition has two halves with two
+// owners, and this is the second: an annotation carries an ADDRESS and a LABEL,
+// and every pixel and every drop of ink it draws with comes from here. That is
+// what makes a data-addressed annotation survive a theme flip and a restyle
+// where a placed overlay does not.
+//
+// The LABEL constants are named for the FAMILY, not for the reference line:
+// the event marker and the range band label under exactly the same rule
+// (carried `TextSource`, fit-gated, suppressed on no-fit), so one set serves
+// all three and a later member adds only its own INK. The four match their
+// Phase-881 data-label counterparts by VALUE rather than by reference — an
+// annotation label and a data label are the same size of thing in the same
+// space, and a host that restyles one should not be forced to restyle the
+// other.
+
+/** Stroke width of a reference line. Between the grid's and the series':
+ * an annotation is more than chrome and less than data. */
+const REFERENCE_STROKE_WIDTH = 1.5;
+/** Per-role opacity for a reference line's ink. Well above `GRID_OPACITY` — a
+ * threshold a reader is meant to see — and below `AXIS_OPACITY`, because it is
+ * not a boundary of the space. */
+const REFERENCE_OPACITY = 0.55;
+/** Phase 1491 — the event marker's ink, matching the reference line's by VALUE
+ * rather than by reference: the two are the same weight of statement across the
+ * two axes, but a host that wanted to distinguish them must be able to without
+ * moving the horizontal one. */
+const EVENT_STROKE_WIDTH = 1.5;
+const EVENT_OPACITY = 0.55;
+/** Phase 1492 — the range band's FILL opacity. The LOWEST in the record, below
+ * `GRID_OPACITY`, and that is the point rather than timidity: every other role
+ * inks a hairline or a glyph, this one inks an AREA. A band is a tint of the
+ * surface saying "this region", not a fill saying "this value". */
+const BAND_OPACITY = 0.08;
+/** Font size of an annotation's label — one step below the tick size, on the
+ * data label's reasoning. */
+const ANNOTATION_LABEL_FONT_SIZE = 12.0;
+/** Inset from the plot's LEFT edge to an annotation label's left edge. Left,
+ * not right: the right edge is where the series-endpoint labels live. */
+const ANNOTATION_LABEL_OFFSET_X = 6.0;
+/** Rise from an annotation's line to its label's baseline. */
+const ANNOTATION_LABEL_NUDGE_Y = 5.0;
+/** Clearance an annotation label must keep from the edge of its budget. Feeds
+ * the fit gate only; a label that cannot hold it is SUPPRESSED. */
+const ANNOTATION_LABEL_PADDING = 2.0;
 
 // ─── Deterministic numeric helpers ────────────────────────────────────────────
 
@@ -1144,6 +1194,15 @@ export interface ChartLowerSpec {
    * x axis to scale.
    */
   readonly xScale?: ChartXScale;
+  /**
+   * Phase 1490 — the data-addressed annotations (§4l): reference lines, event
+   * markers and range bands, one closed union. An annotation names a place in
+   * the DATA's coordinates and, optionally, a label; it carries no geometry and
+   * no style at all — every pixel comes from the constants above.
+   *
+   * Absent (and empty) draws nothing, so a pre-1490 spec lowers byte-for-byte.
+   */
+  readonly annotations?: readonly ChartAnnotation[];
 }
 
 /**
@@ -1292,9 +1351,78 @@ export const lower = (
     return out;
   };
 
-  const allValuesRaw = stacked
-    ? Array.from({ length: n }, (_, i) => cumsFor(i)).flat()
-    : series.flat();
+  // Hoisted here (Phase 1490): the annotation slots below are neutralised on the
+  // polar arm, so the answer is needed before the value domain rather than after
+  // it.
+  const isPie = spec.kind === 'Pie';
+
+  // ── Data-addressed annotations (Phase 1490 — §4l) ──────────────────────────
+  //
+  // The reference lines, in DOCUMENT ORDER, which is what `<n>` in the mark id
+  // `annotation|reference|<n>` indexes. The index is per CASE, so a later member
+  // of a different case never renumbers one of these.
+  //
+  // PIE IS EXCLUDED, and neutralised rather than half-applied: the polar arm has
+  // no value axis, so a value-axis address names nothing there.
+  //
+  // A NON-FINITE VALUE IS DROPPED HERE, and the lowering stays TOTAL. It cannot
+  // arrive from the wire (the decoder refuses it) and it is refused pre-emit on
+  // the authoring path, so this filter is the third gate and not the first: what
+  // it buys is that a lowering handed one anyway draws the chart it can rather
+  // than taking the nice-domain, every gridline and every mark to NaN.
+  const annotationsDeclared = spec.annotations ?? [];
+  const referenceLines: readonly (readonly [number, TextSource | undefined])[] = isPie
+    ? []
+    : annotationsDeclared.flatMap((a) =>
+        a.kind === 'ReferenceLine' && Number.isFinite(a.value) ? [[a.value, a.label] as const] : [],
+      );
+
+  // ── Range bands (Phase 1492 — §4l) ─────────────────────────────────────────
+  //
+  // The band subsequence in DOCUMENT ORDER, carrying its per-case index — `<n>`
+  // in `annotation|band|<n>` — because the two arms are resolved in two different
+  // places and a band's identity must not depend on which. A value band's ends
+  // must join the value domain HERE, before the axis is nice-d; an x band's
+  // addresses cannot be resolved until the axis form is known, further down.
+  // Numbering once, over the whole case, is what keeps the two halves from
+  // inventing two orderings of one list.
+  const rangeBandsDeclared: readonly (readonly [
+    number,
+    ChartAnnotationRange,
+    TextSource | undefined,
+  ])[] = isPie
+    ? []
+    : annotationsDeclared
+        .flatMap((a) => (a.kind === 'RangeBand' ? [[a.range, a.label] as const] : []))
+        .map(([range, lbl], i) => [i, range, lbl] as const);
+
+  /** The VALUE-axis bands, as `(index, lo, hi, label)` in the axis's own units.
+   * `lo`/`hi` are the pair NORMALISED, not the pair as authored: an unordered
+   * pair is refused at the wire boundary and pre-emit, so what reaches here
+   * backwards came through a construction site neither gate sits on — and the
+   * lowering's job at that point is to stay TOTAL and draw the region the author
+   * named. A non-finite end drops the WHOLE band rather than half of it: half a
+   * band is not a smaller claim, it is a different one. */
+  const valueBands: readonly (readonly [number, number, number, TextSource | undefined])[] =
+    rangeBandsDeclared.flatMap(([i, range, lbl]) =>
+      range.kind === 'ValueRange' && Number.isFinite(range.from) && Number.isFinite(range.to)
+        ? [[i, Math.min(range.from, range.to), Math.max(range.from, range.to), lbl] as const]
+        : [],
+    );
+
+  const allValuesRaw = [
+    ...(stacked ? Array.from({ length: n }, (_, i) => cumsFor(i)).flat() : series.flat()),
+    // §4l rule 3 — AN ADDRESS PARTICIPATES IN THE DOMAIN IT ADDRESSES, on the
+    // same terms the series data does, and BEFORE the axis is nice-d. A
+    // threshold above every bar is still drawn, and the axis says so; clamping
+    // the line to the data's own domain would draw a line at a value that is not
+    // the value declared, which is worse than not drawing it at all.
+    ...referenceLines.map(([v]) => v),
+    // Phase 1492 — a value band's BOTH ends join the domain, on exactly the same
+    // rule. Clipping it at the data's own maximum would draw a band that ends
+    // where the author did not end it.
+    ...valueBands.flatMap(([, lo, hi]) => [lo, hi]),
+  ];
   const values = allValuesRaw.length > 0 ? allValuesRaw : [0.0];
   const dataMin = Math.min(...values);
   const dataMax = Math.max(...values);
@@ -1397,6 +1525,79 @@ export const lower = (
   // derived from the other.
   const dayValues: number[] = isTemporal ? categories.map(temporalDayOf) : [];
 
+  // ── Event markers (Phase 1491 — §4l) ───────────────────────────────────────
+  //
+  // The vertical half of the annotation family, in DOCUMENT ORDER within its own
+  // case — which is what `<n>` in the mark id `annotation|event|<n>` indexes, and
+  // why a reference line landing between two of these never renumbers them.
+  //
+  // ONE FORM PER CHART, which is what lets the resolved address be a single
+  // number. §4l rule 1 admits a `Category` key on a BAND axis and a `Date` under
+  // a TEMPORAL one, and those two axes are mutually exclusive — so every marker
+  // this lowering admits carries the chart's one form, and the number is a BAND
+  // INDEX under `bandX` and a DAY NUMBER under `isTemporal`.
+  //
+  // PIE IS NEUTRALISED and Scatter's numeric x admits neither form: a polar arm
+  // has no x axis at all, and a continuous NUMERIC x has neither bands to name
+  // nor a calendar to name a day in.
+  //
+  // THE DROPS HERE ARE THE THIRD GATE, not the first — a mismatched form, an
+  // unparseable date and an ungrounded key are all refused upstream. A DUPLICATED
+  // key resolves to the FIRST matching band, deterministically: the picture is
+  // then well-defined even though the validator is right to refuse it.
+  const bandX = !isTemporal && !isScatter && !isPie;
+
+  const resolveAnnotationX = (at: ChartAnnotationX): number | undefined => {
+    if (at.kind === 'Category' && bandX) {
+      const i = categories.indexOf(at.key);
+      return i < 0 ? undefined : i;
+    }
+    if (at.kind === 'Date' && isTemporal) return tryParseDay(at.iso);
+    return undefined;
+  };
+
+  const eventMarkers: readonly (readonly [number, TextSource | undefined])[] =
+    annotationsDeclared.flatMap((a) => {
+      if (a.kind !== 'EventMarker') return [];
+      const at = resolveAnnotationX(a.at);
+      return at === undefined ? [] : [[at, a.label] as const];
+    });
+
+  /** The X-AXIS bands (Phase 1492), as `(index, from, to, label)` with the two
+   * addresses RESOLVED to the chart's one form, exactly as `eventMarkers`
+   * resolves its single address and for the same reason.
+   *
+   * BOTH ENDS MUST BE THE SAME FORM. A `Category` paired with a `Date` is a
+   * mismatch the validator refuses; here it simply yields no band, because half a
+   * pair addresses no interval. The pair is NORMALISED, on `valueBands`'
+   * argument. */
+  const xBands: readonly (readonly [number, number, number, TextSource | undefined])[] =
+    rangeBandsDeclared.flatMap(([i, range, lbl]) => {
+      if (range.kind !== 'XRange') return [];
+      const a = resolveAnnotationX(range.from);
+      const b = resolveAnnotationX(range.to);
+      return a === undefined || b === undefined
+        ? []
+        : [[i, Math.min(a, b), Math.max(a, b), lbl] as const];
+    });
+
+  /** §4l rule 3 on the X axis — A TEMPORAL ADDRESS ENTERS THE EXTENT, before the
+   * ticks are chosen, on the same terms the row dates do. A launch marked a month
+   * after the last datum is still drawn, and the axis says so; a recession band
+   * whose end lies past the last datum would otherwise be silently truncated at
+   * the plot's right edge, which reads as the recession ENDING there.
+   *
+   * A CATEGORY ADDRESS WIDENS NOTHING, and the asymmetry is §4l's rather than an
+   * inconsistency: a band axis's domain IS the set of keys in the rows, so a key
+   * outside it is not a wider axis but an ungrounded reference.
+   *
+   * This does NOT reopen §4h's no-nicing rule: the marker's day joins the data
+   * whose extent the domain is, and the domain is still not snapped outward to a
+   * calendar boundary. */
+  const domainDays: number[] = isTemporal
+    ? [...dayValues, ...eventMarkers.map(([at]) => at), ...xBands.flatMap(([, a, b]) => [a, b])]
+    : [];
+
   // The x axis is CONTINUOUS (Phase 903's split) on exactly two arms: the
   // Scatter arm's numeric x and a temporal x. Everything keyed off this — tick
   // marks AT the value, vertical gridlines, marks placed by value rather than by
@@ -1414,7 +1615,10 @@ export const lower = (
   // the axis's granularity.
   const temporalStep: TemporalStep | undefined = isTemporal
     ? (() => {
-        const [lo, hi] = temporalDomain(dayValues);
+        // `domainDays`, not `dayValues` — the extent the ticks are chosen for
+        // includes any annotation's own date (§4l rule 3), so a rung is picked
+        // for the axis the reader will actually see.
+        const [lo, hi] = temporalDomain(domainDays);
         return chooseTemporalStep(TARGET_TICK_COUNT + 1.0, lo, hi);
       })()
     : undefined;
@@ -1430,7 +1634,7 @@ export const lower = (
       // `xStep` carries the rung's NOMINAL length, which is what the label
       // format reads.
       ((): { niceLo: number; niceHi: number; step: number; ticks: number[] } => {
-        const [lo, hi] = temporalDomain(dayValues);
+        const [lo, hi] = temporalDomain(domainDays);
         return {
           niceLo: lo,
           niceHi: hi,
@@ -1554,7 +1758,9 @@ export const lower = (
   //
   // The pie arm's shares are resolved here for the same reason: its legend
   // labels carry them ("name (NN%)"), so they are layout input, not output.
-  const isPie = spec.kind === 'Pie';
+  // (`isPie` itself was hoisted to the annotation block above by Phase 1490 —
+  // the annotation slots are neutralised on the polar arm, so the answer is
+  // needed before the value domain.)
   const pieValues = isPie && m === 1 ? series[0]! : [];
   const pieTotal = pieValues.reduce((a, b) => a + b, 0.0);
   // The Phase-638 bounded-v1 guard, unchanged and merely lifted. A refused pie
@@ -2334,6 +2540,235 @@ export const lower = (
     }
   }
 
+  // ── Annotations (Phase 1490 — §4l) — the marks, then the labels ────────────
+  //
+  // TWO lists, not one, because §4l's draw order separates them: the lines sit in
+  // front of the series (rung 3) and EVERY annotation label is last, above all
+  // marks (rung 4). Within each rung the tie is document order inside the case,
+  // which is the same order `<n>` counts in — so the mark id and the paint order
+  // are read off one list and cannot disagree.
+  //
+  // The order is stated in the design doc, pinned by the goldens, and left to no
+  // stylesheet on purpose: in inline SVG z-order IS emission order, so a host
+  // that painted these in a different sequence would still produce a valid
+  // document showing a different picture, and no schema or validator could see it.
+  const referenceStyle = styleStrokeInk(REFERENCE_OPACITY, REFERENCE_STROKE_WIDTH);
+
+  // `Quiet` — the vocabulary's own word for subordinate text, and the only label
+  // in this lowering that takes it (the visible title is `Loud`, every other
+  // label `Normal`). An annotation label NAMES a line the picture has already
+  // drawn, so it should not compete with the values and the axis names that carry
+  // the data; it is also what makes an annotation label identifiable in a lowered
+  // drawing at all, since a `Start`-anchored muted 12px label is otherwise exactly
+  // what a Phase-881 endpoint data label is.
+  const annotationLabelStyle = textStyle(
+    LABEL_OPACITY,
+    'Start',
+    ANNOTATION_LABEL_FONT_SIZE,
+    'Quiet',
+  );
+
+  /** An annotation label, under Phase 881's rule and the Phase 1143 text contract
+   * at once. `textFitsBox` is the single predicate and a no-fit is a SUPPRESSION
+   * — never a clip, never an overlap, never a nudge onto a mark — but it can only
+   * be asked of a `Literal`: the text behind a `Bound` or an `I18n` arm is not
+   * known here, and measuring text that is not the text drawn is silently wrong.
+   * So a non-`Literal` label is admitted on PRESENCE and may overrun, which is the
+   * same honest boundary the text contract draws for truncation. A suppressed
+   * label never suppresses its annotation: the line still draws. */
+  const annotationLabelShape = (
+    x: number,
+    baseline: number,
+    maxWidth: number,
+    maxHeight: number,
+    t: TextSource,
+  ): Shape[] => {
+    const fits =
+      t.kind === 'Literal'
+        ? textFitsBox(
+            ANNOTATION_LABEL_FONT_SIZE,
+            TEXT_LINE_HEIGHT_FACTOR,
+            maxWidth,
+            maxHeight,
+            t.value,
+          )
+        : true;
+    return fits ? [label(r2(x), r2(baseline), t, annotationLabelStyle)] : [];
+  };
+
+  const referenceLineShapes: Shape[] = referenceLines.map(([v], i) => {
+    const y = yScale(v);
+    // Phase 642 identity: `annotation|<case>|<n>`, with `<n>` the document-order
+    // index within this case. NOT the value itself — a float has no canonical
+    // string form the wire defines, and an ordinal is unique by construction and
+    // moved by no data change.
+    return line(r2(PLOT_X0), y, r2(PLOT_X1), y, {
+      ...referenceStyle,
+      markId: `annotation|reference|${i}`,
+    });
+  });
+
+  /** The range bands as PLOT RECTANGLES — `(index, x0, y0, x1, y1, label)`,
+   * ordered by the per-case index both arms were numbered with, so the paint
+   * order and the `annotation|band|<n>` ids agree by construction rather than by
+   * the arms happening to be appended the right way round.
+   *
+   * EACH BAND SPANS THE OTHER AXIS IN FULL, because the band's claim is about ONE
+   * axis: a tolerance band that stopped short of the plot's edge would be
+   * asserting something about x it was never given.
+   *
+   * THE X ARM TAKES PHASE 903'S BOUNDARIES, not its centres — which is where the
+   * band differs from the event marker drawn from the same address. A marker is a
+   * POSITION and a band is an EXTENT, so "Q2 to Q3" runs from Q2's band START to
+   * Q3's band END. On a continuous temporal axis a date IS a position, so the band
+   * runs between the two mapped days and there are no boundaries to take. */
+  const rangeBands: readonly (readonly [
+    number,
+    number,
+    number,
+    number,
+    number,
+    TextSource | undefined,
+  ])[] = [
+    ...valueBands.map(
+      ([i, lo, hi, lbl]) => [i, r2(PLOT_X0), yScale(hi), r2(PLOT_X1), yScale(lo), lbl] as const,
+    ),
+    ...xBands.map(([i, a, b, lbl]) => {
+      const x0 = isTemporal ? xScale(a) : boundaryX(a);
+      const x1 = isTemporal ? xScale(b) : boundaryX(b + 1);
+      return [i, x0, r2(PLOT_Y0), x1, r2(PLOT_Y1), lbl] as const;
+    }),
+  ].sort((p, q) => p[0] - q[0]);
+
+  /** The band's ink: `currentColor` as a FILL at `BAND_OPACITY`, with no stroke.
+   * §4l's prohibition is what makes this one line: the wire carries no colour, no
+   * opacity and no edge, so there is nothing here to read off the annotation. */
+  const bandStyle = styleFillOpacity(INK, BAND_OPACITY);
+
+  const rangeBandShapes: Shape[] = rangeBands.map(([i, x0, y0, x1, y1]) =>
+    rectangle(
+      x0,
+      y0,
+      r2(x1 - x0),
+      r2(y1 - y0),
+      // No corner radius. A band is a region of the SPACE, and a rounded region
+      // would read as an object drawn on the chart rather than as part of its
+      // ground.
+      undefined,
+      { ...bandStyle, markId: `annotation|band|${i}` },
+    ),
+  );
+
+  const eventStyle = styleStrokeInk(EVENT_OPACITY, EVENT_STROKE_WIDTH);
+
+  /** The x an event marker's line stands at (Phase 1491). PHASE 903'S SPLIT,
+   * applied to an address rather than to a datum: a BAND axis has no positions,
+   * only extents, so the marker sits at the band's CENTRE — the same place the
+   * band's own label sits. A CONTINUOUS axis has positions, so the marker sits at
+   * the mapped value. */
+  const eventMarkerX = (i: number): number => {
+    const at = eventMarkers[i]![0];
+    return isTemporal ? xScale(at) : centreX(at);
+  };
+
+  const eventMarkerShapes: Shape[] = eventMarkers.map((_, i) => {
+    const x = eventMarkerX(i);
+    return line(x, r2(PLOT_Y0), x, r2(PLOT_Y1), {
+      ...eventStyle,
+      markId: `annotation|event|${i}`,
+    });
+  });
+
+  /** The x each event marker's label must not reach — Phase 881's rule applied
+   * ALONG X, which is where this member earns its own phase.
+   *
+   * Markers close together are the normal case (five shocks in a decade land
+   * within a few pixels of each other), and the rule is: never overlapped, never
+   * nudged across another marker, SUPPRESSED on no fit. So a label's width budget
+   * runs to its NEIGHBOUR's line rather than to the plot edge, and the neighbour
+   * is the successor in `(x, document index)` order — total and stable, so the
+   * goldens pin one answer.
+   *
+   * Two markers on ONE position are legitimate (§4l says so explicitly, which is
+   * why identity is an ordinal rather than the address). They fall out of the same
+   * rule rather than needing one of their own: the earlier gets a budget of zero
+   * and is suppressed, the later runs to the next distinct position. */
+  const eventLabelRight: number[] = (() => {
+    const xs = eventMarkers.map((_, i) => eventMarkerX(i));
+    const order = xs
+      .map((_, i) => i)
+      .sort((a, b) => (xs[a]! - xs[b]! !== 0 ? xs[a]! - xs[b]! : a - b));
+    const right = xs.map(() => PLOT_X1);
+    for (let r = 0; r < order.length - 1; r++) right[order[r]!] = xs[order[r + 1]!]!;
+    return right;
+  })();
+
+  const annotationLabelShapes: Shape[] = [
+    ...referenceLines.flatMap(([v, lbl]) => {
+      if (lbl === undefined) return [];
+      const baseline = yScale(v) - ANNOTATION_LABEL_NUDGE_Y;
+      const x = PLOT_X0 + ANNOTATION_LABEL_OFFSET_X;
+      return annotationLabelShape(
+        x,
+        baseline,
+        // The width budget runs to the PLOT's right edge: beyond it lies the
+        // legend column or the right margin, and a label that ran into either is
+        // the collision the gate exists to refuse.
+        Math.max(0.0, PLOT_X1 - x - ANNOTATION_LABEL_PADDING),
+        Math.max(0.0, baseline - PLOT_Y0 - ANNOTATION_LABEL_PADDING),
+        lbl,
+      );
+    }),
+    // Phase 1491 — the event markers' labels, after the reference lines' and in
+    // document order within their own case. Both families are rung 4, so this is a
+    // tie inside a rung; ordering by case keeps every pre-1491 golden
+    // byte-identical, and §4l's tiebreak is honoured inside each run.
+    ...eventMarkers.flatMap(([, lbl], i) => {
+      if (lbl === undefined) return [];
+      // AT THE TOP OF THE PLOT, beside the line. Top rather than beside the mark
+      // it names, because a vertical marker names no single datum — it names the
+      // whole column of the picture — and the top is the one place on that column
+      // no series occupies by construction.
+      const x = eventMarkerX(i) + ANNOTATION_LABEL_OFFSET_X;
+      const baseline = PLOT_Y0 + ANNOTATION_LABEL_FONT_SIZE + ANNOTATION_LABEL_NUDGE_Y;
+      return annotationLabelShape(
+        x,
+        baseline,
+        Math.max(0.0, eventLabelRight[i]! - x - ANNOTATION_LABEL_PADDING),
+        // The vertical budget is the plot's own height: one line always fits it,
+        // which is the honest statement — markers collide along X, and that is the
+        // axis the gate is really measuring.
+        Math.max(0.0, PLOT_Y1 - PLOT_Y0 - ANNOTATION_LABEL_PADDING),
+        lbl,
+      );
+    }),
+    // Phase 1492 — the range bands' labels, after the other two cases'. All three
+    // are rung 4, so the case order here is a tie inside a rung and is chosen to
+    // keep every pre-1492 golden byte-identical.
+    ...rangeBands.flatMap(([, x0, y0, x1, y1, lbl]) => {
+      if (lbl === undefined) return [];
+      // INSIDE THE BAND'S TOP EDGE, which is one rule serving both arms rather
+      // than two placements: the top-left corner of the band's own rectangle is
+      // the one point every band has, whichever axis it spans, and it is where a
+      // reader looks for the name of a region. Inside and not above, deliberately
+      // — a label ABOVE a value band would sit over the series, and a label above
+      // an x band would leave the plot entirely.
+      const x = x0 + ANNOTATION_LABEL_OFFSET_X;
+      const baseline = y0 + ANNOTATION_LABEL_FONT_SIZE + ANNOTATION_LABEL_NUDGE_Y;
+      return annotationLabelShape(
+        x,
+        baseline,
+        // BOTH BUDGETS ARE THE BAND'S OWN, not the plot's, and that is what makes
+        // this member's gate bite where the other two's do not. A narrow x band is
+        // the ordinary case — a fortnight on a decade axis — and its name will not
+        // fit inside it. Suppressed, per Phase 881, and the band still draws.
+        Math.max(0.0, x1 - x - ANNOTATION_LABEL_PADDING),
+        Math.max(0.0, y1 - y0 - ANNOTATION_LABEL_PADDING),
+        lbl,
+      );
+    }),
+  ];
+
   // ── Legend (Phase 880) — one entry list, four placements ──
   //
   // COLUMN (`Right`, the shipped default): one row per entry, the plot already
@@ -2531,6 +2966,15 @@ export const lower = (
     spec.kind === 'Pie'
       ? [...pieShapes(), ...legend, ...titleShapes, ...subtitleShapes]
       : [
+          // Phase 1492 (§4l rung 1) — the RANGE BANDS, first of everything:
+          // behind the series, and behind the grid and axes with it. In inline
+          // SVG z-order IS emission order, so a host that emitted a band after
+          // its series would draw a tinted rectangle OVER the data: a valid
+          // document, a different picture, and nothing in a schema or a validator
+          // could see it. Before the GRID too, not merely before the series — a
+          // gridline is chrome for reading positions off the plot, and chrome a
+          // band covered would go missing exactly where the band drew attention.
+          ...rangeBandShapes,
           ...gridlines,
           ...xGridlines,
           ...zeroLine,
@@ -2543,9 +2987,22 @@ export const lower = (
           // Phase 881 — the values sit ON the series, so they are painted straight
           // after it and before the legend.
           ...dataLabelShapes,
+          // Phase 1490 (§4l rung 3) — reference lines in FRONT of the series. A
+          // threshold drawn under the bars it measures is a threshold the reader
+          // cannot check the bars against.
+          ...referenceLineShapes,
+          // Phase 1491 (§4l rung 3, beside the reference lines) — the event
+          // markers, also in FRONT of the series.
+          ...eventMarkerShapes,
           ...legend,
           ...titleShapes,
           ...subtitleShapes,
+          // Phase 1490 (§4l rung 4) — every annotation label LAST, above all
+          // marks. Last literally, and not merely after the series: the label is
+          // the only part of an annotation that carries authored words, and a rung
+          // that put it under the legend column would suppress it on exactly the
+          // charts that are busiest.
+          ...annotationLabelShapes,
         ];
 
   // ── The accessible summary (Phase 921) ───────────────────────────────────

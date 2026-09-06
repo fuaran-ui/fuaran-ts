@@ -43,6 +43,9 @@ import type {
   CalloutSpec,
   CellFormat,
   CellKindErased,
+  ChartAnnotation,
+  ChartAnnotationRange,
+  ChartAnnotationX,
   ChartSpec,
   ColumnErased,
   ColumnWidth,
@@ -1984,6 +1987,38 @@ const gridSpec = (s: GridSpec<unknown>): string => {
   return jObject(fields);
 };
 
+/** An annotation's x address (Phase 1491, §4l). */
+const chartAnnotationX = (a: ChartAnnotationX): string =>
+  a.kind === 'Category'
+    ? caseObj('Category', [['key', str(a.key)]])
+    : caseObj('Date', [['iso', str(a.iso)]]);
+
+/** A range band's pair (Phase 1492, §4l) — the case carries the AXIS. */
+const chartAnnotationRange = (r: ChartAnnotationRange): string =>
+  r.kind === 'ValueRange'
+    ? caseObj('ValueRange', [
+        ['from', num(r.from)],
+        ['to', num(r.to)],
+      ])
+    : caseObj('XRange', [
+        ['from', chartAnnotationX(r.from)],
+        ['to', chartAnnotationX(r.to)],
+      ]);
+
+/** A chart's data-addressed annotation (Phase 1490, §4l). An absent label omits
+ * its key; every label is carried unresolved, whichever arm it takes. */
+const chartAnnotation = (a: ChartAnnotation): string => {
+  const label: Field[] = a.label !== undefined ? [['label', textSource(a.label)]] : [];
+  switch (a.kind) {
+    case 'ReferenceLine':
+      return caseObj('ReferenceLine', [['value', num(a.value)], ...label]);
+    case 'EventMarker':
+      return caseObj('EventMarker', [['at', chartAnnotationX(a.at)], ...label]);
+    default:
+      return caseObj('RangeBand', [['range', chartAnnotationRange(a.range)], ...label]);
+  }
+};
+
 const chartSpec = (s: ChartSpec<unknown>): string => {
   // `stacked` (Phase 126) is now carried — previously dropped on the wire,
   // losing a chart's stacked-vs-grouped intent on every round-trip.
@@ -2012,6 +2047,11 @@ const chartSpec = (s: ChartSpec<unknown>): string => {
   // `Category`, which is the default, so the key is OMITTED and every pre-882
   // chart encodes to the same bytes it always did.
   if (s.xScale !== undefined) fields.push(['xScale', str(s.xScale)]);
+  // Phase 1490 — the data-addressed annotations (canonical key order). Absent
+  // OMITS, so every pre-1490 chart encodes to the same bytes it always did; an
+  // EMPTY list is a different document and round-trips as `[]`.
+  if (s.annotations !== undefined)
+    fields.push(['annotations', jArray(s.annotations.map(chartAnnotation))]);
   if (s.onPointClick !== undefined) fields.push(['onPointClick', CLOSURE]);
   return jObject(fields);
 };
