@@ -16,7 +16,7 @@
 
 import type { Accessibility, NodeKind } from '@fuaran-ui/schema';
 
-import { type BindingSources, tryResolve } from './bindings.js';
+import { type BindingSources, resolveScalarBool, tryResolve } from './bindings.js';
 
 /**
  * Project an optional `Accessibility` (resolved against the supplied sources)
@@ -38,9 +38,18 @@ export const accessibilityAttributes = (
   if (a11y.describedBy !== undefined) pairs.push(['aria-describedby', a11y.describedBy]);
   if (a11y.role !== undefined) pairs.push(['role', a11y.role]);
   if (a11y.liveRegion !== undefined) pairs.push(['aria-live', a11y.liveRegion]);
+  // Phase 1535 — the SCALAR resolver on `hidden`. `tryResolve`'s `Transform`
+  // arm is row-shaped, so a pipeline yielding the 1x1 bool cell an author
+  // obviously meant here ("hide it when the grid is empty") could never resolve.
+  // `resolveScalarBool` reads the lone cell through the same coercion every
+  // other scalar slot uses; every other binding case resolves exactly as before,
+  // so no shipped document changes what it renders.
+  //
+  // `label` deliberately still takes the generic path, and the asymmetry is
+  // recorded rather than accidental — see the F# tier's note at the same site.
   if (a11y.hidden !== undefined) {
-    const hidden = tryResolve(sources, a11y.hidden);
-    if (hidden === true) pairs.push(['aria-hidden', 'true']);
+    const hidden = resolveScalarBool(sources, a11y.hidden);
+    if (hidden.kind === 'Resolved' && hidden.value) pairs.push(['aria-hidden', 'true']);
   }
 
   return pairs;

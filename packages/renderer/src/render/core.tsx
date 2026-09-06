@@ -12,11 +12,18 @@
 //  see classNames.ts.
 // ============================================================================
 
+import { Fragment } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
 import type { Node, NodeKind, StateBehaviour } from '@fuaran-ui/schema';
 
-import { renderText, resolve } from '../bindings.js';
+import {
+  isNodeVisible,
+  renderText,
+  resolve,
+  selectSwitchCase,
+  tryResolveScalarText,
+} from '../bindings.js';
 import { collectFragments } from '../context.js';
 import { deriveGuestPrivilege } from '../guestPrivilege.js';
 import {
@@ -111,12 +118,18 @@ export const renderKind = <TMsg,>(
         raw = ctx.sources.state?.[on.key];
         if (raw === undefined) raw = on.defaultValue;
       } else {
-        const r = resolve(ctx.sources, on);
-        raw = r.kind === 'Resolved' ? r.value : undefined;
+        // Phase 1535 — the SCALAR resolver. `resolve`'s `Transform` arm is
+        // row-shaped and cannot serve a string slot, so a computed selector fell
+        // through to `default` on every host with nothing saying why. Every
+        // other binding case resolves exactly as before.
+        raw = tryResolveScalarText(ctx.sources, on);
       }
       const valueStr = raw === undefined || raw === null ? '' : String(raw);
-      const matched = kind.spec.cases.find((c) => c.match === valueStr);
-      return renderNode(ctx, matched ? matched.child : kind.spec.default);
+      // Phase 1535 — first-match-wins over both kinds of case, through the one
+      // shared definition, so this renderer and the server cannot drift on the
+      // order or on what a predicate that fails to resolve means.
+      const matched = selectSwitchCase(ctx.sources, valueStr, kind.spec.cases);
+      return renderNode(ctx, matched ?? kind.spec.default);
     }
     case 'Custom':
       return renderCustom(ctx, parentNodeId, state, kind);
@@ -192,6 +205,18 @@ export const renderNode = <TMsg,>(
   key?: string,
 ): ReactElement => {
   const id = node.id;
+
+  // Phase 1535 — CONDITIONAL PRESENCE, before anything else is computed. A
+  // resolved `false` on `node.visible` removes the node entirely: no element,
+  // no placeholder, no `aria-hidden`, nothing in the layout and nothing in the
+  // accessibility tree. Absence, an unresolved predicate and an errored one all
+  // render — a missing source silently hiding content is the one failure a
+  // reader cannot see, cannot report and cannot work around.
+  //
+  // The rule is `isNodeVisible`, shared with the server renderer, and the guard
+  // sits on this one function rather than at every call site that produces a
+  // child, so a kind added tomorrow inherits it without anyone remembering to.
+  if (!isNodeVisible(ctx.sources, node)) return <Fragment key={key} />;
 
   let className = nodeClassName(node.kind, node.style);
   if (node.motion !== undefined) className += ` fuaran-motion-${motionVar(node.motion)}`;

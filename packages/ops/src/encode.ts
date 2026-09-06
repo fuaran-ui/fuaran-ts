@@ -2434,10 +2434,14 @@ const nodeKind = (k: NodeKind<unknown>): string => {
         [
           'cases',
           jArray(
+            // Phase 1535 — exactly one of `match` and `when` is present, so
+            // exactly one is emitted. `jObject` sorts, so the pair's relative
+            // order here is immaterial.
             k.spec.cases.map((c) =>
               jObject([
                 ['child', node(c.child)],
-                ['match', str(c.match)],
+                ...(c.match !== undefined ? ([['match', str(c.match)]] as const) : []),
+                ...(c.when !== undefined ? ([['when', binding(c.when, bool)]] as const) : []),
               ]),
             ),
           ),
@@ -2574,6 +2578,9 @@ const node = (n: Node<unknown>): string => {
   // sorts, so the emitted key order is the envelope's ordinal one whatever order
   // the pushes happen in.
   if (n.tooltip !== undefined) fields.push(['tooltip', textSource(n.tooltip)]);
+  // Phase 1535 — the node-level visibility predicate, omitted when absent, so
+  // every node authored before it stays byte-identical.
+  if (n.visible !== undefined) fields.push(['visible', binding(n.visible, bool)]);
   return jObject(fields);
 };
 
