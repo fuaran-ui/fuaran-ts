@@ -267,10 +267,19 @@ const containsUnwiredAction = (action: Action<unknown>): boolean => {
     // document. It routes through no runtime substrate, so it is not the
     // unwired shape this hint exists to warn about.
     case 'Print':
+    // Phase 1537 — browser-native, so no substrate a host could fail to wire.
+    case 'Focus':
     case 'ReadFileBody':
       return false;
     case 'Chain':
       return action.actions.some(containsUnwiredAction);
+    // Phase 1537 — a confirm is "unwired" exactly when its own continuations
+    // are; the dialogue itself always works.
+    case 'Confirm':
+      return (
+        containsUnwiredAction(action.onConfirm) ||
+        (action.onCancel !== undefined && containsUnwiredAction(action.onCancel))
+      );
     case 'Call':
     case 'Notify':
     case 'Navigate':

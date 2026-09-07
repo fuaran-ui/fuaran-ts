@@ -3547,6 +3547,73 @@ const decodeAction = (path: string, j: JsonAst): R<Action<unknown>> => {
       }
       return ok({ kind: 'Print' });
     }
+    case 'Confirm': {
+      // Phase 1537 — ask, then act. `prompt` is a `TextSource` (so the question
+      // can name what the reader selected), `onConfirm` is required and
+      // `onCancel` optional; an author who declares no cancel branch means
+      // "nothing happens", which is what an absent action already expresses.
+      //
+      // THE DEPTH-ONE REFUSAL is the substance of this arm. A `Confirm`
+      // reachable from either continuation is refused, and the check walks the
+      // DECODED continuation rather than its immediate `$type`, so
+      // `Chain [ ..., Confirm ... ]` is caught by the same line that catches a
+      // bare nested one. A dialogue that answers a dialogue is a modal stack the
+      // reader cannot escape.
+      //
+      // `WRONG_TYPE` follows the `SetState` value/valueFrom and Print-with-
+      // payload precedents: a decoder POLICY refusal reuses it rather than
+      // minting a code every host in the roster would owe an adoption for.
+      const nestedConfirmPath = (p: string, a: Action<unknown>): string | undefined => {
+        if (a.kind === 'Confirm') return p;
+        if (a.kind === 'Chain') {
+          for (let i = 0; i < a.actions.length; i++) {
+            const found = nestedConfirmPath(`${p}.ops[${i}]`, a.actions[i]!);
+            if (found !== undefined) return found;
+          }
+        }
+        return undefined;
+      };
+
+      const prompt = reqField(path, f, 'prompt', 'confirm prompt TextSource', decodeTextSource);
+      if (!prompt.ok) return prompt;
+
+      const confirmJ = requireField(path, f, 'onConfirm', 'Action to dispatch on acceptance');
+      if (!confirmJ.ok) return confirmJ;
+      const onConfirm = decodeAction(`${path}.onConfirm`, confirmJ.value);
+      if (!onConfirm.ok) return onConfirm;
+      const nestedInConfirm = nestedConfirmPath(`${path}.onConfirm`, onConfirm.value);
+      if (nestedInConfirm !== undefined)
+        return wrongType(
+          nestedInConfirm,
+          'any action but Confirm — confirmation is bounded at one question (WIRE_FORMAT.md §3.6.22)',
+        );
+
+      const cancelJ = f.get('onCancel');
+      if (cancelJ === undefined)
+        return ok({ kind: 'Confirm', prompt: prompt.value, onConfirm: onConfirm.value });
+      const onCancel = decodeAction(`${path}.onCancel`, cancelJ);
+      if (!onCancel.ok) return onCancel;
+      const nestedInCancel = nestedConfirmPath(`${path}.onCancel`, onCancel.value);
+      if (nestedInCancel !== undefined)
+        return wrongType(
+          nestedInCancel,
+          'any action but Confirm — confirmation is bounded at one question (WIRE_FORMAT.md §3.6.22)',
+        );
+
+      return ok({
+        kind: 'Confirm',
+        prompt: prompt.value,
+        onConfirm: onConfirm.value,
+        onCancel: onCancel.value,
+      });
+    }
+    case 'Focus': {
+      // Phase 1537 — a bare node id, the `CommitLocal` shape above. It addresses
+      // a node in THIS document, so there is nothing for a binding to compute
+      // and no `TextSource` here.
+      const r = reqField(path, f, 'nodeId', 'NodeId string of the node to focus', requireString);
+      return r.ok ? ok({ kind: 'Focus', nodeId: r.value }) : r;
+    }
     case 'ReadFileBody': {
       // Phase 136 — only fileRef (the opaque id) + encoding cross the wire.
       // The decoded FileRef carries no handle (no blob on a decoded tree);

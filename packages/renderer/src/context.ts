@@ -96,8 +96,20 @@ export const containsUnwiredAction = <TMsg>(action: Action<TMsg>): boolean => {
     // document. It routes through no runtime substrate, so it is not the
     // unwired shape this hint exists to warn about.
     case 'Print':
+    // Phase 1537 — `window.confirm()` and `.focus()` are the browser's own, so
+    // neither routes through a runtime substrate a host could fail to wire.
+    case 'Focus':
     case 'ReadFileBody':
       return false;
+    // A `Confirm` is "unwired" exactly when its own CONTINUATIONS are: the
+    // dialogue always works, so what the reader would be asking for is whatever
+    // the yes branch would do. `onCancel` counts too — a cancel branch that
+    // reaches no substrate is as inert as a confirm one.
+    case 'Confirm':
+      return (
+        containsUnwiredAction(action.onConfirm) ||
+        (action.onCancel !== undefined && containsUnwiredAction(action.onCancel))
+      );
     case 'Chain':
       return action.actions.some(containsUnwiredAction);
     case 'Call':
@@ -356,6 +368,50 @@ export const runAction = <TMsg>(ctx: RenderContext<TMsg>, action: Action<TMsg>):
       // tree whether the reader printed, cancelled, or what they chose. A host
       // with no interactive print path performs nothing rather than refusing.
       if (typeof window !== 'undefined' && typeof window.print === 'function') window.print();
+      return;
+    case 'Confirm': {
+      // Phase 1537 — ONE dispatch path, gated twice, and the ordering is the
+      // whole of the security argument.
+      //
+      // The FIRST gate is this one: may this tree raise a dialogue at all. The
+      // SECOND is not written here, and that is the point — on acceptance the
+      // continuation re-enters `runAction` from the top, so a `Navigate` inside
+      // it meets its own egress check and its own descriptor. There is no
+      // branch here that performs an effect directly, so a confirm cannot carry
+      // an action past a gate that would have refused it standing alone.
+      //
+      // A refusal of the dialogue performs NEITHER branch: the reader was never
+      // asked, so neither answer happened. The prompt resolves at DISPATCH time
+      // through the same binding resolution the tree renders its labels with.
+      const prompt = renderText(ctx.sources, action.prompt);
+      applyDispatchGate(ctx, { kind: 'Confirm', prompt }, () => {
+        const accepted =
+          typeof window !== 'undefined' && typeof window.confirm === 'function'
+            ? window.confirm(prompt)
+            : false;
+        if (accepted) runAction(ctx, action.onConfirm);
+        else if (action.onCancel !== undefined) runAction(ctx, action.onCancel);
+      });
+      return;
+    }
+    case 'Focus':
+      // Phase 1537 — renderer-native, and gated all the same: moving the
+      // reader's caret (and, on most engines, scrolling the element into view)
+      // is host-observable even though no runtime port backs it. A node id that
+      // addresses nothing WARNS and moves nothing — a `Switch` branch may
+      // legitimately have removed the target from the flow, so throwing there
+      // would take the whole gesture down.
+      applyDispatchGate(ctx, { kind: 'Focus', nodeId: action.nodeId }, () => {
+        if (typeof document === 'undefined') return;
+        const selector = `[data-fuaran-node-id="${action.nodeId.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
+        const el = document.querySelector(selector);
+        if (el === null)
+          warn(
+            ctx as RenderContext<unknown>,
+            `Action.Focus('${action.nodeId}') addressed no rendered node — focus unchanged.`,
+          );
+        else (el as HTMLElement).focus();
+      });
       return;
     case 'ReadFileBody': {
       // Phase 136. Prefer the wired runtime port; otherwise fall back to a

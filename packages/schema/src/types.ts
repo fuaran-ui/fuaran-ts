@@ -687,6 +687,44 @@ export type Action<TMsg> =
     }
   | {
       /**
+       * Phase 1537 — ask the reader `prompt`, then dispatch `onConfirm` on
+       * acceptance or `onCancel` (when present) on refusal.
+       *
+       * The SECOND recursive case in this union after `Chain`, and the first
+       * that recurses into NAMED members rather than a list — a host that
+       * special-cased `actions` and nothing else will not have this shape.
+       *
+       * `onCancel` is omitted when absent, and an absent cancel branch means
+       * *nothing happens*: a host must not substitute one.
+       *
+       * Confirmation is bounded at DEPTH ONE — a `Confirm` reachable from
+       * either continuation, through a `Chain` included, is refused at decode.
+       * And the continuation is not a route around the dispatch gate: the
+       * dialogue is gated, and on acceptance the branch re-enters the ordinary
+       * dispatch entry so it meets its own gate and its own egress check.
+       *
+       * A confirmation is never an authorisation — the answer comes from the
+       * client, and a hostile client answers yes without asking anyone.
+       */
+      readonly kind: 'Confirm';
+      readonly prompt: TextSource;
+      readonly onConfirm: Action<TMsg>;
+      readonly onCancel?: Action<TMsg>;
+    }
+  | {
+      /**
+       * Phase 1537 — move keyboard focus to the node addressed by `nodeId`.
+       *
+       * A bare string and never a `TextSource`: it addresses a node in this
+       * document, which the author wrote, so there is nothing for a binding to
+       * compute. What is not claimed: nothing about scrolling, and nothing
+       * about selection.
+       */
+      readonly kind: 'Focus';
+      readonly nodeId: string;
+    }
+  | {
+      /**
        * Phase 136 — read a previously-selected file's body in `encoding`, then
        * dispatch `onRead body`. Mirrors `Call`'s return-channel shape: only
        * `file.id` + `encoding` cross the wire (the blob is host-held on
