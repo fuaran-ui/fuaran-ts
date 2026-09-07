@@ -892,6 +892,20 @@ const action = <T>(a: Action<T>): string => {
       // case with no fields is exactly what the corpus fixture placing this
       // inside a `Chain` exists to catch.
       return caseObj('Print', []);
+    case 'Confirm': {
+      // Phase 1537 — the SECOND recursive arm after `Chain`, and the first that
+      // recurses into named members: both continuations go through `action`
+      // itself. Keys sort to onCancel < onConfirm < prompt, and `onCancel`
+      // rides only when present.
+      const fields: Field[] = [];
+      if (a.onCancel !== undefined) fields.push(['onCancel', action(a.onCancel)]);
+      fields.push(['onConfirm', action(a.onConfirm)]);
+      fields.push(['prompt', textSource(a.prompt)]);
+      return caseObj('Confirm', fields);
+    }
+    case 'Focus':
+      // Phase 1537 — a node id and nothing else, the `CommitLocal` shape.
+      return caseObj('Focus', [['nodeId', str(a.nodeId)]]);
     case 'ReadFileBody':
       // Phase 136 — only file.id + encoding cross the wire; the blob is
       // host-held (file.handle) and onRead is the closure sentinel (§4).

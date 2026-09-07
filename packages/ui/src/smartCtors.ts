@@ -509,6 +509,38 @@ export const action = {
     return { kind: 'Print' };
   },
   /**
+   * Phase 1537 — ask the reader `prompt`, then dispatch `onConfirm` on
+   * acceptance or `onCancel` (when given) on refusal.
+   *
+   * The prompt is a `TextSource`, so the question may name what the reader has
+   * selected; a plain string is a `Literal` and encodes as the bare JSON string.
+   *
+   * The continuation is dispatched through the SAME gate every other action
+   * meets, so a host that refuses navigation refuses it here too. A confirm is
+   * not an authorisation either — the answer comes from the client — and
+   * confirmation is bounded at one question: a `Confirm` inside a continuation
+   * is refused when the tree is decoded.
+   */
+  confirm<TMsg>(
+    prompt: TextSource | string,
+    onConfirm: Action<TMsg>,
+    onCancel?: Action<TMsg>,
+  ): Action<TMsg> {
+    return onCancel === undefined
+      ? { kind: 'Confirm', prompt: text(prompt), onConfirm }
+      : { kind: 'Confirm', prompt: text(prompt), onConfirm, onCancel };
+  },
+  /**
+   * Phase 1537 — move keyboard focus to the node with id `nodeId`.
+   *
+   * A plain string and never a `TextSource`: it addresses a node in this
+   * document, which the author wrote. What this does not claim: nothing about
+   * scrolling, and nothing about selection.
+   */
+  focus<TMsg>(nodeId: string): Action<TMsg> {
+    return { kind: 'Focus', nodeId };
+  },
+  /**
    * Phase 136 — read a previously-selected file's body in `encoding`, then
    * dispatch `onRead body`. `file` is the opaque `FileRef` handed to the
    * author on a `FileSelection`. Routes through `FuaranRuntime.readFileBody`

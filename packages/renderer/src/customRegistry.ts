@@ -171,7 +171,16 @@ export type ActionDescriptor =
   // Phase 90 — the in-page `window.__fuaran.apply(opJson)` mutation routes
   // through the same default-deny gate (FGP 3); `summary` is the raw op JSON.
   // Append-only parity mirror of the F# `ActionDescriptor.ApplyTreeOp`.
-  | { readonly kind: 'ApplyTreeOp'; readonly summary: string };
+  | { readonly kind: 'ApplyTreeOp'; readonly summary: string }
+  // Phase 1537 — a confirm dialogue and a focus move. Both are renderer-native
+  // (no runtime port backs either) and both are host-observable, which is why
+  // they are gated: a modal question steals focus and blocks the page, and a
+  // focus move takes the reader's caret. `Confirm` carries the RESOLVED prompt,
+  // so a policy can be per-question; the prompt is author-written text about to
+  // be shown on screen, so a gate that logs its descriptor logs nothing the
+  // reader is not already seeing.
+  | { readonly kind: 'Confirm'; readonly prompt: string }
+  | { readonly kind: 'Focus'; readonly nodeId: string };
 
 /** Render a descriptor for diagnostics — mirror of the F# `ActionDescriptor.describe`. */
 export const describeActionDescriptor = (descriptor: ActionDescriptor): string => {
@@ -186,6 +195,10 @@ export const describeActionDescriptor = (descriptor: ActionDescriptor): string =
       return `ReadFileBody(${descriptor.fileId})`;
     case 'ApplyTreeOp':
       return `ApplyTreeOp(${descriptor.summary})`;
+    case 'Confirm':
+      return `Confirm(${descriptor.prompt})`;
+    case 'Focus':
+      return `Focus(${descriptor.nodeId})`;
   }
 };
 
