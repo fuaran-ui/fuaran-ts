@@ -44,7 +44,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "lint": "tsc --noEmit -p tsconfig.test.json",
     "sync-corpus": "node scripts/sync-corpus.mjs",
-    "check-corpus": "node scripts/sync-corpus.mjs --check"
+    "check-corpus": "node scripts/sync-corpus.mjs --check",
+    "check-corpus-distance": "node scripts/sync-corpus.mjs --check-distance",
+    "declare-corpus": "node scripts/sync-corpus.mjs --declare"
   },
   "dependencies": {
     "ajv": "^8.17.1"
