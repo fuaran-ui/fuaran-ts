@@ -1,82 +1,239 @@
 // ============================================================================
-//  Teleport decoder — cross-host byte-parity proof.
+//  Teleport decoder — certified against the shared corpus family.
 //
-//  The golden bundle below was produced by the F# host
-//  (`Fuaran.UI.OpStream.Abstractions.Teleport.encode`): a running app — its
-//  tree plus its `Binding.State` values — serialised to one deflate+base64url,
-//  digest-signed string. These tests prove the TypeScript decoder decompresses
-//  it, recomputes the SHA-256 integrity digest with the SAME canonical renderer
-//  the wire codec is corpus-verified against, and structurally decodes the tree
-//  — i.e. a bundle minted by one conformant host resumes bit-for-bit on
-//  another. The tamper case proves the integrity gate refuses a single flipped
-//  byte rather than resuming something subtly wrong.
+//  This suite used to carry the golden bundle as a string constant pasted into
+//  the file. That proved something real — the TypeScript decoder decompresses
+//  an F#-produced bundle, recomputes its SHA-256 integrity digest with the same
+//  canonical renderer, and structurally decodes the tree — but it proved it in
+//  a form no other host could reach. A third host had nothing to certify
+//  against, and a change to the bundle's shape was invisible to every host that
+//  did not hold the constant. That is a one-host self-check, not conformance.
+//
+//  The bundle now lives in the shared wire-format corpus as its own fixture
+//  family (`teleport-decode` / `teleport-reject`, WIRE_FORMAT.md §17.6), and
+//  this suite is driven entirely by the manifest: every accept vector must
+//  decode to the canonical envelope the corpus holds, and every reject vector
+//  must be refused with the case and at the position §17.6 fixes. Nothing here
+//  is private to this host — a fourth host certifies its own teleport decoder
+//  by reading the same files.
 // ============================================================================
 
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { encodeNode, jsonField, parse, renderAstCanonical } from '@fuaran-ui/ops';
 import { describe, expect, it } from 'vitest';
 
-import { decodeTeleport, TELEPORT_FORMAT_PREFIX } from '../src/index.js';
+import {
+  decodeTeleport,
+  defaultTeleportLimits,
+  TELEPORT_FORMAT_PREFIX,
+  type TeleportError,
+  type TeleportLimits,
+} from '../src/index.js';
+import type { JsonAst } from '@fuaran-ui/ops';
+import type { Node } from '@fuaran-ui/schema';
 
-// A genuine F#-produced bundle: a 3-step signup wizard on step 1, name + email
-// filled, the other fields not yet entered. Its carried integrity digest:
-const GOLDEN_DIGEST = '29c3a5bbc187ff3188cb76635d921675dd72fa70040321cbe066da1f9cef79cb';
-const GOLDEN_BUNDLE =
-  'FT1.q1ZKKs1LyUlVslIqSc1JLcgvKnEwVNJRSslMTy0uAYoaWSYbJ5omJSUbWpinpRkbWlgkJ5mbmRmbplgaGZqZm6akmBulJZobGJgYGBsZJielGpiZpSQaplkmp6aZWyYnAc0qLkksAVpQrZSam5iZAzQzMSXRITEvMaeyJDM5MUcvNS89My8VqDAvMRfkEMeURAWf_LLUnMRkkGhBTmIeUBTIKkpNSy0qSgQZATY2tUDJykAH6PDE3ODMKpBWpVogtygVbFticnJqcXFmUmZOZkklSKAoH-zPotT0zPw8kMrMFJC3C3QTCwqA5mVn5gH51UoqJZUFIHVO-RVA0eSMzJyUolSgC6Kr4RpAVhdj0RIMFC9ILQLKJCaXZJalgvio8olALwOlyxJzSoECBkBHYLfAAIvpvolF2Sn55XlAqZLUCmDkIKR8MktSQQEDk1GKzC8tUkhJLQEGeLFSbW2tDpLZoPilxOyAzORshUQFcLygGW1EodE-icUlyM6O1VHKzwsGJsxkkKxNck5-cWlRqh1QCsnWgqL89CJgVFNodzwothQMFfLTFIwVHjVMUUAOw3g0n6ZlpuakYLMRT6pJ0wUncMpcqaXlBzTESktLASWboLlOF5LVKLXKFWQKyC7sORbdUnCKoNTOAKAhICvjNfLySxQqU0sUUvOAilJTNDHiQBdeIFBqqUdqYlGKQllmIrE2g8ocim0NARqiUAwsufDYCswBOYmV-aUoZrnlpIJSWUpmETBjgAozK6Ww1CJw3ACFy4sSgaVOWmJOcSqwfIGWeu5F-aUFQAOB5mWkJqZk5qXjdZxfarkCsADNL80rAZWUVHGCMzCMQV4CAA';
+const here = dirname(fileURLToPath(import.meta.url));
+// packages/op-stream/test → workspace-root/wire-format-fixtures
+const corpusRoot = join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+const manifestPath = join(corpusRoot, 'manifest.json');
+const readFixture = (relPath: string): string => readFileSync(join(corpusRoot, relPath), 'utf8');
 
-describe('decodeTeleport — cross-host parity', () => {
-  it('decodes an F#-produced bundle and verifies its integrity digest', async () => {
-    const result = await decodeTeleport(GOLDEN_BUNDLE);
+/** The manifest rows this family uses (WIRE_FORMAT.md §12). */
+interface ManifestFixture {
+  readonly id: string;
+  readonly kind: string;
+  readonly decoder: string;
+  readonly inputFile: string;
+  readonly expectedFile?: string;
+  readonly expectedErrorCode?: string;
+  readonly expectedPath?: string;
+  readonly description: string;
+}
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
+/** A `teleport-*` fixture's input document: the bundle string, plus the size
+ *  ceilings this vector is to be run under when it names any (§17.6). */
+interface TeleportInput {
+  readonly encoded: string;
+  readonly limits?: Partial<TeleportLimits>;
+}
 
-    // Digest recomputed independently in TS === the one the F# host signed.
-    expect(result.value.digest).toBe(GOLDEN_DIGEST);
+const corpusPresent = existsSync(manifestPath);
+
+const fixturesOfKind = (kind: string): readonly ManifestFixture[] => {
+  if (!corpusPresent) return [];
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    readonly fixtures: readonly ManifestFixture[];
+  };
+  return manifest.fixtures.filter((f) => f.kind === kind);
+};
+
+const decodeFixtures = fixturesOfKind('teleport-decode');
+const rejectFixtures = fixturesOfKind('teleport-reject');
+
+const inputOf = (f: ManifestFixture): TeleportInput =>
+  JSON.parse(readFixture(f.inputFile)) as TeleportInput;
+
+const limitsOf = (input: TeleportInput): TeleportLimits => ({
+  ...defaultTeleportLimits,
+  ...input.limits,
+});
+
+/** The envelope member `name`, as its parsed AST — `undefined` when the
+ *  envelope omits it (§17.2 omits `state` / `history` / `chainHead` when
+ *  empty). */
+const member = (envelope: JsonAst, name: string): JsonAst | undefined =>
+  envelope.kind === 'JObject' ? jsonField(envelope.fields, name) : undefined;
+
+/** The canonical bytes of envelope member `name` — what a conformant host must
+ *  produce for it. */
+const memberBytes = (envelope: JsonAst, name: string): string | undefined => {
+  const ast = member(envelope, name);
+  return ast === undefined ? undefined : renderAstCanonical(ast);
+};
+
+/** The `$`-rooted position a §17.4 error case concerns. The mapping is
+ *  NORMATIVE and lives in WIRE_FORMAT.md §17.6, not here: a §17.4 error is a
+ *  typed case rather than a `(code, path)` pair, so fixing the position in the
+ *  specification is what stops two conformant hosts disagreeing about a fixture
+ *  while both pass. This implements that table and nothing else. */
+const pathOf = (error: TeleportError): string => {
+  switch (error.code) {
+    case 'InvalidEnvelope':
+      return error.path;
+    case 'UnsupportedVersion':
+      return '$.bundle';
+    case 'DigestMismatch':
+      return '$.digest';
+    case 'TreeDecode':
+      return error.error.path;
+    default:
+      // Oversize / InvalidFormat / InvalidJson — the failure precedes any envelope.
+      return '$';
+  }
+};
+
+/** Plain JSON → the AST the canonical renderer consumes. `decodeTeleport`
+ *  hands `state` back as ordinary JavaScript values (that is its contract — a
+ *  host seats them into its own state store), so re-rendering them canonically
+ *  is how this suite compares them to corpus bytes rather than to a
+ *  `JSON.stringify` spelling. */
+const toAst = (value: unknown): JsonAst => {
+  if (value === null) return { kind: 'JNull' };
+  if (typeof value === 'boolean') return { kind: 'JBool', value };
+  if (typeof value === 'number') return { kind: 'JNumber', value };
+  if (typeof value === 'string') return { kind: 'JString', value };
+  if (Array.isArray(value)) return { kind: 'JArray', items: value.map(toAst) };
+  const fields = new Map<string, JsonAst>();
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) fields.set(k, toAst(v));
+  return { kind: 'JObject', fields };
+};
+
+// ─── The family must EXIST ───────────────────────────────────────────────────
+//
+// `--emit-corpus` rewrites the root manifest wholesale from the reference
+// emitter's own fixture list, and that emitter builds no teleport fixtures yet
+// (WIRE_FORMAT.md §12). A regeneration can therefore drop this family in
+// passing, leaving `teleport/` orphaned on disk and every host quietly
+// un-certified. Failing here — rather than reporting an empty suite green — is
+// what turns that into a named gate failure in the repo that noticed.
+
+describe.skipIf(!corpusPresent)('teleport corpus family', () => {
+  it('is registered in the manifest', () => {
+    expect(
+      decodeFixtures.length,
+      'the corpus carries no `teleport-decode` fixtures. If the corpus was just regenerated, ' +
+        '`--emit-corpus` rewrote manifest.json without this family — restore the ' +
+        '`teleport-decode` / `teleport-reject` entries (WIRE_FORMAT.md §12).',
+    ).toBeGreaterThan(0);
+    expect(rejectFixtures.length).toBeGreaterThan(0);
   });
 
-  it('resumes the exact mid-interaction state', async () => {
-    const result = await decodeTeleport(GOLDEN_BUNDLE);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
+  it('names the teleport entry point for every entry', () => {
+    for (const f of [...decodeFixtures, ...rejectFixtures]) expect(f.decoder).toBe('teleport');
+  });
+});
 
-    expect(result.value.state).toMatchObject({
-      name: 'Ada Lovelace',
-      email: 'ada@analytical.engine',
-      plan: '',
-      step: 0,
+// ─── Accept ──────────────────────────────────────────────────────────────────
+
+describe.skipIf(!corpusPresent)('decodeTeleport — corpus accept vectors', () => {
+  for (const f of decodeFixtures) {
+    it(`${f.id} decodes to the envelope the corpus holds`, async () => {
+      const input = inputOf(f);
+      const result = await decodeTeleport(input.encoded, limitsOf(input));
+
+      expect(result.ok, `${f.id}: ${f.description}`).toBe(true);
+      if (!result.ok) return;
+
+      const expectedRaw = readFixture(f.expectedFile as string);
+      const parsed = parse(expectedRaw);
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) return;
+      const envelope = parsed.value;
+
+      // The corpus payload is itself canonical bytes. A hand edit that
+      // reordered a member or respaced the document would make every
+      // comparison below a comparison against something §2 does not permit.
+      expect(renderAstCanonical(envelope)).toBe(expectedRaw);
+
+      // The carried integrity digest, recomputed independently in TypeScript.
+      expect(`"${result.value.digest}"`).toBe(memberBytes(envelope, 'digest'));
+
+      // The decoded tree re-encodes to the SAME canonical bytes the corpus
+      // holds for the envelope's `tree` member. This is the cross-host claim:
+      // bytes in, bytes out, no shared type model between the two hosts.
+      expect(encodeNode(result.value.tree as Node<unknown>)).toBe(memberBytes(envelope, 'tree'));
+
+      // State, history and chain head resume exactly as carried — each
+      // compared through the canonical renderer, never through JSON.stringify,
+      // whose number and escape rules are not §2's.
+      const stateBytes = memberBytes(envelope, 'state');
+      expect(renderAstCanonical(toAst(result.value.state))).toBe(stateBytes ?? '{}');
+
+      const historyAst = member(envelope, 'history');
+      const expectedHistory =
+        historyAst !== undefined && historyAst.kind === 'JArray'
+          ? historyAst.items.map(renderAstCanonical)
+          : [];
+      expect(result.value.history.map(renderAstCanonical)).toEqual(expectedHistory);
+
+      const chainHeadBytes = memberBytes(envelope, 'chainHead');
+      expect(result.value.chainHead === undefined ? undefined : `"${result.value.chainHead}"`).toBe(
+        chainHeadBytes,
+      );
     });
-  });
+  }
+});
 
-  it('structurally decodes the carried tree', async () => {
-    const result = await decodeTeleport(GOLDEN_BUNDLE);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
+// ─── Reject ──────────────────────────────────────────────────────────────────
 
-    // The decoded tree is a real typed Node (a Card, per the wire), not raw JSON.
-    expect(result.value.tree).toHaveProperty('kind');
-    expect(result.value.history).toEqual([]);
-    expect(result.value.chainHead).toBeUndefined();
-  });
+describe.skipIf(!corpusPresent)('decodeTeleport — corpus reject vectors', () => {
+  for (const f of rejectFixtures) {
+    it(`${f.id} is refused`, async () => {
+      const input = inputOf(f);
+      const result = await decodeTeleport(input.encoded, limitsOf(input));
 
-  it('refuses a tampered bundle with a typed DigestMismatch', async () => {
-    // Flip one byte in the middle of the compressed payload — corruption or
-    // tampering between devices produces exactly this.
-    const mid = Math.floor(GOLDEN_BUNDLE.length / 2);
-    const flipped = GOLDEN_BUNDLE[mid] === 'A' ? 'B' : 'A';
-    const tampered = GOLDEN_BUNDLE.slice(0, mid) + flipped + GOLDEN_BUNDLE.slice(mid + 1);
+      expect(result.ok, `${f.id} decoded, but ${f.description}`).toBe(false);
+      if (result.ok) return;
 
-    const result = await decodeTeleport(tampered);
+      expect(result.error.code, f.description).toBe(f.expectedErrorCode);
+      // Prefix matching, per §12 — a host may name a position deeper than the
+      // corpus's stated slot and is then more precise, not divergent.
+      expect(pathOf(result.error).startsWith(f.expectedPath as string)).toBe(true);
+    });
+  }
+});
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    // Either the deflate stream no longer decodes, or it decodes to an envelope
-    // whose recomputed digest no longer matches — both are typed refusals, not
-    // a silent wrong resume.
-    expect(['DigestMismatch', 'InvalidFormat', 'InvalidJson', 'InvalidEnvelope']).toContain(
-      result.error.code,
-    );
-  });
+// ─── Decoder contract, corpus-independent ────────────────────────────────────
+//
+// These two carry no bundle and no golden constant: they hold in a standalone
+// clone with no corpus beside it, where every suite above skips. They assert
+// the shape of a refusal, never the content of any artefact.
 
-  it('rejects a non-bundle string', async () => {
+describe('decodeTeleport — refusals that need no fixture', () => {
+  it('rejects a string with no format tag', async () => {
     const result = await decodeTeleport('not a teleport bundle');
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -84,7 +241,7 @@ describe('decodeTeleport — cross-host parity', () => {
   });
 
   it('rejects an oversize input before doing any work', async () => {
-    const huge = TELEPORT_FORMAT_PREFIX + 'A'.repeat(70000);
+    const huge = TELEPORT_FORMAT_PREFIX + 'A'.repeat(defaultTeleportLimits.maxEncodedChars + 1);
     const result = await decodeTeleport(huge);
     expect(result.ok).toBe(false);
     if (result.ok) return;

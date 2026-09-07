@@ -290,6 +290,27 @@ that would measure the wrong thing. A host that has not adopted omits the hook a
 `contract-card-bundle`. Those are exported union types, so a consumer exhaustively switching on one
 gains an unhandled case — additive on the wire, source-visible in TypeScript.
 
+### `@fuaran-ui/conformance` 0.22.0 — the teleport family is DECLARED, and deliberately not run (Phase 1589)
+
+The shared corpus gains a teleport fixture family (`WIRE_FORMAT.md` §17.6), so `FixtureKind` is
+widened with `teleport-decode` / `teleport-reject` and `CorpusFixture.decoder` gains `teleport`.
+Additive, and minor for the same reason the contract-card widening above was: these are exported
+union types describing the manifest, so a consumer exhaustively switching on one gains an unhandled
+case rather than a break.
+
+**No leg runs over them, and that is structural rather than an oversight.** A teleport decoder is
+asynchronous — the bundle is a DEFLATE stream inflated through the platform's own decompressor — and
+`runConformance` is synchronous by contract. Giving the kit a teleport leg therefore means an async
+runner entry point, which is a change to this package's public shape and its own piece of work; doing
+it as a side-effect of landing the corpus family would have been the larger, less reviewable change.
+`LegId` is **not** widened here, precisely because there is no leg to name.
+
+What a consumer should read from a report in the meantime: the kit's fixture accounting is over the
+legs it runs, and the teleport family is not among them. The family is certified host-side against
+the same files (`packages/op-stream/test/teleport.test.ts`), and this repo's self-certification suite
+pins the exclusion to exactly those two kinds — so a future family that no leg covers still fails the
+accounting rather than slipping through it.
+
 ### Recorded breaking change — `@fuaran-ui/ops` 0.20.0, the typed actor on the DAG record (fuaran#1144)
 
 `DagOpRecord.userId: string` becomes `actor: DagActor` — the exported

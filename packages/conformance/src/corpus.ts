@@ -37,7 +37,19 @@ export type FixtureKind =
   // WIRE_FORMAT.md §25 contract cards. Its OWN family, never `nodes/` — a card is
   // not a node, so the node round-trip law says nothing about it.
   | 'contract-card-round-trip'
-  | 'contract-card-reject';
+  | 'contract-card-reject'
+  // WIRE_FORMAT.md §17 teleport bundles. Declared because the manifest carries
+  // them and this type describes the manifest — but this kit runs NO leg over
+  // them, and the omission is structural rather than an oversight: a teleport
+  // decoder is asynchronous (it inflates a DEFLATE stream through the platform's
+  // own decompressor), and `runConformance` is synchronous by contract. Giving
+  // the kit a teleport leg means an async runner entry point, which is a change
+  // to this package's public shape and its own piece of work. Until then the
+  // family is certified host-side, and `test/self-certification.test.ts` names
+  // it as the one excluded set rather than letting the accounting quietly
+  // stop adding up.
+  | 'teleport-decode'
+  | 'teleport-reject';
 
 export interface CorpusFixture {
   readonly id: string;
@@ -49,7 +61,8 @@ export interface CorpusFixture {
     | 'elicitation-outcome'
     | 'elicitation-answer'
     | 'contract-card'
-    | 'contract-card-bundle';
+    | 'contract-card-bundle'
+    | 'teleport';
   readonly inputFile: string;
   readonly expectedFile?: string;
   readonly expectedErrorCode?: string;
