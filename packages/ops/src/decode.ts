@@ -6444,8 +6444,10 @@ const decodeTabsSpec = (path: string, j: JsonAst): R<TabsSpec<unknown>> => {
   }
   const activeTag = optField(path, f, 'activeTag', decodeBindingString);
   if (!activeTag.ok) return activeTag;
-  // activeIndex (Phase 126) now round-trips; absent (legacy wire) defaults to
-  // Static 0. onSelect / onSelectTag (Phase 426): a present `"<closure>"`
+  // activeIndex (Phase 126) now round-trips. Absent restores the `Static`
+  // binding carrying `0` BY CONTRACT since Phase 1585 made the member
+  // omit-at-default — not, as this note read until then, as tolerance of legacy
+  // wire predating the field. onSelect / onSelectTag (Phase 426): a present `"<closure>"`
   // sentinel → the inert placeholder; an absent key → omitted, arming the
   // renderer's ActiveIndex/ActiveTag write-back default.
   const activeIndex = optField(path, f, 'activeIndex', decodeBindingInt);

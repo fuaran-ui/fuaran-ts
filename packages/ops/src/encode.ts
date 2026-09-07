@@ -2224,8 +2224,18 @@ const tabsSpec = (s: TabsSpec<unknown>): string => {
     ['children', jArray(s.children.map(node))],
     // 0.2.0 omitted-when-default (`Horizontal`).
     ...(s.orientation === 'Horizontal' ? [] : ([['orientation', str(s.orientation)]] as const)),
-    ['activeIndex', binding(s.activeIndex)],
   ];
+  // `activeIndex` (Phase 126, omit-at-default since Phase 1585) — the identity
+  // default is the `Static` binding carrying `0`, and every host's decoder
+  // restores it on absence, so a tabs control opening on its first tab no
+  // longer pays a key for saying nothing. Every other binding still rides,
+  // including a `Static` carrying any other index and every `State` / `Filter`
+  // / `Selection` / `Query` form. An explicit
+  // `{"$type":"Static","value":0}` on input still decodes and normalises to the
+  // omitted form (§3.6's scope note), which is what makes this read-compatible.
+  if (!(s.activeIndex.kind === 'Static' && s.activeIndex.value === 0)) {
+    fields.push(['activeIndex', binding(s.activeIndex)]);
+  }
   if (s.onSelect !== undefined) fields.push(['onSelect', CLOSURE]);
   if (s.tabHeaders !== undefined) fields.push(['tabHeaders', jArray(s.tabHeaders.map(tabHeader))]);
   if (s.tabTags !== undefined) fields.push(['tabTags', jArray(s.tabTags.map(str))]);
