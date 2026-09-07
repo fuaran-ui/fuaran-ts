@@ -54,7 +54,9 @@ import {
 const render = (wire: string): string => {
   const decoded = decodeNode(wire);
   if (!decoded.ok) throw new Error(`decode failed: ${JSON.stringify(decoded.error)}`);
-  return renderToStaticMarkup(<FuaranRenderer tree={decoded.value} egressPolicy={permissiveEgress} />);
+  return renderToStaticMarkup(
+    <FuaranRenderer tree={decoded.value} egressPolicy={permissiveEgress} />,
+  );
 };
 
 const grid = (template?: string): string =>
@@ -63,7 +65,11 @@ const grid = (template?: string): string =>
     kind: {
       $type: 'Box',
       children: [],
-      layout: { $type: 'Grid', cols: 2, ...(template !== undefined ? { templateColumns: template } : {}) },
+      layout: {
+        $type: 'Grid',
+        cols: 2,
+        ...(template !== undefined ? { templateColumns: template } : {}),
+      },
       role: 'Group',
     },
   });
@@ -73,7 +79,9 @@ const painted = (fill: string): string =>
     id: 'd',
     kind: {
       $type: 'Drawing',
-      shapes: [{ $type: 'Circle', cx: 5, cy: 5, r: 2, style: { fill: { $type: 'Static', value: fill } } }],
+      shapes: [
+        { $type: 'Circle', cx: 5, cy: 5, r: 2, style: { fill: { $type: 'Static', value: fill } } },
+      ],
       style: {},
       viewBox: { height: 10, minX: 0, minY: 0, width: 10 },
     },
@@ -103,7 +111,11 @@ describe('emission grammar — CSS track-list', () => {
   });
 
   it('ALLOW twin — real track lists render verbatim and unmarked', () => {
-    for (const template of ['1fr 2fr auto', 'repeat(auto-fit, minmax(150px, 1fr))', 'min-content max-content']) {
+    for (const template of [
+      '1fr 2fr auto',
+      'repeat(auto-fit, minmax(150px, 1fr))',
+      'min-content max-content',
+    ]) {
       const html = render(grid(template));
       expect(html).toContain(template);
       expect(html).not.toContain(cssRefusalAttribute);
@@ -175,9 +187,9 @@ describe('emission grammar — the markdown sweep', () => {
     // Unanchored, the sweep rewrote VISIBLE PROSE: a document explaining the
     // hazard could not state it, because the literal token in a `<code>`
     // element's TEXT was replaced with `about:blank`.
-    expect(sanitizeMarkdownHtml('<p>Never write <code>javascript:</code> in an href</p>')).toContain(
-      'javascript:',
-    );
+    expect(
+      sanitizeMarkdownHtml('<p>Never write <code>javascript:</code> in an href</p>'),
+    ).toContain('javascript:');
     const attr = sanitizeMarkdownHtml('<a href="javascript:alert(1)">x</a>');
     expect(attr).not.toContain('javascript:');
     expect(attr).toContain('about:blank');
@@ -187,9 +199,9 @@ describe('emission grammar — the markdown sweep', () => {
     // `<metadata>` is not `<meta>` and `<linearGradient>` is not `<link>`, both
     // of which the drawing builder emits.
     expect(sanitizeMarkdownHtml('<p><meter value="0.6"></meter></p>')).toContain('<meter');
-    expect(sanitizeMarkdownHtml('<meta http-equiv="refresh" content="0;url=http://evil">')).not.toContain(
-      'evil',
-    );
+    expect(
+      sanitizeMarkdownHtml('<meta http-equiv="refresh" content="0;url=http://evil">'),
+    ).not.toContain('evil');
   });
 });
 

@@ -1,9 +1,6 @@
 {
   "host": "fuaran-ts",
-  "entryPoints": [
-    "decodeNode",
-    "decodeOp"
-  ],
+  "entryPoints": ["decodeNode", "decodeOp"],
   "config": "long",
   "seed": "20260906",
   "iterations": 250000,
