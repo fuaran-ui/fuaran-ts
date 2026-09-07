@@ -582,8 +582,12 @@ const namespaceKind = <TMsg>(prefix: string, kind: NodeKind<TMsg>): NodeKind<TMs
         kind: 'Switch',
         spec: {
           ...kind.spec,
+          // Phase 1535 — the whole case is carried through and only the child
+          // is rewritten. Naming `match` explicitly would have silently dropped
+          // `when` the moment it was added, which is precisely what happened
+          // here on the first build.
           cases: kind.spec.cases.map((c) => ({
-            match: c.match,
+            ...c,
             child: namespaceNode(prefix, c.child),
           })),
           default: namespaceNode(prefix, kind.spec.default),

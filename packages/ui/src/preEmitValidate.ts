@@ -70,6 +70,23 @@ export type PreEmitDefect =
    */
   | { readonly code: 'DUPLICATE_SWITCH_MATCH'; readonly nodeId: string; readonly match: string }
   /**
+   * FUARAN147 (error) — a `SwitchCase` carries BOTH a string `match` and a
+   * predicate `when`, or NEITHER (Phase 1535). Exactly one is meaningful:
+   * `match` compares the switch's `on` selector against a literal, `when`
+   * evaluates a `Binding<boolean>` and needs no selector at all.
+   *
+   * The PRE-EMIT twin of the decoder's own refusal, and it exists for the reason
+   * every pre-emit shape rule does: a tree AUTHORED in TypeScript never passes
+   * through the decoder, so without it the one shape the wire refuses is
+   * reachable by construction.
+   */
+  | {
+      readonly code: 'SWITCH_CASE_SELECTOR_SHAPE';
+      readonly nodeId: string;
+      readonly caseIndex: number;
+      readonly bothPresent: boolean;
+    }
+  /**
    * FUARAN083 (warning) — a `Switch` has an empty `stateKey` (Phase 392): it can
    * never resolve a case and is stuck on its default; name the state key it
    * selects on.
@@ -470,16 +487,38 @@ export function preEmitValidate<TMsg>(
         }
         // FUARAN082 (Phase 392): duplicate match values make the later case
         // dead (first-match-wins). Report each duplicated value once.
+        //
+        // Phase 1535 — over the MATCH cases only. Two predicate cases are not
+        // duplicates of each other: `when` carries a binding, two bindings that
+        // happen to be equal today may resolve differently tomorrow, and
+        // structural equality of two predicates is not the question this rule
+        // asks. FUARAN147 below is the shape rule for the case itself.
         const seen = new Set<string>();
         const reported = new Set<string>();
-        for (const c of k.spec.cases) {
-          if (seen.has(c.match) && !reported.has(c.match)) {
-            defects.push({ code: 'DUPLICATE_SWITCH_MATCH', nodeId: n.id, match: c.match });
-            reported.add(c.match);
+        k.spec.cases.forEach((c, i) => {
+          if (c.match !== undefined && c.when !== undefined)
+            defects.push({
+              code: 'SWITCH_CASE_SELECTOR_SHAPE',
+              nodeId: n.id,
+              caseIndex: i,
+              bothPresent: true,
+            });
+          else if (c.match === undefined && c.when === undefined)
+            defects.push({
+              code: 'SWITCH_CASE_SELECTOR_SHAPE',
+              nodeId: n.id,
+              caseIndex: i,
+              bothPresent: false,
+            });
+          if (c.match !== undefined) {
+            if (seen.has(c.match) && !reported.has(c.match)) {
+              defects.push({ code: 'DUPLICATE_SWITCH_MATCH', nodeId: n.id, match: c.match });
+              reported.add(c.match);
+            }
+            seen.add(c.match);
           }
-          seen.add(c.match);
           walk(c.child);
-        }
+        });
         walk(k.spec.default);
         break;
       }

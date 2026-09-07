@@ -919,6 +919,22 @@ export interface Node<TMsg> {
    * icon-only control needs both, saying different things.
    */
   readonly tooltip?: TextSource;
+
+  /**
+   * Conditional presence (Phase 1535) — a `Binding<boolean>` whose resolved
+   * `false` removes this node from the rendered output ENTIRELY: no element, no
+   * placeholder, no `aria-hidden`, nothing in the layout and nothing in the
+   * accessibility tree.
+   *
+   * It is NOT `accessibility.hidden`, which is `aria-hidden` over a node that IS
+   * rendered and DOES occupy space. WIRE_FORMAT.md §3.1 carries the side-by-side
+   * table and the one-line rule for which to emit.
+   *
+   * Absence, an unresolved predicate and an errored one all RENDER. A missing
+   * source silently hiding content is the one failure a reader cannot see,
+   * cannot report and cannot work around.
+   */
+  readonly visible?: Binding<boolean>;
 }
 
 export type NodeKind<TMsg> =
@@ -1070,10 +1086,19 @@ export interface SwitchSpec<TMsg> {
   readonly autoAdvanceMs?: number;
 }
 
-/** One case in a {@link SwitchSpec}: render `child` when the state value's
- * string form equals `match`. */
+/**
+ * One case in a {@link SwitchSpec}. EXACTLY ONE of `match` and `when` is
+ * present — both together and neither at all are decode errors, the Phase 818
+ * `value` / `valueFrom` shape.
+ *
+ * `match` renders `child` when the selector's string form equals it; `when`
+ * (Phase 1535) renders `child` when the predicate resolves `true`, consulting
+ * no selector at all. The two interleave freely in one ordered array and
+ * first-match-wins runs over the AUTHORED order.
+ */
 export interface SwitchCase<TMsg> {
-  readonly match: string;
+  readonly match?: string;
+  readonly when?: Binding<boolean>;
   readonly child: Node<TMsg>;
 }
 
