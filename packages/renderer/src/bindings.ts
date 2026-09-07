@@ -223,6 +223,18 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       try {
         return { kind: 'Resolved', value: binding.compute(ctx) };
       } catch (ex) {
+        // A DECODED `Computed` has no `fn` to run — the case's whole payload is
+        // the closure and it crosses the wire as a sentinel — so its stand-in
+        // throws, and the message is surfaced VERBATIM rather than wrapped in
+        // "Computed binding threw": the reader needs the remedy, not the
+        // mechanism, and the sentence already names the cases that do cross.
+        //
+        // Matched on `name` rather than `instanceof`: the class is declared in
+        // @fuaran-ui/ops, which this package does not depend on, so an identity
+        // check would be a check on which copy was loaded.
+        if (ex instanceof Error && ex.name === 'WireSurvivabilityError') {
+          return { kind: 'Errored', message: ex.message };
+        }
         return { kind: 'Errored', message: `Computed binding threw: ${msg(ex)}` };
       }
     }

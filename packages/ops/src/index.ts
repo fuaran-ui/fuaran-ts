@@ -158,3 +158,17 @@ export {
 // charter's O1). Both renderers lay a tree's declared defaults under the
 // host's own sources through `withStateSeeds`.
 export { collectStateSeeds, withStateSeeds, HOST_RESERVED_PREFIX } from './seeds.js';
+
+// The `Binding.Local` edit-buffer codec (WIRE_FORMAT.md Section 3.3.3) and the
+// failure a decoded host-only projection raises. Exported so a host that builds
+// a `Local` in process can use the same identity the decoder does, rather than
+// inventing a second one that renders numbers differently.
+export {
+  identityFormat,
+  tryNumberText,
+  scalarOfText,
+  fixedText,
+  numberText,
+  WireSurvivabilityError,
+  DECODED_COMPUTED_MESSAGE,
+} from './localCodec.js';

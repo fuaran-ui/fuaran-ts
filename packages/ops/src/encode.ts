@@ -738,14 +738,22 @@ const binding = <T>(b: Binding<T>, staticEnc: (v: T) => string = objValue): stri
       fields.push(['key', str(b.key)]);
       return caseObj('I18n', fields);
     }
-    case 'Local':
-      return caseObj('Local', [
+    case 'Local': {
+      // The declared members ride when present; `onCommit` is emitted only when
+      // the binding actually carries the closure, because a document that never
+      // wrote the key must not gain one on re-encode — and because a declared
+      // `commitTo` excludes it (they are mutually exclusive on the wire).
+      const localFields: Field[] = [
         ['flushOn', flushTrigger(b.local.flushOn)],
         ['format', CLOSURE],
         ['initialFrom', binding(b.local.initialFrom, staticEnc)],
-        ['onCommit', CLOSURE],
         ['parse', CLOSURE],
-      ]);
+      ];
+      if (b.local.codec !== undefined) localFields.push(['codec', formatIntent(b.local.codec)]);
+      if (b.local.commitTo !== undefined) localFields.push(['commitTo', str(b.local.commitTo)]);
+      if (b.local.onCommit !== undefined) localFields.push(['onCommit', CLOSURE]);
+      return caseObj('Local', localFields);
+    }
     case 'Format':
       // Phase 102: source is always a numeric Binding; format / locale are
       // bounded DUs. Keys sort to format < locale < source.

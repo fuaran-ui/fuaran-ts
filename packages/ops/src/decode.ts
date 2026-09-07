@@ -152,6 +152,7 @@ import type {
   LayoutKind,
   LiveRegionKind,
   LocaleSource,
+  LocalBinding,
   LocalFlushTrigger,
   MarkdownSpec,
   Node,
@@ -190,6 +191,14 @@ import type {
   TrendPolarity,
 } from '@fuaran-ui/schema';
 
+import {
+  DECODED_COMPUTED_MESSAGE,
+  WireSurvivabilityError,
+  identityFormat,
+  numberText,
+  scalarOfText,
+  tryNumberText,
+} from './localCodec.js';
 import { type JsonAst, parse } from './parse.js';
 import type { TreeOp } from './treeOp.js';
 
@@ -2532,7 +2541,23 @@ const decodeBinding = (
       return ok({ kind: 'State', key: key.value, defaultValue });
     }
     case 'Computed':
-      return ok({ kind: 'Computed', compute: () => undefined });
+      // The encoder writes the fn as `<closure>`, and there is nothing else in
+      // the case — so a decoded `Computed` cannot compute.
+      //
+      // It used to decode to `() => undefined`, which the resolver reported as
+      // `Resolved undefined` and the slot rendered as its empty state: a wrong
+      // answer indistinguishable at the slot from a right one. The stand-in now
+      // THROWS, the resolver catches it into an `Errored` naming the cases that
+      // do cross the wire, and the reader sees the slot's error surface. The
+      // decode itself still succeeds — the document is well-formed, and refusing
+      // the whole tree for a binding nothing may ever read would be a larger
+      // claim than the evidence supports.
+      return ok({
+        kind: 'Computed',
+        compute: () => {
+          throw new WireSurvivabilityError(DECODED_COMPUTED_MESSAGE);
+        },
+      });
     // The projection decodes to the IDENTITY (the Phase 427 Selection fix
     // replayed): the host-furnished instant is already the wire-shaped string,
     // so a decoded reader receives it as-is. A value-discarding placeholder
@@ -2563,6 +2588,62 @@ const decodeBinding = (
       return ok(b);
     }
     case 'Local': {
+      // The three closure slots stop being holes here (WIRE_FORMAT.md Section
+      // 3.3.3). Before: `format` decoded to nothing, `parse` to a function that
+      // ALWAYS returned an error, and `onCommit` to a no-op — so a wire-authored
+      // debounced input rendered empty and could never commit a keystroke. The
+      // fixture said so verbatim, in three sentinels.
+      //
+      //  1. `format` / `parse` restore to the IDENTITY, `parse` reading the
+      //     reader's text back through `parseStatic` — the slot's OWN decoder,
+      //     which this function already carries — so a text slot takes the
+      //     string verbatim and a numeric slot takes the number the text
+      //     denotes, with no host-side type dispatch to diverge on.
+      //  2. `codec`, when declared, REPLACES both.
+      //  3. `commitTo` is the State-key alternative to the `onCommit` closure.
+      //     Declaring both is refused rather than resolved by a precedence rule:
+      //     the wire cannot carry the closure, so a host honouring `onCommit`
+      //     and a host honouring `commitTo` would write to different places from
+      //     identical bytes.
+      const codecJ = tryField(f, 'codec');
+      let codec: Format | undefined;
+      if (codecJ !== undefined) {
+        const c = decodeFormat(`${path}.codec`, codecJ);
+        if (!c.ok) return c;
+        // The admitted set is the `Format` cases with a TOTAL,
+        // LOCALE-INDEPENDENT inverse, and today that is `Number` alone.
+        // `Currency` prepends a locale-chosen symbol; `Date`'s four styles are
+        // all locale renditions; `RelativeTime` / `Since` / `Duration` render a
+        // phrase. `Percent` is refused for a narrower reason worth stating: its
+        // inverse needs a x100 scale whose IEEE round-trip is not exact.
+        if (c.value.kind !== 'Number') {
+          return makeError(
+            'WRONG_TYPE',
+            `${path}.codec`,
+            "Binding.Local 'codec' must be a Format case with a total, locale-independent inverse — only 'Number' has one",
+            'use {"$type":"Number","decimals":2}, or drop the codec and let the buffer use the identity; a locale-rendered format (Currency / Date / RelativeTime / Since / Duration) cannot be parsed back from what the reader typed',
+          );
+        }
+        codec = c.value;
+      }
+
+      const onCommitPresent = tryField(f, 'onCommit') !== undefined;
+      const commitToJ = tryField(f, 'commitTo');
+      let commitTo: string | undefined;
+      if (commitToJ !== undefined) {
+        if (onCommitPresent) {
+          return makeError(
+            'WRONG_TYPE',
+            `${path}.commitTo`,
+            "Binding.Local carries both 'onCommit' and 'commitTo' — exactly one commit destination is allowed",
+            'either onCommit (a host closure, which crosses the wire only as the closure sentinel) or commitTo (the State key the flush writes); a decoding host can honour only the second, so keeping both makes the same document commit to two different places depending on who read it',
+          );
+        }
+        const ct = requireString(`${path}.commitTo`, commitToJ);
+        if (!ct.ok) return ct;
+        commitTo = ct.value;
+      }
+
       // `initialFrom` recurses with the same typed pair (mirror of the F#
       // `bindingGeneric` recursion).
       const initial = reqField(path, f, 'initialFrom', 'Local InitialFrom Binding', (p, v) =>
@@ -2575,15 +2656,48 @@ const decodeBinding = (
           ? ok<LocalFlushTrigger>({ kind: 'OnBlur' })
           : decodeLocalFlushTrigger(`${path}.flushOn`, flushJ);
       if (!flush.ok) return flush;
-      const b: Binding<unknown> = {
-        kind: 'Local',
-        local: {
-          initialFrom: initial.value,
-          flushOn: flush.value,
-          onCommit: () => undefined,
-          parse: () => ({ ok: false, error: CLOSURE }),
-        },
+
+      const refusalOf = (raw: string): string =>
+        `Binding.Local: '${raw}' is not a value this field accepts`;
+
+      const identityParse = (raw: string): Result<unknown, string> => {
+        const asText = parseStatic(`${path}.parse`, { kind: 'JString', value: raw } as JsonAst);
+        if (asText.ok) return { ok: true, value: asText.value };
+        const scalar = scalarOfText(raw);
+        if (scalar === undefined) return { ok: false, error: refusalOf(raw) };
+        const asScalar = parseStatic(
+          `${path}.parse`,
+          typeof scalar === 'number'
+            ? ({ kind: 'JNumber', value: scalar } as JsonAst)
+            : ({ kind: 'JBool', value: scalar } as JsonAst),
+        );
+        return asScalar.ok
+          ? { ok: true, value: asScalar.value }
+          : { ok: false, error: refusalOf(raw) };
       };
+
+      const decimals = codec !== undefined && codec.kind === 'Number' ? codec.decimals : undefined;
+
+      const codecParse = (raw: string): Result<unknown, string> => {
+        const n = tryNumberText(raw);
+        if (n === undefined) return { ok: false, error: refusalOf(raw) };
+        const parsed = parseStatic(`${path}.parse`, { kind: 'JNumber', value: n } as JsonAst);
+        return parsed.ok ? { ok: true, value: parsed.value } : { ok: false, error: refusalOf(raw) };
+      };
+
+      const local: LocalBinding<unknown> = {
+        initialFrom: initial.value,
+        flushOn: flush.value,
+        format:
+          codec !== undefined
+            ? (v: unknown) => numberText(decimals, v)
+            : (v: unknown) => identityFormat(v),
+        parse: codec !== undefined ? codecParse : identityParse,
+        ...(onCommitPresent ? { onCommit: () => undefined } : {}),
+        ...(codec !== undefined ? { codec } : {}),
+        ...(commitTo !== undefined ? { commitTo } : {}),
+      };
+      const b: Binding<unknown> = { kind: 'Local', local };
       return ok(b);
     }
     case 'Format': {

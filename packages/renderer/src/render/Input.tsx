@@ -1070,7 +1070,15 @@ function LocalInput<TMsg>({
 
   const commit = (): void => {
     const parsed = local.parse(bufferRef.current);
-    if (parsed.ok) runAction(ctx, local.onCommit(parsed.value) as Action<TMsg>);
+    if (!parsed.ok) return;
+    // Two possible destinations, and the wire admits only one of them at a
+    // time: the host closure, or the declared `commitTo` State key. Both are
+    // run when an in-process author supplied both — that pair is a decode
+    // refusal, so it can only be a tree someone built by hand, where dropping
+    // one silently would be the surprise.
+    if (local.onCommit !== undefined) runAction(ctx, local.onCommit(parsed.value) as Action<TMsg>);
+    if (local.commitTo !== undefined)
+      writeBackTo(ctx, { kind: 'State', key: local.commitTo }, parsed.value as JsonValue);
   };
 
   // Re-sync the buffer when the external source changes (InitialFrom invariant).

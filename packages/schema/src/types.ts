@@ -564,9 +564,29 @@ export type LocalFlushTrigger =
 export interface LocalBinding<T> {
   readonly initialFrom: Binding<T>;
   readonly flushOn: LocalFlushTrigger;
-  readonly onCommit: (value: T) => unknown;
+  /**
+   * The host closure a flush runs. OPTIONAL since the wire-complete cut: a
+   * declarative buffer names `commitTo` instead, and the two are mutually
+   * exclusive — a document carrying both is a decode refusal, because the wire
+   * cannot carry the closure and two hosts would write to different places from
+   * identical bytes.
+   */
+  readonly onCommit?: (value: T) => unknown;
   readonly format?: (value: T) => string;
   readonly parse: (raw: string) => Result<T, string>;
+  /**
+   * The declared edit-buffer codec: how the buffered value is rendered into the
+   * input and read back out of it. A decoding host builds `format` and `parse`
+   * FROM it; a host closure supplied in process still wins.
+   *
+   * Only `Format.Number` is admitted — the one case with a total,
+   * locale-independent inverse. Every other case is a decode refusal, because a
+   * codec that renders through a locale cannot parse back what the reader typed.
+   * See WIRE_FORMAT.md Section 3.3.3.
+   */
+  readonly codec?: Format;
+  /** The State key a flush writes the parsed value to. */
+  readonly commitTo?: string;
 }
 
 // ─── Actions (effect-typed) ──────────────────────────────────────────────────
