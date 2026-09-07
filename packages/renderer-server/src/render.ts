@@ -1070,10 +1070,7 @@ const renderDisplay = (
       // target: `noopener noreferrer` is FORCED on `_blank` whether or not the
       // document asked. Same grammar, same order, same bytes as every other
       // host.
-      const [safeTarget, safeRel] = sanitizeLinkAnchor(
-        display.spec.target,
-        display.spec.rel,
-      );
+      const [safeTarget, safeRel] = sanitizeLinkAnchor(display.spec.target, display.spec.rel);
       if (safeRel !== undefined) attrs.push(['rel', safeRel]);
       if (safeTarget !== undefined) attrs.push(['target', safeTarget]);
       if (display.spec.download) attrs.push(['download', true]);
