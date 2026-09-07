@@ -17,7 +17,7 @@ import type {
   NodeKind,
 } from '@fuaran-ui/schema';
 
-import { type BindingSources, renderText, resolve } from './bindings.js';
+import { type BindingSources, renderText, resolve, tryResolveTextSource } from './bindings.js';
 import {
   type ActionDescriptor,
   describeActionDescriptor,
@@ -226,15 +226,57 @@ export const runAction = <TMsg>(ctx: RenderContext<TMsg>, action: Action<TMsg>):
           `Action.Notify on '${action.channel}' — no runtime.notify wired.`,
         );
       return;
-    case 'Navigate':
+    case 'Navigate': {
       // Phase 1037 — the ambient destination policy runs BEFORE the dispatch
       // gate, in the `Route` class. A refusal performs NO navigation at all and
       // warns: unlike an `href`, where the anchor must stay structurally valid,
       // a navigation the author never asked for is not an improvement on a
       // refused one. Port of the F# `treeNavigateOutcome`.
-      treeNavigate(ctx, action.route, (safe) => {
+      //
+      // Phase 1536 — RESOLVE, THEN GATE, and the order is the whole point. The
+      // route is a `TextSource`, so it may be computed from what the reader is
+      // looking at; the policy and the gate then judge the RESOLVED string.
+      // Gating the template would consult the policy about a URL nobody
+      // navigates to while the string the router receives went unexamined.
+      //
+      // A route that does not resolve navigates nowhere. It must NOT degrade to
+      // the empty string the way a bound label does: `''` is a real navigation.
+      // The EMPTY resolution is refused beside the absent one, and on the same
+      // reasoning rather than as a tidy-up: a `State` binding carrying a
+      // declared default of `''` RESOLVES, to a string that is not a
+      // destination. Both arrive here as "there is nothing to navigate to".
+      const resolved = tryResolveTextSource(ctx.sources, action.route);
+      if (resolved === undefined || resolved.trim() === '') {
+        warn(
+          ctx as RenderContext<unknown>,
+          'Action.Navigate route did not resolve to a destination — no navigation performed. A bound route whose source is absent or empty, or an i18n key with no translation, is not a destination.',
+        );
+        return;
+      }
+      treeNavigate(ctx, resolved, (safe) => {
         applyDispatchGate(ctx, { kind: 'Navigate', route: safe }, () => {
-          if (ctx.runtime.navigate) ctx.runtime.navigate(safe);
+          if (action.target === 'Blank') {
+            // Phase 1536 — a fresh browsing context, opened by the RENDERER
+            // rather than through `runtime.navigate`. Two reasons, and the
+            // second is load-bearing: a host router wired to `navigate` cannot
+            // open a second context at all, so handing it a `Blank` would
+            // silently navigate in place; and `noopener,noreferrer` is a
+            // SECURITY property of this case — without noopener the opened
+            // document holds a live `window.opener` handle back into the host
+            // page, without noreferrer the destination is told where the reader
+            // came from. A property every host must remember to apply is owned
+            // by nobody.
+            //
+            // The gate is unchanged and unbypassed: this runs inside the
+            // allowed branch, so the policy and `canDispatch` have judged
+            // `safe`.
+            if (typeof window !== 'undefined') window.open(safe, '_blank', 'noopener,noreferrer');
+            else
+              warn(
+                ctx as RenderContext<unknown>,
+                `Action.Navigate to '${safe}' with target Blank — no window to open it in.`,
+              );
+          } else if (ctx.runtime.navigate) ctx.runtime.navigate(safe);
           else
             warn(
               ctx as RenderContext<unknown>,
@@ -243,6 +285,7 @@ export const runAction = <TMsg>(ctx: RenderContext<TMsg>, action: Action<TMsg>):
         });
       });
       return;
+    }
     case 'SetState': {
       // Phase 818 — `valueFrom` (value XOR valueFrom, decode-enforced)
       // evaluates AT DISPATCH TIME against the render pass's sources. An
@@ -483,8 +526,12 @@ const namespaceKind = <TMsg>(prefix: string, kind: NodeKind<TMsg>): NodeKind<TMs
         kind: 'Switch',
         spec: {
           ...kind.spec,
+          // Phase 1535 — the whole case is carried through and only the child
+          // is rewritten. Naming `match` explicitly would have silently dropped
+          // `when` the moment it was added, which is precisely what happened
+          // here on the first build.
           cases: kind.spec.cases.map((c) => ({
-            match: c.match,
+            ...c,
             child: namespaceNode(prefix, c.child),
           })),
           default: namespaceNode(prefix, kind.spec.default),

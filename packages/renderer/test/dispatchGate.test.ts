@@ -45,7 +45,11 @@ const mkCtx = (
   egressPolicy: denyNonLocalEgress,
 });
 
-const navigate: Action<string> = { kind: 'Navigate', route: '/admin' };
+const navigate: Action<string> = {
+  kind: 'Navigate',
+  route: { kind: 'Literal', value: '/admin' },
+  target: 'Self',
+};
 const aiTool: Action<string> = { kind: 'AiTool', toolName: 'delete_account', args: null };
 const call: Action<string> = {
   kind: 'Call',

@@ -862,8 +862,15 @@ const action = <T>(a: Action<T>): string => {
         ['channel', str(a.channel)],
         ['payload', jsonValue(a.payload)],
       ]);
-    case 'Navigate':
-      return caseObj('Navigate', [['route', str(a.route)]]);
+    case 'Navigate': {
+      // Phase 1536 — the route is a `TextSource`, and `target` rides only when
+      // it is not `Self` (route < target stays alphabetical). A literal route
+      // encodes as the bare JSON string, so every pre-1536 document's bytes are
+      // unchanged.
+      const fields: Field[] = [['route', textSource(a.route)]];
+      if (a.target !== 'Self') fields.push(['target', str(a.target)]);
+      return caseObj('Navigate', fields);
+    }
     case 'SetState': {
       // Phase 818 — `value` / `valueFrom` are XOR siblings; each is emitted
       // only when present (key < value < valueFrom stays alphabetical).
@@ -2442,10 +2449,14 @@ const nodeKind = (k: NodeKind<unknown>): string => {
         [
           'cases',
           jArray(
+            // Phase 1535 — exactly one of `match` and `when` is present, so
+            // exactly one is emitted. `jObject` sorts, so the pair's relative
+            // order here is immaterial.
             k.spec.cases.map((c) =>
               jObject([
                 ['child', node(c.child)],
-                ['match', str(c.match)],
+                ...(c.match !== undefined ? ([['match', str(c.match)]] as const) : []),
+                ...(c.when !== undefined ? ([['when', binding(c.when, bool)]] as const) : []),
               ]),
             ),
           ),
@@ -2582,6 +2593,9 @@ const node = (n: Node<unknown>): string => {
   // sorts, so the emitted key order is the envelope's ordinal one whatever order
   // the pushes happen in.
   if (n.tooltip !== undefined) fields.push(['tooltip', textSource(n.tooltip)]);
+  // Phase 1535 — the node-level visibility predicate, omitted when absent, so
+  // every node authored before it stays byte-identical.
+  if (n.visible !== undefined) fields.push(['visible', binding(n.visible, bool)]);
   return jObject(fields);
 };
 

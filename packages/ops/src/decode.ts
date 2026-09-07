@@ -93,6 +93,7 @@ import type {
   ImageAspect,
   ImageFit,
   ModalityKind,
+  NavigateTarget,
   ImageLoading,
   ImageSpec,
   ImageVariant,
@@ -175,6 +176,7 @@ import type {
   SparklineSpec,
   SplitPanelSpec,
   StateBehaviour,
+  SwitchCase,
   SummaryListSpec,
   StepperSpec,
   StyleWeight,
@@ -634,6 +636,16 @@ const decodeImageFit = (p: string, j: JsonAst): R<ImageFit> =>
 // decoder cannot read must be refused rather than recovered from.
 const decodeModalityKind = (p: string, j: JsonAst): R<ModalityKind> =>
   bareEnum(p, j, ['Modal', 'Popover'] as const, 'ModalityKind');
+
+// Phase 1536 — `Action.Navigate.target`. Two cases, closed, and NO lenient
+// spelling: HTML's `_self` / `_blank` / `_parent` / `_top` are not accepted as
+// aliases. Two of them are frame-busting gestures a hosted tree must not be
+// able to ask for, and accepting the two harmless ones would teach an emitter
+// that the HTML vocabulary is the one in force here. Absence is `Self`, the
+// pre-1536 behaviour and the safe answer, so an unknown token is
+// UNKNOWN_DU_CASE and never a fallback.
+const decodeNavigateTarget = (p: string, j: JsonAst): R<NavigateTarget> =>
+  bareEnum(p, j, ['Self', 'Blank'] as const, 'NavigateTarget');
 
 const decodeImageAspect = (p: string, j: JsonAst): R<ImageAspect> =>
   bareEnum(
@@ -3423,15 +3435,29 @@ const decodeAction = (path: string, j: JsonAst): R<Action<unknown>> => {
         : payload;
     }
     case 'Navigate': {
+      // Phase 1536 — the route is a `TextSource`. `decodeTextSource` already
+      // accepts a bare JSON string as `Literal` (the §16 shorthand every text
+      // slot shares), so every pre-1536 document — including one using an
+      // alias — decodes unchanged and re-encodes to the same bytes. The
+      // aliases are resolved before the value is decoded, so there is still
+      // exactly one canonical field a router can be reached through.
       const r = reqFieldAliased(
         path,
         f,
         'route',
         ['href', 'url', 'to'],
-        'route string',
-        requireString,
+        'route TextSource',
+        decodeTextSource,
       );
-      return r.ok ? ok({ kind: 'Navigate', route: r.value }) : r;
+      if (!r.ok) return r;
+      const targetJ = tryField(f, 'target');
+      // `target` is omitted at `Self`, so absence is the pre-1536 behaviour.
+      const target =
+        targetJ === undefined
+          ? ok<NavigateTarget>('Self')
+          : decodeNavigateTarget(`${path}.target`, targetJ);
+      if (!target.ok) return target;
+      return ok({ kind: 'Navigate', route: r.value, target: target.value });
     }
     case 'SetState': {
       // Phase 818 — `value` (a literal JSON value, written verbatim) XOR
@@ -6893,15 +6919,41 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
       if (!on.ok) return on;
       const casesArr = reqField(path, f, 'cases', 'Switch cases array', requireArray);
       if (!casesArr.ok) return casesArr;
-      const cases = traverseIndexed(casesArr.value, (i, item) => {
+      // Phase 1535 — a case selects on a string `match` XOR a `when` predicate
+      // (a `Binding<boolean>` evaluated at render time). Exactly one; both and
+      // neither are refused, naming both fields, on the Phase 818 `value` /
+      // `valueFrom` precedent.
+      //
+      // "Neither" is refused rather than skipped at render because a case that
+      // names no condition has no rendering that could be right: skipping it
+      // renders the `default` and reports nothing.
+      const cases = traverseIndexed<SwitchCase<unknown>>(casesArr.value, (i, item) => {
         const cp = `${path}.cases[${i}]`;
         const co = requireObject(cp, item);
         if (!co.ok) return co;
-        const m = reqField(cp, co.value, 'match', 'Switch case match string', requireString);
-        if (!m.ok) return m;
+        const mJ = tryField(co.value, 'match');
+        const wJ = tryField(co.value, 'when');
+        if (mJ !== undefined && wJ !== undefined)
+          return wrongType(
+            `${cp}.when`,
+            "either 'match' (a literal string compared against the switch's `on` selector) or 'when' (a Binding<bool> predicate evaluated at render time, needing no selector); remove one",
+          );
+        if (mJ === undefined && wJ === undefined)
+          return missingField(
+            cp,
+            'match',
+            "a literal string under 'match' (compared against the switch's `on` selector), or a Binding<bool> under 'when' (a predicate evaluated at render time)",
+          );
         const c = reqField(cp, co.value, 'child', 'Switch case child Node', decodeNodeAst);
         if (!c.ok) return c;
-        return ok({ match: m.value, child: c.value });
+        if (mJ !== undefined) {
+          const m = requireString(`${cp}.match`, mJ);
+          if (!m.ok) return m;
+          return ok<SwitchCase<unknown>>({ match: m.value, child: c.value });
+        }
+        const w = decodeBindingBool(`${cp}.when`, wJ as JsonAst);
+        if (!w.ok) return w;
+        return ok<SwitchCase<unknown>>({ when: w.value, child: c.value });
       });
       if (!cases.ok) return cases;
       const def = reqField(path, f, 'default', 'Switch default Node', decodeNodeAst);
@@ -7372,6 +7424,12 @@ const decodeNodeAstInner = (path: string, j: JsonAst): R<Node<unknown>> => {
   // lenient shorthand; `Bound` and `I18n` are the arms that carry an envelope.
   const tooltip = optField(path, f, 'tooltip', decodeTextSource);
   if (!tooltip.ok) return tooltip;
+  // Phase 1535 — the node-level visibility predicate. An ordinary optional
+  // `Binding<boolean>`, decoded by the shared binding decoder for the reason the
+  // tooltip above states: the one time a host read a node-envelope slot as its
+  // own narrower thing it took two hosts and a ruling to unwind.
+  const visible = optField(path, f, 'visible', decodeBindingBool);
+  if (!visible.ok) return visible;
   return ok({
     id: idStr.value as NodeId,
     kind: kind.value,
@@ -7379,6 +7437,7 @@ const decodeNodeAstInner = (path: string, j: JsonAst): R<Node<unknown>> => {
     style: style.value,
     ...(accessibility.value !== undefined ? { accessibility: accessibility.value } : {}),
     ...(tooltip.value !== undefined ? { tooltip: tooltip.value } : {}),
+    ...(visible.value !== undefined ? { visible: visible.value } : {}),
   });
 };
 

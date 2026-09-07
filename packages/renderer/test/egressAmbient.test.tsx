@@ -278,8 +278,9 @@ const mkCtx = (
   policy: EgressPolicy,
   navigate: (route: string) => void,
   warn: (m: string) => void,
+  state: Record<string, unknown> = {},
 ): RenderContext<string> => ({
-  sources: {},
+  sources: { state },
   runtime: { navigate, warn },
   dispatch: () => {},
   fragments: new Map(),
@@ -295,7 +296,11 @@ describe('Action.Navigate consults the ambient policy before navigating', () => 
     // one — so this emits nothing rather than navigating to about:blank.
     const navigate = vi.fn();
     const warn = vi.fn();
-    runAction(mkCtx(denyNonLocalEgress, navigate, warn), { kind: 'Navigate', route: exfil });
+    runAction(mkCtx(denyNonLocalEgress, navigate, warn), {
+      kind: 'Navigate',
+      route: { kind: 'Literal', value: exfil },
+      target: 'Self',
+    });
     expect(navigate).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0]).toContain(
@@ -319,9 +324,57 @@ describe('Action.Navigate consults the ambient policy before navigating', () => 
     const navigate = vi.fn();
     runAction(
       mkCtx(denyNonLocalEgress, navigate, () => {}),
-      { kind: 'Navigate', route: '/admin' },
+      { kind: 'Navigate', route: { kind: 'Literal', value: '/admin' }, target: 'Self' },
     );
     expect(navigate).toHaveBeenCalledWith('/admin');
+  });
+
+  // ─── Phase 1536 — the route is a TextSource, resolved BEFORE it is gated ───
+  it('a BOUND route resolving to a javascript: URL is refused on the RESOLVED value', () => {
+    // The declaration is a binding; the VALUE is the hostile string. A host
+    // that gated the declaration would find nothing to refuse — a `Bound` is
+    // not a URL at all — and would then hand the router `javascript:alert(1)`.
+    // So this goes red under the swapped order, not only under a missing
+    // feature.
+    const navigate = vi.fn();
+    const warn = vi.fn();
+    runAction(mkCtx(denyNonLocalEgress, navigate, warn, { route: 'javascript:alert(1)' }), {
+      kind: 'Navigate',
+      route: { kind: 'Bound', binding: { kind: 'State', key: 'route', defaultValue: '' } },
+      target: 'Self',
+    });
+    expect(navigate).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('a BOUND route resolving to a safe path navigates to the RESOLVED value', () => {
+    // The half that stops the refusal above being achieved by refusing
+    // everything, and it pins WHICH string reaches the router.
+    const navigate = vi.fn();
+    runAction(
+      mkCtx(denyNonLocalEgress, navigate, () => {}, { route: '/orders/42' }),
+      {
+        kind: 'Navigate',
+        route: { kind: 'Bound', binding: { kind: 'State', key: 'route', defaultValue: '' } },
+        target: 'Self',
+      },
+    );
+    expect(navigate).toHaveBeenCalledWith('/orders/42');
+  });
+
+  it('an UNRESOLVED bound route navigates nowhere rather than to the empty string', () => {
+    // `renderText` renders an unresolved binding as '', which is right for a
+    // label and wrong for a destination: `location.href = ''` reloads the
+    // current document with its query and fragment stripped.
+    const navigate = vi.fn();
+    const warn = vi.fn();
+    runAction(mkCtx(denyNonLocalEgress, navigate, warn, {}), {
+      kind: 'Navigate',
+      route: { kind: 'Bound', binding: { kind: 'State', key: 'route', defaultValue: '' } },
+      target: 'Self',
+    });
+    expect(navigate).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it('a declared origin navigates under a route rule', () => {
@@ -335,7 +388,8 @@ describe('Action.Navigate consults the ambient policy before navigating', () => 
       mkCtx(policy, navigate, () => {}),
       {
         kind: 'Navigate',
-        route: 'https://app.example/dash',
+        route: { kind: 'Literal', value: 'https://app.example/dash' },
+        target: 'Self',
       },
     );
     expect(navigate).toHaveBeenCalledWith('https://app.example/dash');

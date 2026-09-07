@@ -20,8 +20,10 @@ import type {
   DurationUnit,
   Format,
   JsonValue,
+  Node,
   CaptureSource,
   RelativeTimeUnit,
+  SwitchCase,
   Table,
   TextSource,
   TrackEntry,
@@ -856,6 +858,81 @@ export const resolveScalarBool = (
   binding: Binding<boolean>,
 ): Resolution<boolean> => resolveScalarWith(cellToBool, sources, binding);
 
+// ─── Conditional presence and predicate branching (Phase 1535) ───────────────
+//
+// Two decisions a renderer takes BEFORE it draws anything. Both live here
+// rather than in either render module because the client and the server must
+// agree byte-for-byte on them: a node one draws and the other omits is a
+// hydration mismatch, and the whole point of SSR parity is that neither gets to
+// have its own opinion.
+
+/**
+ * The resolution of a node's `visible` predicate, or `undefined` when the node
+ * declares none.
+ *
+ * `undefined` is NOT the same as an unresolved predicate. A node with no
+ * `visible` slot has nothing to say and nothing to warn about; a node whose
+ * predicate could not be resolved has a broken document behind it, and a host
+ * may want to say so.
+ */
+export const nodeVisibility = (
+  sources: BindingSources,
+  node: Node<unknown>,
+): Resolution<boolean> | undefined =>
+  node.visible === undefined ? undefined : resolveScalarBool(sources, node.visible);
+
+/**
+ * THE rule for whether a node reaches the output at all.
+ *
+ * A node is removed ONLY on a resolved `false`. Absent, `NotResolved` and
+ * `Errored` all render, and that asymmetry is the design rather than a leniency:
+ * a `false` is an author saying "not now", and every other outcome is the
+ * renderer failing to answer the question. Content that vanishes because a
+ * source was missing is the one failure a reader cannot see, cannot report and
+ * cannot work around.
+ */
+export const isNodeVisible = (sources: BindingSources, node: Node<unknown>): boolean => {
+  const v = nodeVisibility(sources, node);
+  return v === undefined || v.kind !== 'Resolved' || v.value;
+};
+
+/**
+ * First-match-wins case selection for a `Switch`, over BOTH kinds of case: a
+ * literal `match` compared against the already-resolved selector, and a `when`
+ * predicate evaluated here.
+ *
+ * `selector` is the switch's resolved `on` value (`undefined` when it did not
+ * resolve). A predicate case ignores it entirely — which is why a switch whose
+ * cases are all predicates needs no selector at all.
+ *
+ * A predicate case is taken ONLY on a resolved `true`; `false`, `NotResolved`
+ * and `Errored` all fall through to the next case and ultimately to `default`.
+ * Note this is the OPPOSITE default from `isNodeVisible` above, and deliberately
+ * so: falling through here lands on a `default` branch the author wrote, so no
+ * content disappears — whereas a node with no `visible` verdict has no fallback.
+ *
+ * A case carrying neither `match` nor `when` can never be selected. The decoder
+ * refuses that shape and FUARAN142 reports it pre-emit, so it is unreachable
+ * from the wire; it is handled rather than asserted away because a tree built
+ * in-process can still hold one.
+ */
+export const selectSwitchCase = <TMsg>(
+  sources: BindingSources,
+  selector: string | undefined,
+  cases: readonly SwitchCase<TMsg>[],
+): Node<TMsg> | undefined => {
+  for (const c of cases) {
+    if (c.match !== undefined) {
+      if (selector !== undefined && c.match === selector) return c.child;
+      continue;
+    }
+    if (c.when === undefined) continue;
+    const r = resolveScalarBool(sources, c.when);
+    if (r.kind === 'Resolved' && r.value) return c.child;
+  }
+  return undefined;
+};
+
 /** Best-effort scalar text resolution — the `tryResolve` twin for text slots. */
 export const tryResolveScalarText = (
   sources: BindingSources,
@@ -908,6 +985,36 @@ export const renderText = (sources: BindingSources, text: TextSource): string =>
       }
       return acc;
     }
+  }
+};
+
+/**
+ * Phase 1536 — resolve a `TextSource` for a slot where an UNRESOLVED source
+ * must not degrade into a value; `undefined` when it does not resolve.
+ *
+ * `renderText` above is the RENDERING dispatch and its degradations are right
+ * for rendering: an unresolved binding renders empty (an empty label, not a
+ * broken page) and a missing translation renders the loud `[i18n:<key>]`
+ * sentinel so it is visible in the UI. Both are the wrong answer for a
+ * DESTINATION — navigating to `''` is navigating to the current document with
+ * its query and fragment stripped, and `[i18n:route]` is a relative path a
+ * permissive policy would fetch.
+ *
+ * It deliberately does not judge the resolved string: whether a destination is
+ * permitted is `checkDestination`'s question, asked after this one and never
+ * instead of it.
+ */
+export const tryResolveTextSource = (
+  sources: BindingSources,
+  text: TextSource,
+): string | undefined => {
+  switch (text.kind) {
+    case 'Literal':
+      return text.value;
+    case 'Bound':
+      return tryResolveScalarText(sources, text.binding);
+    case 'I18n':
+      return sources.i18n?.[text.key] === undefined ? undefined : renderText(sources, text);
   }
 };
 

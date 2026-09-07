@@ -110,6 +110,14 @@ export type ImageFit = 'Natural' | 'Cover' | 'Contain';
 export type ModalityKind = 'Modal' | 'Popover';
 
 /**
+ * Which browsing context an `Action.Navigate` lands in (Phase 1536). `Self` is
+ * the default and is omitted on the wire; `Blank` is opened with
+ * `noopener,noreferrer` — the renderer's obligation on every host, because a
+ * property every host must remember to apply is owned by nobody.
+ */
+export type NavigateTarget = 'Self' | 'Blank';
+
+/**
  * `DisplayKind.Image.aspectRatio` — the box the element reserves BEFORE the
  * image arrives (Phase 1077); the cumulative-layout-shift slot. A closed set of
  * TOKENS, never a CSS ratio: a numeric pair would reach a style attribute,
@@ -620,7 +628,19 @@ export type Action<TMsg> =
       readonly into?: CallResultTarget;
     }
   | { readonly kind: 'Notify'; readonly channel: string; readonly payload: JsonValue }
-  | { readonly kind: 'Navigate'; readonly route: string }
+  /**
+   * Navigate the reader to `route`, in the browsing context `target` names.
+   *
+   * Phase 1536 — the route is a `TextSource`, not a bare string, so a tree can
+   * say "open the selected order" (`/orders/{selection.id}`) rather than only
+   * naming a route the author typed. The wire does not move for a literal
+   * route: `TextSource.Literal`'s canonical form IS the bare JSON string.
+   *
+   * `target` is omitted at `Self`. It is a closed enum where `LinkSpec.target`
+   * is a free string, deliberately: `_parent` and `_top` are frame-busting
+   * gestures a hosted tree must not be able to ask for.
+   */
+  | { readonly kind: 'Navigate'; readonly route: TextSource; readonly target: NavigateTarget }
   // Phase 818 — `valueFrom` (a Binding evaluated at dispatch time inside the
   // existing gate) is a SIBLING of the literal `value`; decode enforces
   // value XOR valueFrom. `value` became optional in the same change so the
@@ -881,6 +901,22 @@ export interface Node<TMsg> {
    * icon-only control needs both, saying different things.
    */
   readonly tooltip?: TextSource;
+
+  /**
+   * Conditional presence (Phase 1535) — a `Binding<boolean>` whose resolved
+   * `false` removes this node from the rendered output ENTIRELY: no element, no
+   * placeholder, no `aria-hidden`, nothing in the layout and nothing in the
+   * accessibility tree.
+   *
+   * It is NOT `accessibility.hidden`, which is `aria-hidden` over a node that IS
+   * rendered and DOES occupy space. WIRE_FORMAT.md §3.1 carries the side-by-side
+   * table and the one-line rule for which to emit.
+   *
+   * Absence, an unresolved predicate and an errored one all RENDER. A missing
+   * source silently hiding content is the one failure a reader cannot see,
+   * cannot report and cannot work around.
+   */
+  readonly visible?: Binding<boolean>;
 }
 
 export type NodeKind<TMsg> =
@@ -1032,10 +1068,19 @@ export interface SwitchSpec<TMsg> {
   readonly autoAdvanceMs?: number;
 }
 
-/** One case in a {@link SwitchSpec}: render `child` when the state value's
- * string form equals `match`. */
+/**
+ * One case in a {@link SwitchSpec}. EXACTLY ONE of `match` and `when` is
+ * present — both together and neither at all are decode errors, the Phase 818
+ * `value` / `valueFrom` shape.
+ *
+ * `match` renders `child` when the selector's string form equals it; `when`
+ * (Phase 1535) renders `child` when the predicate resolves `true`, consulting
+ * no selector at all. The two interleave freely in one ordered array and
+ * first-match-wins runs over the AUTHORED order.
+ */
 export interface SwitchCase<TMsg> {
-  readonly match: string;
+  readonly match?: string;
+  readonly when?: Binding<boolean>;
   readonly child: Node<TMsg>;
 }
 

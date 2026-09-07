@@ -102,8 +102,11 @@ import {
   tokensToCommaSeparated,
   trackKindToken,
   treeItemExpanded,
+  isNodeVisible,
+  selectSwitchCase,
   tryResolve,
   tryResolveScalarFloat,
+  tryResolveScalarText,
 } from './bindings.js';
 import { chartLowerSpecOf, drawingSvg, mathMl } from '@fuaran-ui/renderer';
 // Phase 1075 — the `Binding.State` seeding pass. One definition, shared with
@@ -234,8 +237,10 @@ const namespaceKind = (prefix: string, kind: Node<unknown>['kind']): Node<unknow
         kind: 'Switch',
         spec: {
           ...kind.spec,
+          // Phase 1535 — the whole case is carried through and only the child
+          // is rewritten; naming `match` explicitly would silently drop `when`.
           cases: kind.spec.cases.map((c) => ({
-            match: c.match,
+            ...c,
             child: namespaceNode(prefix, c.child),
           })),
           default: namespaceNode(prefix, kind.spec.default),
@@ -312,6 +317,16 @@ const renderChildren = (ctx: ServerContext, nodes: readonly Node<unknown>[]): st
   nodes.map((n) => renderNode(ctx, n)).join('');
 
 const renderNode = (ctx: ServerContext, node: Node<unknown>): string => {
+  // Phase 1535 — CONDITIONAL PRESENCE, before anything else is computed. A
+  // resolved `false` on `node.visible` emits NOTHING: no element, no
+  // placeholder, no comment marker, no `aria-hidden`, nothing in the layout and
+  // nothing in the accessibility tree.
+  //
+  // The rule is `isNodeVisible`, the same call the client renderer makes against
+  // the same seeded sources — which is what makes hydration agree. The guard
+  // sits on this one function rather than at every call site that produces a
+  // child, so a kind added tomorrow inherits it without anyone remembering to.
+  if (!isNodeVisible(ctx.sources, node)) return '';
   let className = nodeClassName(node.kind, node.style);
   if (node.motion !== undefined) className += ` fuaran-motion-${motionVar(node.motion)}`;
 
@@ -427,11 +442,18 @@ const renderKind = (
         raw = ctx.sources.state?.[on.key];
         if (raw === undefined) raw = on.defaultValue;
       } else {
-        raw = tryResolve(ctx.sources, on);
+        // Phase 1535 — the SCALAR resolver. `tryResolve`'s `Transform` arm is
+        // row-shaped and cannot serve a string slot, so a computed selector fell
+        // through to `default` on every host. Every other binding case resolves
+        // exactly as before.
+        raw = tryResolveScalarText(ctx.sources, on);
       }
       const valueStr = raw === undefined || raw === null ? '' : String(raw);
-      const matched = kind.spec.cases.find((c) => c.match === valueStr);
-      return renderNode(ctx, matched ? matched.child : kind.spec.default);
+      // Phase 1535 — first-match-wins over both kinds of case, through the one
+      // shared definition, so this renderer and the client cannot drift on the
+      // order or on what a predicate that fails to resolve means.
+      const matched = selectSwitchCase(ctx.sources, valueStr, kind.spec.cases);
+      return renderNode(ctx, matched ?? kind.spec.default);
     }
     case 'Custom':
       return renderCustom(ctx, kind.moduleId, kind.componentId, kind.props, kind.contentHash);
