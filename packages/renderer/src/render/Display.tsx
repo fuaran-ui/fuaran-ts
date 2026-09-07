@@ -238,10 +238,7 @@ export const renderDisplay = <TMsg,>(
       // omission mattered — it is a user-agent DEFAULT that an explicit
       // `rel="opener"` overrides, and no document can know its reader's version
       // floor. Same grammar, same order, same bytes as every other host.
-      const [safeTarget, safeRel] = sanitizeLinkAnchor(
-        display.spec.target,
-        display.spec.rel,
-      );
+      const [safeTarget, safeRel] = sanitizeLinkAnchor(display.spec.target, display.spec.rel);
       // The refusal marker rides the element that carries the refused href, so
       // a reader of the DOM sees WHY this anchor points at about:blank. Empty
       // on an allow.
