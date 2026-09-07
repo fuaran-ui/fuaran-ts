@@ -2080,16 +2080,19 @@ const chartAnnotation = (a: ChartAnnotation): string => {
 };
 
 const chartSpec = (s: ChartSpec<unknown>): string => {
-  // `stacked` (Phase 126) is now carried — previously dropped on the wire,
-  // losing a chart's stacked-vs-grouped intent on every round-trip.
   const fields: Field[] = [
     ['kind', str(s.kind)],
     // fuaran#665 — rows are a typed Static payload now, not the opaque residual.
     ['source', binding(s.source, staticRowSeq)],
-    ['stacked', bool(s.stacked)],
     ['xField', str(s.xField)],
     ['yFields', jArray(s.yFields.map(str))],
   ];
+  // `stacked` (Phase 126, omit-at-default since Phase 1585) — the identity
+  // default is `false`, and every host's decoder restores it on absence, so a
+  // grouped chart no longer pays a key for saying nothing. An explicit
+  // `"stacked": false` on input still decodes and normalises to the omitted
+  // form (§3.6's scope note), which is what makes this read-compatible.
+  if (s.stacked) fields.push(['stacked', bool(s.stacked)]);
   if (s.title !== undefined) fields.push(['title', textSource(s.title)]);
   // Phase 876 — the value axis's declared number format (canonical key order).
   if (s.valueFormat !== undefined) fields.push(['valueFormat', formatIntent(s.valueFormat)]);

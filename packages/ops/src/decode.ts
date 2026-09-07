@@ -6154,7 +6154,9 @@ const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
     annotations = decoded.value;
   }
   const hasPointClick = tryField(f, 'onPointClick') !== undefined;
-  // stacked (Phase 126) now round-trips; absent (legacy wire) defaults to false.
+  // stacked (Phase 126) now round-trips. Absent restores `false` BY CONTRACT
+  // since Phase 1585 made the member omit-at-default — not, as this note read
+  // until then, as tolerance of legacy wire predating the field.
   const stacked = optField(path, f, 'stacked', requireBool);
   if (!stacked.ok) return stacked;
   return ok({

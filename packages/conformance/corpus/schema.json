@@ -639,7 +639,9 @@
             },
             "pipeline": {
               "type": "array",
-              "items": true
+              "items": {
+                "$ref": "#/$defs/TransformStep"
+              }
             },
             "source": {
               "type": "object"
@@ -693,7 +695,19 @@
             "args": {
               "type": "array",
               "items": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "addr": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "addr",
+                  "value"
+                ]
               }
             },
             "capabilityId": {
@@ -982,7 +996,9 @@
             },
             "pipeline": {
               "type": "array",
-              "items": true
+              "items": {
+                "$ref": "#/$defs/TransformStep"
+              }
             },
             "source": {
               "type": "object"
@@ -1036,7 +1052,19 @@
             "args": {
               "type": "array",
               "items": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "addr": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "addr",
+                  "value"
+                ]
               }
             },
             "capabilityId": {
@@ -1272,7 +1300,9 @@
             },
             "pipeline": {
               "type": "array",
-              "items": true
+              "items": {
+                "$ref": "#/$defs/TransformStep"
+              }
             },
             "source": {
               "type": "object"
@@ -1326,7 +1356,19 @@
             "args": {
               "type": "array",
               "items": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "addr": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "addr",
+                  "value"
+                ]
               }
             },
             "capabilityId": {
@@ -1571,7 +1613,9 @@
             },
             "pipeline": {
               "type": "array",
-              "items": true
+              "items": {
+                "$ref": "#/$defs/TransformStep"
+              }
             },
             "source": {
               "type": "object"
@@ -1625,7 +1669,19 @@
             "args": {
               "type": "array",
               "items": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "addr": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "addr",
+                  "value"
+                ]
               }
             },
             "capabilityId": {
@@ -1861,7 +1917,9 @@
             },
             "pipeline": {
               "type": "array",
-              "items": true
+              "items": {
+                "$ref": "#/$defs/TransformStep"
+              }
             },
             "source": {
               "type": "object"
@@ -1915,7 +1973,19 @@
             "args": {
               "type": "array",
               "items": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "addr": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "addr",
+                  "value"
+                ]
               }
             },
             "capabilityId": {
@@ -2171,7 +2241,9 @@
             },
             "pipeline": {
               "type": "array",
-              "items": true
+              "items": {
+                "$ref": "#/$defs/TransformStep"
+              }
             },
             "source": {
               "type": "object"
@@ -2225,7 +2297,19 @@
             "args": {
               "type": "array",
               "items": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "addr": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "addr",
+                  "value"
+                ]
               }
             },
             "capabilityId": {
@@ -2481,7 +2565,9 @@
             },
             "pipeline": {
               "type": "array",
-              "items": true
+              "items": {
+                "$ref": "#/$defs/TransformStep"
+              }
             },
             "source": {
               "type": "object"
@@ -2535,7 +2621,19 @@
             "args": {
               "type": "array",
               "items": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "addr": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "addr",
+                  "value"
+                ]
               }
             },
             "capabilityId": {
@@ -2835,7 +2933,9 @@
             },
             "pipeline": {
               "type": "array",
-              "items": true
+              "items": {
+                "$ref": "#/$defs/TransformStep"
+              }
             },
             "source": {
               "type": "object"
@@ -2889,7 +2989,19 @@
             "args": {
               "type": "array",
               "items": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "addr": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "addr",
+                  "value"
+                ]
               }
             },
             "capabilityId": {
@@ -3145,7 +3257,9 @@
             },
             "pipeline": {
               "type": "array",
-              "items": true
+              "items": {
+                "$ref": "#/$defs/TransformStep"
+              }
             },
             "source": {
               "type": "object"
@@ -3199,7 +3313,19 @@
             "args": {
               "type": "array",
               "items": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "addr": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "addr",
+                  "value"
+                ]
               }
             },
             "capabilityId": {
@@ -3444,7 +3570,9 @@
             },
             "pipeline": {
               "type": "array",
-              "items": true
+              "items": {
+                "$ref": "#/$defs/TransformStep"
+              }
             },
             "source": {
               "type": "object"
@@ -3498,7 +3626,19 @@
             "args": {
               "type": "array",
               "items": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "addr": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "addr",
+                  "value"
+                ]
               }
             },
             "capabilityId": {
@@ -3743,7 +3883,9 @@
             },
             "pipeline": {
               "type": "array",
-              "items": true
+              "items": {
+                "$ref": "#/$defs/TransformStep"
+              }
             },
             "source": {
               "type": "object"
@@ -3797,7 +3939,19 @@
             "args": {
               "type": "array",
               "items": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "addr": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "addr",
+                  "value"
+                ]
               }
             },
             "capabilityId": {
@@ -3810,6 +3964,398 @@
             "capabilityId"
           ]
         }
+      ]
+    },
+    "TransformStep": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "filter"
+            },
+            "pred": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "$type",
+            "pred"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "project"
+            },
+            "cols": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TransformRename"
+              }
+            }
+          },
+          "required": [
+            "$type",
+            "cols"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "derive"
+            },
+            "expr": {
+              "type": "object"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "$type",
+            "expr",
+            "name"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "groupBy"
+            },
+            "aggs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TransformAgg"
+              }
+            },
+            "keys": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "$type",
+            "aggs",
+            "keys"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "join"
+            },
+            "how": {
+              "$ref": "#/$defs/JoinKind"
+            },
+            "on": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TransformRename"
+              }
+            },
+            "source": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "$type",
+            "how",
+            "on",
+            "source"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "window"
+            },
+            "as": {
+              "type": "string"
+            },
+            "fn": {
+              "$ref": "#/$defs/WindowFn"
+            },
+            "n": {
+              "type": "integer"
+            },
+            "of": {
+              "type": "string"
+            },
+            "orderBy": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TransformSortKey"
+              }
+            },
+            "partitionBy": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "$type",
+            "as",
+            "fn",
+            "of",
+            "orderBy",
+            "partitionBy"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "pivot"
+            },
+            "agg": {
+              "$ref": "#/$defs/AggFn"
+            },
+            "index": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "on": {
+              "type": "string"
+            },
+            "values": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "$type",
+            "agg",
+            "index",
+            "on",
+            "values"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "unpivot"
+            },
+            "idVars": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "valueVars": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "$type",
+            "idVars",
+            "valueVars"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "sort"
+            },
+            "by": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TransformSortKey"
+              }
+            }
+          },
+          "required": [
+            "$type",
+            "by"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "distinct"
+            }
+          },
+          "required": [
+            "$type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "limit"
+            },
+            "n": {
+              "type": "integer"
+            },
+            "offset": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "$type",
+            "n"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "union"
+            },
+            "source": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "$type",
+            "source"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "intersect"
+            },
+            "source": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "$type",
+            "source"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "except"
+            },
+            "source": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "$type",
+            "source"
+          ]
+        }
+      ]
+    },
+    "TransformRename": {
+      "type": "object",
+      "properties": {
+        "a": {
+          "type": "string"
+        },
+        "b": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "a",
+        "b"
+      ]
+    },
+    "TransformAgg": {
+      "type": "object",
+      "properties": {
+        "fn": {
+          "$ref": "#/$defs/AggFn"
+        },
+        "name": {
+          "type": "string"
+        },
+        "of": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "fn",
+        "name",
+        "of"
+      ]
+    },
+    "TransformSortKey": {
+      "type": "object",
+      "properties": {
+        "col": {
+          "type": "string"
+        },
+        "dir": {
+          "$ref": "#/$defs/SortDir"
+        }
+      },
+      "required": [
+        "col"
+      ]
+    },
+    "SortDir": {
+      "type": "string",
+      "enum": [
+        "asc",
+        "desc"
+      ]
+    },
+    "JoinKind": {
+      "type": "string",
+      "enum": [
+        "inner",
+        "left",
+        "right",
+        "outer",
+        "semi",
+        "anti"
+      ]
+    },
+    "AggFn": {
+      "type": "string",
+      "enum": [
+        "sum",
+        "mean",
+        "min",
+        "max",
+        "count",
+        "median",
+        "stddev",
+        "first",
+        "last",
+        "countDistinct"
+      ]
+    },
+    "WindowFn": {
+      "type": "string",
+      "enum": [
+        "rowNumber",
+        "rank",
+        "lag",
+        "lead",
+        "cumulSum",
+        "rollingMean",
+        "denseRank",
+        "competitionRank",
+        "ntile",
+        "cumulMax",
+        "cumulMin",
+        "rollingSum"
       ]
     },
     "LocalFlushTrigger": {
@@ -4100,8 +4646,7 @@
           "required": [
             "$type",
             "encoding",
-            "fileRef",
-            "onRead"
+            "fileRef"
           ]
         },
         {
@@ -4113,7 +4658,19 @@
             "args": {
               "type": "array",
               "items": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "addr": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "addr",
+                  "value"
+                ]
               }
             },
             "capabilityId": {
@@ -5065,8 +5622,7 @@
             }
           },
           "required": [
-            "$type",
-            "onEdit"
+            "$type"
           ]
         },
         {
@@ -5084,8 +5640,7 @@
           },
           "required": [
             "$type",
-            "get",
-            "onToggle"
+            "get"
           ]
         },
         {
@@ -5103,8 +5658,7 @@
           },
           "required": [
             "$type",
-            "label",
-            "onClick"
+            "label"
           ]
         },
         {
@@ -5126,8 +5680,7 @@
                   }
                 },
                 "required": [
-                  "label",
-                  "onClick"
+                  "label"
                 ]
               }
             }
@@ -5215,8 +5768,7 @@
           },
           "required": [
             "$type",
-            "fractionFn",
-            "labelFn"
+            "fractionFn"
           ]
         },
         {
@@ -7178,8 +7730,7 @@
       "required": [
         "accept",
         "label",
-        "multiple",
-        "onSelect"
+        "multiple"
       ]
     },
     "InputKind": {
@@ -9000,7 +9551,6 @@
             "$type",
             "capabilities",
             "channel",
-            "onBubble",
             "scopeId"
           ]
         }
