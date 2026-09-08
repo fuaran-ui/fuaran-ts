@@ -19,7 +19,8 @@
     "typecheck": "pnpm -r --filter \"./packages/*\" --filter \"./tools/*\" run typecheck",
     "lint": "pnpm -r --filter \"./packages/*\" --filter \"./tools/*\" run lint",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "bundle-size": "node dev-scripts/measure-bundle-size.mjs"
   },
   "devDependencies": {
     "prettier": "^3.4.2",

@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "artifact": "bundle-size",
+  "status": "captured",
+  "captured_at_utc": "2026-09-08T18:48:12Z",
+  "runtime": {
+    "dotnet": "node v25.9.0; tsup ^8.3.5",
+    "os": "Windows_NT 10.0.26200",
+    "cpu": "host-independent (gzip over committed build output)"
+  },
+  "metrics": [
+    {
+      "id": "bundle.renderer.esm.gzip_b",
+      "value": 69451,
+      "unit": "B",
+      "note": "Gzipped bytes of the ESM package build (dist/*.js, entries + shared chunks; maps and .d.ts excluded).",
+      "files": [
+        "packages/renderer/dist/chunk-34W6XTKM.js",
+        "packages/renderer/dist/chunk-6A6BWITB.js",
+        "packages/renderer/dist/chunk-I7KSOFPI.js",
+        "packages/renderer/dist/chunk-NRKGMBFT.js",
+        "packages/renderer/dist/chunk-O2AMOUBK.js",
+        "packages/renderer/dist/egress.js",
+        "packages/renderer/dist/enhanceExpandable.js",
+        "packages/renderer/dist/enhanceMath.js",
+        "packages/renderer/dist/index.js",
+        "packages/renderer/dist/markdown.js",
+        "packages/renderer/dist/sanitize.js"
+      ]
+    },
+    {
+      "id": "bundle.renderer.cjs.gzip_b",
+      "value": 87272,
+      "unit": "B",
+      "note": "Gzipped bytes of the CommonJS package build (dist/*.cjs).",
+      "files": [
+        "packages/renderer/dist/egress.cjs",
+        "packages/renderer/dist/enhanceExpandable.cjs",
+        "packages/renderer/dist/enhanceMath.cjs",
+        "packages/renderer/dist/index.cjs",
+        "packages/renderer/dist/markdown.cjs",
+        "packages/renderer/dist/sanitize.cjs"
+      ]
+    },
+    {
+      "id": "bundle.renderer.standalone.gzip_b",
+      "value": 166838,
+      "unit": "B",
+      "note": "Gzipped bytes of the minified self-contained IIFE bundle — React and the decoder bundled in. The single artefact a browser consumer downloads.",
+      "files": ["packages/renderer/standalone/fuaran-renderer.global.js"]
+    },
+    {
+      "id": "bundle.renderer_server.esm.gzip_b",
+      "value": 27125,
+      "unit": "B",
+      "note": "Gzipped bytes of the server renderer ESM build (dist/*.js).",
+      "files": ["packages/renderer-server/dist/index.js"]
+    },
+    {
+      "id": "bundle.renderer_server.cjs.gzip_b",
+      "value": 27191,
+      "unit": "B",
+      "note": "Gzipped bytes of the server renderer CommonJS build (dist/*.cjs).",
+      "files": ["packages/renderer-server/dist/index.cjs"]
+    }
+  ]
+}
