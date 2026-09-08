@@ -48,6 +48,18 @@ interface ManifestEntry {
   readonly responseFile?: string;
   readonly eventFile?: string;
   readonly expectedClass?: string;
+  /**
+   * The PEER SHAPE this fixture addresses (§12.2, since `relay@1.4`) — `'page'`
+   * or `'upstream'`, absent meaning `'page'`.
+   *
+   * Since §6.5 the contract describes two of them, and this host is only ever
+   * the first: its tree is in the page, by construction, because it IS the
+   * renderer. So an `'upstream'` fixture is not a gap here and never becomes
+   * one — `treeSource` is by construction absent from this peer's handshake,
+   * and a runner asserting "every declared field is present" would be right to
+   * fail it.
+   */
+  readonly peer?: string;
 }
 
 const manifest = JSON.parse(readFileSync(join(fixturesDir, 'manifest.json'), 'utf8')) as {
@@ -363,13 +375,46 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
+/**
+ * The peer shape this host can present. It is `'page'` and only ever `'page'`:
+ * this package IS the renderer, so its tree is in the page by construction.
+ *
+ * §12.3 says what a runner owes a shape it cannot present — out of reach, with
+ * a reason, never a pass and never a failure — and the reason here is not a
+ * deficiency to be closed later. Declaring the shape rather than skipping by id
+ * is what keeps that honest: a fixture retagged upstream leaves this suite
+ * automatically, and one added upstream is covered without an edit here.
+ */
+const SERVED_PEER = 'page';
+
+const addressesThisHost = (fixture: ManifestEntry): boolean =>
+  fixture.peer === undefined || fixture.peer === SERVED_PEER;
+
 describe(`devtools-relay corpus (${manifest.profile})`, () => {
   it('enumerates the whole family', () => {
-    expect(manifest.profile).toBe('relay@1.3');
+    expect(manifest.profile).toBe('relay@1.4');
     expect(manifest.fixtures.length).toBeGreaterThanOrEqual(28);
   });
 
-  const exchanges = manifest.fixtures.filter((f) => f.kind !== 'relay-event');
+  it('declares which fixtures address a peer shape this host cannot present (§12.3)', () => {
+    // Reported, never silently skipped: a conformance run whose coverage can
+    // shrink without anyone noticing is not a conformance run. An unrecognised
+    // value is out of reach too — §10.3 does not license reading a shape this
+    // build does not know as the default, and reading it as `page` is the one
+    // direction that is actively wrong, since it would drive an upstream-tree
+    // fixture against a page-tree peer and report the mismatch as conformance.
+    const outOfReach = manifest.fixtures.filter((f) => !addressesThisHost(f));
+    for (const fixture of outOfReach)
+      expect(
+        fixture.peer,
+        `${fixture.id} is out of reach for this host: it addresses a '${String(fixture.peer)}' peer, and this host's tree is in the page`,
+      ).not.toBe(SERVED_PEER);
+    expect(manifest.fixtures.filter(addressesThisHost).length).toBeGreaterThan(0);
+  });
+
+  const exchanges = manifest.fixtures.filter(
+    (f) => f.kind !== 'relay-event' && addressesThisHost(f),
+  );
 
   for (const fixture of exchanges) {
     it(`${fixture.kind} — ${fixture.id}`, () => {
@@ -412,7 +457,9 @@ describe(`devtools-relay corpus (${manifest.profile})`, () => {
   // do better than accept them: it can be made to emit them, which is the only
   // evidence that `subscribe` actually fires on a committed change.
 
-  const eventFixtures = manifest.fixtures.filter((f) => f.kind === 'relay-event');
+  const eventFixtures = manifest.fixtures.filter(
+    (f) => f.kind === 'relay-event' && addressesThisHost(f),
+  );
 
   for (const fixture of eventFixtures) {
     it(`relay-event — ${fixture.id}`, async () => {
