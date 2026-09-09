@@ -83,10 +83,13 @@ describe('fuaran_ask — envelope codec is fixture-certified', () => {
 
 describe('fuaran_ask — answer host', () => {
   it('renders the question and an input per contract field', () => {
-    const page = buildAnswerPage(minimalEnv);
+    const page = buildAnswerPage(minimalEnv, 'a'.repeat(32));
     expect(page).toContain('Which environment');
     expect(page).toContain('name="choice"');
     expect(page).toContain('staging');
+    // The nonce reaches the browser through the page and nowhere else — that is
+    // what makes reading the page the only way to obtain it.
+    expect(page).toContain('a'.repeat(32));
   });
 
   it('resolves a conforming answer to Answered and refuses a non-conforming one', () => {
