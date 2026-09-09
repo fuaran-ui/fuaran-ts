@@ -10,7 +10,7 @@
 // rejection it threads the endpoint's hint back into the next turn (bounded), so
 // a rejected emission self-corrects without the caller plumbing anything.
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Node } from '@fuaran-ui/schema';
 import type { DecodeError } from '@fuaran-ui/ops';
@@ -93,9 +93,43 @@ export function useFuaranGenerate<TMsg = unknown>(
   // state to avoid a stale closure when two turns are issued back to back.
   const treeJsonRef = useRef<string | undefined>(initialTreeJson);
 
+  // Two guards over the async gap between issuing a turn and its result
+  // arriving. Both matter because a turn is a network round trip the caller can
+  // outlive, and neither is something a caller can add from outside the hook.
+  //
+  //   `turnSeq` — the number of turns this hook has ISSUED. Each turn captures
+  //   the value it incremented to, and a result whose captured value is no
+  //   longer the current one is STALE: the caller issued another turn while it
+  //   was in flight. Without this, two turns that resolve out of order leave
+  //   the hook holding the FIRST one's tree while the caller believes it is
+  //   looking at the second's — and the next repair diff is then computed
+  //   against a tree the user never saw. Endpoint latency varies per prompt, so
+  //   out-of-order is ordinary rather than exotic.
+  //
+  //   `mounted` — whether the component is still on screen. Calling a setter
+  //   after unmount does nothing useful and, in a StrictMode double-invoke or a
+  //   route change mid-turn, is exactly the pattern that reads as a leak.
+  //
+  // A stale or unmounted result is still RETURNED to its caller unchanged: the
+  // guards decide what the hook's own state does, never what the caller is told.
+  // Swallowing the result would hide a turn that genuinely happened, and the
+  // caller awaiting that promise is entitled to it.
+  const turnSeq = useRef(0);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   /** Fold a turn's outcome into hook state; returns the result unchanged so the
-   *  caller can branch on it too. */
-  const absorb = useCallback((result: TurnResult): TurnResult => {
+   *  caller can branch on it too.
+   *
+   *  `seq` is the turn's own sequence number, captured when it was issued. */
+  const absorb = useCallback((result: TurnResult, seq: number): TurnResult => {
+    if (!mounted.current || seq !== turnSeq.current) return result;
     if (result.kind === 'produced') {
       const decoded = decodeProducedTree<TMsg>(result);
       if (decoded.ok) {
@@ -135,26 +169,32 @@ export function useFuaranGenerate<TMsg = unknown>(
 
   const generate = useCallback(
     async (prompt: string, turnOptions?: FuaranTurnOptions): Promise<TurnResult> => {
+      const seq = ++turnSeq.current;
       setStatus('generating');
-      return absorb(await client.generate(buildArgs(prompt, turnOptions)));
+      return absorb(await client.generate(buildArgs(prompt, turnOptions)), seq);
     },
     [absorb, buildArgs, client],
   );
 
   const repair = useCallback(
     async (prompt: string, turnOptions?: FuaranTurnOptions): Promise<TurnResult> => {
+      const seq = ++turnSeq.current;
       setStatus('generating');
       const result = await generateWithRepair(
         client,
         buildArgs(prompt, turnOptions),
         maxRepairRetries !== undefined ? { maxRetries: maxRepairRetries } : {},
       );
-      return absorb(result);
+      return absorb(result, seq);
     },
     [absorb, buildArgs, client, maxRepairRetries],
   );
 
   const reset = useCallback(() => {
+    // A reset while a turn is in flight must not be overwritten by that turn's
+    // result: bumping the counter makes every issued turn stale, which is the
+    // same statement as "nothing outstanding may still land".
+    turnSeq.current += 1;
     treeJsonRef.current = undefined;
     setTreeJson(undefined);
     setTree(undefined);

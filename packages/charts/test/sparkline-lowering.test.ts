@@ -73,12 +73,25 @@ const cases = (): string[] => {
     .sort();
 };
 
-const seriesOf = (name: string): readonly number[] =>
-  (
-    JSON.parse(
-      readFileSync(join(SPARKLINE_LOWERING_DIR, `${name}.input.json`), 'utf8'),
-    ) as SparklineInput
-  ).series.map(floatOf);
+/** Every top-level member this harness reads; anything else is REFUSED below.
+ * Same argument as the chart harness's guard — a fixture that gains a member is
+ * otherwise dropped by the cast, and the byte comparison then certifies the
+ * lowering of an input the corpus is no longer sending. */
+const KNOWN_INPUT_MEMBERS: ReadonlySet<string> = new Set(['series']);
+
+const seriesOf = (name: string): readonly number[] => {
+  const raw = JSON.parse(
+    readFileSync(join(SPARKLINE_LOWERING_DIR, `${name}.input.json`), 'utf8'),
+  ) as Record<string, unknown>;
+  const unknown = Object.keys(raw).filter((k) => !KNOWN_INPUT_MEMBERS.has(k));
+  if (unknown.length > 0) {
+    throw new Error(
+      `sparkline-lowering input ${name}: member(s) this harness does not read: ` +
+        `${unknown.join(', ')}. Read it, and add it to KNOWN_INPUT_MEMBERS.`,
+    );
+  }
+  return (raw as unknown as SparklineInput).series.map(floatOf);
+};
 
 const expectedOf = (name: string): string =>
   readFileSync(join(SPARKLINE_LOWERING_DIR, `${name}.expected.json`), 'utf8');

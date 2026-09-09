@@ -93,6 +93,13 @@ interface RefusalFixture {
   readonly description: string;
 }
 
+/** One half of a merge-totality pair. The refusal half is shaped exactly like a
+ * `RefusalFixture` and the twin half exactly like a `Merge3WayFixture`; the two
+ * extra members cross-reference each other. */
+type TotalityFixture =
+  | (RefusalFixture & { readonly twin: string })
+  | (Merge3WayFixture & { readonly refusal: string });
+
 type MergeFixture = Merge3WayFixture | ValidatorGatedFixture;
 
 interface Manifest {
@@ -102,6 +109,9 @@ interface Manifest {
   /** Additive, and a host that predates it reads an older manifest without the
    * key — hence optional, rather than a decode failure on an old corpus. */
   readonly refusalFixtures?: readonly RefusalFixture[];
+  /** merge-totality (Phase 1526): PAIRS, each a triad that must refuse followed
+   * by a corrected twin that must auto-merge. Same optionality, same reason. */
+  readonly totalityFixtures?: readonly TotalityFixture[];
 }
 
 const read = (rel: string): string =>
@@ -225,9 +235,10 @@ describe('merge-conformance (TS == corpus)', () => {
   // yields zero `it` blocks and a green run asserting nothing. Counts are read
   // from the manifest, never pinned — what is pinned is that each family is
   // non-empty.
-  it('the manifest enumerates both families', () => {
+  it('the manifest enumerates every family this host reads', () => {
     expect(manifest.fixtures.length).toBeGreaterThan(0);
     expect(manifest.refusalFixtures ?? []).not.toHaveLength(0);
+    expect(manifest.totalityFixtures ?? []).not.toHaveLength(0);
   });
 
   for (const fx of manifest.fixtures) {
@@ -276,6 +287,74 @@ describe('merge-conformance (TS == corpus)', () => {
       });
     }
   }
+
+  // ─── merge-totality (Phase 1526) — the PAIRS ────────────────────────────
+  //
+  // Each pair is a triad that must REFUSE, immediately followed by a corrected
+  // twin that must AUTO-MERGE, and the pair is the whole point: a host passes
+  // the refusal half by refusing every structural merge, and passes an
+  // auto-merge suite by never growing the arm at all. Only the pair pins the
+  // boundary between them.
+  //
+  // Held under its own manifest key rather than folded into the two families
+  // above, for the reason `refusalFixtures` is: a host iterating `fixtures` and
+  // expecting every entry to auto-merge is CORRECT to do so, and one iterating
+  // `refusalFixtures` expecting every entry to refuse is correct too. A pair
+  // belongs to neither.
+  //
+  // This host read neither the key nor the fixtures until Phase 1652, so its
+  // merge leg was green while asserting nothing at all about three behaviours a
+  // host can silently omit and still look conformant.
+  const totality = manifest.totalityFixtures ?? [];
+  const totalityById = new Map(totality.map((fx) => [fx.id, fx]));
+
+  for (const fx of totality) {
+    // A kind this host does not model must FAIL rather than be skipped past —
+    // the same rule the refusal family carries, and the same reason: a silently
+    // ignored fixture is a green leg asserting less than it claims.
+    expect(['merge-refusal', 'merge-3way']).toContain(fx.kind);
+
+    it(`${fx.id}: ${fx.description}`, () => {
+      const base = decodeOrThrow(fx.baseFile);
+      const a = decodeOrThrow(fx.aFile);
+      const b = decodeOrThrow(fx.bFile);
+      const result = merge3Way(base, a, b);
+
+      if (fx.kind === 'merge-refusal') {
+        expect(result.ok, 'the refusal half of the pair refuses').toBe(false);
+        if (result.ok) return;
+        const bytes = encodeMergeEnvelope(result.conflicts);
+        expect(bytes).toBe(read(fx.envelopeFile));
+        expect(sha256hex(bytes)).toBe(fx.envelopeHash);
+      } else {
+        expect(
+          result.ok,
+          result.ok ? '' : `the twin must auto-merge: ${JSON.stringify(result.conflicts)}`,
+        ).toBe(true);
+        if (!result.ok) return;
+        const bytes = encodeNode(result.tree);
+        expect(bytes).toBe(read(fx.expectedFile));
+        expect(sha256hex(bytes)).toBe(fx.outcomeHash);
+      }
+    });
+  }
+
+  // The cross-references are the structure, so an entry whose partner is missing
+  // or mis-kinded leaves a half-pair that still passes — refusing everything, or
+  // merging everything — which is exactly what the pairing exists to rule out.
+  it('every totality entry is half of a well-formed pair', () => {
+    for (const fx of totality) {
+      const partnerId = fx.kind === 'merge-refusal' ? fx.twin : fx.refusal;
+      const partner = totalityById.get(partnerId);
+      expect(
+        partner,
+        `${fx.id} names a partner the manifest does not carry: ${partnerId}`,
+      ).toBeDefined();
+      expect(partner!.kind).not.toBe(fx.kind);
+      const back = partner!.kind === 'merge-refusal' ? partner!.twin : partner!.refusal;
+      expect(back, `${partnerId} does not point back at ${fx.id}`).toBe(fx.id);
+    }
+  });
 
   for (const fx of manifest.refusalFixtures ?? []) {
     // A family entry whose `kind` this host does not model must fail, not be

@@ -218,8 +218,83 @@ const specAndRows = (
   style: inp.axisUnitMode !== undefined ? { axisUnitMode: inp.axisUnitMode } : {},
 });
 
-const readInput = (name: string): ChartInput =>
-  JSON.parse(readFileSync(join(CHART_LOWERING_DIR, `${name}.input.json`), 'utf8')) as ChartInput;
+/** Every top-level member this harness reads. A fixture member absent from this
+ * list is REFUSED by `readInput` below rather than ignored. */
+const KNOWN_INPUT_MEMBERS: ReadonlySet<string> = new Set([
+  'kind',
+  'xField',
+  'yFields',
+  'title',
+  'stacked',
+  'valueFormat',
+  'axisUnitMode',
+  'xTitle',
+  'yTitle',
+  'subtitle',
+  'legendPosition',
+  'dataLabels',
+  'xScale',
+  'annotations',
+  'data',
+]);
+
+/** Read one fixture input, refusing anything this harness does not model.
+ *
+ * The tagged-union readers above each throw on an unrecognised `$type`, and
+ * that is deliberate — Phase 1143 found two hosts whose harnesses instead
+ * DEGRADED an unrecognised arm to nothing, so the very fixture that existed to
+ * pin the non-literal carry certified nothing and the suite stayed green. This
+ * guard closes the same hole one level up, where a plain object cast still left
+ * it open: a fixture that GAINS a member — the way `xTitle`, `legendPosition`,
+ * `dataLabels`, `xScale` and `annotations` each did — is read here through an
+ * unchecked `as ChartInput`, so the new member is silently dropped and this
+ * harness certifies the lowering of an input the corpus is no longer sending.
+ * Failing names the member and points at the omission; degrading hides it
+ * behind a passing byte comparison of the wrong thing.
+ *
+ * Adding a member to `ChartInput` means adding it here in the same change —
+ * which is the point: the list is what makes the omission a compile-adjacent
+ * chore rather than an invisible one. */
+const unknownMembers = (raw: Record<string, unknown>, known: ReadonlySet<string>): string[] =>
+  Object.keys(raw).filter((k) => !known.has(k));
+
+const readInput = (name: string): ChartInput => {
+  const raw = JSON.parse(
+    readFileSync(join(CHART_LOWERING_DIR, `${name}.input.json`), 'utf8'),
+  ) as Record<string, unknown>;
+  const unknown = unknownMembers(raw, KNOWN_INPUT_MEMBERS);
+  if (unknown.length > 0) {
+    throw new Error(
+      `chart-lowering input ${name}: member(s) this harness does not read: ${unknown.join(', ')}. ` +
+        'The corpus grew a field the lowering is not being handed — read it in `specAndRows` ' +
+        'and add it to KNOWN_INPUT_MEMBERS, or the byte comparison below certifies an input ' +
+        'the corpus is no longer sending.',
+    );
+  }
+  return raw as unknown as ChartInput;
+};
+
+// The guard's own go-red. Without it, `readInput`'s refusal is a branch nothing
+// exercises — and a guard nothing exercises is exactly how the degrade-to-nothing
+// shape survived in two other hosts. This asserts the detector fires, and (the
+// half that matters more) that it stays silent on the members the harness really
+// reads, so it cannot be "working" by refusing everything.
+describe('chart-lowering harness — the unread-member guard', () => {
+  it('names a member the harness does not read', () => {
+    expect(unknownMembers({ kind: 'Bar', yAxisMax: 100 }, KNOWN_INPUT_MEMBERS)).toEqual([
+      'yAxisMax',
+    ]);
+  });
+
+  it('is silent on every member the harness does read', () => {
+    const everyKnown = Object.fromEntries([...KNOWN_INPUT_MEMBERS].map((k) => [k, null]));
+    expect(unknownMembers(everyKnown, KNOWN_INPUT_MEMBERS)).toEqual([]);
+  });
+
+  it('accepts every input the corpus actually ships — the list is not stale', () => {
+    for (const name of cases()) expect(() => readInput(name)).not.toThrow();
+  });
+});
 
 describe('chart lowering — cross-host byte-parity', () => {
   const names = cases();

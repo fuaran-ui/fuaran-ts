@@ -133,8 +133,15 @@ const warn = (ctx: RenderContext<unknown>, message: string): void => {
  * Phase 159 — consult the optional `canDispatch` policy gate before a gated
  * effect runs. The TS mirror of the F# `applyDispatchGate` (Phase 119): an
  * absent gate allows (the effect runs); a gate returning `false` denies — emit
- * a diagnostic via `warn` and skip the effect. Only the gated action set
- * (`Call` / `Navigate` / `AiTool` / `ReadFileBody`) is routed through here.
+ * a diagnostic via `warn` and skip the effect.
+ *
+ * Every host-observable effect routes through here. Phase 1652 closed the five
+ * that did not — `Notify`, `SetState`, `WriteToClipboard`, `CommitLocal` and
+ * `Print` — which the reference client had gated and this one had not, so one
+ * `canDispatch` policy meant two different things depending on the tier. The
+ * ungated remainder is `Dispatch` and `Chain`, neither of which is an effect: a
+ * dispatch hands a message to the host's own update loop, and a chain performs
+ * its members, each meeting its own descriptor here. See `ActionDescriptor`.
  */
 const applyDispatchGate = <TMsg>(
   ctx: RenderContext<TMsg>,
@@ -231,12 +238,14 @@ export const runAction = <TMsg>(ctx: RenderContext<TMsg>, action: Action<TMsg>):
       });
       return;
     case 'Notify':
-      if (ctx.runtime.notify) ctx.runtime.notify(action.channel, action.payload);
-      else
-        warn(
-          ctx as RenderContext<unknown>,
-          `Action.Notify on '${action.channel}' — no runtime.notify wired.`,
-        );
+      applyDispatchGate(ctx, { kind: 'Notify', channel: action.channel }, () => {
+        if (ctx.runtime.notify) ctx.runtime.notify(action.channel, action.payload);
+        else
+          warn(
+            ctx as RenderContext<unknown>,
+            `Action.Notify on '${action.channel}' — no runtime.notify wired.`,
+          );
+      });
       return;
     case 'Navigate': {
       // Phase 1037 — the ambient destination policy runs BEFORE the dispatch
@@ -323,12 +332,19 @@ export const runAction = <TMsg>(ctx: RenderContext<TMsg>, action: Action<TMsg>):
         }
       }
       if (payload === undefined) return;
-      if (ctx.runtime.setState) ctx.runtime.setState(action.key, payload);
-      else
-        warn(
-          ctx as RenderContext<unknown>,
-          `Action.SetState '${action.key}' — no runtime.setState wired.`,
-        );
+      // Phase 1652 — gated, matching the reference client. The gate runs AFTER
+      // the `valueFrom` resolution above, because the resolution can decide
+      // there is no write to make at all, and asking a policy about a write
+      // that is not going to happen would have it deny or allow a phantom.
+      const write = payload;
+      applyDispatchGate(ctx, { kind: 'SetState', key: action.key }, () => {
+        if (ctx.runtime.setState) ctx.runtime.setState(action.key, write);
+        else
+          warn(
+            ctx as RenderContext<unknown>,
+            `Action.SetState '${action.key}' — no runtime.setState wired.`,
+          );
+      });
       return;
     }
     case 'AiTool':
@@ -343,9 +359,14 @@ export const runAction = <TMsg>(ctx: RenderContext<TMsg>, action: Action<TMsg>):
       return;
     case 'CommitLocal':
       // Dispatch a DOM CustomEvent the Local-bound input's effect listener drains.
-      if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-        window.dispatchEvent(new CustomEvent(`fuaran-commit-local-${action.nodeId}`));
-      }
+      // Phase 1652 — gated, matching the reference client: a CustomEvent on the
+      // host's own window is a host-observable effect, whether or not a runtime
+      // port backs it.
+      applyDispatchGate(ctx, { kind: 'CommitLocal', nodeId: action.nodeId }, () => {
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+          window.dispatchEvent(new CustomEvent(`fuaran-commit-local-${action.nodeId}`));
+        }
+      });
       return;
     case 'WriteToClipboard': {
       // Phase 1126 — the payload is a `TextSource`, and it is resolved HERE, at
@@ -356,10 +377,17 @@ export const runAction = <TMsg>(ctx: RenderContext<TMsg>, action: Action<TMsg>):
       // wrong value. An unresolvable binding resolves to the empty string, as it
       // does at every other text slot.
       const payload = renderText(ctx.sources, action.text);
-      if (ctx.runtime.writeToClipboard) ctx.runtime.writeToClipboard(payload);
-      else if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        void navigator.clipboard.writeText(payload);
-      }
+      // Phase 1652 — gated, matching the reference client. The DESCRIPTOR
+      // carries no payload even though the payload is resolved right here: it
+      // is the reader's own data, and a gate that logged its descriptor would
+      // log it. The gate decides whether this tree may write the clipboard at
+      // all, which is the only question a policy can usefully answer about it.
+      applyDispatchGate(ctx, { kind: 'WriteToClipboard' }, () => {
+        if (ctx.runtime.writeToClipboard) ctx.runtime.writeToClipboard(payload);
+        else if (typeof navigator !== 'undefined' && navigator.clipboard) {
+          void navigator.clipboard.writeText(payload);
+        }
+      });
       return;
     }
     case 'Print':
@@ -367,7 +395,13 @@ export const runAction = <TMsg>(ctx: RenderContext<TMsg>, action: Action<TMsg>):
       // reported back: no value, no callback, no event. A host must not tell the
       // tree whether the reader printed, cancelled, or what they chose. A host
       // with no interactive print path performs nothing rather than refusing.
-      if (typeof window !== 'undefined' && typeof window.print === 'function') window.print();
+      //
+      // Phase 1652 — gated, matching the reference client. A denied print is
+      // indistinguishable to the tree from a host with no print path, which is
+      // the correct shape: neither tells it anything.
+      applyDispatchGate(ctx, { kind: 'Print' }, () => {
+        if (typeof window !== 'undefined' && typeof window.print === 'function') window.print();
+      });
       return;
     case 'Confirm': {
       // Phase 1537 — ONE dispatch path, gated twice, and the ordering is the

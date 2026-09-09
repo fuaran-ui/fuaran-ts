@@ -107,7 +107,7 @@ describe('fuaran_ask — answer host', () => {
 
     const postRes = await fetch(`${handle.url}resolve`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-fuaran-nonce': handle.nonce },
       body: JSON.stringify({ answer: { choice: 'production' } }),
     });
     expect(postRes.status).toBe(200);
@@ -128,15 +128,133 @@ describe('fuaran_ask — answer host', () => {
 
     const badRes = await fetch(`${handle.url}resolve`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-fuaran-nonce': handle.nonce },
       body: JSON.stringify({ answer: { choice: 'nope' } }),
     });
     expect(badRes.status).toBe(422);
 
-    const declineRes = await fetch(`${handle.url}decline`, { method: 'POST' });
+    const declineRes = await fetch(`${handle.url}decline`, {
+      method: 'POST',
+      headers: { 'x-fuaran-nonce': handle.nonce },
+    });
     expect(declineRes.status).toBe(200);
 
     const outcome = await handle.done;
     expect(outcome.outcome.kind).toBe('Declined');
+  });
+});
+
+describe('fuaran_ask — the loopback host refuses what it is not being asked by the human', () => {
+  // The host binds to loopback, which keeps it off the network and does NOT make
+  // it private: any page in any browser on this machine can reach 127.0.0.1 on a
+  // guessed port, and a POST with a simple content type is sent with no
+  // preflight — so before Phase 1652 a hostile page could ANSWER or DECLINE the
+  // human's elicitation, and never needed to read the reply to do it. Each case
+  // below is one of those requests.
+
+  it('refuses a POST carrying no nonce', async () => {
+    const handle = await startElicitationServer(minimalEnv);
+    try {
+      const res = await fetch(`${handle.url}resolve`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ answer: { choice: 'production' } }),
+      });
+      expect(res.status).toBe(403);
+    } finally {
+      handle.close();
+    }
+  });
+
+  it('refuses a POST carrying the WRONG nonce', async () => {
+    const handle = await startElicitationServer(minimalEnv);
+    try {
+      const res = await fetch(`${handle.url}resolve`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-fuaran-nonce': 'f'.repeat(32) },
+        body: JSON.stringify({ answer: { choice: 'production' } }),
+      });
+      expect(res.status).toBe(403);
+    } finally {
+      handle.close();
+    }
+  });
+
+  it('refuses a DECLINE carrying no nonce — the cheaper of the two to abuse', async () => {
+    // No body, no contract to satisfy, and it settles the elicitation just as
+    // finally as an answer does. It had no check at all.
+    const handle = await startElicitationServer(minimalEnv);
+    try {
+      const res = await fetch(`${handle.url}decline`, { method: 'POST' });
+      expect(res.status).toBe(403);
+    } finally {
+      handle.close();
+    }
+  });
+
+  it('refuses a request a browser reports as cross-site, nonce or no nonce', async () => {
+    const handle = await startElicitationServer(minimalEnv);
+    try {
+      const res = await fetch(`${handle.url}decline`, {
+        method: 'POST',
+        headers: { 'x-fuaran-nonce': handle.nonce, 'sec-fetch-site': 'cross-site' },
+      });
+      expect(res.status).toBe(403);
+    } finally {
+      handle.close();
+    }
+  });
+
+  it('refuses a request whose Origin is not this host', async () => {
+    const handle = await startElicitationServer(minimalEnv);
+    try {
+      const res = await fetch(`${handle.url}decline`, {
+        method: 'POST',
+        headers: { 'x-fuaran-nonce': handle.nonce, origin: 'https://example.invalid' },
+      });
+      expect(res.status).toBe(403);
+    } finally {
+      handle.close();
+    }
+  });
+
+  it('caps the answer body it will read', async () => {
+    const handle = await startElicitationServer(minimalEnv);
+    try {
+      // Well past the cap. The host destroys the socket rather than reading on,
+      // so `fetch` may reject with a transport error OR see a 413 — both are the
+      // refusal, and asserting only one would make the test flaky about which
+      // side noticed first. What must NOT happen is a 200.
+      const huge = JSON.stringify({ answer: { choice: 'x'.repeat(2_000_000) } });
+      const status = await fetch(`${handle.url}resolve`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-fuaran-nonce': handle.nonce },
+        body: huge,
+      }).then(
+        (r) => r.status,
+        () => 'transport-refused' as const,
+      );
+      expect(status).not.toBe(200);
+    } finally {
+      handle.close();
+    }
+  });
+
+  it('still serves the question page to a plain GET', async () => {
+    // The guard is on the MUTATING routes only. A check that also refused the
+    // GET would be "working" by making the tool useless.
+    const handle = await startElicitationServer(minimalEnv);
+    try {
+      const res = await fetch(handle.url);
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain('name="choice"');
+      // The page carries the nonce — that is how the human's own browser gets it,
+      // and reading this page is exactly what the same-origin policy denies to
+      // every other origin.
+      expect(html).toContain(handle.nonce);
+    } finally {
+      handle.close();
+    }
   });
 });

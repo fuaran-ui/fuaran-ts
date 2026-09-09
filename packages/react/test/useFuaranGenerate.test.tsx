@@ -216,6 +216,125 @@ describe('useFuaranGenerate — repair (the closed hint-threading loop)', () => 
   });
 });
 
+describe('useFuaranGenerate — the async-gap guards', () => {
+  // A turn is a network round trip, so the caller can issue a second one before
+  // the first lands, and can navigate away before either does. Both were
+  // unguarded: whichever turn RESOLVED last won, and a result arriving after
+  // unmount still called the setters. This is the only place either can be
+  // tested, because the guards are internal to the hook by necessity.
+
+  /** A fetch whose replies are released by the test, one prompt at a time, so
+   *  the resolution ORDER can be made the opposite of the issue order. */
+  function gatedFetch(): { fetch: FetchLike; release: (prompt: string) => void } {
+    const waiting = new Map<string, () => void>();
+    const fetch: FetchLike = (url, init) => {
+      const prompt = String(JSON.parse(init.body).prompt);
+      return new Promise((resolve) => {
+        waiting.set(prompt, () => resolve(mockFetch(url, init)));
+      });
+    };
+    return {
+      fetch,
+      release: (prompt) => {
+        const go = waiting.get(prompt);
+        if (go === undefined) throw new Error(`no turn is waiting on "${prompt}"`);
+        waiting.delete(prompt);
+        go();
+      },
+    };
+  }
+
+  it('ignores a stale turn that resolves after a newer one', async () => {
+    const gate = gatedFetch();
+    const probe = await mount(gate.fetch);
+
+    let firstDone: Promise<unknown> | undefined;
+    let secondDone: Promise<unknown> | undefined;
+    await act(async () => {
+      firstDone = probe.state().generate('a metric strip showing revenue');
+      secondDone = probe.state().generate('a grid of orders');
+    });
+
+    // Resolve them in the WRONG order: the newer turn lands first, then the
+    // older one. Without the sequence guard the older result overwrites it.
+    await act(async () => {
+      gate.release('a grid of orders');
+      await secondDone;
+      gate.release('a metric strip showing revenue');
+      await firstDone;
+    });
+
+    expect(probe.state().status).toBe('ready');
+    // The mock answers the grid prompt with a grid; the revenue prompt with a
+    // metric strip. Whichever the hook now holds names which turn won.
+    expect(probe.html()).not.toContain('Revenue');
+  });
+
+  it('still returns the stale turn to its own caller', async () => {
+    // The guard decides what the HOOK does, never what the awaiting caller is
+    // told — a turn that genuinely happened is not hidden from whoever asked.
+    const gate = gatedFetch();
+    const probe = await mount(gate.fetch);
+
+    let firstDone: Promise<unknown> | undefined;
+    let secondDone: Promise<unknown> | undefined;
+    await act(async () => {
+      firstDone = probe.state().generate('a metric strip showing revenue');
+      secondDone = probe.state().generate('a grid of orders');
+    });
+    await act(async () => {
+      gate.release('a grid of orders');
+      await secondDone;
+      gate.release('a metric strip showing revenue');
+    });
+
+    expect(await firstDone).toMatchObject({ kind: 'produced' });
+  });
+
+  it('drops a result that arrives after unmount', async () => {
+    const gate = gatedFetch();
+    const probe = await mount(gate.fetch);
+
+    let done: Promise<unknown> | undefined;
+    await act(async () => {
+      done = probe.state().generate('a metric strip showing revenue');
+    });
+
+    await act(() => root?.unmount());
+    root = undefined;
+
+    // The setters would run here without the mounted guard. The assertion is
+    // that this resolves at all, and quietly: React reports a post-unmount
+    // update on the console, so a regression is visible rather than silent.
+    await act(async () => {
+      gate.release('a metric strip showing revenue');
+      await done;
+    });
+
+    expect(await done).toMatchObject({ kind: 'produced' });
+  });
+
+  it('reset() makes an in-flight turn stale, so it cannot land afterwards', async () => {
+    const gate = gatedFetch();
+    const probe = await mount(gate.fetch);
+
+    let done: Promise<unknown> | undefined;
+    await act(async () => {
+      done = probe.state().generate('a metric strip showing revenue');
+    });
+    await act(() => {
+      probe.state().reset();
+    });
+    await act(async () => {
+      gate.release('a metric strip showing revenue');
+      await done;
+    });
+
+    expect(probe.state().status).toBe('idle');
+    expect(probe.state().tree).toBeUndefined();
+  });
+});
+
 describe('FuaranGenerated — the render half', () => {
   it('shows the error state when there is no tree', async () => {
     const failing: FetchLike = () =>

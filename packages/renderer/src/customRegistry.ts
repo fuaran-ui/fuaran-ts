@@ -159,9 +159,27 @@ export const registerCustomRenderer = (
 /**
  * The action shape handed to a {@link FuaranRuntime.canDispatch} policy gate —
  * the TS mirror of the F# `Fuaran.UI.Renderer.Runtime.ActionDescriptor` (Phase
- * 119). Only the host-effecting / navigational / tool-invoking / file-reading
- * actions are gated; `Dispatch` / `SetState` / `Notify` / `CommitLocal` /
- * `WriteToClipboard` / `Chain` are not (matching the F# gated set).
+ * 119). Every host-observable effect is gated; `Dispatch` and `Chain` are not,
+ * because neither is an effect: a dispatch hands a message to the host's own
+ * update loop, and a chain performs its members, each of which meets its own
+ * descriptor here.
+ *
+ * Phase 1652 brought this mirror up to the reference set. Five kinds —
+ * `Notify`, `SetState`, `WriteToClipboard`, `CommitLocal` and `Print` — were
+ * gated on the F# client and UNGATED here, so a host that wired one
+ * `canDispatch` policy got a WEAKER default-deny in TypeScript than the same
+ * policy gave it in F#. That is a parity gap in a shipped security surface, not
+ * a missing convenience: the whole value of the seam is that a host reasons
+ * about it once.
+ *
+ * Two of the reference's kinds are deliberately absent, and the reason is
+ * structural rather than a decision to revisit: this tier's `Action` union has
+ * no `Export` and no `Upload` case, so a descriptor for either could never be
+ * constructed. A descriptor nothing can produce is a claim the gate does not
+ * keep. **When this tier gains either action, its descriptor lands in the same
+ * change** — the F# tier calls `Upload` "the largest effect in the set and the
+ * one whose gating is least optional", and an ungated first implementation is
+ * exactly how this gap opened.
  */
 export type ActionDescriptor =
   | { readonly kind: 'Call'; readonly endpoint: string }
@@ -180,7 +198,30 @@ export type ActionDescriptor =
   // be shown on screen, so a gate that logs its descriptor logs nothing the
   // reader is not already seeing.
   | { readonly kind: 'Confirm'; readonly prompt: string }
-  | { readonly kind: 'Focus'; readonly nodeId: string };
+  | { readonly kind: 'Focus'; readonly nodeId: string }
+  // Phase 1652 — the five the F# client already gated. Each carries exactly what
+  // makes a per-target policy expressible, and nothing more.
+  //
+  // A `Notify` channel is host-ADDRESSABLE: a decoded tree naming a channel the
+  // host listens on is injecting into the host's own message plane.
+  | { readonly kind: 'Notify'; readonly channel: string }
+  // The `SetState` key, so a policy can be per-key rather than all-or-nothing.
+  // The key namespace is ALSO closed structurally — a host-reserved prefix is
+  // unaddressable from a tree-originated write whatever the policy says — so
+  // this gate is the second line, not the only one.
+  | { readonly kind: 'SetState'; readonly key: string }
+  // Payload-free, DELIBERATELY. A clipboard payload is the reader's own data,
+  // and a gate that logged its descriptor would then log it. The decision here
+  // is "may this tree write the clipboard at all".
+  | { readonly kind: 'WriteToClipboard' }
+  // A `CommitLocal` flush dispatches a DOM CustomEvent — host-observable even
+  // though no runtime port backs it.
+  | { readonly kind: 'CommitLocal'; readonly nodeId: string }
+  // Payload-free for a stronger reason than the clipboard's: the clipboard
+  // descriptor withholds its text, where this one has no text to withhold. An
+  // unbidden modal that steals focus, and on some platforms begins a physical
+  // act, is host-observable however little it discloses.
+  | { readonly kind: 'Print' };
 
 /** Render a descriptor for diagnostics — mirror of the F# `ActionDescriptor.describe`. */
 export const describeActionDescriptor = (descriptor: ActionDescriptor): string => {
@@ -199,6 +240,20 @@ export const describeActionDescriptor = (descriptor: ActionDescriptor): string =
       return `Confirm(${descriptor.prompt})`;
     case 'Focus':
       return `Focus(${descriptor.nodeId})`;
+    case 'Notify':
+      return `Notify(${descriptor.channel})`;
+    case 'SetState':
+      return `SetState(${descriptor.key})`;
+    // No payload in either label — see the two cases' own notes above. These
+    // strings reach a `warn` line and, through a host that persists denials, a
+    // durable record; the two payload-free descriptors are payload-free there
+    // for the same reason they are payload-free in the type.
+    case 'WriteToClipboard':
+      return 'WriteToClipboard';
+    case 'CommitLocal':
+      return `CommitLocal(${descriptor.nodeId})`;
+    case 'Print':
+      return 'Print';
   }
 };
 

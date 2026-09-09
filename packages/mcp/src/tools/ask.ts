@@ -13,6 +13,7 @@
 // sibling or package is named (publication-boundary vocabulary rules apply). The
 // answer host is offline by construction: it binds only to loopback.
 
+import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { renderToHtml } from '@fuaran-ui/renderer-server';
 import {
@@ -71,9 +72,10 @@ const inputForField = (field: AnswerField): string => {
 /** The answer-host page: the rendered question tree + a form derived from the
  *  contract, with submit / decline affordances and a client that POSTs the
  *  typed answer back to the loopback host. */
-export const buildAnswerPage = (env: ElicitationEnvelope): string => {
+export const buildAnswerPage = (env: ElicitationEnvelope, nonce: string): string => {
   const question = renderToHtml(env.tree);
   const inputs = env.contract.fields.map(inputForField).join('\n      ');
+  const nonceLiteral = JSON.stringify(nonce);
 
   return `<!doctype html>
 <html lang="en">
@@ -102,6 +104,10 @@ export const buildAnswerPage = (env: ElicitationEnvelope): string => {
     </div>
   </form>
   <script>
+    // The per-elicitation nonce. It reaches a caller only by READING this page,
+    // which the same-origin policy denies to any other origin — so a page that
+    // guessed the port still cannot answer the human's question on their behalf.
+    const NONCE = ${nonceLiteral};
     const form = document.getElementById('fuaran-answer');
     const errorEl = document.getElementById('fuaran-error');
     form.addEventListener('submit', async (e) => {
@@ -111,7 +117,7 @@ export const buildAnswerPage = (env: ElicitationEnvelope): string => {
       for (const el of form.elements) { if (el.name) answer[el.name] = el.value; }
       const res = await fetch('/resolve', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', 'x-fuaran-nonce': NONCE },
         body: JSON.stringify({ answer }),
       });
       if (res.ok) {
@@ -122,7 +128,7 @@ export const buildAnswerPage = (env: ElicitationEnvelope): string => {
       }
     });
     document.getElementById('fuaran-decline').addEventListener('click', async () => {
-      await fetch('/decline', { method: 'POST' });
+      await fetch('/decline', { method: 'POST', headers: { 'x-fuaran-nonce': NONCE } });
       document.body.innerHTML = '<p>Declined. You can close this window.</p>';
     });
   </script>
@@ -164,19 +170,104 @@ export const resolveOutcome = (
 export interface ElicitationServerHandle {
   url: string;
   port: number;
+  /** The per-elicitation nonce a POST to `/resolve` or `/decline` must present
+   *  in `x-fuaran-nonce`. The hosted page carries it; it is exposed here so a
+   *  programmatic caller in the same process need not scrape the page. */
+  nonce: string;
   /** Resolves with the one outcome once the human submits / declines / times out. */
   done: Promise<ElicitationOutcomeEnvelope>;
   close: () => void;
 }
 
-const readBody = (req: IncomingMessage): Promise<string> =>
+/** The largest answer body this host will read, in bytes.
+ *
+ * An answer is a small map of contract fields; a megabyte is orders of
+ * magnitude more than any conforming one and still far below anything that
+ * matters to a desktop. The cap exists because the reader below ACCUMULATES —
+ * without it, one request holds the process's memory hostage for as long as a
+ * sender cares to keep writing, and the sender need not be the human. */
+const MAX_BODY_BYTES = 1_000_000;
+
+/** Read a request body, refusing one that exceeds the cap.
+ *
+ * The refusal DESTROYS the socket rather than replying: a sender past the cap
+ * is not making a request this host can answer, and continuing to read in order
+ * to be polite about it is the behaviour the cap exists to stop. */
+const readBody = (req: IncomingMessage): Promise<{ ok: true; body: string } | { ok: false }> =>
   new Promise((resolve) => {
     let data = '';
-    req.on('data', (chunk) => {
+    let bytes = 0;
+    let refused = false;
+    req.on('data', (chunk: Buffer | string) => {
+      if (refused) return;
+      bytes += Buffer.byteLength(chunk);
+      if (bytes > MAX_BODY_BYTES) {
+        refused = true;
+        req.destroy();
+        resolve({ ok: false });
+        return;
+      }
       data += chunk;
     });
-    req.on('end', () => resolve(data));
+    req.on('end', () => {
+      if (!refused) resolve({ ok: true, body: data });
+    });
+    req.on('error', () => {
+      if (!refused) resolve({ ok: false });
+    });
   });
+
+/** Why a mutating request was refused, or `undefined` when it may proceed.
+ *
+ * The host binds to loopback, which keeps it off the network but does NOT make
+ * it private: any page in any browser on this machine can reach `127.0.0.1` on
+ * a guessed port, and a `POST` with no custom header and a simple content type
+ * is sent WITHOUT a preflight — so the page never needs the host's permission,
+ * and never needs to read the response either. Answering or declining is all it
+ * wants. Three independent checks, in the order a request meets them:
+ *
+ *   1. `Sec-Fetch-Site` — every current browser sets it on every request and no
+ *      page can forge it. Anything but `same-origin` is another origin's
+ *      request by the browser's own account. It is absent from a non-browser
+ *      client (curl, a test, a programmatic caller), which is why absence is
+ *      permitted rather than refused: those clients are not the threat, and
+ *      refusing them would break the handle's own documented use.
+ *   2. `Origin` — belt and braces where a browser sends it and `Sec-Fetch-Site`
+ *      is somehow absent. An `Origin` naming anything other than this host is
+ *      refused outright.
+ *   3. The NONCE — the check that does not depend on browser behaviour at all.
+ *      It is minted per elicitation and reachable only by reading the hosted
+ *      page, which the same-origin policy denies to every other origin. It is
+ *      carried in a CUSTOM HEADER on purpose: a custom header forces a CORS
+ *      preflight, and this host answers no preflight, so a cross-origin attempt
+ *      to send it is stopped by the browser before the request is made.
+ *
+ * None of this is a claim about a hostile process on the same machine. A local
+ * process can read the page as readily as the browser can, and no header
+ * discipline changes that; what these checks close is the far larger surface of
+ * any page the human happens to have open. */
+const refuseReason = (req: IncomingMessage, nonce: string): string | undefined => {
+  const header = (name: string): string | undefined => {
+    const v = req.headers[name];
+    return Array.isArray(v) ? v[0] : v;
+  };
+
+  const site = header('sec-fetch-site');
+  if (site !== undefined && site !== 'same-origin' && site !== 'none') {
+    return 'cross-origin request refused';
+  }
+
+  const origin = header('origin');
+  if (origin !== undefined && origin !== `http://127.0.0.1:${req.socket.localPort ?? 0}`) {
+    return 'cross-origin request refused';
+  }
+
+  if (header('x-fuaran-nonce') !== nonce) {
+    return 'missing or incorrect elicitation nonce';
+  }
+
+  return undefined;
+};
 
 /** Start the loopback answer host for one elicitation. Resolves with a handle
  *  whose `done` promise settles when the human resolves the question. Binds to
@@ -185,7 +276,10 @@ export const startElicitationServer = (
   env: ElicitationEnvelope,
   opts: { port?: number | undefined } = {},
 ): Promise<ElicitationServerHandle> => {
-  const page = buildAnswerPage(env);
+  // 128 bits from the CSPRNG. The port is random too, but a port is scannable
+  // and this is not.
+  const nonce = randomBytes(16).toString('hex');
+  const page = buildAnswerPage(env, nonce);
 
   let settle!: (outcome: ElicitationOutcomeEnvelope) => void;
   const done = new Promise<ElicitationOutcomeEnvelope>((resolve) => {
@@ -209,16 +303,35 @@ export const startElicitationServer = (
       return;
     }
 
-    if (req.method === 'POST' && req.url === '/decline') {
-      finish({ elicitationId: env.id, outcome: { kind: 'Declined' } });
-      return;
-    }
+    if (req.method === 'POST' && (req.url === '/decline' || req.url === '/resolve')) {
+      // One gate over both mutating routes. `/decline` used to have none at all,
+      // and it is the cheaper of the two to abuse: no body, no contract to
+      // satisfy, and it settles the elicitation just as finally as an answer.
+      const refused = refuseReason(req, nonce);
+      if (refused !== undefined) {
+        res.writeHead(403, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: refused }));
+        return;
+      }
 
-    if (req.method === 'POST' && req.url === '/resolve') {
-      void readBody(req).then((body) => {
+      if (req.url === '/decline') {
+        finish({ elicitationId: env.id, outcome: { kind: 'Declined' } });
+        return;
+      }
+
+      void readBody(req).then((read) => {
+        if (!read.ok) {
+          // The socket is already destroyed on an over-cap body; this branch
+          // also covers a read error, where a reply may still be deliverable.
+          if (!res.writableEnded) {
+            res.writeHead(413, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'answer body too large' }));
+          }
+          return;
+        }
         let raw: Record<string, unknown> = {};
         try {
-          const parsed = JSON.parse(body) as { answer?: Record<string, unknown> };
+          const parsed = JSON.parse(read.body) as { answer?: Record<string, unknown> };
           raw = parsed.answer ?? {};
         } catch {
           raw = {};
@@ -253,6 +366,7 @@ export const startElicitationServer = (
       resolve({
         url: `http://127.0.0.1:${port}/`,
         port,
+        nonce,
         done,
         close: () => {
           if (timer) clearTimeout(timer);

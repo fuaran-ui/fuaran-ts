@@ -89,6 +89,35 @@ const nodeIds = (html: string): string[] => {
 // Adding an entry here is a DELIBERATE act with a spec citation, never a way to
 // make a red test green: a divergence with no section behind it is a defect in
 // one of the two renderers.
+//
+// ── The decision (Phase 1652) ────────────────────────────────────────────────
+//
+// Whether Lock A should assert class-set EQUALITY at all was left open when the
+// declared list landed. It is settled here, in favour of keeping it: equality
+// plus a closed, spec-cited exception list, exactly as written below.
+//
+// The alternative on the table was to weaken the lock to something like
+// containment, or to key it off a per-kind allowance. Both give up the property
+// the lock exists for. What a hydration handoff needs to know is not "the server
+// emitted a subset of what the client will" — it is that for every element the
+// client expects to find, the server painted the same one, with the same class,
+// under the same node id. Containment is satisfied by a server renderer that
+// paints NOTHING, which is precisely the regression class the two grid families
+// were (`fuaran-grid-cell-editable`, `fuaran-grid-reorder-*`, both since fixed
+// by emitting them rather than by declaring them).
+//
+// The four divergent controls are not evidence against equality; they are why
+// the exception list has a shape. Each is a SPECIFIED substitution — §3.6 names
+// the different control the static floor uses and why — so it is expressible as
+// a finite, named set with a citation apiece, and the staleness assertion below
+// makes the set self-retiring. A premise that is true everywhere except at four
+// enumerated, documented points is a premise worth keeping; it is only false
+// premises that are cheap to weaken.
+//
+// The reference (F#) tier's own SSR parity tests carry the same divergent pair
+// and want the same allowance in the same shape, so that the two tiers cannot
+// declare different exceptions. That half lands in the reference tier's repo,
+// not here.
 const DECLARED_TIER_DIVERGENCES: readonly {
   readonly token: string;
   readonly tier: 'server' | 'client';

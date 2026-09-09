@@ -17,6 +17,24 @@
 //    - "tooltip"       — the node-level tooltip trait.
 //    - "children"      — the ordered child-id list (structural).
 //
+//  Two further facets are WHOLE-NODE rather than per-field, and neither is
+//  visible from inside a single parent's fold:
+//
+//    - "node"          — one side removed a node the other had edited
+//                        (`DeleteModify`), or the content half of a contended
+//                        move.
+//    - "move"          — a node relocated by one side and moved or edited by the
+//                        other (`ConcurrentMove`); the value is the parent id
+//                        each side holds it under.
+//
+//  Telling a DELETION apart from a MOVE needs a view of each input tree as a
+//  whole, so the merge carries indexes of its three inputs (`MergeIndex`).
+//  Without that distinction every relocation reads as a deletion of the node
+//  from the parent it left. Both arms landed here in Phase 1652, which is when
+//  this tier first read the corpus's `totalityFixtures` — until then the merge
+//  reproduced the reference's ANSWER on every fixture it was given and
+//  reproduced a silent LOSS on the two it was not.
+//
 //  `tooltip` and `style.direction` joined the decomposition in Phase 1652. Both
 //  were on the wire and in neither list, so a one-branch edit to either was
 //  DISCARDED in silence — and `tooltip`, being a top-level member the rebuild
@@ -218,6 +236,55 @@ const accessibilityCanonical = (shell: NodeKind<unknown>, n: N): string =>
 const tooltipCanonical = (shell: NodeKind<unknown>, n: N): string =>
   encodeNode(mkNode(n, shell, defaults.style, neutralState, undefined, n.tooltip));
 
+// ─── whole-tree indexes ──────────────────────────────────────────────────────
+//
+// `merge3` recurses one PARENT at a time, so its whole view of a node is
+// "present in this parent's child list, or not". Two completely different
+// histories look identical from there: a node one side DELETED, and a node one
+// side MOVED to a different parent. The first loses the other side's edit
+// permanently; the second is an ordinary relocation that must not be reported as
+// anything at all. Telling them apart needs a view of each tree as a WHOLE,
+// which is what these indexes are — built once at the entry point, threaded down
+// the recursion, never rebuilt per node.
+
+/** One input tree indexed by node id: the node itself, and the id of its parent
+ * (absent for the root). */
+interface SideIndex {
+  readonly nodes: Map<string, N>;
+  readonly parents: Map<string, string | undefined>;
+}
+
+/** The three input trees, indexed. */
+interface MergeIndex {
+  readonly baseSide: SideIndex;
+  readonly aSide: SideIndex;
+  readonly bSide: SideIndex;
+}
+
+const indexTree = (root: N): SideIndex => {
+  const nodes = new Map<string, N>();
+  const parents = new Map<string, string | undefined>();
+  const walk = (parent: string | undefined, n: N): void => {
+    const id = rawId(n);
+    nodes.set(id, n);
+    parents.set(id, parent);
+    for (const c of childrenOf(n)) walk(id, c);
+  };
+  walk(undefined, root);
+  return { nodes, parents };
+};
+
+/** The parent id a side holds `nodeId` under, or `undefined` when that side does
+ * not hold it at all. The ROOT's parent is also `undefined` — the two are told
+ * apart by `nodes` membership, never by this. */
+const parentIn = (side: SideIndex, nodeId: string): string | undefined => side.parents.get(nodeId);
+
+const alreadyRecorded = (
+  conflicts: readonly MergeConflict[],
+  nodeId: string,
+  facet: string,
+): boolean => conflicts.some((c) => c.nodeId === nodeId && c.facet === facet);
+
 // ─── facet pickers ───────────────────────────────────────────────────────────
 
 const ordinal = (x: string, y: string): number => (x < y ? -1 : x > y ? 1 : 0);
@@ -372,6 +439,7 @@ const mergeStyle = (conflicts: MergeConflict[], id: string, base: N, a: N, b: N)
 
 const merge3 = (
   conflicts: MergeConflict[],
+  idx: MergeIndex,
   base: N,
   aOpt: N | undefined,
   bOpt: N | undefined,
@@ -443,9 +511,86 @@ const merge3 = (
   const aMap = new Map(aKids.map((c) => [rawId(c), c]));
   const bMap = new Map(bKids.map((c) => [rawId(c), c]));
 
+  // ── the two WHOLE-NODE classes, invisible from inside one parent's fold ────
+  //
+  // Both are declared facets that nothing constructed on this tier until Phase
+  // 1652, which is the shape worth naming: the merge reproduced the reference's
+  // ANSWER on every fixture it was given and reproduced a silent LOSS on the two
+  // it was not. Neither can be seen without the whole-tree indexes above.
+
+  /** One side REMOVED `cid` from this parent and dropped it from its tree
+   * entirely, while the other side had EDITED it — anywhere in its subtree, since
+   * a deep child edit is lost along with the subtree that carried it.
+   *
+   * Emitted BEFORE the surviving side's child list is rebuilt: after that
+   * rebuild the edited node is simply gone and there is nothing left to name. */
+  const noteDeleteModify = (removedByA: boolean, survivingIds: readonly string[]): void => {
+    const removingSide = removedByA ? idx.aSide : idx.bSide;
+    const editingMap = removedByA ? bMap : aMap;
+    const surviving = new Set(survivingIds);
+
+    for (const cid of baseIds) {
+      if (surviving.has(cid) || removingSide.nodes.has(cid)) continue;
+      const baseChild = baseMap.get(cid);
+      const editedChild = editingMap.get(cid);
+      if (baseChild === undefined || editedChild === undefined) continue;
+
+      const baseC = encodeNode(baseChild);
+      const editedC = encodeNode(editedChild);
+      if (editedC === baseC || alreadyRecorded(conflicts, cid, 'node')) continue;
+
+      // The removing side holds NO value for the cell, so its side is the EMPTY
+      // STRING — which no node canonical-encodes to, and which `base` already
+      // uses for a same-id insert. The edited side's subtree is the surviving
+      // choice a resolver keeps.
+      const aValue = removedByA ? '' : editedC;
+      const bValue = removedByA ? editedC : '';
+      conflicts.push(refusal(cid, 'node', 'DeleteModify', baseC, aValue, bValue));
+    }
+  };
+
+  /** `cid` reached this parent with no base entry HERE. Two histories do that:
+   * an INSERT (the id is new to the whole tree) and a MOVE (the id existed
+   * elsewhere in the base). Only the move can silently discard the other side's
+   * work — the mover's subtree is adopted wholesale while the other side still
+   * holds its own copy where the base left it.
+   *
+   * Both POSITIONS and both CELLS reach the envelope, as TWO entries on the same
+   * node: `move` carries the parent id each side holds the node under, `node`
+   * carries each side's subtree. Deliberately not one entry with a compound
+   * value — a side's `value` is not a compound cell anywhere else, and inventing
+   * one here would be the first place it was. */
+  const noteConcurrentMove = (cid: string): void => {
+    const baseChild = idx.baseSide.nodes.get(cid);
+    const aNode = idx.aSide.nodes.get(cid);
+    const bNode = idx.bSide.nodes.get(cid);
+    // The id is new to the whole tree (a genuine insert), or one side dropped it
+    // outright — that second shape is the delete/modify axis, named at the
+    // parent that lost it.
+    if (baseChild === undefined || aNode === undefined || bNode === undefined) return;
+
+    const basePos = parentIn(idx.baseSide, cid) ?? '';
+    const aPos = parentIn(idx.aSide, cid) ?? '';
+    const bPos = parentIn(idx.bSide, cid) ?? '';
+    const baseC = encodeNode(baseChild);
+    const aC = encodeNode(aNode);
+    const bC = encodeNode(bNode);
+    const aMoved = aPos !== basePos;
+    const bMoved = bPos !== basePos;
+
+    // A one-sided move with no edit on the other side is an ORDINARY
+    // RELOCATION and merges clean — this guard is what keeps the arm from
+    // reporting every move.
+    const contended = (aMoved && bMoved) || (aMoved && bC !== baseC) || (bMoved && aC !== baseC);
+    if (!contended || alreadyRecorded(conflicts, cid, 'move')) return;
+
+    conflicts.push(refusal(cid, 'move', 'ConcurrentMove', basePos, aPos, bPos));
+    conflicts.push(refusal(cid, 'node', 'ConcurrentMove', baseC, aC, bC));
+  };
+
   const recurseChild = (cid: string): N => {
     const bc = baseMap.get(cid);
-    if (bc !== undefined) return merge3(conflicts, bc, aMap.get(cid), bMap.get(cid));
+    if (bc !== undefined) return merge3(conflicts, idx, bc, aMap.get(cid), bMap.get(cid));
     const ac = aMap.get(cid);
     const bb = bMap.get(cid);
     if (ac !== undefined && bb !== undefined) {
@@ -464,8 +609,14 @@ const merge3 = (
       // the insert tie-break: order by canonical bytes.
       return ordinal(acC, bcC) <= 0 ? ac : bb;
     }
-    if (ac !== undefined) return ac;
-    if (bb !== undefined) return bb;
+    if (ac !== undefined) {
+      noteConcurrentMove(cid);
+      return ac;
+    }
+    if (bb !== undefined) {
+      noteConcurrentMove(cid);
+      return bb;
+    }
     throw new Error(`merge3: child id ${cid} vanished`);
   };
 
@@ -473,8 +624,10 @@ const merge3 = (
   if (!aStruct && !bStruct) {
     mergedChildren = baseIds.map(recurseChild);
   } else if (aStruct && !bStruct) {
+    noteDeleteModify(true, aIds);
     mergedChildren = aIds.map(recurseChild);
   } else if (!aStruct && bStruct) {
+    noteDeleteModify(false, bIds);
     mergedChildren = bIds.map(recurseChild);
   } else if (JSON.stringify(aIds) === JSON.stringify(bIds)) {
     // Both sides changed the children to the SAME id list — agreement, not a
@@ -525,7 +678,16 @@ const merge3 = (
  */
 export const merge3Way = (base: N, a: N, b: N): MergeResult => {
   const conflicts: MergeConflict[] = [];
-  const merged = merge3(conflicts, base, a, b);
+  // Indexed once at the entry point and threaded down — see the note on
+  // `SideIndex`. Rebuilding per node would be quadratic and would answer the
+  // same question every time.
+  const merged = merge3(
+    conflicts,
+    { baseSide: indexTree(base), aSide: indexTree(a), bSide: indexTree(b) },
+    base,
+    a,
+    b,
+  );
   return conflicts.length === 0 ? { ok: true, tree: merged } : { ok: false, conflicts };
 };
 

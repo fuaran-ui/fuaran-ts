@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'npm dist-tag (default "latest")'
+        description: 'npm dist-tag (default "latest") — letters, digits, dot, dash, underscore'
         required: false
         default: latest
 
@@ -40,6 +40,35 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      # The dist-tag is OPERATOR INPUT, and a `${{ }}` expression is substituted
+      # into the script TEXT before any shell parses it — so an input carrying a
+      # quote escapes its own quoting and the rest is command. Two guards, and
+      # both are needed:
+      #
+      #   * it reaches the publish step through the ENVIRONMENT (`env:` below),
+      #     never through interpolation, so the value is data to the shell; and
+      #   * it is validated here against the shape npm actually accepts, so a
+      #     malformed tag fails at a step that says so rather than at `npm
+      #     publish` after some packages have already gone out.
+      #
+      # The check runs on the resolved value, not on the input, so the `v*`-tag
+      # path (where the input is absent and the default applies) is covered by
+      # the same statement.
+      - name: Validate the dist-tag
+        env:
+          NPM_DIST_TAG: ${{ inputs.tag || 'latest' }}
+        run: |
+          case "$NPM_DIST_TAG" in
+            *[!A-Za-z0-9._-]* | '' | [0-9]*)
+              echo "Refusing dist-tag '$NPM_DIST_TAG'." >&2
+              echo "A dist-tag must be non-empty, must not begin with a digit (npm reads" >&2
+              echo "that as a version), and may contain only letters, digits, dot, dash" >&2
+              echo "and underscore." >&2
+              exit 1
+              ;;
+          esac
+          echo "dist-tag: $NPM_DIST_TAG"
 
       - name: Install
         run: pnpm install --frozen-lockfile
@@ -64,7 +93,25 @@ jobs:
       - name: Update npm
         run: npm install -g npm@11
 
+      # No "the tag equals the package versions" check here, and that is a
+      # decision rather than an omission — the obvious guard is unimplementable
+      # in this repository and would refuse every legitimate release.
+      #
+      # The packages are INDEPENDENTLY VERSIONED. At v0.9.0 the workspace held
+      # `@fuaran-ui/ops` 0.25.0, `@fuaran-ui/renderer` 0.21.0, `@fuaran-ui/cli`
+      # 0.11.0 and two placeholders on `0.0.0-placeholder.2`, among others: a
+      # package's version tracks ITS OWN surface, while the tag marks a
+      # repository release. There is no version for a tag to equal.
+      #
+      # What keeps the two honest instead: `npm publish` refuses to overwrite an
+      # existing version, and the loop below treats that refusal as a SKIP — so
+      # a package whose version did not move is simply not republished, and a
+      # tag cut without bumping anything publishes nothing at all. The failure
+      # this check would have caught (a tag naming a version nobody bumped) is
+      # therefore already inert.
       - name: Publish (OIDC; skips already-published versions)
+        env:
+          NPM_DIST_TAG: ${{ inputs.tag || 'latest' }}
         run: |
           set -o pipefail
           shopt -s nullglob
@@ -77,7 +124,7 @@ jobs:
           # The ./ prefix is load-bearing: npm parses a bare `dir/file.tgz`
           # as a GitHub owner/repo shorthand, not a local path.
           for t in "${tarballs[@]}"; do
-            if out=$(npm publish "$t" --access public --tag "${{ inputs.tag || 'latest' }}" 2>&1); then
+            if out=$(npm publish "$t" --access public --tag "$NPM_DIST_TAG" 2>&1); then
               echo "published: $(basename "$t")"
             elif echo "$out" | grep -qiE 'previously published|cannot publish over|EPUBLISHCONFLICT|E409'; then
               echo "skipped (version already on the registry): $(basename "$t")"

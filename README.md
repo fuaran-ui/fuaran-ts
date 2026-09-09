@@ -4,7 +4,7 @@
 
 TypeScript reference implementation of the Fuaran UI language contract — sibling to the F# `fuaran` tier. Both are conformant hosts of the language-neutral wire format; neither is a port of the other.
 
-Ships the `@fuaran-ui/*` npm-scoped package set:
+Ships the `@fuaran-ui/*` npm-scoped package set. The core four:
 
 | Package               | Role                                                          |
 | --------------------- | ------------------------------------------------------------- |
@@ -13,7 +13,33 @@ Ships the `@fuaran-ui/*` npm-scoped package set:
 | `@fuaran-ui/ops`      | Canonical-JSON encoder + decoder + tree-op apply engine       |
 | `@fuaran-ui/renderer` | React renderer + reference CSS + custom-renderer registry     |
 
-with `@fuaran-ui/op-stream`, `@fuaran-ui/layout-observer`, `@fuaran-ui/ai-tools`, and `@fuaran-ui/validator` following.
+and the rest of the published set:
+
+| Package                      | Role                                                                         |
+| ---------------------------- | ---------------------------------------------------------------------------- |
+| `@fuaran-ui/renderer-server` | Pure-string server-HTML renderer — no React, no DOM, inert interactivity     |
+| `@fuaran-ui/op-stream`       | Op-stream persistence + replay                                               |
+| `@fuaran-ui/charts`          | Chart → Drawing lowering                                                     |
+| `@fuaran-ui/layout-observer` | Browser-default layout-flag observer                                         |
+| `@fuaran-ui/style-observer`  | Computed-style observer — resolved colours, contrast and legibility flags    |
+| `@fuaran-ui/theme-manifest`  | Machine-readable theme contract, with quantified invariants                  |
+| `@fuaran-ui/ai-tools`        | Runtime introspection surface                                                |
+| `@fuaran-ui/validator`       | Build-time TS-AST walker over authored trees                                 |
+| `@fuaran-ui/telemetry`       | Telemetry record contract — the deny record and its sink interface           |
+| `@fuaran-ui/conformance`     | Third-party wire-format certification kit ([CONFORMANCE.md](CONFORMANCE.md)) |
+| `@fuaran-ui/client`          | Typed client over a generation endpoint, plus the turn loop                  |
+| `@fuaran-ui/react`           | React adapter — `useFuaranGenerate` and `<FuaranGenerated>`                  |
+| `@fuaran-ui/mcp`             | MCP server exposing Fuaran to coding agents (`fuaran-mcp`)                   |
+| `@fuaran-ui/cli`             | Shell CLI over the same tool core (`fuaran generate / validate / …`)         |
+| `@fuaran-ui/mock`            | Offline stand-in for the generation endpoint                                 |
+| `@fuaran-ui/fuaran`          | Convenience entry point                                                      |
+| `fuaran`                     | Unscoped defensive placeholder — exports nothing                             |
+
+That table is checked rather than remembered: `node dev-scripts/check-readme-packages.mjs` runs as
+part of `pnpm test` and fails when a publishable package under `packages/` is missing from it. The
+list had drifted to four entries plus a sentence naming four more, against a workspace of twenty-one
+publishable packages — a README under-reporting what it ships is a distribution question rather than
+a tidiness one, so the guard is what keeps it accurate.
 
 ## Safety by construction
 
@@ -101,6 +127,36 @@ pnpm install
 pnpm build        # build every @fuaran-ui/* package
 pnpm test         # run the Vitest suites
 ```
+
+On Windows, `pwsh ./verify.ps1` runs that whole sequence — install with the lockfile,
+`format:check`, build, `typecheck`, test — and exits with the first failing stage's code. That is
+the invocation an automated gate should use. `./run.ps1` on its own serves the demo's dev server and
+never returns; `./run.ps1 -Verify` delegates to `verify.ps1`.
+
+Build runs before test on purpose: the suites import their siblings' built `dist/`, so testing a
+half-built workspace fails every fixture at once and points at the wrong package.
+
+**Run a single package's suite through `pnpm --filter`, not through `vitest --root`.**
+
+```bash
+pnpm --filter @fuaran-ui/mcp exec vitest run          # correct
+npx vitest run --root packages/mcp                    # resolves types from the wrong directory
+```
+
+The two are not equivalent, and the difference is silent until it is not. `--root` moves Vitest's
+notion of the project root without moving the process's working directory, so TypeScript's `@types`
+resolution still walks up from wherever the command was typed — which for a workspace package means
+it finds the ROOT `node_modules/@types` and not the package's own. Tests that depend on a
+package-local ambient type then fail with type errors that describe nothing real; `packages/mcp`'s
+scaffold-parity suite is the one that shows it. `pnpm --filter` sets the working directory to the
+package, so both resolutions agree. CI uses `pnpm test`, which is `pnpm -r run test` — the same
+per-package working directory.
+
+Some suites resolve a specification corpus as a SIBLING DIRECTORY of this repository —
+`../wire-format-fixtures` and `../fuaran-model-execution-spec` — and **fail rather than skip** when
+it is absent, deliberately: a conformance check that goes green without its oracle is worse than no
+check. A clone or a git worktree placed where those siblings are not is red for a reason that has
+nothing to do with the code under test. CI checks both out to those paths.
 
 ## License
 
