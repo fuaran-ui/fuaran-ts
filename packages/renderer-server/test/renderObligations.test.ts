@@ -587,6 +587,10 @@ const checkPickerAlwaysPresent = (): void => {
     ['up-paste', { acceptPaste: true }],
     ['up-capture', { capture: 'Camera' as const }],
     ['up-dest', { destination: 'session-recordings' }],
+    // Phase 1548 — a declared ceiling changes nothing about the control this
+    // tier emits, which is the point of checking it here.
+    ['up-bytes', { maxBytes: 5242880 }],
+    ['up-files', { multiple: true, maxFiles: 3 }],
   ] as const) {
     const html = renderToHtml(fuaran.fileUpload({ id, label: 'Upload', onSelect: noop, ...extra }));
     // The declared gestures are ADDITIONAL. Whatever the document declares, the
@@ -595,6 +599,50 @@ const checkPickerAlwaysPresent = (): void => {
     expect(html, `${id}: the file input is emitted`).toContain('type="file"');
     expect(html, `${id}: and its label with it`).toContain('fuaran-file-upload-label');
   }
+};
+
+// ─── Phase 1548 — the declared upload ceilings ──────────────────────────────
+
+const checkUploadCeilingMarkers = (): void => {
+  const noop = () => ({ kind: 'Chain' as const, actions: [] });
+
+  const bytes = renderToHtml(
+    fuaran.fileUpload({ id: 'uc1', label: 'Attach a scan', onSelect: noop, maxBytes: 5242880 }),
+  );
+  // The declaration was READ, and the marker says only that. This tier enforces
+  // neither ceiling — HTML has no attribute for a byte ceiling, and `multiple`
+  // is a boolean rather than a count — so a marker carrying the NUMBER would
+  // invite a reader to believe otherwise.
+  expect(bytes, 'the byte ceiling is recorded as read').toContain(
+    'data-fuaran-upload-max-bytes="declared"',
+  );
+  expect(bytes, 'and its VALUE is not emitted anywhere').not.toContain('5242880');
+  expect(bytes, 'the count marker is absent when the member is').not.toContain(
+    'data-fuaran-upload-max-files',
+  );
+
+  const files = renderToHtml(
+    fuaran.fileUpload({
+      id: 'uc2',
+      label: 'Attach up to three photographs',
+      onSelect: noop,
+      multiple: true,
+      maxFiles: 3,
+    }),
+  );
+  expect(files, 'the count ceiling is recorded as read').toContain(
+    'data-fuaran-upload-max-files="declared"',
+  );
+  expect(files, 'the byte marker is absent when the member is').not.toContain(
+    'data-fuaran-upload-max-bytes',
+  );
+
+  // The polarity: an upload declaring neither ceiling is byte-identical in
+  // render to what it always was, which is what makes this member additive.
+  const plain = renderToHtml(fuaran.fileUpload({ id: 'uc3', label: 'Upload', onSelect: noop }));
+  expect(plain, 'an undeclared upload carries no ceiling marker at all').not.toContain(
+    'data-fuaran-upload-max-',
+  );
 };
 
 // ─── Phase 1119 — the modal's inertness claim ───────────────────────────────
@@ -678,6 +726,7 @@ const CHECKERS: ReadonlyMap<string, () => void> = new Map([
   ['Embed/sandbox-always-exactly-declared', checkSandboxAlwaysExactlyDeclared],
   ['Embed/refused-embed-source-omitted', checkRefusedEmbedSourceOmitted],
   ['FileUpload/picker-always-present', checkPickerAlwaysPresent],
+  ['FileUpload/ceiling-recorded-never-enforced', checkUploadCeilingMarkers],
   ['Modal/aria-modal-only-when-blocking', checkAriaModalOnlyWhenBlocking],
   ['Tree/accessible-name-always', checkTreeAccessibleNameAlways],
 ]);

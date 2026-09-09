@@ -5495,6 +5495,28 @@ const decodeFileUploadSpec = (path: string, j: JsonAst): R<FileUploadSpec<unknow
             : ok<string | undefined>(str.value);
         })();
   if (!destination.ok) return destination;
+  // Phase 1548 — the two declared ceilings. Absent is undefined, the pre-1548
+  // control: the document states no limit and whatever the host already
+  // enforces is the only bound there is. POSITIVE-ONLY, and the floor runs
+  // AFTER `requireInt` so §7.1's slot rule decides the shape before this rule
+  // decides the sign — a ceiling beyond the 32-bit slot is a WRONG_TYPE naming
+  // the slot's width, never a value silently wrapped. Zero is refused as firmly
+  // as a negative: a ceiling of zero is not a small ceiling, it is a control
+  // that can accept nothing, and an author meaning "no ceiling" omits the
+  // member.
+  const ceiling = (name: 'maxBytes' | 'maxFiles'): R<number | undefined> => {
+    const raw = tryField(f, name);
+    if (raw === undefined) return ok<number | undefined>(undefined);
+    const n = requireInt(`${path}.${name}`, raw);
+    if (!n.ok) return n;
+    return n.value > 0
+      ? ok<number | undefined>(n.value)
+      : wrongType(`${path}.${name}`, 'a positive integer ceiling');
+  };
+  const maxBytes = ceiling('maxBytes');
+  if (!maxBytes.ok) return maxBytes;
+  const maxFiles = ceiling('maxFiles');
+  if (!maxFiles.ok) return maxFiles;
   return ok({
     accept: accept.value,
     label: label.value,
@@ -5505,6 +5527,8 @@ const decodeFileUploadSpec = (path: string, j: JsonAst): R<FileUploadSpec<unknow
     acceptPaste: acceptPaste.value,
     ...(capture.value !== undefined ? { capture: capture.value } : {}),
     ...(destination.value !== undefined ? { destination: destination.value } : {}),
+    ...(maxBytes.value !== undefined ? { maxBytes: maxBytes.value } : {}),
+    ...(maxFiles.value !== undefined ? { maxFiles: maxFiles.value } : {}),
   });
 };
 

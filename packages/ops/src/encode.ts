@@ -1829,6 +1829,11 @@ const fileUploadSpec = (s: FileUploadSpec<unknown>): string => {
   // every upload written before either member existed is byte-identical.
   if (s.capture !== undefined) fields.push(['capture', str(s.capture)]);
   if (s.destination !== undefined) fields.push(['destination', str(s.destination)]);
+  // Phase 1548 — the two declared ceilings, ordinary optionals on the same
+  // terms, so an upload declaring neither is byte-identical to what it always
+  // was.
+  if (s.maxBytes !== undefined) fields.push(['maxBytes', num(s.maxBytes)]);
+  if (s.maxFiles !== undefined) fields.push(['maxFiles', num(s.maxFiles)]);
   return jObject(fields);
 };
 

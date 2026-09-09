@@ -1504,6 +1504,20 @@ export interface FileUploadOptions<TMsg> {
    * empty string is refused by the decoder rather than read as absence.
    */
   readonly destination?: string;
+  /**
+   * Phase 1548 — the largest single file this control accepts, in bytes. PER
+   * FILE, not per selection; absent declares no ceiling, which is the control
+   * this was before the member existed. Positive-only, and a signed 32-bit
+   * integer like every typed integer slot on this wire.
+   */
+  readonly maxBytes?: number;
+  /**
+   * Phase 1548 — how many files this control accepts in one selection. Absent
+   * declares no ceiling. Meaningful only alongside `multiple`: a single-file
+   * upload admits one file by construction, so a ceiling there is inert.
+   * Positive-only.
+   */
+  readonly maxFiles?: number;
 }
 
 export interface ChartOptions<TMsg> {
@@ -2337,6 +2351,11 @@ export const fuaran = {
             // control in both cases, so the shortest call is unchanged.
             ...(o.capture !== undefined ? { capture: o.capture } : {}),
             ...(o.destination !== undefined ? { destination: o.destination } : {}),
+            // Phase 1548 — the two declared ceilings, ordinary optionals on the
+            // same terms: absent declares no ceiling, so the shortest call is
+            // unchanged and encodes to the bytes it always did.
+            ...(o.maxBytes !== undefined ? { maxBytes: o.maxBytes } : {}),
+            ...(o.maxFiles !== undefined ? { maxFiles: o.maxFiles } : {}),
           },
         },
       },

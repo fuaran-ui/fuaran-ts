@@ -2621,6 +2621,35 @@ export interface FileUploadSpec<TMsg> {
    * registered is a fact about the host, not about the document.
    */
   readonly destination?: string;
+  /**
+   * Phase 1548 — the largest single file this control accepts, in bytes. PER
+   * FILE, not per selection: it bounds each file the reader picks, which is what
+   * makes it the quantity the `file-read` route can be measured against and what
+   * makes it meaningful on a single-file upload. A control bounding a whole
+   * multiple selection states both members, and the total it declares is
+   * `maxBytes * maxFiles`.
+   *
+   * Optional; absent declares no ceiling, which is the pre-1548 control and the
+   * wire identity. A present value must be a POSITIVE integer — `0` and below
+   * are `WRONG_TYPE` at the member's own path, because a ceiling of zero is not
+   * a small ceiling but a control that can accept nothing.
+   *
+   * 32-BIT, per WIRE_FORMAT §7.1: every typed integer slot this format declares
+   * is a signed 32-bit integer, so the largest declarable ceiling is
+   * `2147483647`. A larger value is a `WRONG_TYPE` naming the slot's range,
+   * never a number silently wrapped.
+   */
+  readonly maxBytes?: number;
+  /**
+   * Phase 1548 — how many files this control accepts in one selection. Optional;
+   * absent declares no ceiling. Meaningful only alongside `multiple`: a
+   * single-file upload admits one file by construction, so a ceiling there is
+   * INERT rather than wrong — not refused, deliberately, since the bytes
+   * describe a control every host renders identically with or without it.
+   *
+   * Positive-only on the same terms as `maxBytes`.
+   */
+  readonly maxFiles?: number;
 }
 
 /**

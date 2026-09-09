@@ -1454,6 +1454,37 @@ const renderFileUpload = <TMsg,>(
                 ref: { id: `${i}:${f.name}`, handle: f },
               }))
             : [];
+          // Phase 1548 — the declared ceilings, applied at SELECTION time. A
+          // selection outside a declared ceiling is REFUSED whole and REPORTED,
+          // and no `onSelect` runs.
+          //
+          // Refused, never TRUNCATED, and that is the whole judgement. The
+          // tempting behaviour is to take the first `maxFiles` files, or the
+          // ones under `maxBytes`, and carry on — and it is exactly wrong: the
+          // reader chose a set, and silently uploading a subset of it is a
+          // failure with no symptom. They see the control accept their pick and
+          // never learn which half was dropped.
+          //
+          // `maxBytes` is PER FILE, so every selection is measured against it
+          // rather than the total — the same quantity the server-driven gate
+          // measures on the `file-read` route.
+          const breached =
+            spec.maxFiles !== undefined && selections.length > spec.maxFiles
+              ? `maxFiles of ${spec.maxFiles}`
+              : spec.maxBytes !== undefined && selections.some((sel) => sel.size > spec.maxBytes!)
+                ? `maxBytes of ${spec.maxBytes}`
+                : undefined;
+          if (breached !== undefined) {
+            // Reported through the runtime's diagnostic channel rather than
+            // through a message, because this control has no failure channel of
+            // its own: an upload's one handler carries a SELECTION, and there is
+            // no shape in which it can carry a refusal. Inventing one would be a
+            // wire change, which is a separate act from enforcing a bound.
+            ctx.runtime.warn?.(
+              `[Fuaran] FileUpload: the selection is outside this control's declared ${breached}, so it was refused. Nothing was read and no handler ran.`,
+            );
+            return;
+          }
           runAction(ctx, spec.onSelect(selections));
         }}
       />

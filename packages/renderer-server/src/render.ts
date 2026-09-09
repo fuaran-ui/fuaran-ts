@@ -2520,6 +2520,15 @@ const renderFileUpload = (
   // document is readable by anyone.
   if (spec.destination !== undefined)
     labelAttrs.push(['data-fuaran-upload-destination', 'declared']);
+  // Phase 1548 — one read-marker per declared ceiling, on the same shape. This
+  // floor degrades entirely and for a plainer reason than the destination's:
+  // HTML has no attribute for a byte ceiling, and `multiple` is a boolean rather
+  // than a count, so there is nothing a zero-JS document could enforce. The
+  // marker records only THAT a ceiling was declared and never its value —
+  // nothing on this path can act on the number, so emitting it would invite a
+  // reader to believe this tier enforces it.
+  if (spec.maxBytes !== undefined) labelAttrs.push(['data-fuaran-upload-max-bytes', 'declared']);
+  if (spec.maxFiles !== undefined) labelAttrs.push(['data-fuaran-upload-max-files', 'declared']);
   return el('label', labelAttrs, label + voidEl('input', attrs));
 };
 
