@@ -7,12 +7,23 @@
 //  decomposes into independent FACETS, each 3-way-merged on its own:
 //
 //    - "kind"          — the node's own kind-fields (children / style / state /
-//                        accessibility neutralised in the canonical probe).
-//    - "style.{tone,weight,emphasis,role,voice}" — the SemanticStyle sub-fields,
-//                        merged INDEPENDENTLY (A's tone + B's voice auto-blend).
+//                        accessibility / tooltip neutralised in the canonical
+//                        probe).
+//    - "style.{tone,weight,emphasis,role,voice,direction}" — the SemanticStyle
+//                        sub-fields, merged INDEPENDENTLY (A's tone + B's voice
+//                        auto-blend).
 //    - "state"         — the StateBehaviour block.
 //    - "accessibility" — the Accessibility block.
+//    - "tooltip"       — the node-level tooltip trait.
 //    - "children"      — the ordered child-id list (structural).
+//
+//  `tooltip` and `style.direction` joined the decomposition in Phase 1652. Both
+//  were on the wire and in neither list, so a one-branch edit to either was
+//  DISCARDED in silence — and `tooltip`, being a top-level member the rebuild
+//  spread from `base`, also varied the bytes of the kind / state / accessibility
+//  probes, so a hint-only edit could be reported as a concurrent edit to the
+//  node's kind. A member that reaches the wire and not this list is that bug
+//  waiting to happen; add it here in the same change as the member.
 //
 //  When a facet changed on at most one side, take that side's value. When both
 //  sides changed it to the SAME value, take the shared value — that is not a
@@ -44,27 +55,40 @@ import {
   type NodeKind,
   type SemanticStyle,
   type StateBehaviour,
+  type TextSource,
 } from '@fuaran-ui/schema';
 
 import { encodeNode } from './encode.js';
 
 type N = Node<unknown>;
 
-/** Rebuild a node with controlled facets, OMITTING `accessibility` when absent
- * (the wire's absent ⟺ default; `exactOptionalPropertyTypes` forbids an
- * explicit `undefined`). Other fields (`motion`, `extraAttributes`) carry over
- * from `base` — they are not merge facets and stay fixed across the sides. */
+/** Rebuild a node with controlled facets, OMITTING `accessibility` and
+ * `tooltip` when absent (the wire's absent ⟺ default; `exactOptionalPropertyTypes`
+ * forbids an explicit `undefined`). Other fields (`motion`, `extraAttributes`)
+ * carry over from `base` — they are not merge facets and stay fixed across the
+ * sides, matching the reference host's facet decomposition.
+ *
+ * `tooltip` is a CONTROLLED facet rather than a carried-over field, and the
+ * difference is the whole of Phase 1652's merge fix. It is a top-level member of
+ * `Node`, so a spread of `base` supplies it — which meant two distinct failures
+ * at once: the isolation probes below varied with a hint they were supposed to
+ * hold fixed, so a tooltip-only edit was reported as a concurrent edit to the
+ * node's KIND; and the rebuild took the base node's hint unconditionally, so an
+ * uncontested edit on either side was discarded in silence. */
 const mkNode = (
   base: N,
   kind: NodeKind<unknown>,
   style: SemanticStyle,
   state: StateBehaviour<unknown>,
   accessibility: Accessibility | undefined,
+  tooltip: TextSource | undefined,
 ): N => {
-  const { accessibility: _drop, ...rest } = base;
-  return accessibility !== undefined
-    ? { ...rest, kind, style, state, accessibility }
-    : { ...rest, kind, style, state };
+  const { accessibility: _dropA, tooltip: _dropT, ...rest } = base;
+  const withAcc =
+    accessibility !== undefined
+      ? { ...rest, kind, style, state, accessibility }
+      : { ...rest, kind, style, state };
+  return tooltip !== undefined ? { ...withAcc, tooltip } : withAcc;
 };
 
 /**
@@ -85,9 +109,13 @@ export type MergeConflictClass =
  * plus the branch's own opaque provenance tag.
  *
  * The `value` is the contended cell's canonical encoding, EXCEPT for the
- * `style.*` sub-facets, whose value is the sub-field's case name — which
- * coincides with its wire spelling only because every style sub-field is
- * enum-shaped. Do not generalise it to a compound cell.
+ * `style.*` sub-facets, whose value is the sub-field's canonical WIRE TOKEN.
+ * On this tier those tokens are the values themselves, because every style
+ * sub-field is enum-shaped and its TypeScript literal is its wire spelling. That
+ * is not true of the reference host: `style.direction` is spelled `Auto` / `Ltr`
+ * / `Rtl` there and lower-case here, and it is the token — not the case name —
+ * that both hosts must put in the envelope. Do not generalise any of this to a
+ * compound cell.
  */
 export interface MergeSide {
   readonly value: string;
@@ -168,17 +196,27 @@ const childlessKind = (k: NodeKind<unknown>): NodeKind<unknown> => withKindChild
 
 const neutralState = defaults.stateBehaviour<unknown>();
 
-/** Kind-own canonical (children + style + state + accessibility neutralised). */
+/** Kind-own canonical (children + style + state + accessibility + tooltip
+ * neutralised). */
 const kindCanonical = (n: N): string =>
-  encodeNode(mkNode(n, childlessKind(n.kind), defaults.style, neutralState, undefined));
+  encodeNode(mkNode(n, childlessKind(n.kind), defaults.style, neutralState, undefined, undefined));
 
 /** State canonical (kind→shell, style + accessibility neutralised). */
 const stateCanonical = (shell: NodeKind<unknown>, n: N): string =>
-  encodeNode(mkNode(n, shell, defaults.style, n.state, undefined));
+  encodeNode(mkNode(n, shell, defaults.style, n.state, undefined, undefined));
 
 /** Accessibility canonical (kind→shell, style + state neutralised). */
 const accessibilityCanonical = (shell: NodeKind<unknown>, n: N): string =>
-  encodeNode(mkNode(n, shell, defaults.style, neutralState, n.accessibility));
+  encodeNode(mkNode(n, shell, defaults.style, neutralState, n.accessibility, undefined));
+
+/** Tooltip canonical (kind→shell, style + state + accessibility neutralised).
+ *
+ * Isolating it is not bookkeeping — see the note on `mkNode`. Without a probe of
+ * its own, a tooltip-only edit varies the bytes of the KIND probe, so two
+ * branches that changed nothing but the hint are reported as a concurrent edit
+ * to the node's kind. */
+const tooltipCanonical = (shell: NodeKind<unknown>, n: N): string =>
+  encodeNode(mkNode(n, shell, defaults.style, neutralState, undefined, n.tooltip));
 
 // ─── facet pickers ───────────────────────────────────────────────────────────
 
@@ -290,6 +328,35 @@ const mergeStyle = (conflicts: MergeConflict[], id: string, base: N, a: N, b: N)
   )!;
   const role = pickField(conflicts, id, 'style.role', d.role!, bs.role, as_.role, bsB.role);
   const voice = pickField(conflicts, id, 'style.voice', d.voice!, bs.voice, as_.voice, bsB.voice);
+  // `direction` merges as an independent sub-field like every other style slot:
+  // two lanes declaring different directions for one value is a genuine
+  // concurrent edit, not a mergeable pair.
+  //
+  // The refusal envelope carries the canonical WIRE token, and on this tier the
+  // token IS the value — `TextDirection` is `'auto' | 'ltr' | 'rtl'`, spelled
+  // lower-case in the type. That is worth stating because it is exactly where a
+  // hand-written mirror goes wrong: the reference host's case names are `Auto` /
+  // `Ltr` / `Rtl` and it needs an explicit lower-casing token function, so a
+  // reader porting from it may "fix" this to match the case names and silently
+  // change what the envelope says. Every other style facet's F# case name and
+  // wire token coincide; this one does not.
+  //
+  // The three values are DEFAULTED before comparison, unlike the optional slots
+  // above. `TextDirection` on the reference host is a total value whose default
+  // case IS `Auto`, so "absent" is not representable there and an explicitly
+  // declared `auto` is indistinguishable from silence. Comparing this tier's
+  // `undefined` against a declared `'auto'` would make the two hosts disagree
+  // about whether a cell changed at all — a refusal on one and a clean merge on
+  // the other, from the same three inputs.
+  const direction = pickField(
+    conflicts,
+    id,
+    'style.direction',
+    'auto',
+    bs.direction ?? 'auto',
+    as_.direction ?? 'auto',
+    bsB.direction ?? 'auto',
+  );
   // Only attach optional fields when present, so the merged style encodes
   // byte-identically (absent ⟺ default; `encodeNode` omits defaults).
   const style: SemanticStyle = { tone, weight, emphasis };
@@ -297,6 +364,9 @@ const mergeStyle = (conflicts: MergeConflict[], id: string, base: N, a: N, b: N)
     ...style,
     ...(role !== undefined ? { role } : {}),
     ...(voice !== undefined ? { voice } : {}),
+    // Re-omit the identity so the merged style encodes byte-identically to a
+    // document that never declared a direction.
+    ...(direction !== undefined && direction !== 'auto' ? { direction } : {}),
   };
 };
 
@@ -347,6 +417,18 @@ const merge3 = (
   );
   const mergedAcc =
     accPick === 1 ? a.accessibility : accPick === 2 ? b.accessibility : base.accessibility;
+
+  // tooltip facet — a node-level trait, merged on its own like every other facet
+  const tooltipPick = pickCanonical(
+    conflicts,
+    id,
+    'tooltip',
+    tooltipCanonical(shell, base),
+    tooltipCanonical(shell, a),
+    tooltipCanonical(shell, b),
+  );
+  const mergedTooltip =
+    tooltipPick === 1 ? a.tooltip : tooltipPick === 2 ? b.tooltip : base.tooltip;
 
   // children facet (structural)
   const baseKids = childrenOf(base);
@@ -432,7 +514,7 @@ const merge3 = (
   }
 
   const mergedKind = withKindChildren(childlessKind(kindSource.kind), mergedChildren);
-  return mkNode(base, mergedKind, mergedStyle, mergedState, mergedAcc);
+  return mkNode(base, mergedKind, mergedStyle, mergedState, mergedAcc, mergedTooltip);
 };
 
 /**
