@@ -90,6 +90,92 @@ jobs:
       - name: Test
         run: pnpm test
 
+  # The cross-host scaffold parity lane (Phase 1625).
+  #
+  # `packages/mcp/test/scaffold-parity.test.ts` asserts that the two SDK legs the
+  # `scaffold` tool wires — the TS `@fuaran-ui/client` and the F# `Fuaran.UI.Cli`
+  # dotnet tool — produce the SAME canonical tree for the same turn. That needs a
+  # .NET toolchain and the F# host repository, so it lives in its own job rather
+  # than in `build`: this assertion's inputs are not the inputs of the rest of the
+  # suite, and a failure here is attributable on sight instead of reddening a lane
+  # about TypeScript.
+  #
+  # It used to need neither, because the test skipped whenever the sibling's Debug
+  # build output was absent — which on CI it always was. The suite reported green
+  # having asserted nothing, on exactly the runs that would catch a divergence.
+  # FUARAN_REQUIRE_FS_CLI makes the skip unreachable here: an absent sibling is a
+  # layout drift, and this job fails on it rather than passing quietly.
+  #
+  # UNPINNED, for the reason the corpus checkouts above are unpinned: the claim is
+  # that the two CURRENT reference implementations agree. A pinned ref would let
+  # them drift apart and keep reporting green about a pair that no longer exists.
+  scaffold-parity:
+    name: Cross-host scaffold parity (TS <-> F#)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: fuaran-ts
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: fuaran-ts
+
+      - name: Checkout the F# host (fuaran-dotnet)
+        uses: actions/checkout@v4
+        with:
+          repository: fuaran-ui/fuaran-dotnet
+          path: fuaran-dotnet
+
+      - name: Assert the F# host is where the test resolves it
+        run: test -f ../fuaran-dotnet/src/Fuaran.UI.Cli/Fuaran.UI.Cli.fsproj
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: fuaran-dotnet/global.json
+
+      # NU1301: the F# host's nuget.config declares a `local` folder source three
+      # levels above its root for inner-loop iteration. It does not exist on the
+      # runner, and NuGet hard-errors on a missing folder source rather than
+      # treating it as empty — so mint it, as that nuget.config itself prescribes.
+      # The published `Fuaran.Core.*` packages then resolve anonymously from
+      # nuget.org.
+      - name: Create the empty local NuGet feed dir (NU1301 workaround)
+        run: mkdir -p "${{ github.workspace }}/../../local-nuget-feed"
+
+      # Built HERE as well as by the test, so a compile failure is its own red
+      # step with the compiler's output in it rather than a message inside a test
+      # runner. The test's own build then finds everything current and costs
+      # seconds. The dll path is NOT passed down: the test derives the framework
+      # directory from the build's own output, so no target-framework moniker is
+      # written into this workflow to go stale.
+      - name: Build the F# CLI
+        working-directory: fuaran-dotnet
+        run: dotnet build src/Fuaran.UI.Cli/Fuaran.UI.Cli.fsproj -c Release --nologo
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: fuaran-ts/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: fuaran-ts/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # The mcp package's test imports its workspace siblings through their
+      # published `types`/`import` entries under `dist/`.
+      - name: Build
+        run: pnpm build
+
+      - name: Scaffold parity
+        env:
+          FUARAN_REQUIRE_FS_CLI: '1'
+          FUARAN_FS_CLI_CONFIGURATION: Release
+        run: pnpm --filter @fuaran-ui/mcp exec vitest run test/scaffold-parity.test.ts
+
   # Fire the workspace wire-format cross-implementation conformance gate after a
   # successful build on a push to main. Path filters in fuaran-ui/workspace cannot
   # see pushes to THIS repo, so we POST a `wire-conformance` repository_dispatch to
