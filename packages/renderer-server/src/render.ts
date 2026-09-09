@@ -123,6 +123,15 @@ import {
   toneVar,
   trendSentiment,
 } from './classNames.js';
+import {
+  type CspMode,
+  type Declaration,
+  declarations as cspDeclarations,
+  generatedClass,
+  permissiveCsp,
+  StyleCollector,
+  stylesheetText,
+} from './csp.js';
 import { type Attr, el, escapeText, textEl, voidEl } from './html.js';
 import { toHtmlWithEgress } from './markdown.js';
 
@@ -179,7 +188,50 @@ interface ServerContext {
    * clearest place the card earns its keep, not an edge case in it.
    */
   readonly cards?: CardStore;
+  /**
+   * Phase 1545 — the Content-Security-Policy posture. `permissive` (the default
+   * at every entry point) is byte-for-byte the emission this renderer has
+   * always produced; under `strict` no `style` attribute is emitted anywhere.
+   */
+  readonly csp: CspMode;
+  /**
+   * Phase 1545 — the rules this render generated, in walk order. Empty and
+   * untouched under `permissive`: nothing on that path registers anything,
+   * which is what keeps the default emission unchanged.
+   */
+  readonly styles: StyleCollector;
 }
+
+/**
+ * The class suffix and the `style` attribute one continuous-value site emits,
+ * under whichever posture the render is running.
+ *
+ * `canonical` comes from `csp.declarations` — the builders that reproduce the
+ * F# server renderer's spelling, so the class is a property of the document
+ * rather than of the host that rendered it. `permissive` is the style-attribute
+ * string this renderer has always emitted, which is NOT always the same text
+ * (its progress fill writes `width:50%` where the canonical form is
+ * `width:50.000000%`); only one of the two is ever emitted, so following F# on
+ * the hash input costs no byte here.
+ *
+ * One helper for every site, so a site added later cannot emit a style
+ * attribute under strict mode by forgetting to route through it.
+ */
+const cspStyle = (
+  ctx: ServerContext,
+  nodeId: string,
+  slot: string,
+  canonical: readonly Declaration[],
+  permissive: string,
+): { readonly classSuffix: string; readonly styleAttrs: Attr[] } => {
+  if (canonical.length === 0) return { classSuffix: '', styleAttrs: [] };
+  if (ctx.csp.mode === 'strict') {
+    const className = generatedClass(nodeId, slot, canonical);
+    ctx.styles.register(className, canonical);
+    return { classSuffix: ` ${className}`, styleAttrs: [] };
+  }
+  return { classSuffix: '', styleAttrs: [['style', permissive]] };
+};
 
 // ─── Fragment collection + namespacing (port of @fuaran-ui/renderer/context) ──
 
@@ -426,7 +478,7 @@ const renderKind = (
     case 'Layout':
       return renderLayout(ctx, node.id, kind.layout);
     case 'Display':
-      return renderDisplay(ctx, node.state, kind.display, semanticAttrs);
+      return renderDisplay(ctx, String(node.id), node.state, kind.display, semanticAttrs);
     case 'Input':
       return renderInput(ctx, node.id, kind.input, semanticAttrs);
     case 'Visualisation':
@@ -554,11 +606,20 @@ const renderLayout = (
           g.gap !== undefined
             ? `grid-template-columns:${templateColumns};gap:${g.gap}px`
             : `grid-template-columns:${templateColumns}`;
+        // Phase 1545 — under a strict posture these become a generated class
+        // and a collected declaration; under `permissive`, the attribute above.
+        const grid = cspStyle(
+          ctx,
+          parentNodeId,
+          'grid',
+          cspDeclarations.grid(templateColumns, g.gap),
+          gridStyle,
+        );
         return el(
           'div',
           [
-            ['class', `fuaran-layout-grid${brk}`],
-            ['style', gridStyle],
+            ['class', `fuaran-layout-grid${brk}${grid.classSuffix}`],
+            ...grid.styleAttrs,
             ...(cssRefusalAttrs as Attr[]),
           ],
           renderChildren(ctx, spec.children),
@@ -573,12 +634,16 @@ const renderLayout = (
         const m = spec.layout;
         const masonryStyle =
           m.gap !== undefined ? `column-count:${m.cols};gap:${m.gap}px` : `column-count:${m.cols}`;
+        const masonry = cspStyle(
+          ctx,
+          parentNodeId,
+          'masonry',
+          cspDeclarations.masonry(m.cols, m.gap),
+          masonryStyle,
+        );
         return el(
           'div',
-          [
-            ['class', `fuaran-layout-masonry${brk}`],
-            ['style', masonryStyle],
-          ],
+          [['class', `fuaran-layout-masonry${brk}${masonry.classSuffix}`], ...masonry.styleAttrs],
           renderChildren(ctx, spec.children),
         );
       }
@@ -591,13 +656,17 @@ const renderLayout = (
       // `gap` emits only when set (Phase 459) — a gap-free stack carries no
       // `style` attribute, byte-identical to the pre-459 emission.
       const flexGap = f.kind === 'Flex' ? f.gap : undefined;
-      const stackAttrs: Attr[] =
-        flexGap !== undefined
-          ? [
-              ['class', `fuaran-layout-stack ${dir}${wrap}${brk}`],
-              ['style', `gap:${flexGap}px`],
-            ]
-          : [['class', `fuaran-layout-stack ${dir}${wrap}${brk}`]];
+      const flex = cspStyle(
+        ctx,
+        parentNodeId,
+        'flex',
+        cspDeclarations.flex(flexGap),
+        `gap:${flexGap}px`,
+      );
+      const stackAttrs: Attr[] = [
+        ['class', `fuaran-layout-stack ${dir}${wrap}${brk}${flex.classSuffix}`],
+        ...flex.styleAttrs,
+      ];
       return el('div', stackAttrs, renderChildren(ctx, spec.children));
     }
 
@@ -605,19 +674,35 @@ const renderLayout = (
       const weightLeft = Math.max(0, Math.min(1, layout.spec.weight));
       const weightRight = 1 - weightLeft;
       const rendered = layout.spec.children.map((c) => renderNode(ctx, c));
+      // Phase 1545 — the two panes are one node, so the slot discriminator is
+      // what keeps their generated classes apart when the weights are equal.
+      const leftCsp = cspStyle(
+        ctx,
+        parentNodeId,
+        'split-left',
+        cspDeclarations.splitPane(weightLeft),
+        `flex:${weightLeft.toFixed(6)} 1 0`,
+      );
+      const rightCsp = cspStyle(
+        ctx,
+        parentNodeId,
+        'split-right',
+        cspDeclarations.splitPane(weightRight),
+        `flex:${weightRight.toFixed(6)} 1 0`,
+      );
       const left = el(
         'div',
         [
-          ['class', 'fuaran-split-pane fuaran-split-pane-left'],
-          ['style', `flex:${weightLeft.toFixed(6)} 1 0`],
+          ['class', `fuaran-split-pane fuaran-split-pane-left${leftCsp.classSuffix}`],
+          ...leftCsp.styleAttrs,
         ],
         rendered.slice(0, 1).join(''),
       );
       const right = el(
         'div',
         [
-          ['class', 'fuaran-split-pane fuaran-split-pane-right'],
-          ['style', `flex:${weightRight.toFixed(6)} 1 0`],
+          ['class', `fuaran-split-pane fuaran-split-pane-right${rightCsp.classSuffix}`],
+          ...rightCsp.styleAttrs,
         ],
         rendered.slice(1).join(''),
       );
@@ -757,11 +842,18 @@ const renderLayout = (
         styleParts.push(`max-height:${layout.spec.maxHeight}px`);
       if (layout.spec.maxWidth !== undefined)
         styleParts.push(`max-width:${layout.spec.maxWidth}px`);
+      const scroll = cspStyle(
+        ctx,
+        parentNodeId,
+        'scroll',
+        cspDeclarations.scrollArea(layout.spec.maxHeight, layout.spec.maxWidth),
+        styleParts.join(';'),
+      );
       const attrs: Attr[] = [
-        ['class', axisClass],
+        ['class', `${axisClass}${scroll.classSuffix}`],
         ['tabindex', 0],
+        ...scroll.styleAttrs,
       ];
-      if (styleParts.length > 0) attrs.push(['style', styleParts.join(';')]);
       return el('div', attrs, renderChildren(ctx, layout.spec.children));
     }
 
@@ -918,6 +1010,9 @@ const renderTabs = (
 
 const renderDisplay = (
   ctx: ServerContext,
+  // Phase 1545 — the node's own id, threaded so the `Progress` arm can derive
+  // the same strict-mode class the F# server renderer derives.
+  nodeId: string,
   state: StateBehaviour<unknown>,
   display: DisplayKind,
   // Phase 951 — the node's a11y projection, for the kinds whose body IS the
@@ -1001,7 +1096,7 @@ const renderDisplay = (
       return renderCallout(ctx, display.spec);
 
     case 'Progress':
-      return renderProgress(ctx, state, display.spec);
+      return renderProgress(ctx, nodeId, state, display.spec);
 
     case 'Sparkline':
       return renderSparkline(ctx, display.spec);
@@ -1620,6 +1715,9 @@ const renderCallout = (
 
 const renderProgress = (
   ctx: ServerContext,
+  // Phase 1545 — the node's own id, so the strict-mode class for the fill is
+  // the one the F# server renderer derives for the same node.
+  nodeId: string,
   state: StateBehaviour<unknown>,
   spec: Extract<DisplayKind, { kind: 'Progress' }>['spec'],
 ): string => {
@@ -1636,9 +1734,16 @@ const renderProgress = (
     spec.label !== undefined
       ? textEl('div', [['class', 'fuaran-progress-label']], renderText(ctx.sources, spec.label))
       : '';
+  const progress = cspStyle(
+    ctx,
+    nodeId,
+    'progress-fill',
+    cspDeclarations.progressFill(fraction),
+    `width:${fraction * 100}%`,
+  );
   const fill = el('div', [
-    ['class', 'fuaran-progress-fill'],
-    ['style', `width:${fraction * 100}%`],
+    ['class', `fuaran-progress-fill${progress.classSuffix}`],
+    ...progress.styleAttrs,
   ]);
   const bar = el('div', [['class', 'fuaran-progress-bar']], fill);
   const caveat =
@@ -2935,9 +3040,20 @@ const renderGridCell = (
         kind.label !== undefined
           ? textEl('span', [], renderText(ctx.sources, kind.label(row)))
           : '';
+      // Phase 1545 — the F# server tier renders `DataGrid` as a placeholder and
+      // emits no cells at all, so this site has no cross-host twin; the node id
+      // is empty and the declarations alone discriminate the class, which is
+      // enough because they are what the rule says.
+      const cellProgress = cspStyle(
+        ctx,
+        '',
+        'grid-cell-progress',
+        cspDeclarations.progressFill(f),
+        `width:${f * 100}%`,
+      );
       const fill = el('div', [
-        ['class', 'fuaran-grid-cell-progress-fill'],
-        ['style', `width:${f * 100}%`],
+        ['class', `fuaran-grid-cell-progress-fill${cellProgress.classSuffix}`],
+        ...cellProgress.styleAttrs,
       ]);
       return el('div', [['class', 'fuaran-grid-cell-progress']], fill + labelHtml);
     }
@@ -3209,6 +3325,19 @@ export interface RenderToHtmlOptions {
    * describe, and a renderer must never assume one.
    */
   readonly cards?: CardStore;
+  /**
+   * Phase 1545 — the Content-Security-Policy posture this render runs under.
+   *
+   * **Omitting it means `permissiveCsp`**, which is byte-for-byte the emission
+   * this renderer has always produced: nothing on that path consults the mode.
+   * `strictCsp(nonce)` is reached BY NAME and emits no `style` attribute
+   * anywhere — every continuous declaration becomes a generated class whose
+   * rule rides one nonce-bearing `<style>` element, returned AHEAD of the body
+   * fragment. The host mints the nonce per response and puts the same value in
+   * its `Content-Security-Policy` header (`styleSrcDirective` writes the style
+   * half); nothing here generates one.
+   */
+  readonly csp?: CspMode;
 }
 
 /**
@@ -3216,6 +3345,13 @@ export interface RenderToHtmlOptions {
  * owns the document shell + the `<link>` to the packaged
  * `@fuaran-ui/renderer/css`. With no `sources`, `Static` bindings resolve and the
  * rest fall back to their loading slot / em-dash placeholder.
+ *
+ * Under `options.csp = strictCsp(nonce)` the returned string LEADS with one
+ * nonce-bearing `<style>` element carrying every rule the walk generated —
+ * ahead of the body, because a document is parsed in order and a rule arriving
+ * after the element it styles is a flash of unstyled content on a slow
+ * connection. A tree carrying no continuous value generates no element at all,
+ * so the mode costs such a document nothing.
  */
 export const renderToHtml = <TMsg>(tree: Node<TMsg>, options: RenderToHtmlOptions = {}): string => {
   const node = tree as Node<unknown>;
@@ -3233,8 +3369,17 @@ export const renderToHtml = <TMsg>(tree: Node<TMsg>, options: RenderToHtmlOption
     // Phase 1037 — default-deny. A host widens it BY NAME via `egressPolicy`.
     egressPolicy: options.egressPolicy ?? denyNonLocalEgress,
     ...(options.cards !== undefined ? { cards: options.cards } : {}),
+    // Phase 1545 — permissive by default; strict is reached by name.
+    csp: options.csp ?? permissiveCsp,
+    styles: new StyleCollector(),
   };
-  return renderNode(ctx, node);
+  const body = renderNode(ctx, node);
+  // The collector filled during the walk, so the element can only be built
+  // after it. Empty under `permissive`, so the concatenation is a no-op there
+  // and the emitted bytes are exactly what they were.
+  if (ctx.styles.isEmpty) return body;
+  const nonceAttr: Attr[] = ctx.csp.mode === 'strict' ? [['nonce', ctx.csp.nonce]] : [];
+  return el('style', nonceAttr, stylesheetText(ctx.styles.rules)) + body;
 };
 
 /** Render a single node to HTML against an explicit binding-source set (no fragment scope). */

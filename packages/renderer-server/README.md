@@ -48,6 +48,26 @@ Serve the packaged reference stylesheet from `@fuaran-ui/renderer/css` (the same
 
 Because the emitted class names + `data-fuaran-node-id` attributes match what `@fuaran-ui/renderer` produces, a server-rendered fragment can be handed to the client renderer's `hydrate` / `hydrateEmbedded` entry points (`@fuaran-ui/renderer`) — the React reconciler attaches in place rather than re-rendering.
 
+## Strict CSP — a nonce instead of `'unsafe-inline'`
+
+Seven slots carry a genuinely continuous value (a grid track list, a masonry column count, a flex gap, a split-pane weight, a scroll-area ceiling, a progress width, a grid cell's progress fill), and this renderer has always emitted them as an inline `style` attribute — so a host has had to allow `style-src 'unsafe-inline'`, which is the remaining CSS exfiltration channel under a policy that otherwise forbids everything.
+
+Pass a nonce and it emits none:
+
+```ts
+import { renderToHtml, strictCsp, styleSrcDirective } from '@fuaran-ui/renderer-server';
+
+const nonce = crypto.randomUUID(); // your own, minted per response
+const body = renderToHtml(tree, { csp: strictCsp(nonce) });
+
+res.setHeader('Content-Security-Policy', `default-src 'self'; ${styleSrcDirective(nonce)}`);
+// → style-src 'self' 'nonce-…' — no 'unsafe-inline'
+```
+
+The returned string leads with one `<style nonce="…">` element carrying every rule the walk generated, under class names derived from the node id, the slot and the declarations themselves — so two renders of one tree are byte-identical, and the names are the same ones the F# reference renderer derives for the same tree. Omit `csp` (or pass `permissiveCsp`) and the output is exactly what it has always been, byte for byte. A tree with no continuous value generates no element at all.
+
+Nothing here mints a nonce: the host does, because a nonce the document could derive is a nonce an attacker can derive.
+
 ## Parity
 
 The package carries a render-parity corpus (the rendering analogue of the wire-format corpus). Over the whole node fixture set it asserts the server renderer emits the **same `fuaran-*` class set and `data-fuaran-node-id` set** as the React client renderer, and that every emitted class is in the **F# reference renderer's vocabulary**. A drift in either direction is a build failure. The `StyleObservation` /class shapes are declared stable in [`STABILITY.md`](../../STABILITY.md).

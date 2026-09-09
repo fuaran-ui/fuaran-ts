@@ -45,4 +45,22 @@ export { accessibilityAttributes } from './accessibility.js';
 
 export { escapeText, escapeAttr, el, voidEl, textEl, type Attr } from './html.js';
 
+// Phase 1545 — the strict-CSP render mode. `permissiveCsp` is the default and
+// changes nothing; `strictCsp(nonce)` emits no `style` attribute and collects
+// every declaration into one nonce-bearing `<style>` element.
+export {
+  CLASS_ROOT,
+  type CspMode,
+  type Declaration,
+  declarations,
+  declarationText,
+  generatedClass,
+  isCollectableValue,
+  permissiveCsp,
+  strictCsp,
+  StyleCollector,
+  styleSrcDirective,
+  stylesheetText,
+} from './csp.js';
+
 export { toHtml, toHtmlWithEgress } from './markdown.js';

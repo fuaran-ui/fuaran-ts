@@ -390,6 +390,28 @@ authorises the caller, caps prompt length and rate-limits per caller before spen
 `proxyFuaranRequest` therefore takes a second argument (the caller key). The emitted F#/Fable panel
 moves to the same wire, and stays byte-identical to the F# CLI's copy of the template.
 
+### `@fuaran-ui/renderer-server` — the strict-CSP render mode (Phase 1545)
+
+Inline style is the last CSP directive a host serving this renderer could not close: it sets a `style` attribute for the seven slots whose value is genuinely continuous, so every deploying host has had to ship `style-src 'unsafe-inline'`. Under a policy that otherwise forbids everything, inline-style CSS is the remaining exfiltration channel — an injected style attribute reads the document with attribute selectors and leaks what it finds through a background URL.
+
+A render therefore carries a **posture**. `permissiveCsp` is the default at every entry point and is **byte-for-byte the emission this renderer has always produced**; `strictCsp(nonce)` is reached BY NAME and emits no `style` attribute anywhere — each continuous declaration becomes a generated class whose rule rides one nonce-bearing `<style>` element, returned AHEAD of the body fragment.
+
+Additive throughout: one new optional field on `RenderToHtmlOptions` (`csp`), a new `./csp` surface re-exported from the package root, and **no change to any emitted byte for a host that supplies no posture**. A tree carrying no continuous value generates no `<style>` element at all, so the mode costs such a document nothing even under `strictCsp`.
+
+| New export                                               | What it is                                                                                                                                                                                                                      |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CspMode`, `permissiveCsp`, `strictCsp`                  | The posture and its two constructors. The host mints the nonce per response and puts the same value in its own header; nothing here generates one, because a nonce the document could derive is a nonce an attacker can derive. |
+| `declarations`, `Declaration`, `declarationText`         | The canonical CSS pairs per slot, and their text.                                                                                                                                                                               |
+| `generatedClass`, `CLASS_ROOT`                           | The derivation: FNV-1a over node id + slot + declarations, under the reserved `fuaran-csp-` root.                                                                                                                               |
+| `StyleCollector`, `stylesheetText`, `isCollectableValue` | The per-render accumulator, the rule renderer, and the raw-`<style>`-content floor.                                                                                                                                             |
+| `styleSrcDirective`                                      | The host's half in one call — `style-src 'self' 'nonce-…'`, no `'unsafe-inline'`.                                                                                                                                               |
+
+**The generated class name is a property of the DOCUMENT, not of the host that rendered it.** `declarations` reproduces the F# reference renderer's spelling exactly — including `toFixed(6)`, which is what its `sprintf "%f"` produces — even where this renderer's own permissive emission has always formatted the same number differently (its progress fill writes `width:50%` where the canonical form is `width:50.000000%`). The canonical pairs are the HASH INPUT and nothing this package emits, so following one spelling costs no byte here and buys a class name two hosts agree on. `test/strictCsp.test.ts` pins the exact strings the reference host's own suite pins for the same trees, so a drift on either side reddens exactly one suite and names the class it now produces.
+
+**The collected stylesheet is a raw-`<style>`-content sink, and it carries a floor the shared emission grammar does not.** `isSafeCssValue` denies `;`, `{`, `}`, `\` and the C0 range — but not `<`, which is correct for an attribute value (`escapeAttr` handles it) and wrong for element content, where the HTML parser looks for `</style` before any CSS parser reads the text. `isCollectableValue` refuses `<` and `>` on top of the shared grammar. A declaration that fails is dropped and its class registers no rule, so the element keeps a class that styles nothing — which is what a refused value should look like, and the emission site has already marked the refusal in the document.
+
+**What the mode does not claim.** It says nothing about `@fuaran-ui/renderer`, the React client tier, which is untouched by this phase — a document served under a strict posture and hydrated by that tier will have its style attributes written back. It says nothing about a host's own `<head>`, or about CSS a host injects itself. And it narrows nothing on the wire: no decoder refuses anything it accepted before.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:
