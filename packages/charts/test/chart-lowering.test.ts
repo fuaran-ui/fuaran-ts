@@ -51,7 +51,12 @@ interface ChartInput {
   readonly kind: ChartLowerSpec['kind'];
   readonly xField: string;
   readonly yFields: readonly string[];
-  readonly title: WireTextSource | null;
+  // ABSENT and explicit `null` both mean "no title", and the harness must read
+  // either. The corpus has shipped both spellings — `"title":null` historically,
+  // and omission once the family adopted the omitted-when-absent posture every
+  // other TextSource member here already has — and a reader that models only one
+  // dereferences `undefined` the moment the other arrives.
+  readonly title?: WireTextSource | null;
   readonly stacked: boolean;
   // Phase 876 — `valueFormat` is a WIRE field carried in canonical `Format`
   // JSON; `axisUnitMode` is a harness-only STYLE selector (the chart style is a
@@ -160,6 +165,13 @@ const valueFormatOf = (
  * and throws on a binding arm no fixture uses rather than inventing one. */
 const textSourceOf = (raw: WireTextSource): TextSource => {
   if (typeof raw === 'string') return { kind: 'Literal', value: raw };
+  // Refuse by NAME rather than dereferencing. A `null`, an `undefined` or a
+  // number here is a caller that read a slot this function does not model, and
+  // `raw['$type']` on it raises a TypeError from three frames down that names
+  // neither the fixture nor the slot — loud, but about the wrong thing.
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error(`chart-lowering input: a TextSource slot holds ${JSON.stringify(raw)}`);
+  }
   switch (raw['$type']) {
     case 'Literal':
       return { kind: 'Literal', value: raw['text'] as string };
@@ -196,7 +208,9 @@ const specAndRows = (
     kind: inp.kind,
     xField: inp.xField,
     yFields: inp.yFields,
-    ...(inp.title !== null ? { title: textSourceOf(inp.title) } : {}),
+    ...(inp.title !== null && inp.title !== undefined
+      ? { title: textSourceOf(inp.title) }
+      : {}),
     stacked: inp.stacked,
     ...(inp.valueFormat !== undefined ? { valueFormat: valueFormatOf(inp.valueFormat) } : {}),
     // Phase 878 — the same keys beside `title`, omitted when absent; Phase
