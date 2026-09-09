@@ -208,9 +208,7 @@ const specAndRows = (
     kind: inp.kind,
     xField: inp.xField,
     yFields: inp.yFields,
-    ...(inp.title !== null && inp.title !== undefined
-      ? { title: textSourceOf(inp.title) }
-      : {}),
+    ...(inp.title !== null && inp.title !== undefined ? { title: textSourceOf(inp.title) } : {}),
     stacked: inp.stacked,
     ...(inp.valueFormat !== undefined ? { valueFormat: valueFormatOf(inp.valueFormat) } : {}),
     // Phase 878 — the same keys beside `title`, omitted when absent; Phase
