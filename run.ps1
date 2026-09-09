@@ -8,11 +8,19 @@
     consumed `@fuaran-ui/*` packages, then serves the demo's Vite dev server on
     the workspace-reserved port 24030 and opens a browser tab.
 
-    For the install / build / test pipeline without launching a UI, drive pnpm
-    directly:
-        pnpm install
-        pnpm build
-        pnpm test
+    For the install / build / test pipeline without launching a UI — an
+    automated gate, or a check before pushing — use `-Verify`, which delegates
+    to `verify.ps1` and EXITS with the first failing stage's code. The default
+    (no `-Verify`) serves a dev server and never returns, which is why an
+    automated gate must never invoke this script bare.
+
+.PARAMETER Verify
+    Run the verify gate (`verify.ps1`) instead of launching the demo:
+    install, format-check, build, typecheck, test, then exit.
+
+.PARAMETER Lane
+    Forwarded to `verify.ps1` when `-Verify` is given: `full` (default),
+    `fast` (no install) or `pure` (format-check only).
 
 .PARAMETER SkipInstall
     Skip `pnpm install` (forwarded to the launcher).
@@ -30,16 +38,30 @@
 .EXAMPLE
     .\run.ps1 -SkipInstall -SkipBuild
     Serve immediately against an already-built workspace.
+
+.EXAMPLE
+    .\run.ps1 -Verify
+    Run the full verify gate and exit with its code. Launches nothing.
 #>
 
 [CmdletBinding()]
 param(
+    [switch] $Verify,
+
+    [ValidateSet('full', 'fast', 'pure')]
+    [string] $Lane = 'full',
+
     [switch] $SkipInstall,
     [switch] $SkipBuild,
     [switch] $NoBrowser
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ($Verify) {
+    & "$PSScriptRoot\verify.ps1" -Lane $Lane -SkipInstall:$SkipInstall
+    exit $LASTEXITCODE
+}
 
 & "$PSScriptRoot\dev-scripts\launch-demo.ps1" `
     -WithUi:(-not $NoBrowser) `
