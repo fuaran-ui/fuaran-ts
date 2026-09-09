@@ -107,7 +107,18 @@ function Invoke-Stage {
 Write-Host "fuaran-ts verify - lane '$Lane'" -ForegroundColor Cyan
 
 if ($Lane -eq 'full' -and -not $SkipInstall) {
-    Invoke-Stage 'pnpm install --frozen-lockfile' { Invoke-Pnpm install --frozen-lockfile }
+    # `--config.confirm-modules-purge=false` is not tidiness. pnpm PROMPTS before
+    # wiping a `node_modules` whose store links no longer resolve — which happens
+    # whenever the checkout is relocated, or the store is shared from a different
+    # path — and a gate has no one at the keyboard. The prompt is answered by
+    # whatever arrives on stdin (nothing, or the next line of a script), and the
+    # observed failure is not a hang: the install returns having removed the
+    # modules and reinstalled nothing, so the NEXT stage fails with
+    # `Cannot find module .../prettier/bin/prettier.cjs` and the gate reports a
+    # formatting failure over a workspace that has no formatter in it.
+    Invoke-Stage 'pnpm install --frozen-lockfile' {
+        Invoke-Pnpm install --frozen-lockfile --config.confirm-modules-purge=false
+    }
 }
 else {
     Write-Host "(install skipped - lane '$Lane')" -ForegroundColor DarkGray
