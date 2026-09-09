@@ -58,6 +58,18 @@ const here = dirname(fileURLToPath(import.meta.url));
 const ARTIFACT = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'render-fidelity.json');
 
 const present = existsSync(ARTIFACT);
+if (!present)
+  // Said out loud, because a lock that skips in silence is indistinguishable
+  // from one that passed — and this one decides whether every declared render
+  // obligation has a checker. CI asserts this artefact's presence in the same
+  // step that asserts the corpus manifest's, so a skip here means a genuinely
+  // standalone clone, or a layout drift that step would have caught.
+  console.warn(
+    `[render-obligations] SKIPPED: the generated manifest is not at ${ARTIFACT}. No declared ` +
+      `render obligation is being checked this run. Check the wire-format corpus out beside this ` +
+      `repo to run it.`,
+  );
+
 const load = (): RenderFidelityManifest =>
   parseRenderFidelityManifest(JSON.parse(readFileSync(ARTIFACT, 'utf8')));
 

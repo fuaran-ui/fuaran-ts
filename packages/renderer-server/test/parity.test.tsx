@@ -12,8 +12,10 @@
 //
 //   Lock B (F# authority): every fuaran-* class the server renderer emits is in
 //     the vocabulary extracted from the F# reference renderer source — the same
-//     cross-host parity lock the Python host carries. Skips when the F# sibling
-//     is not checked out alongside.
+//     cross-host parity lock the Python host carries. Skips — out loud — when
+//     the F# sibling is not checked out alongside; `FUARAN_REQUIRE_FS_REFERENCE=1`
+//     (which the parity CI lane sets) turns that skip into a failure, so on CI
+//     the assertion cannot be skipped by any means.
 // ============================================================================
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -198,6 +200,19 @@ const REFERENCE_RENDERER_SOURCES = [
   join('src', 'Fuaran.UI.Renderer.Core', 'Css.fs'),
 ];
 
+// `1` makes an absent reference host a FAILURE rather than a skip, mirroring
+// `FUARAN_REQUIRE_FS_CLI` in the scaffold-parity suite. The parity CI lane sets
+// it, because there the reference host is a checkout step and its absence is a
+// layout drift rather than a standalone clone.
+//
+// It exists because the standalone-skip branch below was reached on EVERY CI
+// run: the lane that runs this file checked out the two corpora and no host, so
+// `referenceHostRoot` returned null, and Lock B's whole fixture sweep reported
+// green having asserted nothing — the same green-by-absence the sibling suite
+// was corrected for. Presence of another host cannot cover that case, since a
+// checkout with no hosts at all is exactly what CI had.
+const referenceRequired = process.env['FUARAN_REQUIRE_FS_REFERENCE'] === '1';
+
 /**
  * Locate the F# reference host beside the corpus.
  *
@@ -205,8 +220,9 @@ const REFERENCE_RENDERER_SOURCES = [
  * corpus) alone — that is why it exists, and why nobody noticed it firing
  * everywhere else. What is NOT correct is skipping in a cross-host checkout,
  * where a missing reference host means Lock B has been silently disabled. So the
- * two cases are separated: any other host present ⇒ hard failure naming what was
- * tried; nothing else present ⇒ the honest standalone skip.
+ * cases are separated: `FUARAN_REQUIRE_FS_REFERENCE=1`, or any other host
+ * present ⇒ hard failure naming what was tried; nothing else present ⇒ the
+ * honest standalone skip, announced by name rather than passing in silence.
  */
 const referenceHostRoot = (): string | null => {
   for (const name of REFERENCE_HOST_NAMES) {
@@ -222,6 +238,22 @@ const referenceHostRoot = (): string | null => {
       );
     }
   }
+  if (referenceRequired) {
+    throw new Error(
+      `FUARAN_REQUIRE_FS_REFERENCE=1 but the F# reference host is at none of ` +
+        `${JSON.stringify(REFERENCE_HOST_NAMES.map((n) => join(estateRoot, n, 'src')))} — Lock B ` +
+        `cannot run. Check the reference host out beside this repo (the layout CONTRIBUTING.md ` +
+        `documents and CI reassembles), or unset the variable to accept the standalone skip.`,
+    );
+  }
+  // The honest standalone skip — said out loud, because a lock that skips in
+  // silence is indistinguishable from one that passed.
+  console.warn(
+    `[parity] Lock B SKIPPED: no F# reference host under ${estateRoot} ` +
+      `(tried ${REFERENCE_HOST_NAMES.join(', ')}). The server renderer's class vocabulary is ` +
+      `NOT being checked against the F# reference this run. Set FUARAN_REQUIRE_FS_REFERENCE=1 to ` +
+      `make this a failure.`,
+  );
   return null;
 };
 

@@ -34,8 +34,19 @@ jobs:
       # not skip. Several tests skip-if-absent to tolerate a standalone clone;
       # this guard fails the job if a layout drift would silently re-enable
       # those skips.
+      #
+      # Every artefact a suite guards on is named here, not just the manifest.
+      # `render-fidelity.json` is the generated §13 artefact two locks skip on —
+      # `packages/schema/test/renderFidelity.test.ts` (this host's kind set
+      # against the declared postures) and
+      # `packages/renderer-server/test/renderObligations.test.ts` (a checker for
+      # every declared obligation). Both read it from the corpus and both run
+      # here today; asserting only the manifest meant the day it was renamed or
+      # dropped they would go silent and this lane would stay green.
       - name: Assert the corpus is where the tests resolve it
-        run: test -f ../wire-format-fixtures/manifest.json
+        run: |
+          test -f ../wire-format-fixtures/manifest.json
+          test -f ../wire-format-fixtures/render-fidelity.json
 
       # The SECOND corpus: the model-execution wire specification, whose spec-hash
       # family pins the `canonical-json-sha256-v1` minting rule that
@@ -90,7 +101,8 @@ jobs:
       - name: Test
         run: pnpm test
 
-  # The cross-host scaffold parity lane (Phase 1625).
+  # The cross-host parity lane (Phase 1625) — every assertion that needs the F#
+  # reference host checked out beside this repo.
   #
   # `packages/mcp/test/scaffold-parity.test.ts` asserts that the two SDK legs the
   # `scaffold` tool wires — the TS `@fuaran-ui/client` and the F# `Fuaran.UI.Cli`
@@ -106,11 +118,22 @@ jobs:
   # FUARAN_REQUIRE_FS_CLI makes the skip unreachable here: an absent sibling is a
   # layout drift, and this job fails on it rather than passing quietly.
   #
+  # The lane also owns `packages/renderer-server/test/parity.test.tsx`'s LOCK B —
+  # every `fuaran-*` class the server renderer emits must be in the vocabulary
+  # extracted from the F# reference renderer's source. That lock guards on the
+  # same sibling and had exactly the same hole for the same reason: the `build`
+  # lane checks out no host, so `describe.skipIf(!referenceAvailable)` was true on
+  # every run and the sweep reported green having read no reference vocabulary at
+  # all. It belongs here because its input is this lane's input; it needs no .NET
+  # toolchain (it reads F# SOURCE, never a build output), and
+  # FUARAN_REQUIRE_FS_REFERENCE makes its skip unreachable here just as
+  # FUARAN_REQUIRE_FS_CLI does for the scaffold leg.
+  #
   # UNPINNED, for the reason the corpus checkouts above are unpinned: the claim is
   # that the two CURRENT reference implementations agree. A pinned ref would let
   # them drift apart and keep reporting green about a pair that no longer exists.
   scaffold-parity:
-    name: Cross-host scaffold parity (TS <-> F#)
+    name: Cross-host parity (TS <-> F#)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -128,7 +151,22 @@ jobs:
           path: fuaran-dotnet
 
       - name: Assert the F# host is where the test resolves it
-        run: test -f ../fuaran-dotnet/src/Fuaran.UI.Cli/Fuaran.UI.Cli.fsproj
+        run: |
+          test -f ../fuaran-dotnet/src/Fuaran.UI.Cli/Fuaran.UI.Cli.fsproj
+          test -f ../fuaran-dotnet/src/Fuaran.UI.Renderer.Server/Render.fs
+
+      # Lock B renders every node fixture, so the render-parity suite needs the
+      # conformance corpus here too — it reads the fixture directory at module
+      # load and would fail on its absence rather than skip. Same layout and same
+      # unpinned posture as the `build` lane's checkout.
+      - name: Checkout the wire-format corpus (fuaran-ui-specification)
+        uses: actions/checkout@v4
+        with:
+          repository: fuaran-ui/fuaran-ui-specification
+          path: wire-format-fixtures
+
+      - name: Assert the corpus is where the tests resolve it
+        run: test -d ../wire-format-fixtures/nodes
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -175,6 +213,14 @@ jobs:
           FUARAN_REQUIRE_FS_CLI: '1'
           FUARAN_FS_CLI_CONFIGURATION: Release
         run: pnpm --filter @fuaran-ui/mcp exec vitest run test/scaffold-parity.test.ts
+
+      # Lock B (and Lock A alongside it — running the whole file rather than a
+      # name filter, because a filter that matches nothing passes vacuously,
+      # which is the failure class this step exists to close).
+      - name: Render parity (Lock B — F# reference vocabulary)
+        env:
+          FUARAN_REQUIRE_FS_REFERENCE: '1'
+        run: pnpm --filter @fuaran-ui/renderer-server exec vitest run test/parity.test.tsx
 
   # Fire the workspace wire-format cross-implementation conformance gate after a
   # successful build on a push to main. Path filters in fuaran-ui/workspace cannot
