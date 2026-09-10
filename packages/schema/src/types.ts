@@ -457,7 +457,32 @@ export type Binding<T> =
        */
       readonly field?: string;
     }
-  | { readonly kind: 'State'; readonly key: string; readonly defaultValue: T }
+  | {
+      readonly kind: 'State';
+      readonly key: string;
+      readonly defaultValue: T;
+      /**
+       * Phase 1656 — the WIRE fact, kept apart from the RESOLUTION default
+       * beside it, because they are two different things and one field cannot
+       * carry both.
+       *
+       * `defaultValue` is what an unwritten key resolves to (§3.3): the slot's
+       * typed default, which at a numeric slot is `0`, at a bool one `false`
+       * and at an untyped one `null`. `defaultDeclared` is whether the DOCUMENT
+       * actually carried a `defaultValue`, which is what §5's absent-default
+       * posture turns on: absence omits the member, so a decoder that had only
+       * the value re-encoded the slot's default as a declaration nobody wrote.
+       *
+       * Set by the DECODER, so it is decode provenance rather than part of the
+       * authoring surface: an AUTHORED binding leaves it absent, and the
+       * encoder then falls back to reading the value (`undefined` / `null` ⇒
+       * omit), which is what every authoring call site has always relied on.
+       * The reference host expresses the same pair as a `'T option` plus its
+       * generic `defaultof<'T>`; the sibling Rust host carries it as this
+       * explicit second field, for exactly this reason.
+       */
+      readonly defaultDeclared?: boolean;
+    }
   | { readonly kind: 'Computed'; readonly compute: (ctx: BindingContext) => T }
   /**
    * The host-furnished current instant, as an ISO-8601 UTC string

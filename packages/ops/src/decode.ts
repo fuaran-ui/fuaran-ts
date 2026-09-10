@@ -2552,25 +2552,43 @@ const decodeBinding = (
       // `Static.value` and stays there, pinned by `lenient-null-static-options`;
       // this position is pinned by `lenient-1656-state-default-null`.
       //
-      // The typed placeholder survives as the fallback for a default the
-      // document CARRIED and this slot's parser could not read, which is a
-      // different fact and one §5 deliberately leaves unsettled across the
-      // hosts: it keeps a usable value where the document said something
-      // unreadable, where synthesising one where the document said NOTHING
-      // re-emits a member nobody wrote. Corpus: `nodes/state-absent-default`
-      // (the five typed slots), `reject-state-default-without-key` (the
-      // optionality, the right way round — the DEFAULT may be omitted, the KEY
-      // may not). The same distinction the Transform source slot already draws
-      // (Phase 1085) — stated once here instead, at the arm that decides it.
+      // The RESOLVED value is untouched, and that separation is the whole point
+      // of `defaultDeclared`. `defaultValue` stays what an unwritten key
+      // resolves to (§3.3) — the slot's typed default, which the read-compat
+      // mapping is the right way to obtain — and the new field carries the wire
+      // fact the encoder needs. Collapsing the two into one field is what made
+      // this arm wrong: with only the value, "the author declared the empty
+      // collection" and "the author declared nothing, and the empty collection
+      // is what an unwritten key yields" are the same state, and the encoder
+      // has to guess. The reference host expresses the pair as a `'T option`
+      // plus its generic `defaultof<'T>`; the sibling Rust host carries it as
+      // this explicit second field, which is where the shape is borrowed from.
+      //
+      // The typed placeholder also survives as the fallback for a default the
+      // document CARRIED and this slot's parser could not read — a different
+      // fact again, and one §5 deliberately leaves unsettled across the hosts:
+      // it keeps a usable value where the document said something unreadable,
+      // where synthesising one where the document said NOTHING re-emits a
+      // member nobody wrote. That case stays DECLARED, so its bytes do not
+      // move. Corpus: `nodes/state-absent-default` (the five typed slots),
+      // `lenient-1656-state-default-null` (both null spellings),
+      // `reject-state-default-without-key` (the optionality, the right way
+      // round — the DEFAULT may be omitted, the KEY may not).
       const dvRaw = fieldAliased(f, 'defaultValue', ['initialValue', 'default']);
-      if (dvRaw === undefined || dvRaw.kind === 'JNull')
-        return ok({ kind: 'State', key: key.value, defaultValue: undefined });
-      const parsed = parseStatic(`${path}.defaultValue`, dvRaw);
-      return ok({
-        kind: 'State',
-        key: key.value,
-        defaultValue: parsed.ok ? parsed.value : placeholder,
-      });
+      const declared = dvRaw !== undefined && dvRaw.kind !== 'JNull';
+      const dv = dvRaw ?? ({ kind: 'JNull' } as const);
+      let defaultValue: unknown = dvRaw === undefined ? undefined : placeholder;
+      const parsed = parseStatic(`${path}.defaultValue`, dv);
+      if (parsed.ok) defaultValue = parsed.value;
+      // The field is set only for the NEGATIVE, so a declared default's decoded
+      // shape is byte-for-byte what it was: `defaultDeclared` says "this
+      // document declared nothing", and a binding that carries no such claim is
+      // read by the encoder exactly as it always was.
+      return ok(
+        declared
+          ? { kind: 'State', key: key.value, defaultValue }
+          : { kind: 'State', key: key.value, defaultValue, defaultDeclared: false },
+      );
     }
     case 'Computed':
       // The encoder writes the fn as `<closure>`, and there is nothing else in
@@ -2797,18 +2815,29 @@ const decodeBinding = (
         const b = decodeBinding(`${path}.source`, srcJ.value, decodeJVal, undefined);
         if (!b.ok) return b;
         // Phase 1085 — an ABSENT `defaultValue` must stay ABSENT on the decoded
-        // binding, or the seeding pass reads a source that DECLARES NOTHING as
+        // binding, or the SEEDING pass reads a source that DECLARES NOTHING as
         // a declaration of the slot's typed placeholder (here the `"<opaque>"`
         // sentinel): seeding the slot with a sentinel on this tier and with
         // nothing on the other, from one document. Measured, not reasoned — the
         // first run of that pin returned `{"members":"<opaque>"}`.
         //
-        // Phase 1656 retired the local shim that used to enforce it here. The
-        // `State` arm above now decides every spelling of absence itself, so
-        // there is nothing left for this position to correct, and a second
-        // decision point over one fact is how the two arms came to disagree
-        // about the `null` spelling in the first place.
-        const liveBinding = b.value as Binding<JsonValue>;
+        // Phase 1656 — it reads the DECODER'S OWN wire fact now instead of
+        // re-inspecting the raw member, so the two places stop being two
+        // decisions over one thing. That duplication is how they came to
+        // disagree about the `null` spelling: this one asked whether the member
+        // was PRESENT, where the arm above asks whether anything was DECLARED,
+        // and an explicit `null` is present without declaring anything.
+        //
+        // The clearing is still needed and is not the encoder's business: the
+        // encoder reads `defaultDeclared` and omits either way. What this
+        // clears is the value the SEEDING walk reads, which at this slot must
+        // be nothing rather than the sentinel.
+        const liveBinding = (() => {
+          const raw = b.value as Binding<JsonValue>;
+          return raw.kind === 'State' && raw.defaultDeclared === false
+            ? ({ ...raw, defaultValue: undefined } as unknown as Binding<JsonValue>)
+            : raw;
+        })();
         if (liveTag === 'State') {
           // An EMPTY array default is the empty table, exactly as a
           // Selection / Query live source starts. An initially-empty live

@@ -111,7 +111,10 @@ describe('Binding.State seeding (Phase 1075 — the shared-data-source charter O
     };
     expect(badge.display.spec.label.binding.source).toEqual({
       kind: 'Live',
-      binding: { kind: 'State', key: 'members', defaultValue: undefined },
+      // Phase 1656 — `defaultDeclared: false` is the decoder's own record of
+      // the absence this arm then clears the VALUE for; the seeding walk reads
+      // the value, the encoder reads the claim.
+      binding: { kind: 'State', key: 'members', defaultValue: undefined, defaultDeclared: false },
       initial: { kind: 'Embedded', table: { schema: [], columns: [] } },
     });
   });

@@ -83,7 +83,11 @@ describe('Tabs.activeIndex — omit-at-default (1585)', () => {
   it('a non-`Static` binding is still carried, both ways', () => {
     const t = tabsSpecOf(stateBound);
     if (t === undefined) return;
-    expect(t.spec.activeIndex).toEqual({ kind: 'State', key: 'pane' });
+    // Phase 1656 — `defaultDeclared: false` is the decoder's record that this
+    // document declared no default. It is set only for that negative, so a
+    // declared default's decoded shape is unchanged; the encoder reads it and
+    // omits the member, which is what the second assertion checks.
+    expect(t.spec.activeIndex).toEqual({ kind: 'State', key: 'pane', defaultDeclared: false });
     expect(encodeNode(t.node)).toBe(stateBound);
   });
 });

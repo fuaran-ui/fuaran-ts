@@ -712,11 +712,27 @@ const binding = <T>(b: Binding<T>, staticEnc: (v: T) => string = objValue): stri
       return caseObj('Selection', [...defaultField, ...fieldField, ['nodeId', str(b.nodeId)]]);
     }
     case 'State': {
-      // Phase 677 — same rule as `Static`: absence omits, never null.
-      const defaultFields: readonly Field[] =
-        b.defaultValue === null || b.defaultValue === undefined
-          ? []
-          : [['defaultValue', staticEnc(b.defaultValue)]];
+      // §5's absent-`State.defaultValue` posture (Phase 1656; Phase 677's rule
+      // for `Static`, stated normatively for this position). The DECLARATION
+      // decides where the decoder recorded one: `defaultValue` is the
+      // RESOLUTION default an unwritten key yields, and at a typed slot that is
+      // `0` / `false` / `[]`, so emitting it would put a member on the wire the
+      // document never carried.
+      //
+      // `defaultDeclared === undefined` is an AUTHORED binding — the field is
+      // decode provenance and no authoring call site sets it — so it falls back
+      // to reading the value, which is what those call sites have always relied
+      // on (`defaults.switch.on` and the tagged-tabs constructor both spell "no
+      // default" as `undefined`).
+      // The value test remains a FLOOR under both routes, not merely the
+      // fallback: a slot whose typed placeholder is itself absent (the
+      // `Transform` source's is) can leave a DECLARED-but-unreadable default
+      // holding nothing, and a member with no value is not a member.
+      const hasValue = !(b.defaultValue === null || b.defaultValue === undefined);
+      const declared = hasValue && (b.defaultDeclared ?? true);
+      const defaultFields: readonly Field[] = declared
+        ? [['defaultValue', staticEnc(b.defaultValue)]]
+        : [];
       return caseObj('State', [...defaultFields, ['key', str(b.key)]]);
     }
     case 'Computed':

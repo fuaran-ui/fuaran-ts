@@ -579,7 +579,7 @@ importers:
         specifier: ^0.22.0
         version: link:../../packages/renderer
       '@fuaran-ui/schema':
-        specifier: ^0.21.0
+        specifier: ^0.22.0
         version: link:../../packages/schema
       '@fuaran-ui/ui':
         specifier: ^0.20.0
