@@ -26,6 +26,7 @@ import {
   MAX_EXPR_NODES,
   MAX_NODES,
   MAX_NODE_DEPTH,
+  MAX_SKELETON_ROWS,
   // WIRE_FORMAT §23 — the host-declared kind admission policy. The type and its
   // combinators live in `@fuaran-ui/schema` because `ops` and `ui` are peers
   // that both need them; see `kindPolicy.ts` for the placement argument.
@@ -4346,11 +4347,31 @@ const decodeSparklineSpec = (path: string, j: JsonAst): R<SparklineSpec> => {
   return source.ok ? ok({ source: source.value }) : source;
 };
 
+// Phase 1666 — `Skeleton.rows` is bounded by WIRE_FORMAT §21.9.
+//
+// `requireInt` decides FIRST, so §7.1's slot rule is untouched: a fractional,
+// non-finite or out-of-32-bit value is still a `WRONG_TYPE` and never a limit
+// breach. The bound then refuses a value the slot CAN hold but the format will
+// not carry the work of — a renderer emits one placeholder row per count, so
+// `{"rows":100000000}` names 10^8 rendered rows in a handful of bytes. The two
+// codes answer different questions and the ORDER is what keeps them apart.
+//
+// Upper bound only, deliberately: a negative count is an authoring defect
+// (FUARAN150 in the pre-emit family), not a resource breach.
 const decodeSkeletonSpec = (path: string, j: JsonAst): R<SkeletonSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const rows = reqField(path, fo.value, 'rows', 'skeleton row count integer', requireInt);
-  return rows.ok ? ok({ rows: rows.value }) : rows;
+  if (!rows.ok) return rows;
+  if (rows.value > MAX_SKELETON_ROWS) {
+    return makeError(
+      'LIMIT_EXCEEDED',
+      `${path}.rows`,
+      `skeleton rows ${rows.value} exceeds the maximum of ${MAX_SKELETON_ROWS} (WIRE_FORMAT 21.9)`,
+      `at most ${MAX_SKELETON_ROWS} rows on one Skeleton`,
+    );
+  }
+  return ok({ rows: rows.value });
 };
 
 // Phase 821 — the standalone icon-only display kind.
