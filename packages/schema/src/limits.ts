@@ -149,7 +149,7 @@ export const MAX_EXPR_NODES = 512;
  * An UPPER bound only. A negative `rows` is not a resource breach — nothing
  * expands — and reporting one as `LIMIT_EXCEEDED` would be the actively-wrong
  * diagnosis rule 2 forbids. It is an authoring defect and belongs to the
- * pre-emit validator family (`FUARAN150`), which this package does not
+ * pre-emit validator family (`FUARAN152`), which this package does not
  * implement.
  */
 export const MAX_SKELETON_ROWS = 10000;
