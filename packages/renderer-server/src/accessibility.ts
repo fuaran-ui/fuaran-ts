@@ -9,7 +9,7 @@
 
 import type { Accessibility, NodeKind } from '@fuaran-ui/schema';
 
-import { type BindingSources, resolveScalarBool, tryResolve } from './bindings.js';
+import { type BindingSources, resolveScalarBool, tryResolveScalarText } from './bindings.js';
 
 /** Project an optional `Accessibility` (resolved against sources) into `[name, value]` pairs. */
 export const accessibilityAttributes = (
@@ -19,8 +19,21 @@ export const accessibilityAttributes = (
   if (a11y === undefined) return [];
   const pairs: Array<readonly [string, string]> = [];
 
+  // Phase 1665 - the SCALAR resolver on `label`, closing the asymmetry with
+  // `hidden` that the note below recorded as a deliberate deferral.
+  // `tryResolve`'s `Transform` arm is ROW-shaped, and on an erased host `unbox`
+  // is the identity, so the rows array reached the attribute: this tier emitted
+  // `aria-label="[object Object]"` for the one wire spelling of a computed
+  // accessible name, and its client twin emitted the same. `tryResolveScalarText`
+  // reads the 1x1 result cell through the same coercion every other text slot
+  // uses; every other binding case resolves exactly as before, so no shipped
+  // document changes what it renders. Pinned by
+  // `nodes/a11y-wrapper-transform-label` and the `behaviour` vectors in the
+  // corpus's `a11y-contract.json`.
   if (a11y.label !== undefined) {
-    const label = tryResolve(sources, a11y.label);
+    const label = tryResolveScalarText(sources, a11y.label);
+    // An empty accessible name is worse than none: it silences the content that
+    // would otherwise have named the node.
     if (label !== undefined && label !== '') pairs.push(['aria-label', label]);
   }
   if (a11y.labelledBy !== undefined) pairs.push(['aria-labelledby', a11y.labelledBy]);
@@ -34,8 +47,9 @@ export const accessibilityAttributes = (
   // other scalar slot uses; every other binding case resolves exactly as before,
   // so no shipped document changes what it renders.
   //
-  // `label` deliberately still takes the generic path, and the asymmetry is
-  // recorded rather than accidental — see the F# tier's note at the same site.
+  // `label` takes the same scalar path since Phase 1665 — the asymmetry this
+  // note used to record as deliberate is closed, and the two adjacent
+  // `Binding` slots of one trait now resolve by one rule.
   if (a11y.hidden !== undefined) {
     const hidden = resolveScalarBool(sources, a11y.hidden);
     if (hidden.kind === 'Resolved' && hidden.value) pairs.push(['aria-hidden', 'true']);
