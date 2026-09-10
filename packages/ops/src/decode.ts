@@ -2235,21 +2235,33 @@ const decodeInvokeArgs = (path: string, j: JsonAst): R<InvokeArg[]> => {
 };
 
 /**
- * Phase 1534 — the two structural rules a `Binding.Expr`'s expression must
- * satisfy, checked once at decode over the whole tree.
+ * Phase 1534 / 1662 — one walk over a `ColExpr`, answering both questions this
+ * wire asks of an expression: how many nodes it carries, and whether it names a
+ * `col`.
  *
- * Written here rather than taken from the compute layer because neither rule is
- * the ALGEBRA's: `col` is perfectly ordinary in a pipeline expression, and the
- * node ceiling is this WIRE's limit. One traversal answers both, and it stops
- * as soon as either verdict is settled — a hostile expression is exactly the
- * input that must not be walked to the end.
+ * Written here rather than taken from the compute layer because neither
+ * question is the ALGEBRA's: `col` is perfectly ordinary in a pipeline
+ * expression, and the node ceiling is this WIRE's limit. One traversal answers
+ * both.
+ *
+ * The count is CAPPED — the walk stops descending once it passes
+ * MAX_EXPR_NODES — so a returned count above the ceiling means "over it" and is
+ * not a true total. Neither caller wants the true figure, and a hostile
+ * expression is exactly the input that must not be walked to the end.
+ *
+ * Phase 1662 split this out of `exprAdmissible` because §21.8's node bound now
+ * covers the expressions a `Transform` pipeline embeds as well, where a `col`
+ * is perfectly ordinary: the two verdicts have two callers now, and only one of
+ * them wants the second. That is also why the walk no longer stops on `sawCol`
+ * — short-circuiting on it would UNDER-count, which on the pipeline caller
+ * would silently admit a bypass vector rather than refuse it.
  */
-const exprAdmissible = (root: ColExpr): 'ok' | 'col' | 'limit' => {
+const scanExpr = (root: ColExpr): { count: number; sawCol: boolean } => {
   let count = 0;
   let sawCol = false;
   const walk = (e: ColExpr): void => {
     count += 1;
-    if (sawCol || count > MAX_EXPR_NODES) return;
+    if (count > MAX_EXPR_NODES) return;
     switch (e.kind) {
       case 'col':
         sawCol = true;
@@ -2289,9 +2301,55 @@ const exprAdmissible = (root: ColExpr): 'ok' | 'col' | 'limit' => {
     }
   };
   walk(root);
+  return { count, sawCol };
+};
+
+/**
+ * Phase 1534 — the two structural rules a `Binding.Expr`'s expression must
+ * satisfy, checked once at decode over the whole tree. The refusal ORDER is
+ * unchanged from the pre-1662 shape (col first, then the limit).
+ */
+const exprAdmissible = (root: ColExpr): 'ok' | 'col' | 'limit' => {
+  const { count, sawCol } = scanExpr(root);
   if (sawCol) return 'col';
   if (count > MAX_EXPR_NODES) return 'limit';
   return 'ok';
+};
+
+/**
+ * Phase 1662 — §21.8's node bound over the expressions a `Binding.Transform`
+ * PIPELINE embeds. MAX_EXPR_NODES bounded `Binding.Expr` alone until now, which
+ * made it bypassable by wrapping the expression in a Transform: a `derive`'s
+ * expression and a `filter`'s predicate reach the same evaluator and carried no
+ * ceiling on any host.
+ *
+ * `filter` and `derive` are the whole surface — the only pipeline steps
+ * carrying an expression; a `join` / `union` / `intersect` / `except` operand is
+ * a data source (embedded table or named ref), never another pipeline — so
+ * there is no recursive axis to descend.
+ *
+ * Same budget, counted per EMBEDDED EXPRESSION, refused with LIMIT_EXCEEDED at
+ * the path of the offending `pred` / `expr` member so an author is told which
+ * STEP to come back under. The first breach wins.
+ */
+const pipelineExprBreach = (
+  path: string,
+  pipeline: readonly Transform[],
+): { readonly path: string } | undefined => {
+  for (let i = 0; i < pipeline.length; i += 1) {
+    const step = pipeline[i]!;
+    const embedded =
+      step.kind === 'filter'
+        ? ({ slot: 'pred', expr: step.pred } as const)
+        : step.kind === 'derive'
+          ? ({ slot: 'expr', expr: step.expr } as const)
+          : undefined;
+    if (embedded === undefined) continue;
+    if (scanExpr(embedded.expr).count > MAX_EXPR_NODES) {
+      return { path: `${path}.pipeline[${i}].${embedded.slot}` };
+    }
+  }
+  return undefined;
 };
 
 /** Phase 1534 — every `param` / `inParam` name an expression reads, in order of first sight. */
@@ -2910,6 +2968,18 @@ const decodeBinding = (
       }
       const pipe = decodePipelineCore(pipeJ.value);
       if (!pipe.ok) return makeError('WRONG_TYPE', `${path}.pipeline`, pipe.error);
+      // Phase 1662 — §21.8's expression-node bound over the pipeline's own
+      // embedded expressions, at DECODE and not at validation: a document that
+      // decodes must not be able to name an unbounded evaluation.
+      const breach = pipelineExprBreach(path, pipe.value);
+      if (breach !== undefined) {
+        return makeError(
+          'LIMIT_EXCEEDED',
+          breach.path,
+          `expression exceeds the maximum of ${MAX_EXPR_NODES} expression nodes (WIRE_FORMAT 21.8)`,
+          `at most ${MAX_EXPR_NODES} ColExpr nodes in one pipeline expression`,
+        );
+      }
       // Phase 424 — the optional `params` slot, shared with `Binding.Expr` since
       // Phase 1534 (see `decodeExprParams`).
       const paramsR = decodeExprParams(path, f);

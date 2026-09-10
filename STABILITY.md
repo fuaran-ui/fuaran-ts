@@ -412,6 +412,18 @@ Additive throughout: one new optional field on `RenderToHtmlOptions` (`csp`), a 
 
 **What the mode does not claim.** It says nothing about `@fuaran-ui/renderer`, the React client tier, which is untouched by this phase — a document served under a strict posture and hydrated by that tier will have its style attributes written back. It says nothing about a host's own `<head>`, or about CSS a host injects itself. And it narrows nothing on the wire: no decoder refuses anything it accepted before.
 
+### Recorded breaking change — `@fuaran-ui/ops` 0.26.0, `MAX_EXPR_NODES` reaches a pipeline's own expressions (fuaran#1662)
+
+Breaking by the widest of the wire tests in the list above — **an input that decoded now does not**. No exported type, signature or member moves, and `MAX_EXPR_NODES` does not change value; what changes is its SCOPE, and therefore the answer `decodeNode` gives to a document that was inside the limit only because the limit did not look there.
+
+`MAX_EXPR_NODES` (512) bounded a `Binding.Expr`'s expression, and [`WIRE_FORMAT.md` §21.8](../fuaran-dotnet/docs/WIRE_FORMAT.md) declared the expression a `Binding.Transform` PIPELINE embeds — a `derive` step's `expr`, a `filter` step's `pred` — to be deliberately outside it. Both reach the same evaluator, so that exclusion was a documented way to move an expression out from under the bound by wrapping it in a Transform: this decoder accepted a 513-node `derive` expression, including the `param`-leafed shape it refuses at 513 as a `Binding.Expr`. §21.8 is amended and the exclusion is withdrawn — a stated exclusion on the one surface an expression can be moved to is not a scope, it is a bypass.
+
+`decodeBinding`'s `Transform` arm now checks each embedded expression against the SAME budget, at decode, immediately after the pipeline decodes and before `params`, and returns `LIMIT_EXCEEDED` at that step's own member path (`$.kind.source.pipeline[2].pred`) so an author is told which STEP to come back under. `exprAdmissible`'s traversal was split out as `scanExpr` to share it: the previous walk short-circuited on `sawCol`, which on a pipeline expression — where a `col` is perfectly ordinary — would UNDER-count and admit the bypass. `exprAdmissible` is now a thin verdict over `scanExpr` with its refusal order unchanged, so `Binding.Expr`'s behaviour does not move.
+
+**Refused outright, with no profile boundary and no grandfathering**, because §21.2 rules 1 and 2 admit no second acceptance class and the format's one host-narrowing mechanism (§23) is a NARROWING that never appears on the wire. The affected shape is named rather than estimated away: a document that stops decoding carries more than 512 `ColExpr` nodes in ONE pipeline step's expression, which is the blow-up the limit exists to refuse and not a shape an author writes.
+
+Certified by `limit-expr-nodes-pipeline-at-max` — the at-the-bound accept, which this decoder must still take, since rule 1 is symmetric with rule 2 — and the three `reject-limit-expr-nodes-*` vectors, the third of them the bypass itself. **The number does not move**: `@fuaran-ui/ops` 0.26.0 is ahead of the newest tag and unreleased, so this rides it.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:
