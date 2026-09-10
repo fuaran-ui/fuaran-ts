@@ -27,10 +27,25 @@ import { decodeNode } from '@fuaran-ui/ops';
 import { renderToHtml } from '../src/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-// test → renderer-server → packages → fuaran-ts → Fuaran-UI/wire-format-fixtures
-const nodesDir = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'nodes');
+// test -> renderer-server -> packages -> fuaran-ts -> Fuaran-UI/wire-format-fixtures
+const corpusDir = join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+const nodesDir = join(corpusDir, 'nodes');
 
-/** One fixture's expectation. */
+/**
+ * One fixture's expectation, DERIVED from the corpus's own a11y contract
+ * (Phase 1665).
+ *
+ * This table used to be hand-written here - and the same table was hand-written
+ * again in the client tier beside it and in four sibling hosts. Six copies of one
+ * cross-host claim is exactly the arrangement that let `accessibility.label`
+ * resolve five different ways with every conformance gate green: each surface
+ * measured itself against its own idea of the trait, and no copy could
+ * contradict another. The claim now lives once, in `a11y-contract.json`'s
+ * `behaviour` section, and every host reads it.
+ *
+ * What stays tier-local is the one thing the contract deliberately does not
+ * state: which ELEMENT this tier renders for a forwarding kind.
+ */
 interface A11yCase {
   readonly fixture: string;
   /** `undefined` when the projection stays on the wrapper; else the semantic element's tag. */
@@ -39,54 +54,64 @@ interface A11yCase {
   readonly absentFromCarrier?: readonly string[];
 }
 
-const CASES: readonly A11yCase[] = [
-  {
-    // All six slots at once on an ordinary wrapper kind. `hidden` is an
-    // explicit Static FALSE — distinct on the wire from omitted, and it must
-    // emit nothing (`aria-hidden` is not a tri-state).
-    fixture: 'a11y-wrapper-all-slots',
-    want: [
-      'aria-label="Channel performance summary"',
-      'aria-labelledby="a11y-wrapper-heading"',
-      'aria-describedby="a11y-wrapper-note"',
-      'role="region"',
-      'aria-live="polite"',
-    ],
-    absentFromCarrier: ['aria-hidden'],
-  },
-  {
-    // The State forms. `label` resolves through its declared `defaultValue`
-    // with no host state; the custom role's CASE is carried verbatim — the
-    // exact spelling a fold bug once rewrote — and `off` is a real liveRegion
-    // token, not an absence.
-    fixture: 'a11y-wrapper-state-bound',
-    want: ['aria-label="Site footer"', 'role="doc-pageFooter"', 'aria-live="off"'],
-    absentFromCarrier: ['aria-hidden'],
-  },
-  {
-    fixture: 'a11y-alert-assertive',
-    want: ['role="alert"', 'aria-live="assertive"'],
-  },
-  {
-    // D4 forwarding: the body IS the semantic element. The accessible name
-    // OVERRIDES the visible "Read more".
-    fixture: 'a11y-link-labelled',
-    element: 'a',
-    want: ['aria-label="Read the 2026 annual report (PDF)"'],
-  },
-  {
-    fixture: 'a11y-button-named',
-    element: 'button',
-    want: ['aria-label="Refresh revenue figures"', 'role="button"'],
-  },
-  {
-    // The decorative shape: empty alt + `hidden` Static TRUE — the slot two
-    // hosts dropped entirely before the Phase 951 port.
-    fixture: 'a11y-image-decorative',
-    element: 'img',
-    want: ['aria-hidden="true"'],
-  },
-];
+/**
+ * The six attribute names the accessibility projection can emit, in the wire's
+ * slot order. The complement of a vector's own list is what that vector forbids:
+ * the contract declares its attribute list EXHAUSTIVE for the projection.
+ */
+const PROJECTION_ATTRIBUTES = [
+  'aria-label',
+  'aria-labelledby',
+  'aria-describedby',
+  'role',
+  'aria-live',
+  'aria-hidden',
+] as const;
+
+/**
+ * The element THIS tier's body renders for each forwarding fixture's kind. A
+ * forwarding vector with no entry here throws rather than falling back to the
+ * wrapper: a silent fallback would assert the projection landed where the
+ * contract says it must not.
+ */
+const FORWARDING_TAG: Readonly<Record<string, string>> = {
+  'a11y-link-labelled': 'a',
+  'a11y-button-named': 'button',
+  'a11y-image-decorative': 'img',
+};
+
+interface ContractVector {
+  readonly fixture: string;
+  readonly forwards: boolean;
+  readonly attributes: ReadonlyArray<readonly [string, string]>;
+}
+
+const CASES: readonly A11yCase[] = (
+  JSON.parse(readFileSync(join(corpusDir, 'a11y-contract.json'), 'utf8')) as {
+    behaviour: { vectors: readonly ContractVector[] };
+  }
+).behaviour.vectors.map((v): A11yCase => {
+  const names = new Set(v.attributes.map(([name]) => name));
+  let element: string | undefined;
+  if (v.forwards) {
+    element = FORWARDING_TAG[v.fixture];
+    if (element === undefined) {
+      throw new Error(
+        `${v.fixture}: the contract says the projection forwards, and this tier has not said which ` +
+          'element it renders for that kind - add it to FORWARDING_TAG',
+      );
+    }
+  }
+  // Spread rather than assign: `exactOptionalPropertyTypes` distinguishes an
+  // absent optional property from one holding `undefined`, and a non-forwarding
+  // vector has no element at all.
+  return {
+    fixture: v.fixture,
+    ...(element === undefined ? {} : { element }),
+    want: v.attributes.map(([name, value]) => `${name}="${value}"`),
+    absentFromCarrier: PROJECTION_ATTRIBUTES.filter((name) => !names.has(name)),
+  };
+});
 
 /**
  * The node wrapper's own open tag, located by the node's ADDRESS rather than by
@@ -139,8 +164,12 @@ describe('Phase 956 — the a11y corpus family projects onto the right element',
   });
 
   // A table-driven leg that silently enumerated nothing would be a gate that
-  // checked nothing.
-  it('covers the full Phase 955 node family', () => {
-    expect(CASES).toHaveLength(6);
+  // checked nothing -- and since Phase 1665 the table is READ rather than written
+  // here, so an empty one is also what a mis-shaped contract looks like. Both are
+  // refused. The count is not restated: the contract is the enumeration, exactly
+  // as `manifest.json` is for the fixtures.
+  it("carries the contract's behaviour vectors, including the Transform-bound name", () => {
+    expect(CASES.length).toBeGreaterThan(0);
+    expect(CASES.map((c) => c.fixture)).toContain('a11y-wrapper-transform-label');
   });
 });
