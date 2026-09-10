@@ -1284,8 +1284,7 @@ const decodeLocalFlushTrigger = (path: string, j: JsonAst): R<LocalFlushTrigger>
 // UI host's `coreError` wrapping.
 
 type CR<T> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: string };
+  { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
 const cok = <T>(value: T): CR<T> => ({ ok: true, value });
 const cerr = (error: string): CR<never> => ({ ok: false, error });
 
@@ -2531,26 +2530,46 @@ const decodeBinding = (
     case 'State': {
       const key = reqField(path, f, 'key', 'state key string', requireString);
       if (!key.ok) return key;
-      // Decode the carried `defaultValue` through the slot's static parser
-      // when it parses (Phase 426/429); an absent / unparseable default falls
-      // back to the typed placeholder — byte-for-byte with the F# decoder.
-      // Phase 677 — an ABSENT default decodes exactly as the legacy
-      // `"defaultValue": null` did, or the encoder re-emits a placeholder and
-      // the round-trip breaks.
-      const dvRaw = fieldAliased(f, 'defaultValue', ['initialValue', 'default']);
-      const dv = dvRaw ?? ({ kind: 'JNull' } as const);
-      // Phase 1126 — an ABSENT default stays ABSENT on the decoded binding, so
-      // the encoder omits the key and the round-trip is byte-stable. The typed
-      // placeholder is the fallback for a default the document CARRIED and this
-      // slot's parser could not read, which is a different fact: it keeps a
-      // usable value where the document said something unreadable, where
-      // synthesising one where the document said NOTHING re-emits a key nobody
-      // wrote. The same distinction the Transform source slot already draws
+      // §5's absent-`State.defaultValue` posture (Phase 1656): absence OMITS,
+      // and ABSENCE HAS THREE SPELLINGS — the member missing, the member
+      // present as JSON `null`, and either lenient alias present as `null`.
+      // All three yield no default at all, so the encoder writes no member and
+      // a bare `{"$type":"State","key":k}` re-encodes as itself at every slot.
+      //
+      // The null arm has to be decided HERE and cannot be delegated to
+      // `parseStatic`, which is what this arm did until 1656 and what made it
+      // wrong on two counts. §5's read-compat rule maps a `null` Static payload
+      // to the slot's TYPED EMPTY, so at every collection slot
+      // (`parseStaticSelectOptions` / `StringList` / `FloatSeq` / `Rows` /
+      // `MarkerSeq`, each `ok([])` on `JNull`) an ABSENT default came back as
+      // `[]` and re-encoded as `"defaultValue":[]` — respelling "I read this
+      // key and carry nothing of my own" as a declaration that the collection
+      // is empty, which the seeding lattice reads as a different claim. And an
+      // explicitly-written `null` came back as the slot's PLACEHOLDER (`0` at a
+      // numeric slot), which is sharper still: a member the document wrote as
+      // nothing re-encoded as a number. That read-compat belongs to
+      // `Static.value` and stays there, pinned by `lenient-null-static-options`;
+      // this position is pinned by `lenient-1656-state-default-null`.
+      //
+      // The typed placeholder survives as the fallback for a default the
+      // document CARRIED and this slot's parser could not read, which is a
+      // different fact and one §5 deliberately leaves unsettled across the
+      // hosts: it keeps a usable value where the document said something
+      // unreadable, where synthesising one where the document said NOTHING
+      // re-emits a member nobody wrote. Corpus: `nodes/state-absent-default`
+      // (the five typed slots), `reject-state-default-without-key` (the
+      // optionality, the right way round — the DEFAULT may be omitted, the KEY
+      // may not). The same distinction the Transform source slot already draws
       // (Phase 1085) — stated once here instead, at the arm that decides it.
-      let defaultValue: unknown = dvRaw === undefined ? undefined : placeholder;
-      const parsed = parseStatic(`${path}.defaultValue`, dv);
-      if (parsed.ok) defaultValue = parsed.value;
-      return ok({ kind: 'State', key: key.value, defaultValue });
+      const dvRaw = fieldAliased(f, 'defaultValue', ['initialValue', 'default']);
+      if (dvRaw === undefined || dvRaw.kind === 'JNull')
+        return ok({ kind: 'State', key: key.value, defaultValue: undefined });
+      const parsed = parseStatic(`${path}.defaultValue`, dvRaw);
+      return ok({
+        kind: 'State',
+        key: key.value,
+        defaultValue: parsed.ok ? parsed.value : placeholder,
+      });
     }
     case 'Computed':
       // The encoder writes the fn as `<closure>`, and there is nothing else in
@@ -2777,26 +2796,18 @@ const decodeBinding = (
         const b = decodeBinding(`${path}.source`, srcJ.value, decodeJVal, undefined);
         if (!b.ok) return b;
         // Phase 1085 — an ABSENT `defaultValue` must stay ABSENT on the decoded
-        // binding. `decodeBinding`'s State arm reads a missing default as
-        // `JNull` and falls back to the slot's typed placeholder, which for this
-        // slot is the `"<opaque>"` sentinel. That was unreachable while the bare
-        // wrapper was refused; now that it decodes, leaving it would make the
-        // seeding pass read a source that DECLARES NOTHING as a declaration of
-        // `"<opaque>"` — seeding the slot with a sentinel on this tier and with
-        // nothing on the other, from one document. Measured, not reasoned: the
-        // first run of the new pin returned `{"members":"<opaque>"}`.
-        const liveBinding = (() => {
-          const raw = b.value as Binding<JsonValue>;
-          const declared = srcJ.value.kind === 'JObject' && srcJ.value.fields.has('defaultValue');
-          // `undefined` IS this decoder's representation of an absent default —
-          // it is what the `placeholder` argument three lines up asks for. The
-          // cast is only because `Binding<T>`'s `State` arm declares
-          // `defaultValue: T` as required where the F# tier has `'T option`; the
-          // modelling gap is the tier's, and widening it is not this change.
-          return raw.kind === 'State' && !declared
-            ? ({ ...raw, defaultValue: undefined } as unknown as Binding<JsonValue>)
-            : raw;
-        })();
+        // binding, or the seeding pass reads a source that DECLARES NOTHING as
+        // a declaration of the slot's typed placeholder (here the `"<opaque>"`
+        // sentinel): seeding the slot with a sentinel on this tier and with
+        // nothing on the other, from one document. Measured, not reasoned — the
+        // first run of that pin returned `{"members":"<opaque>"}`.
+        //
+        // Phase 1656 retired the local shim that used to enforce it here. The
+        // `State` arm above now decides every spelling of absence itself, so
+        // there is nothing left for this position to correct, and a second
+        // decision point over one fact is how the two arms came to disagree
+        // about the `null` spelling in the first place.
+        const liveBinding = b.value as Binding<JsonValue>;
         if (liveTag === 'State') {
           // An EMPTY array default is the empty table, exactly as a
           // Selection / Query live source starts. An initially-empty live
@@ -2817,10 +2828,19 @@ const decodeBinding = (
           // spellings say one thing; the empty array stays the answer for a
           // genuinely empty live collection rather than a workaround for a
           // wrapper the decoder would not accept bare.
+          //
+          // Phase 1656 — the `null` spelling of absence takes it too, which it
+          // did not before: a raw `JNull` is neither undefined nor an empty
+          // array, so it fell to the snapshot branch and was decoded as carried
+          // data. The reference host never had the bug because it reads the
+          // DECODED binding's default, where every spelling of absence is
+          // already one value; this reads the raw member, so it must name them.
           const carriedJ =
             srcJ.value.kind === 'JObject' ? srcJ.value.fields.get('defaultValue') : undefined;
           const carriesNoData =
-            carriedJ === undefined || (carriedJ.kind === 'JArray' && carriedJ.items.length === 0);
+            carriedJ === undefined ||
+            carriedJ.kind === 'JNull' ||
+            (carriedJ.kind === 'JArray' && carriedJ.items.length === 0);
 
           if (carriesNoData) {
             source = {
@@ -3021,8 +3041,7 @@ const normaliseTransformSource = (j: JsonAst): JsonAst => {
 export const liveValueToTable = (
   v: unknown,
 ):
-  | { readonly ok: true; readonly value: Table }
-  | { readonly ok: false; readonly error: string } => {
+  { readonly ok: true; readonly value: Table } | { readonly ok: false; readonly error: string } => {
   if (v === undefined) return { ok: false, error: 'Transform live source resolved to no value' };
   let text: string;
   try {
