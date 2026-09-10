@@ -814,11 +814,28 @@ export const renderText = (sources: BindingSources, text: TextSource): string =>
       if (template === undefined) return `[i18n:${text.key}]`;
       let acc = template;
       for (const [k, v] of Object.entries(text.args)) {
-        acc = acc.split(`{${k}}`).join(jsonToString(v));
+        acc = acc.split(`{${k}}`).join(i18nArgText(sources, v));
       }
       return acc;
     }
   }
+};
+
+/**
+ * Phase 1661 — the display string ONE `TextSource.I18n` argument substitutes
+ * into its template. A LITERAL argument (`Static` carrying a value — what the
+ * bare wire form decodes to, and what every pre-1661 document carries) projects
+ * exactly as the slot's value did before the widening; any other arm resolves
+ * through the store, and an unresolvable one substitutes the empty string rather
+ * than leaving `{name}` in the sentence. Byte-for-byte with the client renderer
+ * beside it, which is what SSR parity means here.
+ */
+const i18nArgText = (sources: BindingSources, arg: Binding<JsonValue>): string => {
+  if (arg.kind === 'Static' && arg.value !== null && arg.value !== undefined) {
+    return jsonToString(arg.value);
+  }
+  const r = resolve<unknown>(sources, arg as Binding<unknown>);
+  return r.kind === 'Resolved' ? jsonToString(r.value as JsonValue) : '';
 };
 
 const jsonToString = (v: JsonValue): string => {

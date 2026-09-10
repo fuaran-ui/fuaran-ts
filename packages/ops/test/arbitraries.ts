@@ -222,11 +222,42 @@ const bindingIntArb = bindingOf<number>(intArb, 0);
 
 // ─── TextSource / SelectOption ───────────────────────────────────────────────
 
+// Phase 1661 — a `TextSource.I18n` argument bag. A `Static` argument carrying a
+// value IS the literal wire form (it encodes bare); the two store-reading arms
+// carry their own `$type` object. Drawing from both means a generated bag
+// exercises each side of the discriminate-by-inspection codec, which is the only
+// place a one-sided generator could hide a divergence.
+const i18nArgMapArb: fc.Arbitrary<Record<string, Binding<JsonValue>>> = fc
+  .array(
+    fc.tuple(
+      nonEmptyStrArb,
+      fc.oneof(
+        jsonValueArb.map((value) => ({ kind: 'Static', value }) as Binding<JsonValue>),
+        // No declared default, which is what the decoder yields for
+        // `{"$type":"State","key":k}` — so the generated shape is the decoded
+        // one and the round-trip is byte-stable. The double cast is needed
+        // because `defaultValue` is typed `T` and this arm carries none.
+        nonEmptyStrArb.map(
+          (key) =>
+            ({
+              kind: 'State',
+              key,
+              defaultValue: undefined,
+              defaultDeclared: false,
+            }) as unknown as Binding<JsonValue>,
+        ),
+        nonEmptyStrArb.map((name) => ({ kind: 'Filter', name }) as Binding<JsonValue>),
+      ),
+    ),
+    { maxLength: 3 },
+  )
+  .map((pairs) => Object.fromEntries(pairs));
+
 const textSourceArb: fc.Arbitrary<TextSource> = fc.oneof(
   strArb.map((value) => ({ kind: 'Literal', value }) as TextSource),
   bindingStrArb.map((binding) => ({ kind: 'Bound', binding }) as TextSource),
   fc
-    .tuple(nonEmptyStrArb, jsonValueMapArb)
+    .tuple(nonEmptyStrArb, i18nArgMapArb)
     .map(([key, args]) => ({ kind: 'I18n', key, args }) as TextSource),
 );
 

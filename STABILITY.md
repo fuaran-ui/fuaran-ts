@@ -412,6 +412,28 @@ Additive throughout: one new optional field on `RenderToHtmlOptions` (`csp`), a 
 
 **What the mode does not claim.** It says nothing about `@fuaran-ui/renderer`, the React client tier, which is untouched by this phase — a document served under a strict posture and hydrated by that tier will have its style attributes written back. It says nothing about a host's own `<head>`, or about CSS a host injects itself. And it narrows nothing on the wire: no decoder refuses anything it accepted before.
 
+### Recorded breaking change — `@fuaran-ui/ops` 0.26.0, `MAX_EXPR_NODES` reaches a pipeline's own expressions (fuaran#1662)
+
+Breaking by the widest of the wire tests in the list above — **an input that decoded now does not**. No exported type, signature or member moves, and `MAX_EXPR_NODES` does not change value; what changes is its SCOPE, and therefore the answer `decodeNode` gives to a document that was inside the limit only because the limit did not look there.
+
+`MAX_EXPR_NODES` (512) bounded a `Binding.Expr`'s expression, and [`WIRE_FORMAT.md` §21.8](../fuaran-dotnet/docs/WIRE_FORMAT.md) declared the expression a `Binding.Transform` PIPELINE embeds — a `derive` step's `expr`, a `filter` step's `pred` — to be deliberately outside it. Both reach the same evaluator, so that exclusion was a documented way to move an expression out from under the bound by wrapping it in a Transform: this decoder accepted a 513-node `derive` expression, including the `param`-leafed shape it refuses at 513 as a `Binding.Expr`. §21.8 is amended and the exclusion is withdrawn — a stated exclusion on the one surface an expression can be moved to is not a scope, it is a bypass.
+
+`decodeBinding`'s `Transform` arm now checks each embedded expression against the SAME budget, at decode, immediately after the pipeline decodes and before `params`, and returns `LIMIT_EXCEEDED` at that step's own member path (`$.kind.source.pipeline[2].pred`) so an author is told which STEP to come back under. `exprAdmissible`'s traversal was split out as `scanExpr` to share it: the previous walk short-circuited on `sawCol`, which on a pipeline expression — where a `col` is perfectly ordinary — would UNDER-count and admit the bypass. `exprAdmissible` is now a thin verdict over `scanExpr` with its refusal order unchanged, so `Binding.Expr`'s behaviour does not move.
+
+**Refused outright, with no profile boundary and no grandfathering**, because §21.2 rules 1 and 2 admit no second acceptance class and the format's one host-narrowing mechanism (§23) is a NARROWING that never appears on the wire. The affected shape is named rather than estimated away: a document that stops decoding carries more than 512 `ColExpr` nodes in ONE pipeline step's expression, which is the blow-up the limit exists to refuse and not a shape an author writes.
+
+Certified by `limit-expr-nodes-pipeline-at-max` — the at-the-bound accept, which this decoder must still take, since rule 1 is symmetric with rule 2 — and the three `reject-limit-expr-nodes-*` vectors, the third of them the bypass itself. **The number does not move**: `@fuaran-ui/ops` 0.26.0 is ahead of the newest tag and unreleased, so this rides it.
+
+### Recorded breaking change — `@fuaran-ui/ops` 0.26.0, `Skeleton.rows` is bounded (fuaran#1666)
+
+Breaking by the same test as the section above — **an input that decoded now does not**. No exported type, signature or member moves; a new `MAX_SKELETON_ROWS` (10 000) is added to `@fuaran-ui/schema`'s limits, and `decodeNode` refuses a `Skeleton` past it.
+
+[`WIRE_FORMAT.md` §21.9](../fuaran-dotnet/docs/WIRE_FORMAT.md) states the bound, and the reason it is a §21 RESOURCE limit rather than a §7.1 slot narrowing is the whole of the change. §7.1 says what a typed integer slot may HOLD, and `2147483647` is finite, fraction-free and inside signed 32-bit, so §7.1 admits it. What no host can do is RENDER it: one placeholder row is emitted per count, so `{"$type":"Skeleton","rows":100000000}` is a document inside every other limit — a handful of bytes, one node, three JSON levels — that names a hundred million rendered rows. That is §21.8's own argument at a different slot, which is why it is stated in §21's vocabulary and inherits it: `LIMIT_EXCEEDED`, the §6 envelope, refused on the way down.
+
+The check sits in `decodeSkeletonSpec` **after** the §7.1 integer read and never before it, so the two rules compose in a stated order and the codes stay distinct: a `1e10` value is still `WRONG_TYPE` (the slot cannot hold it), and a 32-bit-valid `2147483647` is `LIMIT_EXCEEDED` at `$.kind.rows` (the slot can hold it; the format will not carry the work it names). The bound is an UPPER bound only — a negative row count is an authoring defect, not a resource breach, and reporting it as one would be the actively-wrong diagnosis §21.2 rule 2 forbids.
+
+Certified by `limit-skeleton-rows-at-max` — the at-the-bound accept this decoder must still take, rule 1 being symmetric with rule 2 — and `reject-limit-skeleton-rows`, whose value is the 32-bit maximum rather than `10 001` so that the vector pins the §7.1/§21 seam and not merely the arithmetic. **The number does not move**: `@fuaran-ui/ops` 0.26.0 is ahead of the newest tag and unreleased, so this rides it.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:

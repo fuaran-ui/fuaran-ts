@@ -950,6 +950,27 @@ const action = <T>(a: Action<T>): string => {
   }
 };
 
+/**
+ * Phase 1661 — one `TextSource.I18n` argument (WIRE_FORMAT.md §5). A `Static`
+ * argument carrying a value emits the BARE value, which is the whole reason the
+ * widening from a bare-value bag to a `Binding<JsonValue>` bag moves no shipped
+ * byte; every other arm emits its own `$type` object, and a valueless `Static`
+ * stays `{"$type":"Static"}` because absence is structural and has no bare
+ * spelling.
+ *
+ * `jsonValue` is passed as the static encoder rather than letting `binding`
+ * default to the best-effort `objValue`: an argument is a rule-12 payload
+ * position, so a composite must render faithfully rather than collapse to
+ * `"<opaque>"`.
+ */
+const i18nArg = (arg: Binding<JsonValue>): string =>
+  arg.kind === 'Static' && arg.value !== null && arg.value !== undefined
+    ? jsonValue(arg.value)
+    : binding(arg, jsonValue);
+
+const i18nArgMap = (m: Readonly<Record<string, Binding<JsonValue>>>): string =>
+  jObject(Object.entries(m).map(([k, v]) => [k, i18nArg(v)] as const));
+
 const textSource = (t: TextSource): string => {
   switch (t.kind) {
     case 'Literal':
@@ -960,7 +981,7 @@ const textSource = (t: TextSource): string => {
       return caseObj('Bound', [['binding', binding(t.binding)]]);
     case 'I18n':
       return caseObj('I18n', [
-        ['args', jsonMap(t.args)],
+        ['args', i18nArgMap(t.args)],
         ['key', str(t.key)],
       ]);
     default:

@@ -981,11 +981,30 @@ export const renderText = (sources: BindingSources, text: TextSource): string =>
       if (template === undefined) return `[i18n:${text.key}]`;
       let acc = template;
       for (const [k, v] of Object.entries(text.args)) {
-        acc = acc.split(`{${k}}`).join(jsonToString(v));
+        acc = acc.split(`{${k}}`).join(i18nArgText(sources, v));
       }
       return acc;
     }
   }
+};
+
+/**
+ * Phase 1661 — the display string ONE `TextSource.I18n` argument substitutes
+ * into its template.
+ *
+ * A LITERAL argument — `Static` carrying a value, which is what the bare wire
+ * form decodes to and what every pre-1661 document carries — projects through
+ * exactly the rule this slot used before it was widened, so no existing caption
+ * changes a character. Any other arm resolves through the same store-reading
+ * path, and an unresolvable one substitutes the empty string rather than leaving
+ * `{name}` visible in the sentence: the `Bound` arm's degradation one level down.
+ */
+const i18nArgText = (sources: BindingSources, arg: Binding<JsonValue>): string => {
+  if (arg.kind === 'Static' && arg.value !== null && arg.value !== undefined) {
+    return jsonToString(arg.value);
+  }
+  const r = resolve<unknown>(sources, arg as Binding<unknown>);
+  return r.kind === 'Resolved' ? jsonToString(r.value as JsonValue) : '';
 };
 
 /**
