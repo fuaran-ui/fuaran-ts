@@ -779,9 +779,22 @@ export type TextSource =
   | { readonly kind: 'Literal'; readonly value: string }
   | { readonly kind: 'Bound'; readonly binding: Binding<string> }
   | {
+      /**
+       * Phase 1661 — an argument is a `Binding<JsonValue>`, not a bare value, so
+       * `"{count} items left"` takes its count from the same slot the list beside
+       * it reads. The wire carries no tag saying which of the two an argument is:
+       * an object carrying `$type` is the binding arm, any other JSON value the
+       * literal arm, and a literal encodes BARE (WIRE_FORMAT.md §5) — which is
+       * why every literal-args document ever emitted is byte-identical across
+       * the widening.
+       *
+       * `args` stays REQUIRED here and OPTIONAL on `Binding.I18n`: the two slots
+       * carry the same argument type and differ in presence, because each one's
+       * canonical form is pinned by what already shipped on it (§5).
+       */
       readonly kind: 'I18n';
       readonly key: string;
-      readonly args: Readonly<Record<string, JsonValue>>;
+      readonly args: Readonly<Record<string, Binding<JsonValue>>>;
     };
 
 // ─── Cell value / format / width (§4k Q3.2 / Q3.3) ───────────────────────────

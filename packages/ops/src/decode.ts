@@ -3183,6 +3183,56 @@ const decodeBindingArgs = (path: string, j: JsonAst): R<Record<string, Binding<J
   return ok(out);
 };
 
+/**
+ * Phase 1661 — a `TextSource.I18n` argument bag, discriminated BY INSPECTION
+ * (WIRE_FORMAT.md §5). An object carrying a `$type` member is a BINDING; every
+ * other JSON value is the LITERAL argument and decodes to `Static` carrying it.
+ *
+ * Distinct from `decodeBindingArgs` above (`Binding.I18n`'s bag), whose every
+ * entry is a `$type` envelope — the two slots carry the same argument type and
+ * differ in the canonical spelling of one argument, which is the asymmetry §5
+ * states rather than leaves to be inferred.
+ *
+ * The `Static` arm is read HERE rather than left to `decodeBinding`, on two
+ * counts. A missing or null `value` is Phase 677's structural absence and must
+ * stay `{"$type":"Static"}` — `decodeBinding`'s untyped parser would give it the
+ * slot's placeholder, which at an argument is a character a reader sees. And the
+ * tagged spelling of a PRESENT literal takes the rule-12 strict decoder, the
+ * same one the bare spelling takes below: one payload position under two
+ * spellings cannot have two null postures, and the permissive path would map a
+ * nested null to a value where the bare path refuses it.
+ */
+const decodeI18nArgMap = (path: string, j: JsonAst): R<Record<string, Binding<JsonValue>>> => {
+  const fo = requireObject(path, j);
+  if (!fo.ok) return fo;
+  const out: Record<string, Binding<JsonValue>> = {};
+  for (const [k, v] of fo.value) {
+    const argPath = `${path}.${k}`;
+    if (v.kind === 'JObject' && v.fields.has('$type')) {
+      const tag = v.fields.get('$type');
+      const raw = v.fields.get('value');
+      if (tag !== undefined && tag.kind === 'JString' && tag.value === 'Static') {
+        if (raw === undefined || raw.kind === 'JNull') {
+          out[k] = { kind: 'Static', value: null };
+          continue;
+        }
+        const lit = decodeJVal(`${argPath}.value`, raw);
+        if (!lit.ok) return lit;
+        out[k] = { kind: 'Static', value: lit.value };
+        continue;
+      }
+      const r = decodeBinding(argPath, v);
+      if (!r.ok) return r;
+      out[k] = r.value as Binding<JsonValue>;
+      continue;
+    }
+    const lit = decodeJVal(argPath, v);
+    if (!lit.ok) return lit;
+    out[k] = { kind: 'Static', value: lit.value };
+  }
+  return ok(out);
+};
+
 // The typed SCALAR Static payloads. These two were CASTS over the untyped
 // `decodeBinding` — they named a type and checked none, so `{"hidden": "yes"}`
 // and `{"href": 7}` decoded as `Static` carrying the wrong-typed scalar. That
@@ -3476,7 +3526,7 @@ const decodeTextSource = (path: string, j: JsonAst): R<TextSource> => {
         const t: TextSource = { kind: 'I18n', key: key.value, args: {} };
         return ok(t);
       }
-      const args = decodeJValMap(`${path}.args`, argsJ);
+      const args = decodeI18nArgMap(`${path}.args`, argsJ);
       if (!args.ok) return args;
       const t: TextSource = { kind: 'I18n', key: key.value, args: args.value };
       return ok(t);
