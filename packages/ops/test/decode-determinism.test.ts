@@ -26,6 +26,11 @@ const metric = (value: string): string =>
 
 const skeleton = (rows: string): string => `{"id":"s","kind":{"$type":"Skeleton","rows":${rows}}}`;
 
+// Phase 1666 — a typed integer slot §21 does NOT bound, for the §7.1 probes
+// that must not also be asserting a §21 limit. See the block below.
+const heading = (level: string): string =>
+  `{"id":"h","kind":{"$type":"Heading","level":${level},"text":"t","variant":"Standard"}}`;
+
 const markdown = (text: string): string =>
   `{"id":"a","kind":{"$type":"Markdown","text":"${text}"}}`;
 
@@ -163,8 +168,27 @@ describe('§7.1 — integer slots', () => {
     },
   );
 
+  // Phase 1666 — the PROBE moved off `Skeleton.rows`, and §7.1's statement did
+  // not move at all. `Heading.level` is a typed integer slot §21 does not
+  // bound; `Skeleton.rows` is now bounded by §21.9, so `2147483647` there is a
+  // `LIMIT_EXCEEDED` rather than a decode. A §7.1 test must probe a slot §7.1
+  // ALONE governs, or it asserts the conjunction of §7.1 and §21 and will be
+  // re-broken by the next limit that lands on whichever slot it happened to
+  // pick. Every other case in this block stays on `Skeleton.rows`: their values
+  // either sit inside the new bound or fail §7.1 first.
   it.each(['2147483647', '-2147483648'])('accepts the 32-bit boundary %j', (token) => {
-    expectDecodes(skeleton(token));
+    expectDecodes(heading(token));
+  });
+
+  // Phase 1666 — the §7.1 / §21 SEAM, stated rather than left to be inferred
+  // from which test happens to sit where. The two codes answer different
+  // questions and the ORDER keeps them apart: §7.1 asks what the slot can HOLD
+  // and admits `2147483647`; §21.9 then asks how much work the document may
+  // NAME and refuses it. A host reading the bound as a narrowing of the slot's
+  // type would answer `WRONG_TYPE` here — and would also refuse the
+  // at-the-bound document §21.2 rule 1 obliges it to accept.
+  it('refuses an in-range value past a §21 bound as LIMIT_EXCEEDED, not WRONG_TYPE', () => {
+    expectRefused(skeleton('2147483647'), 'LIMIT_EXCEEDED');
   });
 
   it.each(['"NaN"', '"Infinity"', '"-Infinity"'])(
