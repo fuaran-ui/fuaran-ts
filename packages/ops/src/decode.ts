@@ -4477,7 +4477,7 @@ const decodeSparklineSpec = (path: string, j: JsonAst): R<SparklineSpec> => {
 // codes answer different questions and the ORDER is what keeps them apart.
 //
 // Upper bound only, deliberately: a negative count is an authoring defect
-// (FUARAN150 in the pre-emit family), not a resource breach.
+// (FUARAN152 in the pre-emit family), not a resource breach.
 const decodeSkeletonSpec = (path: string, j: JsonAst): R<SkeletonSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
