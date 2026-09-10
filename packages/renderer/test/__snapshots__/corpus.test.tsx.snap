@@ -18,6 +18,11 @@ exports[`fixture-corpus — decode + render every node fixture > a11y-wrapper-st
 </div></div></div></div>"
 `;
 
+exports[`fixture-corpus — decode + render every node fixture > a11y-wrapper-transform-label.json matches its rendered-output snapshot 1`] = `
+"<div id="a11y-wrapper-transform-label" data-fuaran-node-id="a11y-wrapper-transform-label" class="fuaran-kind-stack fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal" aria-label="3 open alerts" role="region"><div class="fuaran-layout-stack fuaran-stack-vertical"><div id="a11y-transform-note" data-fuaran-node-id="a11y-transform-note" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-markdown"><p>Updated hourly.</p>
+</div></div></div></div>"
+`;
+
 exports[`fixture-corpus — decode + render every node fixture > action-confirm.json matches its rendered-output snapshot 1`] = `"<div id="action-confirm" data-fuaran-node-id="action-confirm" class="fuaran-kind-button fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><button class="fuaran-button fuaran-button-secondary fuaran-button-unwired" title="This action routes through the runtime substrate (Call/Notify/Navigate/SetState/AiTool).">Delete</button></div>"`;
 
 exports[`fixture-corpus — decode + render every node fixture > action-confirm-cancel.json matches its rendered-output snapshot 1`] = `"<div id="action-confirm-cancel" data-fuaran-node-id="action-confirm-cancel" class="fuaran-kind-button fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><button class="fuaran-button fuaran-button-secondary fuaran-button-unwired" title="This action routes through the runtime substrate (Call/Notify/Navigate/SetState/AiTool).">Discard changes</button></div>"`;
