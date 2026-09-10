@@ -1284,7 +1284,8 @@ const decodeLocalFlushTrigger = (path: string, j: JsonAst): R<LocalFlushTrigger>
 // UI host's `coreError` wrapping.
 
 type CR<T> =
-  { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: string };
 const cok = <T>(value: T): CR<T> => ({ ok: true, value });
 const cerr = (error: string): CR<never> => ({ ok: false, error });
 
@@ -3041,7 +3042,8 @@ const normaliseTransformSource = (j: JsonAst): JsonAst => {
 export const liveValueToTable = (
   v: unknown,
 ):
-  { readonly ok: true; readonly value: Table } | { readonly ok: false; readonly error: string } => {
+  | { readonly ok: true; readonly value: Table }
+  | { readonly ok: false; readonly error: string } => {
   if (v === undefined) return { ok: false, error: 'Transform live source resolved to no value' };
   let text: string;
   try {
