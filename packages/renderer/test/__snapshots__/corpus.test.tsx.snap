@@ -533,6 +533,16 @@ exports[`fixture-corpus — decode + render every node fixture > tabs-explicit-1
 </div></div></div></div></div></div>"
 `;
 
+exports[`fixture-corpus — decode + render every node fixture > text-i18n-bound-arg-1.json matches its rendered-output snapshot 1`] = `
+"<div id="text-i18n-bound-arg-1" data-fuaran-node-id="text-i18n-bound-arg-1" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-markdown"><p>[i18n:cart.remaining]</p>
+</div></div>"
+`;
+
+exports[`fixture-corpus — decode + render every node fixture > text-i18n-mixed-args-1.json matches its rendered-output snapshot 1`] = `
+"<div id="text-i18n-mixed-args-1" data-fuaran-node-id="text-i18n-mixed-args-1" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-markdown"><p>[i18n:invoice.summary]</p>
+</div></div>"
+`;
+
 exports[`fixture-corpus — decode + render every node fixture > toast-1.json matches its rendered-output snapshot 1`] = `"<div id="toast-1" data-fuaran-node-id="toast-1" class="fuaran-kind-toast fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-toast fuaran-toast-success" role="status" aria-live="polite"><span class="fuaran-toast-message">Saved</span><button class="fuaran-toast-dismiss" type="button" aria-label="Dismiss">×</button></div></div>"`;
 
 exports[`fixture-corpus — decode + render every node fixture > tooltip-button-1.json matches its rendered-output snapshot 1`] = `"<div id="tooltip-button-1" data-fuaran-node-id="tooltip-button-1" class="fuaran-kind-button fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal fuaran-has-tooltip"><button class="fuaran-button fuaran-button-secondary fuaran-button-unwired" title="This action routes through the runtime substrate (Call/Notify/Navigate/SetState/AiTool)." aria-describedby="tooltip-button-1-tooltip">Rebuild index</button><span id="tooltip-button-1-tooltip" class="fuaran-tooltip" role="tooltip">Re-reads every document; takes about a minute on this corpus.</span></div>"`;
