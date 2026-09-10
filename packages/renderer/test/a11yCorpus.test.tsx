@@ -104,9 +104,12 @@ const CASES: readonly A11yCase[] = (
       );
     }
   }
+  // Spread rather than assign: `exactOptionalPropertyTypes` distinguishes an
+  // absent optional property from one holding `undefined`, and a non-forwarding
+  // vector has no element at all.
   return {
     fixture: v.fixture,
-    element,
+    ...(element === undefined ? {} : { element }),
     want: v.attributes.map(([name, value]) => `${name}="${value}"`),
     absentFromCarrier: PROJECTION_ATTRIBUTES.filter((name) => !names.has(name)),
   };
