@@ -1,0 +1,114 @@
+name: Clean-machine install smoke
+
+# Does a stranger, on a machine that has never seen this repository, get the
+# CURRENT release out of the public registries and the same canonical wire bytes
+# from either host?
+#
+# Nothing in `ci.yml` can answer that. Every suite there runs inside the
+# workspace, against linked packages and built `dist/` — which is the right lane
+# for "does the code agree with itself" and structurally blind to the two ways a
+# release actually fails a newcomer: a package that does not install at all
+# (a missing file in `files`, a dependency left on `workspace:*`, a version
+# tagged but never published), and two hosts whose PUBLISHED bytes disagree while
+# their sources do not.
+#
+# So this lane installs from npm and restores from nuget.org with every local
+# source cleared, and compares. See dev-scripts/install-smoke/README.md.
+#
+# WHEN IT RUNS, and why it is not on every push: the inputs are the registries,
+# not this branch, so a push cannot change the answer — but a RELEASE can, and so
+# can a registry that drops or re-tags a version under us.
+#
+#   * after a successful publish run — the first moment the claim is about the
+#     release just cut;
+#   * weekly — the registries keep moving after the release does not;
+#   * on demand.
+#
+# A failure here is never "the branch is broken": it is a published artefact that
+# a newcomer cannot use, which is a louder finding than anything in the push lane.
+
+on:
+  workflow_run:
+    workflows: ['Publish to npm']
+    types: [completed]
+  schedule:
+    # Mondays, 05:30 UTC.
+    - cron: '30 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    # A publish run that FAILED says nothing about the registries, so do not
+    # draw a conclusion from it. The schedule and the manual trigger carry no
+    # `workflow_run` context and pass this by the second clause.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No global.json here on purpose: this leg restores a floating package
+      # from the public registry with a plain SDK, exactly as a newcomer's
+      # machine would. Pinning the SDK to this family's own global.json would
+      # be one more thing a stranger does not have.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # `npm`, not pnpm, and no lockfile: a newcomer types `npm install`.
+      - name: Install the published package set from npm
+        working-directory: dev-scripts/install-smoke/ts
+        run: npm install --no-audit --no-fund
+
+      - name: Emit the TypeScript leg's canonical bytes
+        working-directory: dev-scripts/install-smoke/ts
+        run: node smoke.mjs > "$GITHUB_WORKSPACE/smoke-ts.json"
+
+      - name: Emit the F# leg's canonical bytes
+        working-directory: dev-scripts/install-smoke/fs
+        run: dotnet run --nologo > "$GITHUB_WORKSPACE/smoke-fs.json"
+
+      # Compared TRIMMED. The trailing newline belongs to the two `print` calls,
+      # not to the wire document, and F#'s differs from node's on a Windows host
+      # — a difference about consoles would otherwise read as a difference about
+      # the format.
+      - name: The two hosts' published bytes must be identical
+        run: |
+          ts=$(tr -d '\r' < smoke-ts.json)
+          fs=$(tr -d '\r' < smoke-fs.json)
+          echo "TypeScript: $ts"
+          echo "F#        : $fs"
+          if [ "$ts" != "$fs" ]; then
+            echo "::error::The published TypeScript and F# hosts encode the same tree differently."
+            diff <(printf '%s\n' "$ts") <(printf '%s\n' "$fs") || true
+            exit 1
+          fi
+          # A leg that emitted NOTHING is a different finding from two legs that
+          # disagree, and a string comparison of two empty strings is a pass.
+          if [ -z "$ts" ]; then
+            echo "::error::Both legs emitted nothing — neither host ran, so the match is vacuous."
+            exit 1
+          fi
+          echo "Byte-identical across the published hosts."
+
+      # Which versions the floats actually resolved to. A green run whose
+      # resolution is unknown cannot be cited later, and a float is only
+      # honest if the run records what it floated to.
+      - name: Record the versions this run certified
+        if: always()
+        working-directory: dev-scripts/install-smoke
+        run: |
+          {
+            echo '### Versions certified by this run'
+            echo
+            echo '```'
+            ( cd ts && npm ls --depth=0 2>/dev/null ) || true
+            ( cd fs && dotnet list package 2>/dev/null ) || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

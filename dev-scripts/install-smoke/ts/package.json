@@ -1,0 +1,11 @@
+{
+  "name": "fuaran-install-smoke",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway project that installs the published @fuaran-ui/* set from npm. Not part of the pnpm workspace.",
+  "dependencies": {
+    "@fuaran-ui/ops": "latest",
+    "@fuaran-ui/ui": "latest"
+  }
+}
