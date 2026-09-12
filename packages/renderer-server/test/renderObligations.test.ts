@@ -989,6 +989,43 @@ describe.skipIf(!present)('render-obligation conformance (WIRE_FORMAT.md §13)',
       }
   });
 
+  // ── A trait's declared SCOPE is one this host can act on ──────────────────
+  it("every declared trait's scope is one this host can act on", () => {
+    // `appliesTo` decides whether a trait claim is OWED here at all: one riding
+    // only kinds this host does not render owes nothing, one riding the envelope
+    // is owed by everything. A scope this host cannot interpret is therefore not
+    // a cosmetic defect — it is an unanswerable question about whether the gate
+    // should be red.
+    //
+    // Both arms are asserted in BOTH directions, because the tagged shape exists
+    // precisely so that "every kind" is not spellable as an empty array: an
+    // `allKinds` carrying a list, or a `namedKinds` carrying none, would each
+    // read as the opposite of what it says.
+    const manifest = load();
+    const kindNames = new Set(manifest.kinds.map((k) => k.kind));
+
+    for (const row of manifest.traits) {
+      expect(
+        row.trait,
+        'a trait id is the wire path of the member it governs, never a bare kind name',
+      ).toContain('.');
+      expect(
+        kindNames.has(row.trait),
+        `${row.trait} collides with a kind name; one registry keys both populations`,
+      ).toBe(false);
+      if (row.appliesTo.scope === 'allKinds')
+        expect(
+          row.appliesTo.kinds,
+          `${row.trait}: an allKinds scope names no kinds — a list would be a narrower claim than the scope itself`,
+        ).toEqual([]);
+      else
+        expect(
+          row.appliesTo.kinds.length,
+          `${row.trait}: a namedKinds scope with an empty list rides NOTHING, which is satisfiable by rendering nothing at all`,
+        ).toBeGreaterThan(0);
+    }
+  });
+
   // ── The registry is not itself a second source of truth ───────────────────
   it('registers no checker for an obligation the manifest does not declare', () => {
     // A checker for a claim no row declares is a stale assertion: it passes
