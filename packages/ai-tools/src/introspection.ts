@@ -41,6 +41,14 @@ export interface BindingSlotInfo {
   readonly expression: string;
   /** Which `Binding` case produced the slot. */
   readonly source: BindingSource;
+  /**
+   * Phase 1674 — the REACTIVE INPUTS this slot reads, as first-class entries:
+   * `filter:<name>`, `state:<key>`, `query:<name>`, `selection:<nodeId>`.
+   * Always present, empty where there are none — a caller must be able to tell
+   * "reads nothing" from "this surface does not report it", and an absent key
+   * cannot. Mirrors the F# `BindingSlotInfo.DependsOn`.
+   */
+  readonly dependsOn: readonly string[];
 }
 
 /**
@@ -196,9 +204,84 @@ export const bindingExpression = <T>(
   }
 };
 
+/**
+ * The named reactive inputs one binding reads, in the vocabulary an agent can
+ * join on. Port of the F# `slotDependencies`, which projects
+ * `BindingWalk.usesOfBinding`.
+ *
+ * WHY IT IS A FIELD (Phases 421 + 424, drained by 1674). The edges were all
+ * derivable and none was OFFERED: `expression` is prose for a human, and a
+ * caller wanting the dependency graph had to decode the whole node and
+ * re-derive them. A filter→consumer or transform→consumer edge is what an agent
+ * needs before it can predict what changing a filter will redraw, and it was the
+ * one edge class this surface described everything around and never stated.
+ *
+ * A `Computed` binding contributes NOTHING, deliberately: its closure is handed
+ * the whole state bag, so which keys it reads is unknowable statically, and
+ * inventing an edge would be worse than omitting one. `Now` participates in no
+ * reactive edge either.
+ *
+ * A transform's PARAMS are the filter→consumer edge in its most useful form: a
+ * grid whose rows are scoped by a chip reports `filter:<chip>` at the slot that
+ * carries the transform.
+ */
+export const slotDependencies = <T>(binding: Binding<T>): string[] => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (entry: string) => {
+    if (!seen.has(entry)) {
+      seen.add(entry);
+      out.push(entry);
+    }
+  };
+
+  // `Binding<T>` is invariant in `T` through the closure-bearing arms, so the
+  // walk takes `Binding<any>`: every case it reads is a DATA member whose type
+  // does not vary, and narrowing to `unknown` makes Local / I18n unassignable
+  // for a reason about closures this function never touches.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const walk = (b: Binding<any>): void => {
+    switch (b.kind) {
+      case 'State':
+        add(`state:${b.key}`);
+        return;
+      case 'Filter':
+        add(`filter:${b.name}`);
+        return;
+      case 'Query':
+        add(`query:${b.name}`);
+        return;
+      case 'Selection':
+        add(`selection:${b.nodeId}`);
+        return;
+      case 'Local':
+        walk(b.local.initialFrom);
+        return;
+      case 'Format':
+        walk(b.source);
+        return;
+      case 'I18n':
+        for (const arg of Object.values(b.args ?? {})) walk(arg);
+        return;
+      case 'Transform':
+      case 'Expr':
+        for (const p of b.params ?? []) walk(p.from);
+        return;
+      default:
+        // Static / Computed / Now / Invoke read no named input. Computed and
+        // Now are silent BY POSITION rather than by omission — see the note
+        // above.
+        return;
+    }
+  };
+
+  walk(binding);
+  return out;
+};
+
 const slot = <T>(name: string, binding: Binding<T>): BindingSlotInfo => {
   const { source, expression } = bindingExpression(binding);
-  return { slot: name, expression, source };
+  return { slot: name, expression, source, dependsOn: slotDependencies(binding) };
 };
 
 // ─── Per-NodeKind binding-slot extraction (port of F# extractBindings) ────────

@@ -15,6 +15,7 @@ import type { Binding, Node, NodeId, SemanticStyle, StateBehaviour } from '@fuar
 import {
   bindingExpression,
   extractBindingSlots,
+  slotDependencies,
   findNodes,
   getNodeState,
   inspectTree,
@@ -203,7 +204,9 @@ describe('extractBindingSlots — the per-kind table', () => {
     expect(extractBindingSlots(button('b').kind)).toEqual([]);
     expect(
       extractBindingSlots(button('b', { kind: 'State', key: 'busy', defaultValue: false }).kind),
-    ).toEqual([{ slot: 'Disabled', expression: '$state.busy', source: 'State' }]);
+    ).toEqual([
+      { slot: 'Disabled', expression: '$state.busy', source: 'State', dependsOn: ['state:busy'] },
+    ]);
   });
 });
 
@@ -219,7 +222,14 @@ describe('getNodeState / findNodes / inspectTree', () => {
     expect(getNodeState(tree, 'rev')).toEqual({
       id: 'rev',
       kind: 'Metric',
-      bindings: [{ slot: 'Value', expression: '$state.revenue', source: 'State' }],
+      bindings: [
+        {
+          slot: 'Value',
+          expression: '$state.revenue',
+          source: 'State',
+          dependsOn: ['state:revenue'],
+        },
+      ],
       text: [{ slot: 'Label', provenance: 'literal' }],
       childIds: [],
     });
@@ -240,6 +250,7 @@ describe('getNodeState / findNodes / inspectTree', () => {
       slot: 'Disabled',
       expression: '$state.busy',
       source: 'State',
+      dependsOn: ['state:busy'],
     });
   });
 });
@@ -253,5 +264,54 @@ describe('introspection over a decoded corpus fixture', () => {
     if (!decoded.ok) throw new Error('btn-1 failed to decode');
     const state = getNodeState(decoded.value, decoded.value.id as string);
     expect(state?.kind).toBe('Button');
+  });
+});
+
+// ─── Phase 1674 — the dependency edges, as data ──────────────────────────────
+//
+// The mirror of the F# `slotDependencies`. Phases 421 + 424 left this as a
+// shared deferred leg on BOTH hosts: the edges were all derivable and neither
+// surface offered them, so a caller wanting the dependency graph had to decode
+// the node and re-derive the walk itself.
+describe('slotDependencies — the reactive inputs a slot reads', () => {
+  it('names a State key, a Filter, a Query and a Selection in a joinable vocabulary', () => {
+    expect(slotDependencies({ kind: 'State', key: 'region' })).toEqual(['state:region']);
+    expect(slotDependencies({ kind: 'Filter', name: 'dept' })).toEqual(['filter:dept']);
+    expect(slotDependencies({ kind: 'Query', name: 'orders', accessor: (x) => x })).toEqual([
+      'query:orders',
+    ]);
+    expect(slotDependencies({ kind: 'Selection', nodeId: 'grid-1', accessor: (x) => x })).toEqual([
+      'selection:grid-1',
+    ]);
+  });
+
+  it("reports a Transform's PARAMS — the filter→consumer edge the two origin phases were about", () => {
+    // The filter name is inside `params`, not in the slot's own binding case,
+    // so nothing short of the walk finds it.
+    const scoped = {
+      kind: 'Transform' as const,
+      source: { kind: 'Data' as const, data: { columns: {} } },
+      pipeline: [],
+      params: [{ name: 'dept', from: { kind: 'Filter' as const, name: 'dept' } }],
+    };
+
+    expect(slotDependencies(scoped)).toEqual(['filter:dept']);
+  });
+
+  it('reports NOTHING for Computed, and that is the posture rather than a gap', () => {
+    // The closure is handed the whole state bag, so which keys it reads is
+    // unknowable statically. Inventing an edge would be worse than omitting one.
+    expect(slotDependencies({ kind: 'Computed', compute: () => 1 })).toEqual([]);
+    expect(slotDependencies({ kind: 'Static', value: 1 })).toEqual([]);
+  });
+
+  it('every extracted slot carries the field, empty where there is nothing to name', () => {
+    // "Reads nothing" and "this surface does not report it" must be
+    // distinguishable, and an absent key cannot distinguish them. A Static
+    // slot is the empty case, and it must still carry the array.
+    const staticSlots = extractBindingSlots(button('b', { kind: 'Static', value: false }).kind);
+
+    for (const s of staticSlots) expect(s.dependsOn).toEqual([]);
+    expect(staticSlots.length).toBeGreaterThan(0);
   });
 });

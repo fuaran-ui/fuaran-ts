@@ -212,6 +212,35 @@ The introspection surface stays **alpha** – the F# `Fuaran.UI.AiTools` tier is
 
 The envelope shapes (`NodeIntrospection`, `TreeIntrospection`) and the `getNodeState` / `findNodes` / `inspectTree` / `FuaranIntrospectionProvider` surface may grow additively (e.g. a future `props` block or live binding-value resolution). `@fuaran-ui/schema` is a peer dependency; `react` is an optional peer (only the context provider + hook need it).
 
+### `@fuaran-ui/ai-tools` 0.13.0 — a binding slot names the reactive inputs it reads (fuaran#1674)
+
+**UNRELEASED** — 0.12.0 is the published version; this advances it and no tag has been pushed.
+
+`BindingSlotInfo` gains `dependsOn: readonly string[]` — the named reactive inputs the slot reads, as
+`filter:<name>` / `state:<key>` / `query:<name>` / `selection:<nodeId>`. `slotDependencies` is exported
+beside `bindingExpression` for a caller holding a binding rather than a slot.
+
+**Why it is a field rather than something a caller derives.** Phases 421 and 424 left this as a
+deferred leg on BOTH hosts: the edges were all derivable and neither surface offered them, so a
+caller wanting the dependency graph had to decode the whole node and re-implement the walk — in
+JavaScript, against a vocabulary that moves. The filter→consumer edge is the one an agent needs
+before it can predict what changing a chip will redraw, and a transform's `params` carry it where
+nothing short of the walk finds it: the filter name is inside `params`, not in the slot's own binding
+case.
+
+**What it costs a consumer.** Additive for a READER. A consumer that CONSTRUCTS a `BindingSlotInfo`
+literal — a test double, a mock provider — must add the field; TypeScript's structural typing makes
+that a compile error rather than a silent omission, which is the intent. Nothing about `slot`,
+`expression` or `source` moved.
+
+**A `Computed` binding reports NOTHING, and that is the posture rather than a gap.** Its closure is
+handed the whole state bag, so which keys it reads is unknowable statically; inventing an edge would
+be worse than omitting one. `Now` participates in no reactive edge either. The F# side takes the same
+position because both project the same walk, and a test on each side pins it.
+
+Certified by `packages/ai-tools/test/introspection.test.ts` (the four cases above) and mirrored by the
+F# `Fuaran.UI.Tests/DebugGlobalTests.fs`.
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:

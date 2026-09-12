@@ -22,6 +22,7 @@ export {
   kindName,
   bindingExpression,
   extractBindingSlots,
+  slotDependencies,
   bindingForSlot,
   textProvenance,
   extractTextSlots,
