@@ -15,7 +15,7 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "build": "pnpm -r --filter \"./packages/*\" --filter \"./tools/*\" --filter \"./templates/*\" run build",
-    "test": "pnpm -r --filter \"./packages/*\" --filter \"./tools/*\" run test && node dev-scripts/check-starter-pins.mjs && node dev-scripts/check-readme-packages.mjs",
+    "test": "pnpm -r --filter \"./packages/*\" --filter \"./tools/*\" run test && node dev-scripts/check-starter-pins.mjs && node dev-scripts/check-readme-packages.mjs && node dev-scripts/check-peer-ranges.mjs --self-test",
     "typecheck": "pnpm -r --filter \"./packages/*\" --filter \"./tools/*\" run typecheck",
     "lint": "pnpm -r --filter \"./packages/*\" --filter \"./tools/*\" run lint",
     "format": "prettier --write .",

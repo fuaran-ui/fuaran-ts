@@ -54,6 +54,7 @@
   "devDependencies": {
     "@fuaran-ui/ops": "workspace:*",
     "@fuaran-ui/schema": "workspace:*",
+    "@fuaran-ui/ui": "workspace:*",
     "@types/node": "^22.10.2"
   },
   "publishConfig": {
