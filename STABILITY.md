@@ -434,6 +434,16 @@ The check sits in `decodeSkeletonSpec` **after** the §7.1 integer read and neve
 
 Certified by `limit-skeleton-rows-at-max` — the at-the-bound accept this decoder must still take, rule 1 being symmetric with rule 2 — and `reject-limit-skeleton-rows`, whose value is the 32-bit maximum rather than `10 001` so that the vector pins the §7.1/§21 seam and not merely the arithmetic. **The number does not move**: `@fuaran-ui/ops` 0.26.0 is ahead of the newest tag and unreleased, so this rides it.
 
+### `@fuaran-ui/renderer` 0.23.0 and `@fuaran-ui/renderer-server` 0.21.0 — the accessible name resolves through the scalar arm, and an i18n argument may carry a binding (fuaran#1661, fuaran#1665)
+
+Two behaviour changes on the rendered output, both additive to the prop shapes and neither moving an exported signature — so a minor on each tier, recorded here because the versions they land on (`renderer` 0.22.0, `renderer-server` 0.20.0) were already PUBLISHED and a behaviour change may not ride a published slot.
+
+**`accessibility.label` reads the 1x1 result cell (fuaran#1665).** The slot resolved through `tryResolve`, whose `Transform` arm is ROW-shaped; on an erased host `unbox` is the identity, so the rows array reached the attribute and both tiers emitted `aria-label="[object Object]"` for the one wire spelling of "name this region after what is in it". `tryResolveScalarText` reads the cell through the same coercion every other text slot uses. **Every other binding case resolves exactly as before, so no shipped document changes what it renders** — what changes is the one spelling that rendered wrongly on five hosts, each wrongly in its own way, with every conformance gate green. Certified by the corpus fixture `nodes/a11y-wrapper-transform-label` and the `behaviour` vectors in the corpus's `a11y-contract.json`, which both tiers now READ rather than restate: the hand-written expectation table was the arrangement that let one slot resolve five different ways undetected.
+
+**A `TextSource.I18n` argument may be a binding (fuaran#1661).** An argument that is a `Static` carrying a value — the bare wire form every pre-1661 document decodes to — projects through exactly the rule this slot used before, **so no existing caption changes a character**. Any other arm resolves through the same store-reading path, and an unresolvable one substitutes the empty string rather than leaving `{name}` visible mid-sentence, which is the `Bound` arm's degradation one level down.
+
+Neither change narrows the wire: no decoder refuses anything it accepted before, and a consumer that adopts either tier needs no source edit.
+
 ### Recorded breaking change — `@fuaran-ui/renderer` 0.23.0 and `@fuaran-ui/renderer-server` 0.21.0, `Range`'s class names join the F# vocabulary (fuaran#1670)
 
 Breaking by this document's own test for the renderer packages — **a rendered class name changes** — and by nothing else: no exported type, signature, prop or member moves, no wire byte moves, and no other kind's markup is touched.
@@ -443,6 +453,8 @@ Both renderers emitted `fuaran-form-range` / `-min` / `-sep` / `-max` for `FormF
 It surfaced from the other end. The `DateRange` arm deliberately used the F# spelling when it landed, because parity is the stated mandate — which left this tier internally inconsistent between its two pair controls until now.
 
 **The reference host is unchanged, and that is the landing order rather than a coincidence:** it already emitted the target vocabulary, so `fuaran-dotnet` needed no edit, its `Theme.vocabularyFingerprint` does not move, and `-- Css` rewrote no tier stylesheet copy. **Consumer CSS or DOM queries selecting `fuaran-form-range*` must be updated**; there is no compatibility alias, because a second name for one control is the condition this change exists to end.
+
+**The numbers RIDE rather than advance.** Both packages stood at their tagged versions when this work began, and the section above moved them to 0.23.0 / 0.21.0 first — untagged, and already carrying the breaking-on-rendered-output class this change is. Under the draft-slot rule a change of that same class rides the standing draft rather than minting a second number for one release.
 
 _What this does NOT close, stated so it is not read as closed._ A filter chip in this tier renders through the shared form-control renderer, so a `Range` chip now emits `fuaran-field-range*` inside a `fuaran-filter` label where the F# tier's separate filter renderer emits `fuaran-filter-range*`. That divergence is structural — two render paths in one tier versus one in the other — and predates this change in a different spelling; it is recorded here rather than half-fixed under a class-rename.
 
@@ -456,6 +468,7 @@ Three extent computations took `Math.min(...xs)` / `Math.max(...xs)` where the r
 
 The NaN half of the rule is matched too, and is **currently unobservable** at all three sites: every contributor is already guarded — `numericOf`'s non-finite clamp on each series cell, the `Number.isFinite` filter on a `ReferenceLine`, the same on both ends of a `ValueRange` band. That is why no corpus golden discriminates it here, and the same test file pins those three guards so that relaxing one is what goes red. The fold is what makes such a relaxation safe rather than a cross-host divergence.
 
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:
@@ -467,7 +480,23 @@ The following are explicitly **not** covered by semver and may change in any pat
 
 ## Versioning policy
 
-Per-release semver bump. Pre-1.0: plain `0.x.y` versions, no prerelease suffix (a release bumps the patch, or the minor when the surface grows). The publish workflow ([`.github/workflows/publish.yml`](.github/workflows/publish.yml)) is triggered by a `vX.Y.Z` tag push and runs `pnpm -r publish --access public`; `@fuaran-ui/ui` declares `@fuaran-ui/schema` as a peer dependency, so the two ship together.
+Per-release semver bump. Pre-1.0: plain `0.x.y` versions, no prerelease suffix (a release bumps the patch, or the minor when the surface grows). The packages are INDEPENDENTLY VERSIONED — a package's version tracks its own surface — while the repository tag `vX.Y.Z` marks a RELEASE GESTURE over the workspace as it then stands. The publish workflow ([`.github/workflows/publish.yml`](.github/workflows/publish.yml)) is triggered by that tag push, packs each publishable package and publishes the tarballs over npm trusted publishing (OIDC), skipping any version already on the registry; `@fuaran-ui/ui` declares `@fuaran-ui/schema` as a peer dependency, so the two ship together.
+
+**A change to a published surface advances that package's version in the same commit; a change that rides an already-advanced, not-yet-tagged version says so.** The second half is what keeps a release honest under several concurrent changes: once a package's version is ahead of the newest tag it is a DRAFT, and an additive or same-class change rides it rather than minting a number nobody will ever install. A change of a HIGHER class than the draft already carries advances it again, because the number is what tells a consumer what adopting it costs.
+
+**What proves a release, as opposed to a build.** Every suite in `ci.yml` runs inside this workspace, against linked packages and built `dist/` — the right lane for "does the code agree with itself", and structurally blind to the two ways a release fails a newcomer: a package that does not install at all, and two hosts whose PUBLISHED bytes disagree while their sources do not. The clean-machine install smoke ([`.github/workflows/install-smoke.yml`](.github/workflows/install-smoke.yml), fixtures in [`dev-scripts/install-smoke/`](dev-scripts/install-smoke/)) installs the current release from npm and restores it from nuget.org with every local source cleared, authors one tree through each tier's own surface, and requires the canonical bytes to match. It runs after a successful publish, weekly, and on demand — its inputs are the registries, not this branch.
+
+### Where the release notes live
+
+**This file is the changelog.** There is no `CHANGELOG.md` in this repository, and adding one would split the record in two: the reason a version moved and the surface it moved are the same paragraph, and that paragraph belongs beside the surface it describes.
+
+The convention, shared with the other producers in this family so a reader crossing between them meets one shape:
+
+- One `###` section per notable change, headed `<package> <version> — <what changed> (<citation>)`, or `Recorded breaking change — <package> <version>, <what changed> (<citation>)` when a consumer must act.
+- The section says what moved, **why**, what it costs a consumer, and what certifies it (the fixture, vector or suite). A line that only names the change is not a release note.
+- The citation is the bare phase ordinal (`Phase NNN` / `fuaran#NNN`) that carried it — a searchable trail rather than a link that rots.
+- A section for a version that is ahead of the newest tag states that it is unreleased, so a reader can tell a shipped change from a queued one.
+- The git tag is the release marker; release notes for a tag are the sections naming versions that tag first published.
 
 ## Re-confirmation gate before public exposure
 

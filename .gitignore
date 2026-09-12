@@ -153,3 +153,10 @@ docs/.drift/
 
 # Local + CI `pnpm pack` output (see .github/workflows/publish.yml).
 tarballs/
+
+# Clean-machine install smoke — throwaway restore/install output. The two legs
+# deliberately resolve from the public registries at run time (see
+# dev-scripts/install-smoke/README.md), so nothing they produce is tracked.
+dev-scripts/install-smoke/fs/obj/
+dev-scripts/install-smoke/fs/bin/
+dev-scripts/install-smoke/ts/package-lock.json
