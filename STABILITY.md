@@ -622,6 +622,41 @@ _A note on the number._ A patch would have corrected the peer range and understa
 
 **Seven packages stand in that state today and are NOT cleared here**, because each is a version bump in a package this change does not otherwise touch: `@fuaran-ui/cli` 0.11.0, `@fuaran-ui/client` 0.12.0, `@fuaran-ui/mcp` 0.12.0, `@fuaran-ui/op-stream` 0.11.0, `@fuaran-ui/react` 0.12.0, `@fuaran-ui/renderer` 0.23.0 and `@fuaran-ui/theme-manifest` 0.11.0 each sit on the registry declaring a range that excludes a version the next release will publish. `renderer` is the newest and shows the mechanism plainly: it was published in v0.26.0 with `@fuaran-ui/ai-tools` `^0.12.0`, and `ai-tools` has since advanced to 0.13.0 in the workspace. **The next release tag must bump them**, or the check will refuse it — which is the check working, and is the first time this drift has been measurable at all.
 
+### Recorded release-consistency bumps — 0.27.0 release set (fuaran#1695)
+
+The section above names seven packages sitting on the registry with ranges that exclude versions the next release publishes, and says the next release tag must bump them. **This is that bump.** Six remain: `@fuaran-ui/renderer` left the list on its own account when fuaran#1670 advanced it to 0.24.0, which is the mechanism working — a package that is republished for any reason carries ranges regenerated from `workspace:^`.
+
+**The remedy is a version bump and can only be a version bump.** Each of these ranges was generated at ITS package's pack time from `workspace:^`; the range in the registry's copy of the manifest is not editable, and the workspace's `workspace:^` is already correct. The only way to put a satisfiable range in front of a consumer is to publish the package again.
+
+**The class is decided per package, from what has actually changed since the commit that set its current version — not from the fact that a bump is needed.** A bump forced by a peer's movement does not license a minor, and a package whose own surface moved does not get a patch because the release is about ranges.
+
+| Package                     | From → to       | Class                               | What changed since its current version was set                                                                                                                                                            |
+| --------------------------- | --------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@fuaran-ui/cli`            | 0.11.0 → 0.11.1 | patch                               | Nothing. No source, test, README or manifest edit. The tarball differs only in the regenerated `@fuaran-ui/mcp` and `@fuaran-ui/client` ranges.                                                           |
+| `@fuaran-ui/client`         | 0.12.0 → 0.12.1 | patch                               | A formatting pass over `README.md`. Nothing under `src/`.                                                                                                                                                 |
+| `@fuaran-ui/mcp`            | 0.12.0 → 0.13.0 | **minor, and breaking** — see below | A new `inspect` tool on the public surface, a new `@fuaran-ui/ai-tools` dependency, a per-elicitation nonce through the elicitation server, and a required parameter added to an exported function.       |
+| `@fuaran-ui/op-stream`      | 0.11.0 → 0.11.1 | patch                               | Only `test/` — the teleport family certified against the corpus (fuaran#1589) and a record widening carried into the test trees. Test-only surface is outside semver here, per _Unstable surfaces_ above. |
+| `@fuaran-ui/react`          | 0.12.0 → 0.12.1 | patch                               | A behavioural fix inside `useFuaranGenerate` with no export, signature or prop change — the `@fuaran-ui/charts` 0.14.1 class. See below.                                                                  |
+| `@fuaran-ui/theme-manifest` | 0.11.0 → 0.11.1 | patch                               | Nothing. As `cli`.                                                                                                                                                                                        |
+
+**Why the author-direction class does not make these minors.** `@fuaran-ui/schema` has moved 0.20.0 → 0.23.0 since some of these were published, carrying the widening the section above records as breaking for `@fuaran-ui/ui`. That argument turned on `ui` re-exporting the whole schema surface, so the widened type is part of what `ui` itself presents to an author. **None of these six re-exports it** — there is no `export *` from `@fuaran-ui/schema` in any of their entry points, and for five of the six `schema` is a PEER dependency, which the consumer resolves and constructs against directly. A consumer of these packages meets the widened type through its own `schema` pin, at whatever version that pin names, exactly as it did before. The distinction is the point of the author-direction rule rather than an exception to it: the class attaches to the package whose author surface moved.
+
+#### Recorded breaking change — `@fuaran-ui/mcp` 0.13.0, `buildAnswerPage` takes the nonce (fuaran#1652)
+
+`buildAnswerPage(env)` became `buildAnswerPage(env, nonce)` — a required second parameter on an exported function, so a caller passing one argument stops compiling. Breaking by the ordinary test, and recorded here rather than folded into the release-consistency table because a consumer must act.
+
+**That change landed against a PUBLISHED 0.12.0 without advancing the number**, which is the state this bump corrects. It is the same shape as the drift the peer-range check exists to catch, arriving through a different door: the check measures ranges between packages and cannot see a signature move inside one. Worth stating plainly rather than quietly fixing, because the two together say what "the registry set is checked at release time" does and does not cover.
+
+The nonce itself is the reason for the parameter: a per-elicitation 128-bit value the hosted page carries and a POST to `/resolve` or `/decline` must present in `x-fuaran-nonce`, which is the one of that server's three checks that does not depend on browser behaviour. `ElicitationServerHandle` gained a `nonce` member alongside it — additive, since a caller reads that record rather than constructing it.
+
+The rest of `mcp`'s growth is additive: `runInspect`, `UNTRUSTED_TEXT_OBLIGATION` and the `InspectArgs` / `InspectResult` / `UntrustedTextEntry` types are new exports carrying the untrusted-text obligation into the agent snapshot (fuaran#1547), and `@fuaran-ui/ai-tools` becomes a dependency of this package for it. Pre-1.0, per the versioning caveat below, a breaking change is a minor — so the additive growth and the break land on one number.
+
+#### `@fuaran-ui/react` 0.12.1 — a turn that resolves late no longer writes hook state (fuaran#1652)
+
+`useFuaranGenerate` now carries two guards over the gap between issuing a turn and its result arriving: a sequence number each turn captures when it is issued, and a mounted flag. A result whose captured sequence is no longer current is stale — the caller issued another turn while it was in flight — and a stale or post-unmount result no longer folds into hook state. `reset` bumps the counter, which is the same statement as "nothing outstanding may still land".
+
+**The result is still RETURNED to its caller unchanged.** The guards decide what the hook's own state does, never what the caller is told; a turn that genuinely happened is not swallowed. No export, signature or prop moves, so this is a patch on the `@fuaran-ui/charts` 0.14.1 reading: a behavioural fix with no surface change. What a consumer gains is that two turns resolving out of order can no longer leave the hook holding the first one's tree while the caller believes it is looking at the second's.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:
