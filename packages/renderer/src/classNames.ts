@@ -255,6 +255,26 @@ export const gridPrintBreakClasses = (keepRowsTogether: boolean, repeatHeader: b
   (keepRowsTogether ? ' fuaran-grid-rows-together' : '') +
   (repeatHeader ? ' fuaran-grid-repeat-header' : '');
 
+/**
+ * Phase 1701 - the row-action affordance marker on a data-bound grid row.
+ *
+ * The reference stylesheet's pointer rule keys on THIS class rather than on
+ * `.fuaran-grid-row:hover` / `.fuaran-table-row:hover`, so a pointer promises
+ * interactivity exactly where the document declared a row action and nowhere
+ * else. A grid that declares none keeps the hover background and the ordinary
+ * arrow, which is what its rows are: content.
+ *
+ * Emitted on the BOUND leg only, and that is a property of the format rather
+ * than of this renderer (WIRE_FORMAT.md 3.6.24): a `staticRows` grid honours no
+ * row action in any tier, so its rows carry no marker whatever the grid
+ * declares.
+ *
+ * The leading space matches `gridPrintBreakClasses` above: the caller appends
+ * the fragment to a base class string.
+ */
+export const gridRowInteractiveClass = (hasRowAction: boolean): string =>
+  hasRowAction ? ' fuaran-grid-row-interactive' : '';
+
 /** Map a `BadgeVariant` to its `fuaran-badge-{x}` class fragment. */
 export const badgeVariantClass = (variant: string): string => variant.toLowerCase();
 

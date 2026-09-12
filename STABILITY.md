@@ -241,6 +241,39 @@ position because both project the same walk, and a test on each side pins it.
 Certified by `packages/ai-tools/test/introspection.test.ts` (the four cases above) and mirrored by the
 F# `Fuaran.UI.Tests/DebugGlobalTests.fs`.
 
+### `@fuaran-ui/renderer` 0.24.0, `@fuaran-ui/renderer-server` 0.22.0 — the pointer cursor moves onto a declared row action (fuaran#1701)
+
+**UNRELEASED, and NO VERSION MOVES.** Both packages already stand on the untagged 0.24.0 / 0.22.0
+draft Phase 1696 cut (0.23.0 / 0.21.0 are what npm serves), and this is the same class of change that
+draft already carries: a behaviour change on rendered output, additive to the emitted class set and
+moving no exported signature. So it rides the draft rather than advancing it. `@fuaran-ui/schema` is
+untouched — the new obligation is a KIND row, which the manifest reader has carried since long before
+`traits`.
+
+Both renderers now emit **`fuaran-grid-row-interactive`** beside `fuaran-grid-row`, on exactly the
+rows of a grid that declares `onRowClick`, and the bundled reference stylesheet's `cursor: pointer`
+moves onto that class — out of the `.fuaran-grid-row:hover, .fuaran-table-row:hover` rule that had
+claimed it for every row in every table. A grid declaring no row action, a `staticRows` grid and a
+markdown table now render with the ordinary arrow. The hover BACKGROUND is unchanged on all of them:
+it says "this is the row under your pointer", which is true of a row you cannot click; only the
+promise of a click moved.
+
+**What it costs a consumer.** Two things, and the second is the one to look for. A consumer that
+byte-compares rendered output for a grid declaring `onRowClick` sees one added class per row. And a
+consumer that shipped its own rule to UNDO the old pointer — scoping `cursor: auto` onto
+`.fuaran-table-row:hover`, which at least one site in this project did — now suppresses the pointer
+on interactive rows too, and should drop that rule when it takes this version.
+
+**Both tiers moved in the same change-set, deliberately.** The served DOM and the hydrated one must
+carry the same classes; marking on one side alone is a hydration mismatch. The server-side parity
+lock (`packages/renderer-server/test/parity.test.tsx`, Lock A) compares the two tiers' `fuaran-*`
+class sets and is what holds them together.
+
+**Certified by** `packages/renderer/test/interactiveRowClass.test.tsx` (the client tier, both
+directions plus the static-rows leg) and the new `DataGrid/interactive-row-only-with-action` checker
+in `packages/renderer-server/test/renderObligations.test.ts`, enumerated from the corpus roster's own
+declaration (`WIRE_FORMAT.md` §3.6.24 + §13).
+
 ### `@fuaran-ui/renderer` 0.24.0, `@fuaran-ui/renderer-server` 0.22.0, `@fuaran-ui/schema` 0.23.0 — the declared text direction is EMITTED (fuaran#1696)
 
 **UNRELEASED** — 0.23.0 / 0.21.0 / 0.22.0 are the published versions on npm; this advances all three

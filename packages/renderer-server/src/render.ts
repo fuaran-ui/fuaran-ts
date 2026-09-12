@@ -116,6 +116,7 @@ import { isLowered, lower, tryLowerSparkline, type ChartRow } from '@fuaran-ui/c
 
 import {
   gridPrintBreakClasses,
+  gridRowInteractiveClass,
   imageAspectClass,
   motionVar,
   nodeClassName,
@@ -2728,7 +2729,15 @@ const renderGrid = (
           ),
         )
         .join('');
-      return el('tr', [['class', 'fuaran-grid-row']], reorderCell(rowIndex) + cells);
+      // Phase 1701 - the row-action affordance marker (WIRE_FORMAT.md 3.6.24).
+      // This host wires no click, but the class states what the DOCUMENT
+      // declared, and the row it marks is the seed the hydrated grid takes
+      // over: a marked row here is a row that is about to become clickable.
+      return el(
+        'tr',
+        [['class', `fuaran-grid-row${gridRowInteractiveClass(spec.onRowClick !== undefined)}`]],
+        reorderCell(rowIndex) + cells,
+      );
     })
     .join('');
   const body = el('tbody', [], bodyRows);

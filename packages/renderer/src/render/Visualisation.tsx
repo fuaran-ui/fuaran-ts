@@ -38,7 +38,7 @@ import {
   type BindingSources,
 } from '../bindings.js';
 import { chartLowerSpecOf } from '../chartLowerSpec.js';
-import { gridPrintBreakClasses, toneVar } from '../classNames.js';
+import { gridPrintBreakClasses, gridRowInteractiveClass, toneVar } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { runAction, writeBackTo } from '../context.js';
 import { drawingSvg } from '../drawingSvg.js';
@@ -435,8 +435,15 @@ const renderGrid = <TMsg,>(
           return (
             <tr
               key={ri}
+              // Phase 1701 - the interactive marker is appended AFTER the
+              // selection one, so a row's first paint (nothing selected yet) is
+              // byte-identical to the static emission every other host produces
+              // for the same grid. Selection is a gesture's consequence and
+              // arrives later, by which point there is no static render to
+              // agree with.
               className={
-                isSelected ? 'fuaran-grid-row fuaran-grid-row-selected' : 'fuaran-grid-row'
+                (isSelected ? 'fuaran-grid-row fuaran-grid-row-selected' : 'fuaran-grid-row') +
+                gridRowInteractiveClass(onRowClick !== undefined)
               }
               onClick={() =>
                 onRowClick !== undefined ? runAction(ctx, onRowClick(row)) : writeSelection(row)

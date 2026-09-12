@@ -841,6 +841,59 @@ const checkNoDerivedDirectionBehaviour = (): void => {
   ).toBe(1);
 };
 
+// ─── DataGrid: the interactive-row class (Phase 1701) ────────────────────────
+//
+// Built from RAW canonical JSON rather than through the authoring surface, for
+// the reason the direction checkers give: `onRowClick` is a closure-bearing slot
+// whose whole wire content is its PRESENCE, and authoring it through a typed
+// facade would put the facade under test rather than the renderer.
+
+/** A data-bound grid, with the row action declared or omitted. */
+const boundGrid = (rowAction: boolean): string =>
+  renderJson(
+    `{"id":"g","kind":{"$type":"DataGrid","columns":[{"field":"reference","kind":{"$type":"Text"},"label":"Reference"}]` +
+      (rowAction ? `,"onRowClick":"<closure>"` : '') +
+      `,"source":{"$type":"Static","value":[{"reference":"S-1"}]}}}`,
+  );
+
+/** The same grid in `staticRows` mode, which honours no row action in any tier. */
+const staticRowsGrid = (rowAction: boolean): string =>
+  renderJson(
+    `{"id":"g","kind":{"$type":"DataGrid","columns":[]` +
+      (rowAction ? `,"onRowClick":"<closure>"` : '') +
+      `,"source":{"$type":"Static","value":[]},` +
+      `"staticRows":{"headers":["Reference"],"rows":[["S-1"]]}}}`,
+  );
+
+const checkInteractiveRowOnlyWithAction = (): void => {
+  const marker = 'fuaran-grid-row-interactive';
+
+  // Rule 1, both directions. An emission test alone cannot tell a renderer that
+  // honours the declaration from one that marks every row.
+  expect(
+    boundGrid(true),
+    'a grid declaring a row action must mark its rows, so the pointer affordance keyed on the marker promises a click the document declared',
+  ).toContain(marker);
+  expect(
+    boundGrid(false),
+    'a grid declaring no row action must mark no row — a pointer over inert content is a promise the markup does not keep',
+  ).not.toContain(marker);
+
+  // ...and the rows are there either way, so the negative above is about the
+  // DECLARATION rather than about an empty render.
+  expect(boundGrid(false)).toContain('fuaran-grid-row');
+
+  // Rule 2 — the static leg renders real rows AND can read the declaration, and
+  // must still mark none: the mode honours no row action in any tier, so a
+  // marked row there would promise a click nothing can deliver.
+  expect(staticRowsGrid(true)).toContain('fuaran-table-row');
+  expect(
+    staticRowsGrid(true),
+    'a `staticRows` grid honours no row action in any tier, so its rows carry no interactive-row marker whatever the grid declares',
+  ).not.toContain(marker);
+  expect(staticRowsGrid(false)).not.toContain(marker);
+};
+
 /**
  * The registry: which (kind, claim) pairs this host asserts, and how. Keyed by
  * the claim's WIRE token, because the enumeration it is matched against comes
@@ -879,6 +932,8 @@ const CHECKERS: ReadonlyMap<string, () => void> = new Map([
   ['style.direction/declaration-wins-over-inference', checkDeclarationWinsOverInference],
   ['style.direction/auto-is-no-declaration', checkAutoIsNoDeclaration],
   ['style.direction/no-derived-direction-behaviour', checkNoDerivedDirectionBehaviour],
+  // Phase 1701 — the row-action affordance.
+  ['DataGrid/interactive-row-only-with-action', checkInteractiveRowOnlyWithAction],
 ]);
 
 /**
