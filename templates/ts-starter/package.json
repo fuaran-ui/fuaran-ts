@@ -12,8 +12,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@fuaran-ui/renderer": "^0.23.0",
-    "@fuaran-ui/schema": "^0.22.0",
+    "@fuaran-ui/renderer": "^0.24.0",
+    "@fuaran-ui/schema": "^0.23.0",
     "@fuaran-ui/ui": "^0.21.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

@@ -266,6 +266,14 @@ this repo's own client-renderer corpus snapshots moved on exactly two fixtures, 
 without a declared direction produces changed at all. Both tiers moved in the same change-set, so a
 hydration handoff still finds the DOM it expects.
 
+**`@fuaran-ui/ops` 0.27.0 carries NO code change**, and is here for the one thing a published version
+cannot do: correct its own peer range. `ops@0.26.0` is on the registry declaring `@fuaran-ui/schema`
+`^0.22.0`, so a publish that ships schema 0.23.0 while SKIPPING ops (already published) would put a
+consumer installing both into a peer conflict. The range regenerates from `workspace:^` only on a
+republish, which needs a new version. Phase 1695's `check-peer-ranges.mjs` names exactly this, and
+the fourteen rows it still reports on this tree all predate Phase 1696 — the one row this phase
+would otherwise have added is the one 0.27.0 removes.
+
 **`@fuaran-ui/schema` 0.23.0** is the reader half: `RenderFidelityManifest` gains `traits`, with
 `TraitRow` / `TraitObligation` / `TraitScope`, and `allObligations` now spans both subject populations
 — the kind rows first, then the trait rows. A consumer that CONSTRUCTS a manifest literal must add
