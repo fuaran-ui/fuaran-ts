@@ -23,6 +23,7 @@ import type {
 
 import {
   asArray,
+  floatSeries,
   electedDefaultTracks,
   focusableTreeItem,
   formatNumber,
@@ -897,7 +898,12 @@ const renderLabelValueRow = <TMsg,>(
 // host element rather than a `Shape`, so `tryLowerSparkline` reports it in the
 // return type rather than lowering an empty canvas nobody can read.
 const renderSparkline = <TMsg,>(ctx: RenderContext<TMsg>, spec: SparklineSpec): ReactElement => {
-  const drawing = tryLowerSparkline(asArray<number>(tryResolve(ctx.sources, spec.source)));
+  // Phase 1704 — `floatSeries` rather than `asArray<number>`: §24.7 reads a
+  // host-fed series ELEMENT-WISE against a closed accept set, where the type
+  // assertion let JavaScript's own coercion decide what a string element meant.
+  // Both tiers move together — this one and the server's emit the same bytes by
+  // construction, and a hydration mismatch is what a one-sided change buys.
+  const drawing = tryLowerSparkline(floatSeries(tryResolve(ctx.sources, spec.source)));
   if (drawing === null) {
     return <div className="fuaran-sparkline fuaran-sparkline-empty">—</div>;
   }

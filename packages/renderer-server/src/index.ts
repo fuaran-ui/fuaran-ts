@@ -27,6 +27,7 @@ export {
   formatLocaleValue,
   renderCellValue,
   asArray,
+  floatSeries,
 } from './bindings.js';
 
 export {
