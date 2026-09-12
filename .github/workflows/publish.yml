@@ -73,6 +73,33 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # BEFORE anything is packed, and deliberately before Build so a refusal
+      # costs seconds rather than minutes.
+      #
+      # The publish loop below SKIPS a package whose version is already on the
+      # registry, which is what keeps re-runs idempotent — and is also how the
+      # set on the registry drifts apart. A skipped package keeps the
+      # inter-package ranges it was published WITH (resolved from `workspace:^`
+      # against the versions that stood at ITS publish time), so when a package
+      # it peers on moves and it does not, the registry ends up holding a set no
+      # consumer can install under `strict-peer-dependencies`. The v0.26.0
+      # release did exactly that: `@fuaran-ui/schema` went to 0.22.0 while
+      # `@fuaran-ui/ui` stayed at 0.20.0, whose published manifest peers
+      # `^0.21.0`.
+      #
+      # This resolves every `@fuaran-ui/*` range — the PUBLISHED one for a
+      # package this run will skip, the workspace one for a package it will
+      # publish — against the versions this very run produces, and refuses the
+      # release when one is unsatisfiable. The remedy it names is a version
+      # BUMP, not a range edit: a published range is generated at pack time and
+      # cannot be corrected in place.
+      #
+      # `dev-scripts/check-peer-ranges.mjs --self-test` proves the same verdict
+      # logic offline in the ordinary gate, so this step cannot rot into an
+      # always-green lookup.
+      - name: Check the @fuaran-ui/* peer ranges against the set this run produces
+        run: node dev-scripts/check-peer-ranges.mjs
+
       - name: Build
         run: pnpm build
 
