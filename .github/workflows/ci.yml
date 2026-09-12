@@ -297,8 +297,14 @@ jobs:
             exit 0
           fi
           # Both values reach `gh` through the ENVIRONMENT rather than through
-          # `${{ }}` interpolation, so neither is substituted into the script
-          # text before a shell parses it.
+          # an expression, so neither is substituted into the script text before
+          # a shell parses it. (And the word "expression" is spelled out here
+          # rather than shown: a block scalar IS interpolated, so writing the
+          # empty expression inside a run: comment is a workflow-parse failure —
+          # a 0-second run named after the file, with no job and no log. That is
+          # how this comment was first written, and it took the whole workflow
+          # down. The YAML-level comment in publish.yml may show it because a
+          # YAML comment is never evaluated; this one may not.)
           gh api "repos/$TARGET/dispatches" \
             --method POST \
             -f event_type=wire-conformance \
