@@ -796,6 +796,39 @@ export const tryResolveScalarFloat = (
 export const asArray = <T>(value: unknown): readonly T[] =>
   Array.isArray(value) ? (value as readonly T[]) : [];
 
+/**
+ * One resolved float SEQUENCE as readings, per WIRE_FORMAT.md §24.7 (Phase 1704).
+ *
+ * ONE READING PER ELEMENT, always. Each element is read by §7's rule for a float
+ * — a JSON number, or one of the three quoted sentinels `"NaN"` / `"Infinity"` /
+ * `"-Infinity"` — and an element that is neither reads as `NaN`, which says
+ * "there is no number here" in the position where the number is not. A value
+ * that is not a sequence at all resolves to the empty series, which is the
+ * UNRESOLVED case and unchanged.
+ *
+ * This is deliberately NOT `asArray<number>`, and the difference is the whole
+ * point of the rule. `asArray` hands the elements on with a type assertion, so a
+ * store carrying `["3.5"]` reached the geometry as a string and JavaScript's own
+ * arithmetic coercion decided what it meant — an accept set belonging to this
+ * RUNTIME rather than to the format, which also takes `"0x10"` and the empty
+ * string. Two consequences followed. The same store drew different pictures on
+ * two conformant hosts. And it contradicted this tier's own decoder, which types
+ * a float-sequence element and refuses exactly these spellings (`WRONG_TYPE`;
+ * `reject/reject-spark-element-nonnumeric`, and
+ * `reject/reject-spark-element-sentinel-case` for a mis-cased `"nan"`) — so the
+ * two halves of one slot disagreed about what a number is.
+ */
+export const floatSeries = (value: unknown): readonly number[] =>
+  Array.isArray(value)
+    ? value.map((element) => {
+        if (typeof element === 'number') return element;
+        if (element === 'NaN') return Number.NaN;
+        if (element === 'Infinity') return Number.POSITIVE_INFINITY;
+        if (element === '-Infinity') return Number.NEGATIVE_INFINITY;
+        return Number.NaN;
+      })
+    : [];
+
 const msg = (ex: unknown): string => (ex instanceof Error ? ex.message : String(ex));
 
 // ─── Text-source rendering ───────────────────────────────────────────────────

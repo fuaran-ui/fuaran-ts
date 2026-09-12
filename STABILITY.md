@@ -314,6 +314,36 @@ would otherwise have added is the one 0.27.0 removes.
 `RenderObligation | TraitObligation`, which a caller reading `.id` / `.statement` / `.section` does not
 notice.
 
+### Rides `@fuaran-ui/renderer` 0.24.0 and `@fuaran-ui/renderer-server` 0.22.0 — a host-fed float sequence is read element-wise against a CLOSED accept set (fuaran#1704)
+
+**UNRELEASED, and it rides the standing draft rather than advancing it.** Both slots are already
+ahead of the newest tag (`v0.26.0` is the repo's newest, and the entry above records 0.23.0 / 0.21.0
+as the published pair), and this is a rendered-output change of the same class the draft already
+carries.
+
+Both renderers read a `Sparkline` source through `floatSeries` rather than `asArray<number>`. Where
+`asArray` handed the elements on with a TYPE ASSERTION — so a host store carrying `["3.5"]` reached
+the geometry as a string and JavaScript's own arithmetic coercion decided what it meant — the reading
+is now element-wise against `WIRE_FORMAT.md` §24.7's accept set: a number, or one of the three quoted
+sentinels `"NaN"` / `"Infinity"` / `"-Infinity"`, and anything else NaN.
+
+**What it costs a consumer.** Only a host whose STORE feeds a float sequence containing a
+non-numeric element sees any change, and no document can carry that case: a float-sequence slot types
+its elements at decode, so `[1,"3.5",3]` is a `WRONG_TYPE` and is refused. A store that fed `"3.5"`
+drew a point at 3.5 and now draws the sentinel; a store that fed a genuine number is unchanged in
+every respect. Both tiers move in the same change-set, so a hydration handoff still finds the DOM it
+expects.
+
+**Why it is a narrowing rather than a bug fix.** The coerced set was JavaScript's, not the format's:
+it also took `"0x10"` and the empty string, so one store drew different pictures on two conformant
+hosts — and it contradicted this repo's own decoder, which refuses exactly those spellings at the
+same slot. §24.7 is the sentence that settles which set is right, and the corpus's Sparkline row now
+carries the two checkable claims (`float-seq-reads-element-wise`,
+`float-seq-accept-set-closed`) that hold every adopting host to it.
+
+`floatSeries` is exported from `@fuaran-ui/renderer-server`'s index beside `asArray`, which is
+additive. The client tier's copy is module-internal, so its public surface is unchanged.
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:

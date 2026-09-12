@@ -894,6 +894,92 @@ const checkInteractiveRowOnlyWithAction = (): void => {
   expect(staticRowsGrid(false)).not.toContain(marker);
 };
 
+// ─── Phase 1704 — Sparkline float-sequence resolution (§24.7) ────────────────
+//
+// The claims are about a HOST-FED series, so these two checkers are the only
+// ones in this file that render against a non-empty store. That is structural
+// rather than convenient: a float-sequence slot TYPES its elements at decode, so
+// `[1,"3.5",3]` is a `WRONG_TYPE` and no document can carry the case. The store
+// is the only place a foreign element exists, which is why §24.7 is a render
+// obligation and not a codec family.
+//
+// The observable is the emitted `<polyline points="…">`: the lowering yields one
+// point per series element, so counting points counts readings. An assertion on
+// the em-dash alone could not tell a host that read every element from one that
+// read the first two and gave up.
+//
+// The document is the corpus's own bound-source sparkline —
+// `nodes/state-absent-default.json`'s `absent-default-sparkline`, reproduced here
+// as one node so the checker renders the subject rather than digging it out of a
+// six-node composite.
+const BOUND_SPARKLINE =
+  '{"id":"absent-default-sparkline","kind":{"$type":"Sparkline","source":{"$type":"State","key":"series"}}}';
+
+/** Render the bound sparkline with `series` fed from the store. */
+const renderSeries = (series: unknown): string => {
+  const decoded = decodeNode(BOUND_SPARKLINE);
+  if (!decoded.ok) throw new Error(`decode failed: ${JSON.stringify(decoded.error)}`);
+  return renderToHtml(decoded.value, { sources: { state: { series } } });
+};
+
+/** How many readings the emission shows: one `x,y` pair per element. */
+const pointCount = (html: string): number => {
+  const match = /points="([^"]*)"/.exec(html);
+  const body = match?.[1];
+  return body === undefined ? 0 : body.split(/\s+/).filter((p) => p.length > 0).length;
+};
+
+const checkFloatSeqReadsElementWise = (): void => {
+  const finite = renderSeries([1, 2, 3, 4]);
+  expect(pointCount(finite), 'a four-element series must draw four readings').toBe(4);
+
+  // The element the rule is about: one the host cannot read as a number, among
+  // readable neighbours. Several spellings, because a host special-casing
+  // strings and one special-casing foreign types are different defects.
+  for (const foreign of ['banana', true, null, {}, [1]]) {
+    const html = renderSeries([1, foreign, 3, 4]);
+    expect(
+      html,
+      `one unreadable element (${JSON.stringify(foreign)}) suppressed the whole series — the em-dash is the UNRESOLVED case, not the partly-readable one`,
+    ).not.toContain('fuaran-sparkline-empty');
+    expect(
+      pointCount(html),
+      `an unreadable element (${JSON.stringify(foreign)}) changed the series LENGTH — a series index is a position, so a dropped reading slides every later one one place left`,
+    ).toBe(4);
+  }
+};
+
+const checkFloatSeqAcceptSetClosed = (): void => {
+  // The twin FIRST, so the comparison below is against a real render rather than
+  // two em-dashes agreeing about nothing.
+  const genuine = renderSeries([0, 3.5, 7]);
+  expect(
+    pointCount(genuine),
+    'the genuine number must be read — the closed set admits JSON numbers',
+  ).toBe(3);
+
+  // The comparison IS the claim, and it is the one formulation that reads the
+  // same on every host: a host that coerced `"3.5"` emits byte-identical markup
+  // for the two, whatever its geometry. Asserting the characters `3.5` are
+  // absent would pass on a host that coerced and then scaled the coordinate.
+  for (const spelling of ['3.5', '+3.5', ' 3.5 ', '0x10', '', 'nan']) {
+    expect(
+      renderSeries([0, spelling, 7]),
+      `the string ${JSON.stringify(spelling)} resolved to the number it spells — the accept set at this slot is §7's and closed, and this tier's own decoder refuses exactly this spelling`,
+    ).not.toBe(genuine);
+  }
+
+  // …and the three the set DOES admit, in the same shape. Without them the claim
+  // above would be satisfied by a host that read no string at all, including the
+  // sentinels the format exists to spell.
+  for (const sentinel of ['NaN', 'Infinity', '-Infinity']) {
+    expect(
+      pointCount(renderSeries([1, sentinel, 3])),
+      `the sentinel ${JSON.stringify(sentinel)} is IN the accept set and must read as its non-finite value`,
+    ).toBe(3);
+  }
+};
+
 /**
  * The registry: which (kind, claim) pairs this host asserts, and how. Keyed by
  * the claim's WIRE token, because the enumeration it is matched against comes
@@ -934,6 +1020,9 @@ const CHECKERS: ReadonlyMap<string, () => void> = new Map([
   ['style.direction/no-derived-direction-behaviour', checkNoDerivedDirectionBehaviour],
   // Phase 1701 — the row-action affordance.
   ['DataGrid/interactive-row-only-with-action', checkInteractiveRowOnlyWithAction],
+  // Phase 1704 — the two float-sequence resolution claims (§24.7).
+  ['Sparkline/float-seq-reads-element-wise', checkFloatSeqReadsElementWise],
+  ['Sparkline/float-seq-accept-set-closed', checkFloatSeqAcceptSetClosed],
 ]);
 
 /**

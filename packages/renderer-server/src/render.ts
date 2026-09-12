@@ -78,6 +78,7 @@ import {
 } from './accessibility.js';
 import {
   asArray,
+  floatSeries,
   type BindingSources,
   captureKeyword,
   electedDefaultTracks,
@@ -1822,7 +1823,10 @@ const renderSparkline = (
   ctx: ServerContext,
   spec: Extract<DisplayKind, { kind: 'Sparkline' }>['spec'],
 ): string => {
-  const drawing = tryLowerSparkline(asArray<number>(tryResolve(ctx.sources, spec.source)));
+  // Phase 1704 — `floatSeries` rather than `asArray<number>`: §24.7 reads a
+  // host-fed series ELEMENT-WISE against a closed accept set, where the type
+  // assertion let JavaScript's own coercion decide what a string element meant.
+  const drawing = tryLowerSparkline(floatSeries(tryResolve(ctx.sources, spec.source)));
   if (drawing === null) {
     return textEl('div', [['class', 'fuaran-sparkline fuaran-sparkline-empty']], EM_DASH);
   }
