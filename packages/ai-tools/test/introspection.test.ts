@@ -275,14 +275,16 @@ describe('introspection over a decoded corpus fixture', () => {
 // the node and re-derive the walk itself.
 describe('slotDependencies — the reactive inputs a slot reads', () => {
   it('names a State key, a Filter, a Query and a Selection in a joinable vocabulary', () => {
-    expect(slotDependencies({ kind: 'State', key: 'region' })).toEqual(['state:region']);
+    expect(slotDependencies({ kind: 'State', key: 'region', defaultValue: '' })).toEqual([
+      'state:region',
+    ]);
     expect(slotDependencies({ kind: 'Filter', name: 'dept' })).toEqual(['filter:dept']);
     expect(slotDependencies({ kind: 'Query', name: 'orders', accessor: (x) => x })).toEqual([
       'query:orders',
     ]);
-    expect(slotDependencies({ kind: 'Selection', nodeId: 'grid-1', accessor: (x) => x })).toEqual([
-      'selection:grid-1',
-    ]);
+    expect(
+      slotDependencies({ kind: 'Selection', nodeId: nid('grid-1'), accessor: (x) => x }),
+    ).toEqual(['selection:grid-1']);
   });
 
   it("reports a Transform's PARAMS — the filter→consumer edge the two origin phases were about", () => {
@@ -290,7 +292,10 @@ describe('slotDependencies — the reactive inputs a slot reads', () => {
     // so nothing short of the walk finds it.
     const scoped = {
       kind: 'Transform' as const,
-      source: { kind: 'Data' as const, data: { columns: {} } },
+      source: {
+        kind: 'Data' as const,
+        source: { kind: 'Embedded' as const, table: { schema: [], columns: [] } },
+      },
       pipeline: [],
       params: [{ name: 'dept', from: { kind: 'Filter' as const, name: 'dept' } }],
     };
