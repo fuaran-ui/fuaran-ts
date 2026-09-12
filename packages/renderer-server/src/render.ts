@@ -120,6 +120,7 @@ import {
   motionVar,
   nodeClassName,
   printBreakClasses,
+  textDirectionAttr,
   toneVar,
   trendSentiment,
 } from './classNames.js';
@@ -439,10 +440,17 @@ const renderNode = (ctx: ServerContext, node: Node<unknown>): string => {
     }
   }
 
+  // Phase 1472 / Phase 1696 — the DECLARED direction rides the wrapper, first
+  // among the attributes that follow `class`, which is where the reference host
+  // and `fuaran-rs` put it. It is the other half of §3.1: the `fuaran-dir-*`
+  // class in `className` isolates the run, this states which way it reads.
+  const direction = textDirectionAttr(node.style.direction);
+
   const attrs: Attr[] = [
     ['id', node.id],
     ['data-fuaran-node-id', node.id],
     ['class', className],
+    ...(direction === undefined ? [] : ([['dir', direction]] as Attr[])),
     ...Object.entries(dyn),
   ];
 

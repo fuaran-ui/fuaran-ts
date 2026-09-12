@@ -38,6 +38,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import {
+  allObligations,
   describeObligationReport,
   parseRenderFidelityManifest,
   reportObligations,
@@ -49,6 +50,7 @@ import {
   type ContractCard,
   type Node,
 } from '@fuaran-ui/schema';
+import { decodeNode } from '@fuaran-ui/ops';
 import { fuaran } from '@fuaran-ui/ui';
 
 import { renderToHtml } from '../src/index.js';
@@ -712,6 +714,133 @@ const checkTreeAccessibleNameAlways = (): void => {
   );
 };
 
+// ─── Phase 1696 — the `style.direction` TRAIT (§3.1) ─────────────────────────
+//
+// A trait rides the node ENVELOPE, so these five checkers are written against a
+// kind chosen for being uninteresting: the claims are about the wrapper, and a
+// checker leaning on some kind's own markup would be asserting that kind.
+//
+// They decode RAW canonical JSON rather than authoring through `fuaran`, and
+// that is load-bearing for rule 4: the encoder omits `direction` at its `auto`
+// identity, so an authored round trip would compare an emission against itself
+// and the claim would be vacuous — the CODEC would be under test, not the
+// renderer. A document carrying the member explicitly is the only input that
+// asks the render path the question.
+//
+// Two of the five are COMPARISONS rather than emission assertions, and that is
+// what makes them checkable at all. Rule 4 says `auto` is the absence of a
+// declaration, so the honest test is that the two emissions are byte-identical:
+// the reference host emits `dir="auto"` for a bidi-isolated display leaf under a
+// heuristic this tier has not adopted, so "emits nothing" would be a claim that
+// means different things on different hosts. Rule 5 says nothing else is
+// derived, and the test is that a declared emission differs from the undeclared
+// one by the direction and its isolation ALONE — a subtraction no single-node
+// assertion can express.
+
+const renderJson = (canonical: string): string => {
+  const decoded = decodeNode(canonical);
+  if (!decoded.ok) throw new Error(`decode failed: ${JSON.stringify(decoded.error)}`);
+  return renderToHtml(decoded.value);
+};
+
+/** One leaf whose `style.direction` is as given; `undefined` omits the member. */
+const directionLeaf = (direction: string | undefined, text: string): string => {
+  const style = direction === undefined ? '' : `,"style":{"direction":"${direction}"}`;
+  return renderJson(
+    `{"id":"d","kind":{"$type":"Badge","label":"${text}","variant":"Neutral"}${style}}`,
+  );
+};
+
+/**
+ * An `rtl` container holding one child — the two claims a single leaf cannot
+ * carry (inheritance and descendant emission) need a tree to act on.
+ */
+const directionBlock = (childDirection: string | undefined): string => {
+  const childStyle =
+    childDirection === undefined ? '' : `,"style":{"direction":"${childDirection}"}`;
+  return renderJson(
+    `{"id":"block","kind":{"$type":"Box","children":[` +
+      `{"id":"child","kind":{"$type":"Badge","label":"RR123456789IL","variant":"Neutral"}${childStyle}}` +
+      `],"layout":{"$type":"Flex","direction":"Vertical","wrap":false},"role":"Group"},` +
+      `"style":{"direction":"rtl"}}`,
+  );
+};
+
+const checkDeclaredDirectionEmitted = (): void => {
+  expect(
+    directionLeaf('ltr', 'RR123456789IL'),
+    "a declared ltr direction is emitted on the node's own wrapper",
+  ).toContain(' dir="ltr"');
+  expect(
+    directionLeaf('rtl', '\u05e9\u05dc\u05d5\u05dd'),
+    'and so is a declared rtl one',
+  ).toContain(' dir="rtl"');
+
+  // The twin. Without it a renderer emitting `dir="ltr"` on every node would
+  // pass both assertions above while saying nothing true.
+  expect(
+    directionLeaf(undefined, 'plain'),
+    'an undeclared node must not carry a direction it never declared',
+  ).not.toContain(' dir=');
+};
+
+const checkDeclaredRunIsolated = (): void => {
+  // The ISOLATION is the class, whose reference-stylesheet rule is
+  // `unicode-bidi: isolate`. `dir` alone states a direction and leaves the text
+  // AROUND the run reordered, which is the half that is invisible when you look
+  // only at the value itself.
+  expect(
+    directionLeaf('ltr', 'RR123456789IL'),
+    'a declared ltr run carries the isolating class',
+  ).toContain('fuaran-dir-ltr');
+  expect(
+    directionLeaf('rtl', '\u05e9\u05dc\u05d5\u05dd'),
+    'and so does a declared rtl one',
+  ).toContain('fuaran-dir-rtl');
+  expect(
+    directionLeaf(undefined, 'plain'),
+    'an undeclared node is isolated by nothing, because it declared nothing',
+  ).not.toContain('fuaran-dir-');
+};
+
+const checkDeclarationWinsOverInference = (): void => {
+  // An `ltr` reference INSIDE an `rtl` block — the case the member exists for.
+  const html = directionBlock('ltr');
+  expect(html, 'the declaring container keeps its own direction').toContain(' dir="rtl"');
+  expect(
+    html,
+    'the nested declaration did not win over the inherited direction — the inference exists for values whose direction is unknown, the declaration for the ones it gets wrong',
+  ).toContain(' dir="ltr"');
+};
+
+const checkAutoIsNoDeclaration = (): void => {
+  expect(
+    directionLeaf('auto', 'plain'),
+    'a node declaring `auto` must render identically to the same node omitting the member — `auto` IS the absence of a declaration',
+  ).toBe(directionLeaf(undefined, 'plain'));
+};
+
+const checkNoDerivedDirectionBehaviour = (): void => {
+  // The SUBTRACTION: a renderer that also flipped an alignment, swapped a layout
+  // side or pushed a direction onto descendants fails here and passes every
+  // assertion above.
+  const declared = directionLeaf('rtl', 'RR123456789IL');
+  const stripped = declared.replace(' dir="rtl"', '').replace(' fuaran-dir-rtl', '');
+  expect(
+    stripped,
+    'a declared direction changed something other than the direction and its isolation — no layout side, locale, alignment or descendant direction may be derived from it',
+  ).toBe(directionLeaf(undefined, 'RR123456789IL'));
+
+  // …and the descendant half, stated separately because a single leaf cannot
+  // carry it: an undeclared child inside a declaring parent emits no direction
+  // of its own. Inheritance is the receiving surface's, not a second emission.
+  const html = directionBlock(undefined);
+  expect(
+    html.split(' dir=').length - 1,
+    'exactly one element declared a direction, so exactly one may carry it — a direction pushed onto descendants is a derived behaviour rule 5 forbids',
+  ).toBe(1);
+};
+
 /**
  * The registry: which (kind, claim) pairs this host asserts, and how. Keyed by
  * the claim's WIRE token, because the enumeration it is matched against comes
@@ -741,6 +870,15 @@ const CHECKERS: ReadonlyMap<string, () => void> = new Map([
   ['FileUpload/ceiling-recorded-never-enforced', checkUploadCeilingMarkers],
   ['Modal/aria-modal-only-when-blocking', checkAriaModalOnlyWhenBlocking],
   ['Tree/accessible-name-always', checkTreeAccessibleNameAlways],
+  // Phase 1696 — the node-level TRAIT, keyed by its id rather than a kind. The
+  // dot is what keeps the two subject populations distinguishable in one
+  // registry: a trait id is the wire path of the member it governs, and a
+  // `kind.$type` is a bare identifier.
+  ['style.direction/declared-direction-emitted', checkDeclaredDirectionEmitted],
+  ['style.direction/declared-run-isolated', checkDeclaredRunIsolated],
+  ['style.direction/declaration-wins-over-inference', checkDeclarationWinsOverInference],
+  ['style.direction/auto-is-no-declaration', checkAutoIsNoDeclaration],
+  ['style.direction/no-derived-direction-behaviour', checkNoDerivedDirectionBehaviour],
 ]);
 
 /**
@@ -857,8 +995,11 @@ describe.skipIf(!present)('render-obligation conformance (WIRE_FORMAT.md §13)',
     // forever and guards a contract that has moved, which is exactly the drift
     // the generated artefact exists to remove.
     const manifest = load();
+    // BOTH subject populations: a checker keyed by a trait id is exactly as
+    // orphanable as one keyed by a kind name, and quantifying over `kinds` alone
+    // would report every trait checker as stale.
     const declared = new Set(
-      manifest.kinds.flatMap((row) => row.obligations.map((o) => `${row.kind}/${o.id}`)),
+      allObligations(manifest).map(({ kind, obligation }) => `${kind}/${obligation.id}`),
     );
     const orphans = [...CHECKERS.keys()].filter((key) => !declared.has(key));
 

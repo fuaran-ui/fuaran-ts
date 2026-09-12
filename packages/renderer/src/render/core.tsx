@@ -34,7 +34,7 @@ import {
   withTooltipDescribedBy,
   partitionExtraAttributes,
 } from '../accessibility.js';
-import { motionVar, nodeClassName } from '../classNames.js';
+import { motionVar, nodeClassName, textDirectionAttr } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { sanitizeExtraAttributes } from '../sanitize.js';
 import { renderCustom } from './Custom.js';
@@ -239,6 +239,14 @@ export const renderNode = <TMsg,>(
   // with the F# tiers via the same predicate — see forwardsToSemanticElement.
   const attrs: Record<string, string> = {};
   const semanticAttrs: Record<string, string> = {};
+  // Phase 1472 / Phase 1696 — the DECLARED direction rides the wrapper, first
+  // among the attributes that follow `class`, exactly as the server renderer
+  // emits it: the served DOM and the hydrated one must carry the same attribute
+  // or hydration finds markup it did not produce. The `fuaran-dir-*` class in
+  // `className` isolates the run (§3.1 rule 2); this states which way it reads
+  // (rule 1).
+  const direction = textDirectionAttr(node.style.direction);
+  if (direction !== undefined) attrs['dir'] = direction;
   const forwards = forwardsToSemanticElement(node.kind);
   const target = forwards ? semanticAttrs : attrs;
   for (const [k, v] of accessibilityAttributes(ctx.sources, node.accessibility)) target[k] = v;

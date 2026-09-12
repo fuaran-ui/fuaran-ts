@@ -95,6 +95,56 @@ export interface FidelityRow {
   readonly contract: string;
 }
 
+/**
+ * One checkable claim a node-level TRAIT owes (Phase 1696).
+ *
+ * The sibling of `RenderObligation` over the other subject population, plus
+ * `rule`: the ordinal of the numbered rule in the cited section. It is carried
+ * rather than left to be matched from the prose — §3.1 states five numbered
+ * obligations and a conformant host registers five checkers, and without the
+ * ordinal the correspondence between them is a reader's reconstruction rather
+ * than a fact in the artefact. Absent where the section does not number its
+ * rules.
+ */
+export interface TraitObligation {
+  readonly id: string;
+  readonly statement: string;
+  readonly section: string;
+  readonly rule?: number;
+}
+
+/** Which kinds a trait's obligations ride. */
+export interface TraitScope {
+  /**
+   * `allKinds` for a member riding the node envelope; `namedKinds` with the
+   * list beside it otherwise. Tagged rather than a bare list because "every
+   * kind" must not be spellable as an empty array, which reads as the opposite
+   * claim.
+   */
+  readonly scope: 'allKinds' | 'namedKinds';
+  readonly kinds: readonly string[];
+}
+
+/**
+ * One node-level TRAIT: a member that rides the node ENVELOPE rather than any
+ * one kind (Phase 1696).
+ *
+ * `style.direction` is owed by a `Badge`, a `Markdown` and a `DataGrid` alike
+ * and belongs to none of them, so declaring it on kind rows would state
+ * forty-odd claims where there is one. `trait` is the wire PATH of the member it
+ * governs, which is why a host can key one registry by `subject/claim`: a dotted
+ * path can never collide with a `kind.$type`.
+ */
+export interface TraitRow {
+  readonly trait: string;
+  readonly summary: string;
+  readonly appliesTo: TraitScope;
+  /** Corpus-relative fixture paths that CARRY the trait. */
+  readonly fixtures: readonly string[];
+  readonly obligations: readonly TraitObligation[];
+  readonly contract: string;
+}
+
 export interface FidelityTierDefinition {
   readonly tier: string;
   readonly meaning: string;
@@ -111,6 +161,12 @@ export interface RenderFidelityManifest {
    * can therefore report one it does not implement.
    */
   readonly obligationVocabulary: readonly ObligationVocabularyEntry[];
+  /**
+   * The node-level traits, whose claims ride any kind. Drawn from the SAME
+   * closed `obligationVocabulary` as the kind rows: the vocabulary answers which
+   * claims exist, which has nothing to do with which subject owes one.
+   */
+  readonly traits: readonly TraitRow[];
   readonly kinds: readonly FidelityRow[];
 }
 
@@ -209,6 +265,61 @@ export const parseRenderFidelityManifest = (value: unknown): RenderFidelityManif
     };
   });
 
+  // An ABSENT `traits` key parses as empty, on the terms `obligationVocabulary`
+  // below is parsed on: traits are additive within a major version, so a reader
+  // must survive an artefact that predates the section.
+  const rawTraits = value['traits'];
+  if (rawTraits !== undefined && !Array.isArray(rawTraits))
+    throw new Error('render-fidelity: manifest.traits must be an array');
+
+  const traits = (rawTraits ?? []).map((entry: unknown): TraitRow => {
+    if (!isRecord(entry)) throw new Error('render-fidelity: manifest.traits[] must hold objects');
+    const name = requireString(entry, 'trait', 'traits[]');
+    const rawScope = entry['appliesTo'];
+    if (!isRecord(rawScope))
+      throw new Error(`render-fidelity: ${name}.appliesTo must be an object`);
+    const scope = requireString(rawScope, 'scope', `${name}.appliesTo`);
+    if (scope !== 'allKinds' && scope !== 'namedKinds')
+      throw new Error(`render-fidelity: ${name}.appliesTo.scope is unknown: '${scope}'`);
+    const rawScopeKinds = rawScope['kinds'];
+    const scopeKinds = Array.isArray(rawScopeKinds) ? rawScopeKinds : [];
+    const rawTraitFixtures = entry['fixtures'];
+    const traitFixtures = Array.isArray(rawTraitFixtures) ? rawTraitFixtures : [];
+    const rawTraitObligations = entry['obligations'];
+    if (!Array.isArray(rawTraitObligations))
+      throw new Error(`render-fidelity: ${name}.obligations must be an array`);
+    return {
+      trait: name,
+      summary: requireString(entry, 'summary', name),
+      appliesTo: {
+        scope,
+        kinds: scopeKinds.map((k: unknown) => {
+          if (typeof k !== 'string')
+            throw new Error(`render-fidelity: ${name}.appliesTo.kinds[] must be strings`);
+          return k;
+        }),
+      },
+      fixtures: traitFixtures.map((f: unknown) => {
+        if (typeof f !== 'string')
+          throw new Error(`render-fidelity: ${name}.fixtures[] must be strings`);
+        return f;
+      }),
+      obligations: rawTraitObligations.map((o: unknown): TraitObligation => {
+        if (!isRecord(o))
+          throw new Error(`render-fidelity: ${name}.obligations[] must hold objects`);
+        const where = `${name}.obligations[]`;
+        const rule = o['rule'];
+        return {
+          id: requireString(o, 'id', where),
+          statement: requireString(o, 'statement', where),
+          section: requireString(o, 'section', where),
+          ...(typeof rule === 'number' ? { rule } : {}),
+        };
+      }),
+      contract: requireString(entry, 'contract', name),
+    };
+  });
+
   const rawVocabulary = value['obligationVocabulary'];
   if (rawVocabulary !== undefined && !Array.isArray(rawVocabulary))
     throw new Error('render-fidelity: manifest.obligationVocabulary must be an array');
@@ -230,6 +341,7 @@ export const parseRenderFidelityManifest = (value: unknown): RenderFidelityManif
     description: typeof rawDescription === 'string' ? rawDescription : '',
     tiers,
     obligationVocabulary,
+    traits,
     kinds,
   };
 };
@@ -298,13 +410,32 @@ export const deliveredTier = (
 // to say "we did not check that". The port of `Fuaran.UI.RenderFidelity`'s
 // coverage surface.
 
-/** Every declared obligation, paired with the kind that owes it, in table order. */
+/**
+ * Every declared obligation, paired with the SUBJECT that owes it, in table
+ * order: the kind rows first, then the trait rows.
+ *
+ * Both arrays, deliberately. The whole mechanism is that the ENUMERATION is the
+ * artefact's, so a trait declared tomorrow must reach a host's report without
+ * that host changing anything but its answer — and a reader iterating `kinds`
+ * alone would hold a green gate over an unowed claim.
+ *
+ * The field is still called `kind` because every caller reads it as "who owes
+ * this"; a trait id carries a dot, which is what tells the two populations
+ * apart.
+ */
 export const allObligations = (
   manifest: RenderFidelityManifest,
-): readonly { readonly kind: string; readonly obligation: RenderObligation }[] =>
-  manifest.kinds.flatMap((row) =>
+): readonly {
+  readonly kind: string;
+  readonly obligation: RenderObligation | TraitObligation;
+}[] => [
+  ...manifest.kinds.flatMap((row) =>
     row.obligations.map((obligation) => ({ kind: row.kind, obligation })),
-  );
+  ),
+  ...manifest.traits.flatMap((row) =>
+    row.obligations.map((obligation) => ({ kind: row.trait, obligation })),
+  ),
+];
 
 /**
  * A host's answer for one declared obligation.

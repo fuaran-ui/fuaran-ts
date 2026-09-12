@@ -205,6 +205,25 @@ export const textDirectionVar = (direction: TextDirection | undefined): string |
 };
 
 /**
+ * The `dir` attribute a declared `style.direction` emits (Phase 1696, §3.1
+ * rule 1) — `undefined` for `'auto'` and for an absent member, which are the
+ * same statement.
+ *
+ * The SECOND half of the contract, and separate from `textDirectionVar` above
+ * because §3.1 states them as two obligations: the class isolates the run, this
+ * states which way it reads. A host that emitted only the class passed every
+ * codec fixture for the member while rendering an RTL document left-to-right —
+ * which is exactly what this tier did until Phase 1696 declared the obligation
+ * in the corpus roster and the gate could finally see it.
+ *
+ * `'auto'` emits nothing: this tier has NOT adopted the reference host's
+ * `dir="auto"` isolation heuristic over runtime-bound display leaves, and
+ * inventing one under a declaration slot would conflate two different claims.
+ */
+export const textDirectionAttr = (direction: TextDirection | undefined): string | undefined =>
+  textDirectionVar(direction);
+
+/**
  * The print-break class SUFFIX for a container's two Phase 1473 declarations —
  * the empty string when neither is declared, so every element a pre-1473
  * document produced carries a byte-identical class string.

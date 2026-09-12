@@ -485,12 +485,12 @@ exports[`fixture-corpus — decode + render every node fixture > step-1.json mat
 `;
 
 exports[`fixture-corpus — decode + render every node fixture > style-direction-isolated-1.json matches its rendered-output snapshot 1`] = `
-"<div id="style-direction-isolated-1" data-fuaran-node-id="style-direction-isolated-1" class="fuaran-kind-stack fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal fuaran-dir-rtl"><div class="fuaran-layout-stack fuaran-stack-vertical"><div id="style-direction-prose-1" data-fuaran-node-id="style-direction-prose-1" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-markdown"><p>מספר האסמכתא שלך הוא</p>
-</div></div><div id="style-direction-reference-1" data-fuaran-node-id="style-direction-reference-1" class="fuaran-kind-badge fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal fuaran-dir-ltr"><span class="fuaran-badge fuaran-badge-neutral">RR123456789IL</span></div></div></div>"
+"<div id="style-direction-isolated-1" data-fuaran-node-id="style-direction-isolated-1" class="fuaran-kind-stack fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal fuaran-dir-rtl" dir="rtl"><div class="fuaran-layout-stack fuaran-stack-vertical"><div id="style-direction-prose-1" data-fuaran-node-id="style-direction-prose-1" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-markdown"><p>מספר האסמכתא שלך הוא</p>
+</div></div><div id="style-direction-reference-1" data-fuaran-node-id="style-direction-reference-1" class="fuaran-kind-badge fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal fuaran-dir-ltr" dir="ltr"><span class="fuaran-badge fuaran-badge-neutral">RR123456789IL</span></div></div></div>"
 `;
 
 exports[`fixture-corpus — decode + render every node fixture > style-direction-ltr-1.json matches its rendered-output snapshot 1`] = `
-"<div id="style-direction-ltr-1" data-fuaran-node-id="style-direction-ltr-1" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal fuaran-dir-ltr"><div class="fuaran-markdown"><p>RR123456789IL</p>
+"<div id="style-direction-ltr-1" data-fuaran-node-id="style-direction-ltr-1" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal fuaran-dir-ltr" dir="ltr"><div class="fuaran-markdown"><p>RR123456789IL</p>
 </div></div>"
 `;
 

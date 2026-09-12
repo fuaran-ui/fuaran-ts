@@ -119,6 +119,36 @@ describe.skipIf(!present)('render-fidelity manifest (generated artefact)', () =>
     }
   });
 
+  it('the node-level traits parse, and every trait fixture resolves in the corpus', () => {
+    // Phase 1696 — the second SUBJECT population. A trait rides the node
+    // envelope, so its claims are owed by every kind a host renders and belong
+    // to none of them; the id is the wire PATH of the member it governs, which
+    // is what lets one registry key both populations by `subject/claim`.
+    const manifest = load();
+    const corpusRoot = dirname(ARTIFACT);
+
+    expect(manifest.traits.length, 'the artefact declares no trait at all').toBeGreaterThan(0);
+
+    for (const trait of manifest.traits) {
+      expect(trait.trait, 'a trait id is a member path, never a bare kind name').toContain('.');
+      expect(
+        manifest.kinds.some((k) => k.kind === trait.trait),
+        'a trait id must not collide with a kind name — one registry keys both',
+      ).toBe(false);
+      expect(trait.obligations.length, `${trait.trait} declares no claim`).toBeGreaterThan(0);
+
+      const vocabulary = new Set(manifest.obligationVocabulary.map((v) => v.id));
+      for (const o of trait.obligations)
+        expect(
+          vocabulary.has(o.id),
+          `${trait.trait}/${o.id}: the closed vocabulary does not carry this claim id`,
+        ).toBe(true);
+
+      const dangling = trait.fixtures.filter((f) => !existsSync(join(corpusRoot, f)));
+      expect(dangling, `${trait.trait} names a fixture the corpus does not carry`).toEqual([]);
+    }
+  });
+
   it('an unknown kind is reported as unknown, never as single-tier', () => {
     // The §15.3 tolerance path preserves kinds this host does not model. A
     // badge surface must say so rather than assuming the fallback is the whole

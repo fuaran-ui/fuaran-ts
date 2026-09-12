@@ -241,6 +241,38 @@ position because both project the same walk, and a test on each side pins it.
 Certified by `packages/ai-tools/test/introspection.test.ts` (the four cases above) and mirrored by the
 F# `Fuaran.UI.Tests/DebugGlobalTests.fs`.
 
+### `@fuaran-ui/renderer` 0.24.0, `@fuaran-ui/renderer-server` 0.22.0, `@fuaran-ui/schema` 0.23.0 — the declared text direction is EMITTED (fuaran#1696)
+
+**UNRELEASED** — 0.23.0 / 0.21.0 / 0.22.0 are the published versions on npm; this advances all three
+and no tag has been pushed.
+
+Both renderers now emit `dir="ltr"` / `dir="rtl"` on a node whose `style.direction` declares one. They
+have emitted the isolating `fuaran-dir-*` class since 0.x's Phase 1472 adoption, and that is half the
+contract: the class carries `unicode-bidi: isolate`, the attribute states which way the run reads.
+Without the attribute an RTL document rendered left-to-right on a tier reporting full CODEC
+conformance for the member — the slot decoded, round-tripped and survived every conformance family,
+and changed no markup at all.
+
+**Why it took a corpus change to find.** `WIRE_FORMAT.md` §3.1's five numbered render obligations were
+normative prose, and prose is not something a gate reaches. The corpus roster now declares them as the
+first entry of its new `traits` array (§13) — the subject population for a member that rides the node
+ENVELOPE rather than any one kind — so this tier's obligation suite enumerates them from the artefact
+and reports any it does not assert. Five checkers land with the emission, in
+`packages/renderer-server/test/renderObligations.test.ts`.
+
+**What it costs a consumer.** A consumer that byte-compares rendered output against a stored
+expectation for a document declaring `style.direction` sees one added attribute per declaring node;
+this repo's own client-renderer corpus snapshots moved on exactly two fixtures, and nothing a document
+without a declared direction produces changed at all. Both tiers moved in the same change-set, so a
+hydration handoff still finds the DOM it expects.
+
+**`@fuaran-ui/schema` 0.23.0** is the reader half: `RenderFidelityManifest` gains `traits`, with
+`TraitRow` / `TraitObligation` / `TraitScope`, and `allObligations` now spans both subject populations
+— the kind rows first, then the trait rows. A consumer that CONSTRUCTS a manifest literal must add
+`traits`; a consumer that reads one gains the array. `allObligations`'s element type widens to
+`RenderObligation | TraitObligation`, which a caller reading `.id` / `.statement` / `.section` does not
+notice.
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:
