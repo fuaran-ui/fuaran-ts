@@ -313,6 +313,8 @@ exports[`fixture-corpus — decode + render every node fixture > grid-transform.
 
 exports[`fixture-corpus — decode + render every node fixture > grid-transform-param.json matches its rendered-output snapshot 1`] = `"<div id="grid-transform-param" data-fuaran-node-id="grid-transform-param" class="fuaran-kind-grid fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><table class="fuaran-grid"><thead><tr></tr></thead><tbody><tr class="fuaran-grid-row"></tr><tr class="fuaran-grid-row"></tr></tbody></table></div>"`;
 
+exports[`fixture-corpus — decode + render every node fixture > grid-transform-undeclared-param.json matches its rendered-output snapshot 1`] = `"<div id="grid-transform-undeclared-param" data-fuaran-node-id="grid-transform-undeclared-param" class="fuaran-kind-grid fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><table class="fuaran-grid"><thead><tr></tr></thead><tbody></tbody></table></div>"`;
+
 exports[`fixture-corpus — decode + render every node fixture > heading-1.json matches its rendered-output snapshot 1`] = `"<div id="heading-1" data-fuaran-node-id="heading-1" class="fuaran-kind-heading fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><h2 class="fuaran-heading">Channel performance</h2></div>"`;
 
 exports[`fixture-corpus — decode + render every node fixture > icon-1.json matches its rendered-output snapshot 1`] = `"<div id="icon-1" data-fuaran-node-id="icon-1" class="fuaran-kind-icon fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><span class="fuaran-icon fuaran-icon--large fuaran-icon-default" data-icon="sparkles" aria-hidden="true"></span></div>"`;

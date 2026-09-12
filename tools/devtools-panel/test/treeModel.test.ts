@@ -18,7 +18,14 @@ const leaf = (id: string, kind: string): TreeIntrospection => ({
 const tree: TreeIntrospection = {
   id: 'dash',
   kind: 'Dashboard',
-  bindings: [{ slot: 'Source', expression: '$queries.sales', source: 'Query' }],
+  bindings: [
+    {
+      slot: 'Source',
+      expression: '$queries.sales',
+      source: 'Query',
+      dependsOn: ['query:sales'],
+    },
+  ],
   text: [],
   childIds: ['left', 'right'],
   children: [
