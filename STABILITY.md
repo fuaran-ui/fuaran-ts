@@ -468,7 +468,6 @@ Three extent computations took `Math.min(...xs)` / `Math.max(...xs)` where the r
 
 The NaN half of the rule is matched too, and is **currently unobservable** at all three sites: every contributor is already guarded — `numericOf`'s non-finite clamp on each series cell, the `Number.isFinite` filter on a `ReferenceLine`, the same on both ends of a `ValueRange` band. That is why no corpus golden discriminates it here, and the same test file pins those three guards so that relaxing one is what goes red. The fold is what makes such a relaxation safe rather than a cross-host divergence.
 
-
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:
