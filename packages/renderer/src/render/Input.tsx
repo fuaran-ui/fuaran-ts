@@ -527,18 +527,32 @@ const renderFormControl = <TMsg,>(ctx: RenderContext<TMsg>, field: FormField<TMs
       const onChange = k.onChange;
       const emit = (pair: readonly [number, number]): void =>
         handle(onChange, k.value, [pair[0], pair[1]], pair);
+      // Phase 1670 — the class vocabulary is `fuaran-field-range*`, not
+      // `fuaran-form-range*`. The class names a renderer emits are PARITY-LOCKED
+      // with the F# reference host, and this arm had been out of step since it
+      // was written: the reference emits `fuaran-field-range` / `-min` / `-sep` /
+      // `-max` for the same `FormFieldKind.Range`, and the only stylesheet in the
+      // estate — the canonical reference sheet both tiers copy — styles that
+      // vocabulary and no other. So the old names were not merely divergent, they
+      // were UNSTYLED: this control rendered unstyled here and styled there, from
+      // one document.
+      //
+      // The DateRange arm below already used the F# spelling deliberately, which
+      // left this tier internally inconsistent between its two pair controls
+      // until now. A class-name change is a cross-tier breaking change; the
+      // reference host is unchanged because it was already right.
       return (
-        <span className="fuaran-form-range" id={field.id}>
+        <span className="fuaran-field-range" id={field.id}>
           <input
-            className="fuaran-form-input fuaran-form-range-min"
+            className="fuaran-form-input fuaran-field-range-min"
             type="number"
             value={minV}
             {...rangeAttrs}
             onChange={(e: ChangeEvent<HTMLInputElement>) => emit([Number(e.target.value), maxV])}
           />
-          <span className="fuaran-form-range-sep">–</span>
+          <span className="fuaran-field-range-sep">–</span>
           <input
-            className="fuaran-form-input fuaran-form-range-max"
+            className="fuaran-form-input fuaran-field-range-max"
             type="number"
             value={maxV}
             {...rangeAttrs}

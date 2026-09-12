@@ -952,6 +952,57 @@ const temporalTicks = (step: TemporalStep, lo: number, hi: number): number[] => 
   return out;
 };
 
+/**
+ * The `[min, max]` extent of a NON-EMPTY numeric array, as a `<` / `>`
+ * COMPARISON FOLD seeded on the first element — never `Math.min(...xs)`.
+ *
+ * Phase 1670, generalising Phase 1099's sparkline rule to the three chart
+ * lowering sites that still spread. There are TWO defects in the spread form and
+ * only one of them is about NaN:
+ *
+ * 1. THE ARGUMENT-COUNT CEILING, and it is the one that is reachable here. A
+ *    spread passes one argument per element, and every JS engine has a call-frame
+ *    limit: on the Node this was written against, `Math.min(...xs)` throws
+ *    `RangeError: Maximum call stack size exceeded` somewhere between 100k and
+ *    125k elements. A sparkline's series never approaches that; a chart's does —
+ *    `allValuesRaw` is rows × series, and a 20k-row seven-series chart is 140k
+ *    values. The failure is a THROWN EXCEPTION out of a pure lowering, not a
+ *    wrong picture, so it takes the whole render with it. The sparkline fix kept
+ *    a fold rather than a spread for exactly this reason.
+ *
+ * 2. NaN PROPAGATION, which matches the reference's `Array.min` / `List.min`:
+ *    those replace the accumulator only on a true comparison, and an IEEE
+ *    comparison against NaN is always false, so a NaN never BECOMES the extent —
+ *    it flows on as one poisoned datum while its neighbours keep their true
+ *    positions. `Math.min` propagates it into the extent and through the extent
+ *    into every coordinate on the chart.
+ *
+ *    At these three call sites that difference is currently UNOBSERVABLE, and
+ *    saying so is more useful than implying otherwise: every contributor to them
+ *    is already guarded — series cells by `numericOf`'s Phase-640 non-finite
+ *    clamp, reference lines by Phase 1490's `Number.isFinite` filter, value bands
+ *    by Phase 1492's, and a temporal `days` entry is an integer day number that
+ *    cannot be NaN at all. So this half of the fix is not a live bug fix; it is
+ *    what makes the three sites structurally identical to the reference, so that
+ *    removing or widening any of those guards later cannot silently reintroduce
+ *    a divergence the corpus has already been shown not to catch.
+ *
+ * Total on a non-empty array. Callers guard emptiness themselves, because what
+ * an empty extent MEANS differs per site (a day window, a zero-anchored value
+ * domain, a unit x axis) and inventing one answer here would be wrong at two of
+ * the three.
+ */
+const extentOf = (xs: readonly number[]): readonly [number, number] => {
+  let lo = xs[0]!;
+  let hi = xs[0]!;
+  for (let i = 1; i < xs.length; i++) {
+    const v = xs[i]!;
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return [lo, hi];
+};
+
 /** The chosen rung: the FIRST whose in-domain tick count fits `maxTicks`, else
  * the coarsest (rule 3). Total — the ladder is never empty. */
 const chooseTemporalStep = (maxTicks: number, lo: number, hi: number): TemporalStep =>
@@ -963,8 +1014,7 @@ const chooseTemporalStep = (maxTicks: number, lo: number, hi: number): TemporalS
  * draws an axis rather than dividing by zero. */
 const temporalDomain = (days: readonly number[]): readonly [number, number] => {
   if (days.length === 0) return [0, 1];
-  const lo = Math.min(...days);
-  const hi = Math.max(...days);
+  const [lo, hi] = extentOf(days);
   return hi === lo ? [lo, lo + 1] : [lo, hi];
 };
 
@@ -1433,8 +1483,7 @@ export const lower = (
     ...valueBands.flatMap(([, lo, hi]) => [lo, hi]),
   ];
   const values = allValuesRaw.length > 0 ? allValuesRaw : [0.0];
-  const dataMin = Math.min(...values);
-  const dataMax = Math.max(...values);
+  const [dataMin, dataMax] = extentOf(values);
   // Bars + lines share a zero-anchored domain — deterministic + honest for
   // bars. Stacked domains come from the cumulative partial sums, so the axis
   // covers the stack totals, never a single series' range.
@@ -1654,7 +1703,7 @@ export const lower = (
     : isScatter
       ? xValues.length === 0
         ? niceDomain(0.0, 1.0)
-        : niceDomain(Math.min(...xValues), Math.max(...xValues))
+        : niceDomain(...extentOf(xValues))
       : { niceLo: 0.0, niceHi: 1.0, step: 1.0, ticks: [] as number[] };
 
   // The Scatter arm's x IS a value axis, so its ticks take the same canonical

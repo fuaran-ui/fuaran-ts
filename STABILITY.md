@@ -434,6 +434,28 @@ The check sits in `decodeSkeletonSpec` **after** the §7.1 integer read and neve
 
 Certified by `limit-skeleton-rows-at-max` — the at-the-bound accept this decoder must still take, rule 1 being symmetric with rule 2 — and `reject-limit-skeleton-rows`, whose value is the 32-bit maximum rather than `10 001` so that the vector pins the §7.1/§21 seam and not merely the arithmetic. **The number does not move**: `@fuaran-ui/ops` 0.26.0 is ahead of the newest tag and unreleased, so this rides it.
 
+### Recorded breaking change — `@fuaran-ui/renderer` 0.23.0 and `@fuaran-ui/renderer-server` 0.21.0, `Range`'s class names join the F# vocabulary (fuaran#1670)
+
+Breaking by this document's own test for the renderer packages — **a rendered class name changes** — and by nothing else: no exported type, signature, prop or member moves, no wire byte moves, and no other kind's markup is touched.
+
+Both renderers emitted `fuaran-form-range` / `-min` / `-sep` / `-max` for `FormFieldKind.Range`, where the F# reference renderer emits `fuaran-field-range` / `-min` / `-sep` / `-max` for the same case. The class-name vocabulary is **parity-locked** with that reference — this document says so twice, once per renderer package — so this was a standing violation rather than a second dialect, and it had a consequence beyond tidiness: the packaged reference CSS, which is a byte-copy of the F# tier's canonical sheet, styles `fuaran-field-range*` and nothing else. The old names were therefore not merely divergent, they were **unstyled**: one document rendered an unstyled pair control here and a styled one there.
+
+It surfaced from the other end. The `DateRange` arm deliberately used the F# spelling when it landed, because parity is the stated mandate — which left this tier internally inconsistent between its two pair controls until now.
+
+**The reference host is unchanged, and that is the landing order rather than a coincidence:** it already emitted the target vocabulary, so `fuaran-dotnet` needed no edit, its `Theme.vocabularyFingerprint` does not move, and `-- Css` rewrote no tier stylesheet copy. **Consumer CSS or DOM queries selecting `fuaran-form-range*` must be updated**; there is no compatibility alias, because a second name for one control is the condition this change exists to end.
+
+_What this does NOT close, stated so it is not read as closed._ A filter chip in this tier renders through the shared form-control renderer, so a `Range` chip now emits `fuaran-field-range*` inside a `fuaran-filter` label where the F# tier's separate filter renderer emits `fuaran-filter-range*`. That divergence is structural — two render paths in one tier versus one in the other — and predates this change in a different spelling; it is recorded here rather than half-fixed under a class-rename.
+
+### Recorded change — `@fuaran-ui/charts` 0.14.1, the chart extents fold instead of spreading (fuaran#1670)
+
+A behavioural fix with **no surface change**: no export moves, and every `chart-lowering/*` and `sparkline-lowering/*` golden is byte-identical either side.
+
+Three extent computations took `Math.min(...xs)` / `Math.max(...xs)` where the reference (`Fuaran.UI.Charts`) takes `Array.min` / `List.min` — the temporal domain's `days`, the value domain's `values`, and Scatter's `xValues`. They now use one shared `<` / `>` comparison fold, the same shape Phase 1099 gave `tryLowerSparkline`.
+
+**The defect this actually fixes is the spread's argument-count ceiling, not NaN propagation**, and the distinction is worth recording because the bundle that filed it assumed the opposite. A spread passes one argument per element and every engine has a call-frame limit — measured at roughly 125 000 on Node 25 — so a chart whose value domain is rows × series threw `RangeError: Maximum call stack size exceeded` out of a pure lowering, taking the whole render with it. A sparkline's series never approaches that; a 20 000-row seven-series chart does. `test/chart-extent.test.ts` carries one vector per site, each of which fails with that `RangeError` against the previous code and passes against this one.
+
+The NaN half of the rule is matched too, and is **currently unobservable** at all three sites: every contributor is already guarded — `numericOf`'s non-finite clamp on each series cell, the `Number.isFinite` filter on a `ReferenceLine`, the same on both ends of a `ValueRange` band. That is why no corpus golden discriminates it here, and the same test file pins those three guards so that relaxing one is what goes red. The fold is what makes such a relaxation safe rather than a cross-host divergence.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:

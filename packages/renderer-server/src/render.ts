@@ -2044,22 +2044,27 @@ const renderFormControl = (ctx: ServerContext, field: FormField<unknown>): strin
       if (k.constraints?.min !== undefined) boundAttrs.push(['min', k.constraints.min]);
       if (k.constraints?.max !== undefined) boundAttrs.push(['max', k.constraints.max]);
       if (k.constraints?.step !== undefined) boundAttrs.push(['step', k.constraints.step]);
+      // Phase 1670 — `fuaran-field-range*`, the F# reference host's vocabulary
+      // and the one the canonical stylesheet styles. See the client renderer's
+      // note beside the same arm; both renderers move in one change-set because
+      // a class-name change is a cross-tier breaking change and a half-applied
+      // one diverges the static floor from the hydrated page.
       return el(
         'span',
         [
-          ['class', 'fuaran-form-range'],
+          ['class', 'fuaran-field-range'],
           ['id', field.id],
         ],
         voidEl('input', [
           ['type', 'number'],
-          ['class', 'fuaran-form-input fuaran-form-range-min'],
+          ['class', 'fuaran-form-input fuaran-field-range-min'],
           ['value', String(minV)],
           ...boundAttrs,
         ]) +
-          textEl('span', [['class', 'fuaran-form-range-sep']], '–') +
+          textEl('span', [['class', 'fuaran-field-range-sep']], '–') +
           voidEl('input', [
             ['type', 'number'],
-            ['class', 'fuaran-form-input fuaran-form-range-max'],
+            ['class', 'fuaran-form-input fuaran-field-range-max'],
             ['value', String(maxV)],
             ...boundAttrs,
           ]),
