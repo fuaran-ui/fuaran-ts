@@ -27,8 +27,26 @@
     "FUARAN105": "Not ported, and named here rather than left to the default because Phase 865 considered it and declined. This host's pre-emit walker has no binding traversal at all — `Display` and `Visualisation` kinds are leaves, so a Transform in a badge's text slot is never reached — and no tree-wide write-key or opacity projection. The rule reasons from the ABSENCE of a writer, so a partial port would not merely miss findings: with no writer projection it would fire on every tree that legitimately writes the key, which is a false accusation on the most idiomatic shape in the language. Porting it means porting the reference's cross-tree binding walk first, which is its own work. Declared rather than silent, per this artefact's whole purpose.",
     "FUARAN148": "Abstained on the same grounds this host abstains from FUARAN103 / FUARAN105, and recorded here rather than left to `abstentionDefault` because that default says \"an honest 'not yet'\" and this is not one: it is a principled exclusion, and the two read differently to anyone deciding what to port next. FUARAN148 reasons from the ABSENCE of a writer ANYWHERE IN THE TREE - it fires where a node's `visible` is a default-less `Binding.State` on a key nothing writes, because the shared State rule then resolves the slot to `false` and REMOVES the node with nothing saying why. That needs the same two projections FUARAN105 needs and this host does not have: a tree-wide State-WRITE set, and a binding traversal that reaches the slot. With no write projection the absence test is trivially true everywhere, so a partial port would fire on every tree that legitimately writes the key - a false accusation on an idiomatic shape, and worse than the silence it replaced. The prerequisite is the cross-tree binding walk named in this file's own FUARAN105 abstention; porting either one ports both. (Phase 1665, which is where the question was asked: the phase that carried FUARAN148's cross-host stance.)"
   },
-  "otherFamilies": {},
-  "otherFamiliesNote": "Codes this host raises that belong to the reference's BUILD-TIME source-AST walker, not the pre-emit family enumerated in the vocabulary. Recorded so the gate reads them as a different family rather than as a code this host invented. That second family is not yet enumerated; until it is, this list is a declaration of intent, not something the gate can verify.",
+  "otherFamilies": {
+    "ast-walker": [
+      "FUARAN001",
+      "FUARAN002",
+      "FUARAN010",
+      "FUARAN020",
+      "FUARAN030",
+      "FUARAN045",
+      "FUARAN046",
+      "FUARAN050",
+      "FUARAN051",
+      "FUARAN060",
+      "FUARAN061",
+      "FUARAN062",
+      "FUARAN063",
+      "FUARAN064",
+      "FUARAN900"
+    ]
+  },
+  "otherFamiliesNote": "Codes this host raises that belong to the reference's BUILD-TIME source-AST walker, not the pre-emit family enumerated in the vocabulary. Recorded so the gate reads them as a different family rather than as a code this host invented. That second family is not yet enumerated; until it is, this list is a declaration of intent, not something the gate can verify. Phase 1692 FILLED it, and how matters: the list is every FUARAN code the corpus's citation arm found in this host's source that the pre-emit vocabulary does not define, and each was classified against the reference's own registry tool (`fuaran-codes.ps1 -List`, which derives all three registries from source) rather than by inspection — every one of the fifteen came back `walker`. FUARAN001 and FUARAN010 are `walker, analyzer` there, a deliberate mirror on the reference; this host carries only the walker rule, so they are listed once under the family that owns the rule this host implements.",
   "machineChecked": false,
   "machineCheckedNote": "This host embeds the FUARAN code inside the human-readable message text rather than carrying it as a field on the finding, so `implemented` above cannot be checked against what the validator actually raises. Making the code a first-class value is the prerequisite for that check, and is open work."
 }
