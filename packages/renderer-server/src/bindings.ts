@@ -31,7 +31,12 @@ import type {
   TrackKind,
   TreeItem,
 } from '@fuaran-ui/schema';
-import { epochSecondsOfInstant, sinceUnitAndCount, truncateToGrain } from '@fuaran-ui/schema';
+import {
+  epochSecondsOfInstant,
+  sinceUnitAndCount,
+  stateDefaultDeclared,
+  truncateToGrain,
+} from '@fuaran-ui/schema';
 import {
   evalPipelineWith,
   evalPipelineWithInEnv,
@@ -145,9 +150,15 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       }
     }
     case 'State': {
+      // Phase 1690 (§24.8) — parity-locked with the client renderer's arm; see
+      // its comment for the reasoning. A bare `State` at an unwritten slot is
+      // UNRESOLVED, so the literal text `undefined` can no longer reach the
+      // markup and a numeric slot renders its absence placeholder. Both tiers
+      // move together or SSR and hydration disagree.
       const raw = sources.state?.[binding.key];
-      if (raw === undefined) return { kind: 'Resolved', value: binding.defaultValue };
-      return { kind: 'Resolved', value: raw as T };
+      if (raw !== undefined) return { kind: 'Resolved', value: raw as T };
+      if (stateDefaultDeclared(binding)) return { kind: 'Resolved', value: binding.defaultValue };
+      return { kind: 'NotResolved' };
     }
     case 'Now': {
       // Phase 765 — host-furnished, resolved once per render pass; never a

@@ -30,7 +30,12 @@ import type {
   TrackKind,
   TreeItem,
 } from '@fuaran-ui/schema';
-import { epochSecondsOfInstant, sinceUnitAndCount, truncateToGrain } from '@fuaran-ui/schema';
+import {
+  epochSecondsOfInstant,
+  sinceUnitAndCount,
+  stateDefaultDeclared,
+  truncateToGrain,
+} from '@fuaran-ui/schema';
 import {
   evalPipelineWith,
   evalPipelineWithInEnv,
@@ -197,9 +202,24 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       }
     }
     case 'State': {
+      // Phase 1690 (§24.8) — a bare `State`, one the document declared no
+      // default for, is UNRESOLVED at an unwritten slot. `State` joins the two
+      // arms §24.1 calls its mirrors: `Filter` and `Selection` above already
+      // answer this way, and the ruling that made `State` resolve a DECLARED
+      // default is the same ruling's other half.
+      //
+      // This arm used to return `{ Resolved, value: binding.defaultValue }`
+      // unconditionally, which at a bare `State` is a RESOLVED `undefined` —
+      // so `String(undefined)` reached the DOM as the literal text
+      // `undefined`, and a numeric slot read it as a value rather than as
+      // absence. `stateDefaultDeclared` is the encoder's own predicate,
+      // shared rather than restated: `defaultValue` carries the slot's typed
+      // placeholder whether or not the document said anything, so the value
+      // alone cannot answer this (Phase 1656).
       const raw = sources.state?.[binding.key];
-      if (raw === undefined) return { kind: 'Resolved', value: binding.defaultValue };
-      return { kind: 'Resolved', value: raw as T };
+      if (raw !== undefined) return { kind: 'Resolved', value: raw as T };
+      if (stateDefaultDeclared(binding)) return { kind: 'Resolved', value: binding.defaultValue };
+      return { kind: 'NotResolved' };
     }
     case 'Now': {
       // Phase 765 — the clock is never read here: `sources.now` was resolved

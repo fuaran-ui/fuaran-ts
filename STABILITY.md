@@ -657,6 +657,18 @@ The rest of `mcp`'s growth is additive: `runInspect`, `UNTRUSTED_TEXT_OBLIGATION
 
 **The result is still RETURNED to its caller unchanged.** The guards decide what the hook's own state does, never what the caller is told; a turn that genuinely happened is not swallowed. No export, signature or prop moves, so this is a patch on the `@fuaran-ui/charts` 0.14.1 reading: a behavioural fix with no surface change. What a consumer gains is that two turns resolving out of order can no longer leave the hook holding the first one's tree while the caller believes it is looking at the second's.
 
+### Recorded breaking change — `@fuaran-ui/renderer` 0.25.0 and `@fuaran-ui/renderer-server` 0.23.0, a bare `State` resolves to NOTHING (fuaran#1690)
+
+`WIRE_FORMAT.md` gains §24.8 — the undeclared half of §24's declared-default rule — and both tiers' `resolve` moves onto it: a `Binding.State` carrying no declared `defaultValue`, at a key nothing has written and §24.4 has not seeded, is **UNRESOLVED**. It used to be `{ kind: 'Resolved', value: binding.defaultValue }` unconditionally, which for a bare `State` is a resolved `undefined`.
+
+**What a consumer meets is the literal string `undefined` leaving the output.** At a text slot the runtime stringified that resolved nothing, so `undefined` reached the DOM and the SSR markup; at a numeric slot it read as a value rather than as absence. Both now render the slot's ordinary unresolved state — the em-dash at a `Metric`, the empty string at a text slot, the empty state at a collection — and a node whose `visible` predicate is a bare `State` renders where a fabricated falsy value could have removed it.
+
+**Both tiers move in one change-set, necessarily.** A server that resolved differently from the client it hands over to is a hydration mismatch, so this is one statement about two packages rather than two changes that happen to agree.
+
+**`@fuaran-ui/schema` 0.24.0 carries the predicate the three seams share.** `stateDefaultDeclared` is an additive export: the one definition of "does this `State` declare a default", read by the encoder (which member to emit, §5's absent-default posture) and by both resolvers (whether an unwritten slot has a default to fall back to). It reads `defaultDeclared` and not just the value, because `defaultValue` carries the slot's typed placeholder whether or not the document said anything — the pair Phase 1656 introduced for exactly this reason. Three copies of a predicate whose whole contract is that they agree is a shape this family has shipped a defect in before; `@fuaran-ui/ops` 0.27.1 is a patch that swaps its own copy for the shared one, changing no byte it emits.
+
+**What certifies it.** `packages/renderer-server/test/bareStateResolution.test.ts`, which asserts both tiers' resolvers and the rendered markup, and whose go-red is measured: restoring the old arm fails it with `expected { kind: 'Resolved', value: undefined }` and with `undefined` present in the markup. The corpus's render-text family pins the same rule as `bare-state-numeric-slot-unresolved`; neither `@fuaran-ui` renderer has a reader for that family, which is why the pin lives here.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:

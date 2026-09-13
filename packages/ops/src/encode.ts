@@ -19,7 +19,7 @@
 //  the encoder must reproduce the F# encoder's exact bytes for every fixture.
 // ============================================================================
 
-import { controlValueDefaults } from '@fuaran-ui/schema';
+import { controlValueDefaults, stateDefaultDeclared } from '@fuaran-ui/schema';
 import type {
   Accessibility,
   Action,
@@ -728,8 +728,12 @@ const binding = <T>(b: Binding<T>, staticEnc: (v: T) => string = objValue): stri
       // fallback: a slot whose typed placeholder is itself absent (the
       // `Transform` source's is) can leave a DECLARED-but-unreadable default
       // holding nothing, and a member with no value is not a member.
-      const hasValue = !(b.defaultValue === null || b.defaultValue === undefined);
-      const declared = hasValue && (b.defaultDeclared ?? true);
+      //
+      // Phase 1690 — the predicate moved to `@fuaran-ui/schema` unchanged. It
+      // now decides RESOLUTION as well as emission (§24.8: an undeclared
+      // default resolves to nothing), and three seams that must agree about one
+      // fact get one definition.
+      const declared = stateDefaultDeclared(b);
       const defaultFields: readonly Field[] = declared
         ? [['defaultValue', staticEnc(b.defaultValue)]]
         : [];
