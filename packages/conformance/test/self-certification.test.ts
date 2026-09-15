@@ -156,20 +156,31 @@ describe('self-certification — @fuaran-ui/ops through the public kit', () => {
     expect(elicitationCount).toBeGreaterThan(0);
     expect(cardCount).toBeGreaterThan(0);
 
-    // One family is exercised by NO leg here, and naming it is what keeps the
-    // guarantee above total rather than approximate. `teleport-decode` /
-    // `teleport-reject` (WIRE_FORMAT.md §17.6) need an asynchronous decoder —
-    // the bundle is a DEFLATE stream inflated through the platform's own
-    // decompressor — and `runConformance` is synchronous by contract, so a
-    // teleport leg means an async runner entry point and its own piece of work.
-    // The family is certified host-side in the meantime
+    // Two families are exercised by NO leg here, and naming them is what keeps
+    // the guarantee above total rather than approximate.
+    //
+    // `teleport-decode` / `teleport-reject` (WIRE_FORMAT.md §17.6) need an
+    // asynchronous decoder — the bundle is a DEFLATE stream inflated through the
+    // platform's own decompressor — and `runConformance` is synchronous by
+    // contract, so a teleport leg means an async runner entry point and its own
+    // piece of work. The family is certified host-side in the meantime
     // (`packages/op-stream/test/teleport.test.ts`, against these same files).
     //
-    // The exclusion is COMPUTED and pinned to exactly those two kinds, so a
-    // future family that no leg covers still trips this assertion — which is
-    // the whole point of the accounting. Widening this set is a decision, never
-    // a repair.
-    const notExercisedHere = ['teleport-decode', 'teleport-reject'];
+    // `style-observer` (Phase 1752) is excluded for a DIFFERENT reason, and the
+    // difference is worth keeping: teleport is work this tier has not done yet,
+    // style-observer is a surface this tier does not have. Those vectors are
+    // resolved-style facts in and encoded style-flag / style-observation bytes
+    // out — no decode, no re-encode, no schema to validate — and no package here
+    // implements the derivation, so there is nothing for a leg to run rather
+    // than a leg somebody forgot to write. It is certified by the hosts that do
+    // implement it. It is bundled in the snapshot regardless, because the
+    // snapshot's payload is derived from the manifest, and a snapshot listing
+    // files it does not hold is worse than one carrying files it does not read.
+    //
+    // The exclusion is COMPUTED and pinned to exactly these kinds, so a future
+    // family that no leg covers still trips this assertion — which is the whole
+    // point of the accounting. Widening this set is a decision, never a repair.
+    const notExercisedHere = ['teleport-decode', 'teleport-reject', 'style-observer'];
     const corpus = loadCorpus();
     const unexercised = corpus.fixtures.filter((f) => notExercisedHere.includes(f.kind));
     expect(new Set(unexercised.map((f) => f.kind))).toEqual(new Set(notExercisedHere));
