@@ -42,7 +42,7 @@ describe('grid-transform corpus pipeline (decode → evaluate → encode)', () =
   it('filter amount>0 → groupBy dept sum → sort total desc', () => {
     // The fixture node carries the Transform binding in kind.source.
     const fixture =
-      '{"id":"grid-transform","kind":{"$type":"DataGrid","columns":[],"editable":false,"rowKey":"<closure>","source":{"$type":"Transform","pipeline":[{"$type":"filter","pred":{"$type":"binary","left":{"$type":"col","name":"amount"},"op":"gt","right":{"$type":"lit","cell":{"$type":"Int","value":0}}}},{"$type":"groupBy","aggs":[{"fn":"sum","name":"total","of":"amount"}],"keys":["dept"]},{"$type":"sort","by":[{"col":"total","dir":"desc"}]}],"source":{"columns":{"amount":{"validity":[true,true,false],"values":[100,120,0]},"dept":{"validity":[true,true,true],"values":["eng","eng","sales"]}},"schema":[{"name":"dept","type":"string"},{"name":"amount","type":"int"}]}}}}';
+      '{"id":"grid-transform","kind":{"$type":"DataGrid","columns":[],"editable":false,"rowKey":"<closure>","source":{"$type":"Transform","pipeline":[{"$type":"filter","pred":{"$type":"binary","left":{"$type":"col","name":"amount"},"op":"gt","right":{"$type":"lit","cell":{"$type":"Int","value":0}}}},{"$type":"groupBy","aggs":[{"fn":"sum","name":"total","of":"amount"}],"keys":["dept"]},{"$type":"sort","by":[{"column":"total","dir":"desc"}]}],"source":{"columns":{"amount":{"validity":[true,true,false],"values":[100,120,0]},"dept":{"validity":[true,true,true],"values":["eng","eng","sales"]}},"schema":[{"name":"dept","type":"string"},{"name":"amount","type":"int"}]}}}}';
     const decoded = decodeNode(fixture);
     expect(decoded.ok).toBe(true);
     if (!decoded.ok) return;

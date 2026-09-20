@@ -158,9 +158,10 @@ export type WindowFn = 'rowNumber' | 'rank' | 'lag' | 'lead' | 'cumulSum' | 'rol
 export type SortDir = 'asc' | 'desc';
 
 /**
- * A `(from, to)` ordered string pair. The canonical wire shape is `{"a":…,"b":…}`.
- * For `project` cols, `a` is the source column and `b` the output name; for `join`
- * `on` keys, `a` is the left column and `b` the right column.
+ * A `(from, to)` ordered string pair. The canonical wire shape is `{"a":…,"b":…}` — `a` and `b`
+ * name a POSITION in a pair rather than a column, which is why 0.28.0's spell-it-out rule does
+ * not reach them. For a `project` step's `columns` list, `a` is the source column and `b` the
+ * output name; for `join` `on` keys, `a` is the left column and `b` the right column.
  */
 export interface ColPair {
   readonly a: string;
@@ -204,7 +205,12 @@ export interface Agg {
   readonly of: string;
 }
 
-/** One sort/order key: a column + a direction. The wire shape is `{"col":…,"dir":…}`. */
+/**
+ * One sort/order key: a column + a direction. The wire shape is `{"column":…,"dir":…}` since
+ * 0.28.0, which spells a column-naming member out in full; `col` remains a decode alias and is
+ * never emitted. The MODEL field below deliberately keeps the name `col`: this is a wire rename,
+ * and renaming a published interface member would break every consumer for no gain on the wire.
+ */
 export interface SortKey {
   readonly col: string;
   readonly dir: SortDir;
@@ -233,6 +239,8 @@ export interface PivotSpec {
  */
 export type Transform =
   | { readonly kind: 'filter'; readonly pred: ColExpr }
+  // `cols` is the MODEL field; the wire member is `columns` since 0.28.0 (`cols` decodes as an
+  // alias and is never emitted). See `SortKey` above for why the model name is left alone.
   | { readonly kind: 'project'; readonly cols: readonly ColPair[] }
   | { readonly kind: 'derive'; readonly name: string; readonly expr: ColExpr }
   | { readonly kind: 'groupBy'; readonly keys: readonly string[]; readonly aggs: readonly Agg[] }

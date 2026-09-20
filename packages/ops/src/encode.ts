@@ -554,9 +554,12 @@ const aggJson = (a: Agg): string =>
     ['of', str(a.of)],
   ]);
 
+// 0.28.0 — the member is `column`, not `col`: a wire member whose only honest name is
+// "the column" is spelled out in full. `col` stays a DECODE alias and is never emitted.
+// The model field keeps its own name — this is a wire rename, not an API one.
 const orderJson = (s: SortKey): string =>
   jObject([
-    ['col', str(s.col)],
+    ['column', str(s.col)],
     ['dir', str(s.dir)],
   ]);
 
@@ -566,7 +569,8 @@ const transformStep = (t: Transform): string => {
     case 'filter':
       return caseObj('filter', [['pred', colExpr(t.pred)]]);
     case 'project':
-      return caseObj('project', [['cols', jArray(t.cols.map(pairJson))]]);
+      // 0.28.0 — `columns`, not `cols` (see `orderJson` above); `cols` is a decode alias only.
+      return caseObj('project', [['columns', jArray(t.cols.map(pairJson))]]);
     case 'derive':
       return caseObj('derive', [
         ['name', str(t.name)],

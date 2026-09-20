@@ -1951,10 +1951,13 @@ const decodeAggCore = (j: JsonAst): CR<Agg> => {
 };
 
 const decodeOrderCore = (j: JsonAst): CR<SortKey> => {
-  // fuaran-core#92 — sort-key aliases: `column` for `col`, boolean `descending` for `dir`.
+  // fuaran-core#92 admitted `column` as an alias of `col`; 0.28.0 SWAPPED which of the two is
+  // canonical — a member whose only honest name is "the column" is spelled out in full — so both
+  // spellings still decode, `column` is what re-encodes, and giving both is refused as ambiguous.
+  // Boolean `descending` remains an alias for `dir`.
   const fo = cFields(j);
   if (!fo.ok) return fo;
-  const colEl = cFieldAliased(fo.value, 'col', 'column');
+  const colEl = cFieldAliased(fo.value, 'column', 'col');
   if (!colEl.ok) return colEl;
   const col = cStr(colEl.value);
   if (!col.ok) return col;
@@ -2052,7 +2055,9 @@ const decodeTransformCore = (j: JsonAst): CR<Transform> => {
       );
     }
     case 'project': {
-      const cj = cField(f, 'cols');
+      // 0.28.0 — `cols` is the pre-rename spelling, kept as a decode alias; giving both is the
+      // same ambiguity refusal every other aliased member of this algebra makes.
+      const cj = cFieldAliased(f, 'columns', 'cols');
       if (!cj.ok) return cj;
       const a = cArr(cj.value);
       if (!a.ok) return a;
