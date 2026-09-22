@@ -152,6 +152,32 @@ export type PreEmitDefect =
       readonly code: 'EMPTY_ACCESSIBILITY_DECLARATION';
       readonly nodeId: string;
       readonly slot: string;
+    }
+  /**
+   * FUARAN075 (error) — a node DECLARES a filter edge on a name no `Filters`
+   * chip in the tree declares. Two shapes carry such an edge: a `Query`'s
+   * `dependsOn` entry, and a `Transform` / `Expr` param whose `from` is a
+   * `Filter` binding.
+   *
+   * It is an ERROR, and the reason is that nothing downstream of the tree can
+   * notice. An undeclared chip resolves to nothing exactly as an UNSET chip
+   * does, and the lenient "unset filter ⇒ no constraint" prune then drops the
+   * dependent pipeline step — so a resolver silently returns the UNFILTERED set
+   * for a document whose author asked for a filter. On the `dependsOn` arm it
+   * is sharper still: that list is an invalidation SUBSCRIPTION, so an
+   * undeclared name subscribes a consumer to a slot nothing can ever write.
+   * Neither shape is a codec defect — both documents are perfectly legal wire
+   * and round-trip byte-identically — so this rule is the whole of the guard.
+   *
+   * `wire-format-fixtures/nodes/filters-param-source-{declared,undeclared}.json`
+   * (Phase 1784, the param-source arm) and `filters-dependson-*.json` (Phase
+   * 1800, the `dependsOn` arm) are the corpus twins: each pair differs in
+   * exactly one thing, whether the `Filters` node declares the second chip.
+   */
+  | {
+      readonly code: 'DANGLING_FILTER_REFERENCE';
+      readonly nodeId: string;
+      readonly name: string;
     };
 
 /**
@@ -332,7 +358,76 @@ export function preEmitValidate<TMsg>(
     }
   };
 
+  // ── FUARAN075's evidence (Phase 1800) ─────────────────────────────────────
+  //
+  // Both halves are judged AFTER the walk, for FUARAN110's reason: "names a
+  // chip this tree declares" is only answerable once the whole tree has been
+  // seen, and a consumer may precede its `Filters` sibling in document order.
+  //
+  // The chip declarations are collected by the walk itself — the `Filters` arm
+  // knows exactly where a chip name lives. The EDGES are collected by a
+  // structural scan instead, and that choice is worth stating because it is a
+  // divergence from the reference host. The reference has a cross-tree binding
+  // walk (`BindingWalk`) that enumerates every binding slot of every kind;
+  // this host has none, and writing the slot enumeration out by hand here
+  // would be a second copy of the schema that goes stale the first time a kind
+  // gains a data slot — the failure mode being SILENCE, which is the one this
+  // rule exists to remove. So the scan descends generically and recognises the
+  // two edge shapes by their wire discriminator.
+  //
+  // Attribution is by NEAREST ENCLOSING NODE, and the node boundary is not a
+  // heuristic: it is the set of node objects the walk above actually visited,
+  // so this scan and the walk cannot disagree about what a node is.
+  const visitedNodes = new Map<object, string>();
+  const filterDeclarations = new Set<string>();
+  const filterEdgeUses: { nodeId: string; name: string }[] = [];
+
+  const collectFilterEdges = (value: unknown, owner: string, seen: WeakSet<object>): void => {
+    if (value === null || typeof value !== 'object') return;
+    if (seen.has(value)) return;
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+      for (const item of value) collectFilterEdges(item, owner, seen);
+      return;
+    }
+
+    const o = value as Record<string, unknown>;
+    const nodeId = visitedNodes.get(value) ?? owner;
+    const discriminator = o['kind'];
+
+    // Arm 1 — a `Query`'s declared filter dependency edge (Phase 421).
+    if (discriminator === 'Query' && Array.isArray(o['dependsOn'])) {
+      for (const name of o['dependsOn'] as readonly unknown[]) {
+        if (typeof name === 'string') filterEdgeUses.push({ nodeId, name });
+      }
+    }
+
+    // Arm 2 — a `Transform` / `Expr` param sourced from a chip (Phase 424 /
+    // 1534). A param's `Filter` source is the DECLARED edge; a plain `Filter`
+    // binding elsewhere is an ordinary value read and is not judged here.
+    if ((discriminator === 'Transform' || discriminator === 'Expr') && Array.isArray(o['params'])) {
+      for (const param of o['params'] as readonly unknown[]) {
+        if (param === null || typeof param !== 'object') continue;
+        const from = (param as Record<string, unknown>)['from'];
+        if (from === null || typeof from !== 'object') continue;
+        const source = from as Record<string, unknown>;
+        if (source['kind'] === 'Filter' && typeof source['name'] === 'string') {
+          filterEdgeUses.push({ nodeId, name: source['name'] });
+        }
+      }
+    }
+
+    for (const child of Object.values(o)) collectFilterEdges(child, nodeId, seen);
+  };
+
   const walk = (n: Node<TMsg>): void => {
+    visitedNodes.set(n, n.id);
+
+    if (n.kind.kind === 'Input' && n.kind.input.kind === 'Filters') {
+      for (const spec of n.kind.input.specs) filterDeclarations.add(spec.name);
+    }
+
     recordNodeId(n.id);
     // Sited before the per-kind switch because the trait it reads lives on the
     // NODE: one call covers every kind, and a kind the language newly declares
@@ -555,6 +650,16 @@ export function preEmitValidate<TMsg>(
         slot: use.slot,
         target: use.target,
       });
+    }
+  }
+
+  // FUARAN075 — a declared filter edge grounded in no chip. The scan runs from
+  // the root once, after the walk has recorded what a node is.
+  collectFilterEdges(node, node.id, new WeakSet<object>());
+
+  for (const use of filterEdgeUses) {
+    if (!filterDeclarations.has(use.name)) {
+      defects.push({ code: 'DANGLING_FILTER_REFERENCE', nodeId: use.nodeId, name: use.name });
     }
   }
 

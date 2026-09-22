@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import {
   action,
+  binding,
   column,
+  formFieldKind,
   fuaran,
   node,
   nodeId,
   preEmitValidate,
   type Binding,
+  type FilterSpec,
   type Node,
   type NodeId,
   type PreEmitDefect,
@@ -399,5 +402,104 @@ describe('preEmitValidate', () => {
       fuaran.button<Msg>({ id: id('save'), label: 'Save' }),
     );
     expect(a11yCodesOf(tree)).toEqual([]);
+  });
+});
+
+// ============================================================================
+//  Phase 1800 — FUARAN075, the dangling-filter-reference rule.
+//
+//  The reference host has had this rule since Phase 1568; the reference
+//  IMPLEMENTATION — the one every later host ports its semantics from — did
+//  not, so a resolver here returned the unfiltered set on an undeclared chip
+//  and passed every fixture the corpus carries.
+//
+//  These are the hand-built go-red assertions: both arms of the rule, in both
+//  directions. The corpus-bound twins are asserted in `@fuaran-ui/conformance`,
+//  where the fixture bytes live.
+// ============================================================================
+
+describe('preEmitValidate — FUARAN075 dangling filter reference', () => {
+  const chip = (name: string, label: string): FilterSpec<Msg> => ({
+    name,
+    label: { kind: 'Literal', value: label },
+    field: formFieldKind.textDeclarative<Msg>(binding.filter<string>(name)),
+  });
+
+  /** A `Query` carrying the Phase 421 `dependsOn` edge; `binding.query` has no slot for it. */
+  const queryDependingOn = (name: string, dependsOn: readonly string[]): Binding<number> => ({
+    kind: 'Query',
+    name,
+    accessor: () => 0,
+    dependsOn,
+  });
+
+  const dependsOnDoc = (chips: readonly FilterSpec<Msg>[]): Node<Msg> =>
+    fuaran.dashboard<Msg>({
+      id: id('root'),
+      children: [
+        fuaran.filters<Msg>({ id: id('edge-chips'), filters: chips }),
+        fuaran.metric<Msg>({
+          id: id('scoped-metric'),
+          label: 'Revenue',
+          value: queryDependingOn('orders', ['region', 'genre']),
+        }),
+      ],
+    });
+
+  const paramSourceDoc = (chips: readonly FilterSpec<Msg>[]): Node<Msg> =>
+    fuaran.dashboard<Msg>({
+      id: id('root'),
+      children: [
+        fuaran.filters<Msg>({ id: id('edge-chips'), filters: chips }),
+        fuaran.metric<Msg>({
+          id: id('scoped-metric'),
+          label: 'Revenue',
+          value: {
+            kind: 'Expr',
+            expr: { kind: 'param', name: 'genre' },
+            params: [{ name: 'genre', from: binding.filter<string>('genre') }],
+          } as Binding<number>,
+        }),
+      ],
+    });
+
+  const danglingOf = (n: Node<Msg>): readonly { nodeId: string; name: string }[] => {
+    const r = preEmitValidate(n);
+    return r.ok
+      ? []
+      : r.error
+          .filter((d) => d.code === 'DANGLING_FILTER_REFERENCE')
+          .map((d) => ({ nodeId: d.nodeId, name: d.name }));
+  };
+
+  it('dependsOn arm: the control declares both names and raises nothing', () => {
+    expect(danglingOf(dependsOnDoc([chip('region', 'Region'), chip('genre', 'Genre')]))).toEqual([]);
+  });
+
+  it('dependsOn arm: the negative names the undeclared chip and its reader', () => {
+    expect(danglingOf(dependsOnDoc([chip('region', 'Region')]))).toEqual([
+      { nodeId: 'scoped-metric', name: 'genre' },
+    ]);
+  });
+
+  it('param-source arm: the control declares the name and raises nothing', () => {
+    expect(danglingOf(paramSourceDoc([chip('genre', 'Genre')]))).toEqual([]);
+  });
+
+  it('param-source arm: the negative names the undeclared chip and its reader', () => {
+    expect(danglingOf(paramSourceDoc([chip('region', 'Region')]))).toEqual([
+      { nodeId: 'scoped-metric', name: 'genre' },
+    ]);
+  });
+
+  it("go-red: a chip's OWN self-read is a declaration, never a dangling edge", () => {
+    // Every chip above reads `$filters.<own name>`. If a plain `Filter` binding
+    // counted as a declared EDGE, the controls would report their own chips and
+    // the two arms' assertions would pass for the wrong reason.
+    const chipsOnly = fuaran.dashboard<Msg>({
+      id: id('root'),
+      children: [fuaran.filters<Msg>({ id: id('edge-chips'), filters: [chip('region', 'Region')] })],
+    });
+    expect(danglingOf(chipsOnly)).toEqual([]);
   });
 });
