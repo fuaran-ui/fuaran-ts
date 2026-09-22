@@ -15,7 +15,7 @@ It is the contract [`@fuaran-ui/style-observer`](../style-observer) verifies res
 npm install @fuaran-ui/theme-manifest
 ```
 
-`@fuaran-ui/schema` is a peer dependency (for `ToneVariant`). No other runtime dependency.
+`@fuaran-ui/schema` (for `ToneVariant`) and `@fuaran-ui/ops` (for the tier's canonical-JSON renderer) are peer dependencies. No other runtime dependency.
 
 ## Usage
 
@@ -45,8 +45,37 @@ const fromVars = projectFromCssCustomProperties(appCss); // roles left unbound
 const combined = merge(fromVars, fromTones); // last-write-wins, CSS-cascade order
 ```
 
+### Handing a manifest back
+
+`encodeManifest` is the inverse of `decodeManifest` — so a manifest derived in the browser (a projector, or a brand override `merge`d over a base) can be sent to a server or persisted:
+
+```ts
+import {
+  decodeManifest,
+  encodeManifest,
+  merge,
+  projectFromCssCustomProperties,
+} from '@fuaran-ui/theme-manifest';
+
+const merged = merge(base, brandOverride);
+const json = encodeManifest(merged); // canonical JSON — sorted keys, no whitespace
+```
+
+The bytes are canonical and cross-host: the same manifest encodes identically here, in `fuaran-rs` and in `fuaran-go`. Every member the decoder tolerates the absence of is omitted at its default, and `decodeManifest(encodeManifest(m))` returns `m` for any manifest the decoder produced.
+
+## API
+
+| Export                                                                             | What it does                                                |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `decodeManifest(json)` / `manifestFromJson(value)`                                 | JSON (DTCG file or Fuaran wrapper) → `ThemeManifest`        |
+| `encodeManifest(manifest)`                                                         | `ThemeManifest` → canonical JSON, the cross-host wire bytes |
+| `projectFromFuaranToneVars` / `projectFromCssCustomProperties` / `projectFromDtcg` | an existing token surface → a baseline manifest             |
+| `merge(base, over)`                                                                | last-write-wins combination, CSS-cascade order              |
+| `resolveRole` / `resolveNamedRole` / `tryGetToken` / `paletteColours`              | lookups against a decoded manifest                          |
+| `invariant` / `weightedInvariant` / `invariantKindName`                            | the soft-weighted invariant vocabulary                      |
+
 ## Stability
 
-The contract shapes (`ThemeManifest`, `ManifestToken`, `ManifestRole`, `Invariant`) and the decode behaviour are declared stable in [`STABILITY.md`](../../STABILITY.md). The invariant vocabulary is **additive-only** (a new `InvariantKind` is a minor bump; redefining one is breaking). Manifest JSON encode + the F# `ThemeBridge` (typed-`Theme` projector) are not yet ported (follow-up).
+The contract shapes (`ThemeManifest`, `ManifestToken`, `ManifestRole`, `Invariant`) and the decode behaviour are declared stable in [`STABILITY.md`](../../STABILITY.md). The invariant vocabulary is **additive-only** (a new `InvariantKind` is a minor bump; redefining one is breaking). The encoded BYTES are equally stable — they are held to the `fuaran-rs` byte oracle, so changing one is a wire-format change for every host. The F# `ThemeBridge` (typed-`Theme` projector) is not yet ported (follow-up).
 
 Apache-2.0.

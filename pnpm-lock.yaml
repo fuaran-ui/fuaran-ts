@@ -454,6 +454,9 @@ importers:
 
   packages/theme-manifest:
     devDependencies:
+      '@fuaran-ui/ops':
+        specifier: workspace:*
+        version: link:../ops
       '@fuaran-ui/schema':
         specifier: workspace:*
         version: link:../schema

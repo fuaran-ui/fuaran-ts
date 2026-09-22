@@ -41,9 +41,11 @@
     "lint": "tsc --noEmit -p tsconfig.test.json"
   },
   "peerDependencies": {
+    "@fuaran-ui/ops": "workspace:^",
     "@fuaran-ui/schema": "workspace:^"
   },
   "devDependencies": {
+    "@fuaran-ui/ops": "workspace:*",
     "@fuaran-ui/schema": "workspace:*",
     "@types/node": "^22.10.2"
   },

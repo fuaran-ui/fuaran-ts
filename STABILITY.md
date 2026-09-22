@@ -200,8 +200,9 @@ The **contract shapes are stable**, governed by the same forward-coupling discip
 - The `ThemeManifest`, `ManifestMeta`, `ManifestToken`, `ManifestRole`, `RoleBinding`, `Invariant`, `InvariantKind`, `MotionBudget` shapes ([`packages/theme-manifest/src/manifest.ts`](packages/theme-manifest/src/manifest.ts)), matching the F# `Fuaran.UI.ThemeManifest` contract.
 - The `decodeManifest` / `manifestFromJson` behaviour – the DTCG group-tree walk + the Fuaran wrapper shape, the role / invariant parse, and the `$extensions.fuaran.role` mining. A vanilla DTCG file decodes to tokens with empty roles/invariants.
 - The `invariant` vocabulary is **additive-only**: a new `InvariantKind` is a minor bump; redefining one breaks every manifest authored against it.
+- The `encodeManifest` bytes – the canonical-JSON emission and its omit-at-default rules, held to the cross-host byte oracle (below).
 
-The projectors (`projectFromFuaranToneVars` / `projectFromCssCustomProperties` / `projectFromDtcg` / `merge`) are **stable in behaviour**; their exact role-inference heuristics may be tuned in a minor release. Manifest JSON **encode** and the F# `ThemeBridge` (typed-`Theme` projector) are not yet ported (follow-up). `@fuaran-ui/schema` is the only peer dependency.
+The projectors (`projectFromFuaranToneVars` / `projectFromCssCustomProperties` / `projectFromDtcg` / `merge`) are **stable in behaviour**; their exact role-inference heuristics may be tuned in a minor release. The F# `ThemeBridge` (typed-`Theme` projector) is not yet ported (follow-up). `@fuaran-ui/schema` and `@fuaran-ui/ops` are the peer dependencies.
 
 ### `@fuaran-ui/ai-tools`
 
@@ -668,6 +669,44 @@ The rest of `mcp`'s growth is additive: `runInspect`, `UNTRUSTED_TEXT_OBLIGATION
 **`@fuaran-ui/schema` 0.24.0 carries the predicate the three seams share.** `stateDefaultDeclared` is an additive export: the one definition of "does this `State` declare a default", read by the encoder (which member to emit, §5's absent-default posture) and by both resolvers (whether an unwritten slot has a default to fall back to). It reads `defaultDeclared` and not just the value, because `defaultValue` carries the slot's typed placeholder whether or not the document said anything — the pair Phase 1656 introduced for exactly this reason. Three copies of a predicate whose whole contract is that they agree is a shape this family has shipped a defect in before; `@fuaran-ui/ops` 0.27.1 is a patch that swaps its own copy for the shared one, changing no byte it emits.
 
 **What certifies it.** `packages/renderer-server/test/bareStateResolution.test.ts`, which asserts both tiers' resolvers and the rendered markup, and whose go-red is measured: restoring the old arm fails it with `expected { kind: 'Resolved', value: undefined }` and with `undefined` present in the markup. The corpus's render-text family pins the same rule as `bare-state-numeric-slot-unresolved`; neither `@fuaran-ui` renderer has a reader for that family, which is why the pin lives here.
+
+### UNRELEASED, ahead of `@fuaran-ui/theme-manifest` 0.11.1 — the manifest gains an ENCODER (fuaran#1729)
+
+`@fuaran-ui/theme-manifest` exports `encodeManifest(m: ThemeManifest): string`. The package shipped
+`decodeManifest` / `manifestFromJson`, the three projectors and `merge` and **no encoder of any
+spelling**, so a brand override merged in the browser could not be sent back to a server or
+persisted, and the tier could not prove a decoded manifest re-encodes to its bytes.
+
+**The bytes are not this tier's to choose.** `fuaran-rs` is the first host to emit a theme manifest
+(Phase 1725), and its literals in `fuaran-rs/tests/manifest.rs` are the portable oracle every later
+host is held to. `packages/theme-manifest/test/encode.test.ts` copies them VERBATIM — the sample
+manifest's bytes, the projected manifest's bytes, the omit-at-default cases and the three model
+states the wire cannot carry — rather than recording them from a run here, because a byte pin whose
+recorder is the code under test pins nothing. Read a disagreement as a wire-format question for
+every host at once, not as a fixture refresh.
+
+**What it emits.** Always the Fuaran wrapper shape, never a bare DTCG tree: a top-level `tokens` key
+is what selects the wrapper branch at decode, so omitting it when empty would read back as vanilla
+DTCG and silently discard meta, roles and invariants — which is why the empty manifest is
+`{"tokens":{}}` and not `{}`. Every member the decoder tolerates the absence of is omitted at its
+default (an empty `$type`, a `DEFAULT_WEIGHT` invariant, an anonymous role binding), so a projected
+manifest does not carry a page of empty strings. The round trip is stated precisely on
+`encodeManifest`'s own doc comment: an exact model identity for any manifest the decoder produced,
+and a FIXPOINT for a projector or `merge` result, whose first-appearance token order the wire's
+sorted order normalises while preserving the token set.
+
+**`@fuaran-ui/ops` joins `@fuaran-ui/schema` as a peer dependency**, for `renderAstCanonical` — the
+renderer the op-stream and wire codecs already emit through. A canonical renderer local to this
+package would be a second one in the tier, which is drift by construction; the `emits canonical
+JSON` pin is the host-neutral half of the claim, and the one a sibling host can check without
+agreeing with this tier about anything else.
+
+**Unreleased, and it does NOT ride a draft — 0.11.1 is the TAGGED version** (`v0.27.0` published it).
+The next release gesture must therefore advance `@fuaran-ui/theme-manifest` to `0.12.0` — the surface
+grows — and, per the release-consistency rule above, bump `@fuaran-ui/style-observer` alongside it:
+`style-observer` 0.11.0 sits on the registry declaring `^0.11.1` for this package, which 0.12.0 would
+exclude. Both bumps belong to that release sweep, not to this change: bumping here in isolation would
+put `dev-scripts/check-peer-ranges.mjs` into exactly the unsatisfiable-set failure it exists to catch.
 
 ## Unstable surfaces
 

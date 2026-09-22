@@ -34,6 +34,8 @@ export {
 
 export { type DecodeManifestResult, manifestFromJson, decodeManifest } from './decode.js';
 
+export { encodeManifest } from './encode.js';
+
 export {
   type CssBlock,
   scanCssBlocks,
