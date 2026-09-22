@@ -1036,7 +1036,12 @@ const formatIntent = (f: Format): string => {
     case 'Percent':
       return caseObj('Percent', f.decimals !== undefined ? [['decimals', num(f.decimals)]] : []);
     case 'Date':
-      return caseObj('Date', [['dateStyle', str(f.dateStyle)]]);
+      // Phase 1810 — each style rides only when present; alphabetical field
+      // order (dateStyle before timeStyle), the canonical rule.
+      return caseObj('Date', [
+        ...(f.dateStyle !== undefined ? [['dateStyle', str(f.dateStyle)] as const] : []),
+        ...(f.timeStyle !== undefined ? [['timeStyle', str(f.timeStyle)] as const] : []),
+      ]);
     case 'RelativeTime':
       return caseObj('RelativeTime', [['unit', str(f.unit)]]);
     case 'Duration':

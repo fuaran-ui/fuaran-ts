@@ -575,6 +575,10 @@ export const tableToRows = (t: Table): Record<string, unknown>[] => {
 const dateStyleLower = (s: string): Intl.DateTimeFormatOptions['dateStyle'] =>
   s.toLowerCase() as Intl.DateTimeFormatOptions['dateStyle'];
 
+// Phase 1810 — the time-of-day half of the style pair, Intl's own spellings.
+const timeStyleLower = (s: string): Intl.DateTimeFormatOptions['timeStyle'] =>
+  s.toLowerCase() as Intl.DateTimeFormatOptions['timeStyle'];
+
 const relUnitLower = (u: string): Intl.RelativeTimeFormatUnit =>
   u.toLowerCase() as Intl.RelativeTimeFormatUnit;
 
@@ -672,10 +676,16 @@ export const formatLocaleValue = (localeTag: string, fmt: Format, value: number)
           : { style: 'percent' };
       return new Intl.NumberFormat(loc, opts).format(value);
     }
-    case 'Date':
-      return new Intl.DateTimeFormat(loc, { dateStyle: dateStyleLower(fmt.dateStyle) }).format(
-        new Date(value * 1000),
-      );
+    case 'Date': {
+      // Phase 1810 — the platform's own `dateStyle` / `timeStyle` pair: each
+      // option rides only when declared, so `timeStyle` alone is a time of day
+      // and both together a date-time. Mirrors F# `Formatting.format`.
+      const opts: Intl.DateTimeFormatOptions = {
+        ...(fmt.dateStyle !== undefined ? { dateStyle: dateStyleLower(fmt.dateStyle) } : {}),
+        ...(fmt.timeStyle !== undefined ? { timeStyle: timeStyleLower(fmt.timeStyle) } : {}),
+      };
+      return new Intl.DateTimeFormat(loc, opts).format(new Date(value * 1000));
+    }
     case 'RelativeTime':
       return new Intl.RelativeTimeFormat(loc, { numeric: 'auto' }).format(
         value,

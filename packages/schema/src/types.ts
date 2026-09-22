@@ -835,6 +835,13 @@ export type ColumnWidth =
 /** Date-presentation breadth for `Format.Date` (maps to Intl `dateStyle`). */
 export type DateStyle = 'Short' | 'Medium' | 'Long' | 'Full';
 
+/**
+ * Time-of-day breadth for `Format.Date` (Phase 1810; maps to Intl `timeStyle`).
+ * The other half of the platform formatter's `dateStyle` / `timeStyle` pair:
+ * `timeStyle` alone displays a time of day, both together a date-time.
+ */
+export type TimeStyle = 'Short' | 'Medium' | 'Long' | 'Full';
+
 /** Relative-time grain for `Format.RelativeTime` (maps to Intl `unit`). */
 export type RelativeTimeUnit = 'Second' | 'Minute' | 'Hour' | 'Day' | 'Week' | 'Month' | 'Year';
 
@@ -864,7 +871,13 @@ export type Format =
   | { readonly kind: 'Number'; readonly decimals?: number }
   | { readonly kind: 'Currency'; readonly isoCode: string }
   | { readonly kind: 'Percent'; readonly decimals?: number }
-  | { readonly kind: 'Date'; readonly dateStyle: DateStyle }
+  /**
+   * Phase 1810 — BOTH styles are optional so that a time of day can be
+   * displayed alone (`timeStyle` only) beside the date-only and date-time
+   * shapes. Neither present decodes structurally and is refused by the
+   * validator (FUARAN155), never by the codec.
+   */
+  | { readonly kind: 'Date'; readonly dateStyle?: DateStyle; readonly timeStyle?: TimeStyle }
   | { readonly kind: 'RelativeTime'; readonly unit: RelativeTimeUnit }
   | { readonly kind: 'Duration'; readonly unit: DurationUnit; readonly style: DurationStyle }
   /**

@@ -108,7 +108,14 @@ const reauthorFormat = (f: Format): Format => {
     case 'Currency':
       return localeFormat.currency(f.isoCode);
     case 'Date':
-      return localeFormat.date(f.dateStyle);
+      // Phase 1810 — the three admitted shapes, one constructor each.
+      return f.dateStyle !== undefined && f.timeStyle !== undefined
+        ? localeFormat.dateTime(f.dateStyle, f.timeStyle)
+        : f.timeStyle !== undefined
+          ? localeFormat.time(f.timeStyle)
+          : f.dateStyle !== undefined
+            ? localeFormat.date(f.dateStyle)
+            : f;
     case 'RelativeTime':
       return localeFormat.relativeTime(f.unit);
     // NO CONSTRUCTOR — `localeFormat` offers no `duration` or `since`.

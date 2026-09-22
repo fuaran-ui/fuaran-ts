@@ -95,6 +95,7 @@ import type {
   TabHeader,
   TabsSpec,
   TextSource,
+  TimeStyle,
   NavigateTarget,
   TrackEntry,
   TrackKind,
@@ -603,8 +604,23 @@ export const localeFormat = {
   percent(decimals?: number): Format {
     return decimals !== undefined ? { kind: 'Percent', decimals } : { kind: 'Percent' };
   },
+  /** An absolute date with no time of day — the pre-1810 signature, kept. */
   date(dateStyle: DateStyle): Format {
     return { kind: 'Date', dateStyle };
+  },
+  /**
+   * Phase 1810 — an absolute date AND its time of day, each at its own
+   * breadth (the platform formatter's `dateStyle` / `timeStyle` pair).
+   */
+  dateTime(dateStyle: DateStyle, timeStyle: TimeStyle): Format {
+    return { kind: 'Date', dateStyle, timeStyle };
+  },
+  /**
+   * Phase 1810 — a time of day ALONE: the display half of a `Time` form
+   * field's value. The source is still whole Unix-epoch seconds.
+   */
+  time(timeStyle: TimeStyle): Format {
+    return { kind: 'Date', timeStyle };
   },
   relativeTime(unit: RelativeTimeUnit): Format {
     return { kind: 'RelativeTime', unit };

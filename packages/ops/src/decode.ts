@@ -1172,10 +1172,23 @@ const decodeFormat = (path: string, j: JsonAst): R<Format> => {
       return r.ok ? ok({ kind: 'Percent', decimals: r.value }) : r;
     }
     case 'Date': {
-      const r = reqField(path, f, 'dateStyle', 'DateStyle string', (p, v) =>
+      // Phase 1810 — both style slots are OPTIONAL: `timeStyle` alone is a
+      // time of day, both together a date-time, `dateStyle` alone the shape
+      // every pre-1810 document carries. Present-but-unreadable is still a
+      // refusal; neither present decodes and is FUARAN155's subject upstream.
+      const d = optField(path, f, 'dateStyle', (p, v) =>
         bareEnum(p, v, ['Short', 'Medium', 'Long', 'Full'] as const, 'DateStyle'),
       );
-      return r.ok ? ok<Format>({ kind: 'Date', dateStyle: r.value }) : r;
+      if (!d.ok) return d;
+      const t = optField(path, f, 'timeStyle', (p, v) =>
+        bareEnum(p, v, ['Short', 'Medium', 'Long', 'Full'] as const, 'TimeStyle'),
+      );
+      if (!t.ok) return t;
+      return ok<Format>({
+        kind: 'Date',
+        ...(d.value !== undefined ? { dateStyle: d.value } : {}),
+        ...(t.value !== undefined ? { timeStyle: t.value } : {}),
+      });
     }
     case 'RelativeTime': {
       const r = reqField(path, f, 'unit', 'RelativeTimeUnit string', decodeRelativeTimeUnit);

@@ -243,6 +243,13 @@ exports[`fixture-corpus — decode + render every node fixture > format-bindings
 </div></div></div></div>"
 `;
 
+exports[`fixture-corpus — decode + render every node fixture > format-date-time.json matches its rendered-output snapshot 1`] = `
+"<div id="format-date-time" data-fuaran-node-id="format-date-time" class="fuaran-kind-stack fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-layout-stack fuaran-stack-vertical"><div id="fmt-date-time" data-fuaran-node-id="fmt-date-time" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-markdown"><p>14 Nov 2023, 22:13</p>
+</div></div><div id="fmt-time-only" data-fuaran-node-id="fmt-time-only" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-markdown"><p>22:13</p>
+</div></div><div id="fmt-time-full" data-fuaran-node-id="fmt-time-full" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-markdown"><p>Dienstag, 14. November 2023 um 22:13:20</p>
+</div></div></div></div>"
+`;
+
 exports[`fixture-corpus — decode + render every node fixture > format-since.json matches its rendered-output snapshot 1`] = `"<div id="format-since" data-fuaran-node-id="format-since" class="fuaran-kind-stack fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-layout-stack fuaran-stack-vertical"><div id="since-auto" data-fuaran-node-id="since-auto" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-markdown"></div></div><div id="since-declared-hour" data-fuaran-node-id="since-declared-hour" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-markdown"></div></div></div></div>"`;
 
 exports[`fixture-corpus — decode + render every node fixture > frag-decl-1.json matches its rendered-output snapshot 1`] = `"<div id="frag-decl-1" data-fuaran-node-id="frag-decl-1" class="fuaran-kind-fragment-decl fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"></div>"`;
