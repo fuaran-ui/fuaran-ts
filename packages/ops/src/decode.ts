@@ -7587,6 +7587,11 @@ const decodeAccessibility = (path: string, j: JsonAst): R<Accessibility> => {
   if (!liveRegion.ok) return liveRegion;
   const hidden = optField(path, f, 'hidden', decodeBindingBool);
   if (!hidden.ok) return hidden;
+  // Phase 1812 — `speak`, the node's spoken rendering for a voice surface: a
+  // full `TextSource` like `tooltip`, decoded and preserved here, inert to the
+  // visual renderer and never a source for `aria-label`.
+  const speak = optField(path, f, 'speak', decodeTextSource);
+  if (!speak.ok) return speak;
   return ok({
     ...(label.value !== undefined ? { label: label.value } : {}),
     ...(labelledBy.value !== undefined ? { labelledBy: labelledBy.value as NodeId } : {}),
@@ -7594,6 +7599,7 @@ const decodeAccessibility = (path: string, j: JsonAst): R<Accessibility> => {
     ...(role.value !== undefined ? { role: role.value } : {}),
     ...(liveRegion.value !== undefined ? { liveRegion: liveRegion.value } : {}),
     ...(hidden.value !== undefined ? { hidden: hidden.value } : {}),
+    ...(speak.value !== undefined ? { speak: speak.value } : {}),
   });
 };
 
@@ -7734,6 +7740,13 @@ const decodeNodeAstInner = (path: string, j: JsonAst): R<Node<unknown>> => {
   // own narrower thing it took two hosts and a ruling to unwind.
   const visible = optField(path, f, 'visible', decodeBindingBool);
   if (!visible.ok) return visible;
+  // Phase 1812 — the author-declared `fallback`: a full node a reader BEHIND
+  // this node's kind renders in place of its placeholder (§3.1 / §15.3). This
+  // reader knows the kind, so it decodes the fallback, preserves it and never
+  // renders it; the descent goes through `decodeNodeAst` like `state.onEmpty`
+  // does, so the §21 depth and node-count bounds cover the subtree.
+  const fallback = optField(path, f, 'fallback', decodeNodeAst);
+  if (!fallback.ok) return fallback;
   return ok({
     id: idStr.value as NodeId,
     kind: kind.value,
@@ -7742,6 +7755,7 @@ const decodeNodeAstInner = (path: string, j: JsonAst): R<Node<unknown>> => {
     ...(accessibility.value !== undefined ? { accessibility: accessibility.value } : {}),
     ...(tooltip.value !== undefined ? { tooltip: tooltip.value } : {}),
     ...(visible.value !== undefined ? { visible: visible.value } : {}),
+    ...(fallback.value !== undefined ? { fallback: fallback.value } : {}),
   });
 };
 

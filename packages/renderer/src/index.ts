@@ -13,7 +13,7 @@
 // — both React-free, so a pure-string host can reach them without pulling React
 // in through this entry point.
 
-export { FuaranRenderer, type FuaranRendererProps } from './Renderer.js';
+export { FuaranRenderer, FuaranBehindRenderer, type FuaranRendererProps } from './Renderer.js';
 
 // In-page introspection REPL — `window.__fuaran` (DEBUG-only). Registered by
 // `<FuaranRenderer debug>`; the builder + register helpers are exported so a

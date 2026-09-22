@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 
 import { decodeNode } from '@fuaran-ui/ops';
 
-import { renderToHtml } from '../src/index.js';
+import { renderBehindToHtml, renderToHtml } from '../src/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // packages/renderer-server/test → Fuaran-UI/wire-format-fixtures/nodes
@@ -133,5 +133,30 @@ describe('server semantics', () => {
     } as unknown as Parameters<typeof renderToHtml>[0];
     const html = renderToHtml(tree);
     expect(html).toContain('data-fuaran-node-id="ref.inner"');
+  });
+});
+
+describe('BehindView (Phase 1812)', () => {
+  it('a Rendered view renders exactly as the node itself does', () => {
+    const fb = decodeNode('{"id":"h1-fallback","kind":{"$type":"Markdown","text":"A hologram would appear here."}}');
+    if (!fb.ok) throw new Error('the fallback decodes');
+    expect(renderBehindToHtml({ kind: 'Rendered', node: fb.value })).toBe(renderToHtml(fb.value));
+  });
+
+  it('a Placeholder view is the labelled degrade — kind and the declared profile', () => {
+    const html = renderBehindToHtml({ kind: 'Placeholder', unknownKind: 'hologram', requiredProfile: 'core@1.4' });
+    expect(html).toBe(
+      '<div class="fuaran-unknown-placeholder" data-fuaran-kind="hologram" data-fuaran-requires="core@1.4">needs core@1.4</div>',
+    );
+    const bare = renderBehindToHtml({ kind: 'Placeholder', unknownKind: 'hologram' });
+    expect(bare).toBe('<div class="fuaran-unknown-placeholder" data-fuaran-kind="hologram">unknown kind hologram</div>');
+  });
+
+  it('accessibility.speak changes no visual or ARIA output', () => {
+    const named = decodeNode('{"accessibility":{"label":{"$type":"Static","value":"Service status"}},"id":"m","kind":{"$type":"Markdown","text":"body"}}');
+    const spoken = decodeNode('{"accessibility":{"label":{"$type":"Static","value":"Service status"},"speak":"Service status: all systems operational."},"id":"m","kind":{"$type":"Markdown","text":"body"}}');
+    if (!named.ok || !spoken.ok) throw new Error('both decode');
+    expect(renderToHtml(spoken.value)).toBe(renderToHtml(named.value));
+    expect(renderToHtml(spoken.value)).not.toContain('all systems operational');
   });
 });

@@ -254,6 +254,17 @@ export const node = {
   withTooltip<TMsg>(hint: TextSource, n: Node<TMsg>): Node<TMsg> {
     return { ...n, tooltip: hint };
   },
+  /**
+   * Attach an author-declared fallback (Phase 1812) -- a full node a reader
+   * BEHIND this node's kind renders in place of its labelled placeholder. A
+   * current reader decodes it, preserves it and never renders it. Reach for it
+   * sparingly and build it from kinds every reader has: a fallback carrying the
+   * kind it stands in for is refused (`FUARAN156`), as is a fallback inside a
+   * fallback (`FUARAN157`).
+   */
+  withFallback<TMsg>(fallback: Node<TMsg>, n: Node<TMsg>): Node<TMsg> {
+    return { ...n, fallback };
+  },
   withMotion<TMsg>(motion: Motion, n: Node<TMsg>): Node<TMsg> {
     return { ...n, motion };
   },

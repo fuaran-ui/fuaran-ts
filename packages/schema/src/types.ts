@@ -964,6 +964,14 @@ export interface Accessibility {
   readonly role?: AriaRole;
   readonly liveRegion?: LiveRegionKind;
   readonly hidden?: Binding<boolean>;
+  /**
+   * The node's SPOKEN rendering for a voice surface (Phase 1812) — a
+   * `TextSource` like `tooltip` (authored, translated content). Inert to every
+   * visual renderer: it never reaches `aria-label` (the accessible NAME is
+   * `label`) and changes no visual or ARIA output. Its consumer is the speech
+   * projection.
+   */
+  readonly speak?: TextSource;
 }
 
 // ─── The tree ────────────────────────────────────────────────────────────────
@@ -1006,6 +1014,23 @@ export interface Node<TMsg> {
    * cannot report and cannot work around.
    */
   readonly visible?: Binding<boolean>;
+
+  /**
+   * The AUTHOR-DECLARED FALLBACK (Phase 1812) — a full node that a reader
+   * BEHIND this node's kind (one whose decoder meets the kind as a transport-only
+   * `Unknown`, WIRE_FORMAT.md §15.3) renders in place of its labelled
+   * placeholder. It sits on the envelope, not in the kind's spec, because a
+   * reader that does not understand the kind cannot open the spec.
+   *
+   * A CURRENT reader — this decoder, which knows the kind — decodes it, preserves
+   * it (it re-encodes byte-for-byte) and never renders it. A behind reader lifts
+   * it out of the preserved payload (`liftFallback` in `@fuaran-ui/ops`) without
+   * removing it from the bytes. Emit it sparingly, from kinds every reader has:
+   * the validator refuses a fallback that carries the kind it stands in for
+   * (`FUARAN156`) and a fallback inside a fallback (`FUARAN157`); its ids share
+   * the document's one id space (§8.1).
+   */
+  readonly fallback?: Node<TMsg>;
 }
 
 export type NodeKind<TMsg> =

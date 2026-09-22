@@ -19,7 +19,7 @@ import type { HashStrictness, Node } from '@fuaran-ui/schema';
 
 // Phase 1075 — the `Binding.State` seeding pass. One definition, shared with
 // the server renderer, so the two tiers cannot drift on the charter's §4/§5.
-import { withStateSeeds } from '@fuaran-ui/ops';
+import { type BehindView, withStateSeeds } from '@fuaran-ui/ops';
 
 import type { BindingSources } from './bindings.js';
 import type { RenderContext } from './context.js';
@@ -174,4 +174,33 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
   }
 
   return rendered;
+}
+
+/**
+ * Phase 1812 — the BEHIND reader's renderer (WIRE_FORMAT.md §15.3). Given the
+ * view `behindView` in `@fuaran-ui/ops` decided — the node itself, the
+ * author-declared `fallback` lifted out of a transport-only `Unknown`, or the
+ * labelled placeholder — renders a `Rendered` view through `<FuaranRenderer>`
+ * exactly as any tree, and a `Placeholder` as the degrade the section has
+ * always specified ("needs `core@1.4`", else the unknown kind by name), with
+ * the same class and data attributes the server emits.
+ */
+export function FuaranBehindRenderer<TMsg>(
+  props: Omit<FuaranRendererProps<TMsg>, 'tree'> & { readonly view: BehindView<TMsg> },
+): ReactElement {
+  const { view, ...rest } = props;
+  if (view.kind === 'Rendered') return <FuaranRenderer {...rest} tree={view.node} />;
+  const label =
+    view.requiredProfile !== undefined
+      ? `needs ${view.requiredProfile}`
+      : `unknown kind ${view.unknownKind}`;
+  return (
+    <div
+      className="fuaran-unknown-placeholder"
+      data-fuaran-kind={view.unknownKind}
+      {...(view.requiredProfile !== undefined ? { 'data-fuaran-requires': view.requiredProfile } : {})}
+    >
+      {label}
+    </div>
+  );
 }

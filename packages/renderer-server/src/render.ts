@@ -112,7 +112,7 @@ import {
 import { chartLowerSpecOf, drawingSvg, mathMl } from '@fuaran-ui/renderer';
 // Phase 1075 — the `Binding.State` seeding pass. One definition, shared with
 // the client renderer, so the two tiers cannot drift on the charter's §4/§5.
-import { withStateSeeds } from '@fuaran-ui/ops';
+import { type BehindView, withStateSeeds } from '@fuaran-ui/ops';
 import { isLowered, lower, tryLowerSparkline, type ChartRow } from '@fuaran-ui/charts';
 
 import {
@@ -3422,3 +3422,25 @@ export const renderNodeToHtml = <TMsg>(
   node: Node<TMsg>,
   options: RenderToHtmlOptions = {},
 ): string => renderToHtml(node, options);
+
+/**
+ * Phase 1812 — the BEHIND reader's render (WIRE_FORMAT.md §15.3). A `Rendered`
+ * view — the node itself, or the author-declared `fallback` lifted out of a
+ * transport-only `Unknown` by `behindView` in `@fuaran-ui/ops` — renders through
+ * `renderToHtml` exactly as any node does; a `Placeholder` is the labelled
+ * degrade the section has always specified ("needs `core@1.4`", else the unknown
+ * kind by name), byte-identical to the reference SSR host's.
+ */
+export const renderBehindToHtml = (view: BehindView<unknown>, options: RenderToHtmlOptions = {}): string => {
+  if (view.kind === 'Rendered') return renderToHtml(view.node, options);
+  const label =
+    view.requiredProfile !== undefined
+      ? `needs ${view.requiredProfile}`
+      : `unknown kind ${view.unknownKind}`;
+  const attrs: Attr[] = [
+    ['class', 'fuaran-unknown-placeholder'],
+    ['data-fuaran-kind', view.unknownKind],
+  ];
+  if (view.requiredProfile !== undefined) attrs.push(['data-fuaran-requires', view.requiredProfile]);
+  return textEl('div', attrs, label);
+};

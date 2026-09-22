@@ -2642,6 +2642,8 @@ const accessibility = (a: Accessibility): string => {
   if (a.role !== undefined) fields.push(['role', str(a.role)]);
   if (a.liveRegion !== undefined) fields.push(['liveRegion', str(a.liveRegion)]);
   if (a.hidden !== undefined) fields.push(['hidden', binding(a.hidden)]);
+  // Phase 1812 — `speak`, omitted when absent; a literal is the bare string.
+  if (a.speak !== undefined) fields.push(['speak', textSource(a.speak)]);
   return jObject(fields);
 };
 
@@ -2678,6 +2680,9 @@ const node = (n: Node<unknown>): string => {
   // Phase 1535 — the node-level visibility predicate, omitted when absent, so
   // every node authored before it stays byte-identical.
   if (n.visible !== undefined) fields.push(['visible', binding(n.visible, bool)]);
+  // Phase 1812 — the author-declared `fallback`, a full node, omitted when
+  // absent; `jObject` sorts it into its ordinal place (before `id`).
+  if (n.fallback !== undefined) fields.push(['fallback', node(n.fallback)]);
   return jObject(fields);
 };
 

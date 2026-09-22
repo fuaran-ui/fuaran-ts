@@ -19,7 +19,7 @@
 //  the envelope + tolerance rules are cross-host, not host-private.
 // ============================================================================
 
-import type { Node, Result } from '@fuaran-ui/schema';
+import type { DecodePolicy, Node, Result } from '@fuaran-ui/schema';
 
 import { decodeNode, type DecodeError, type DecodeErrorCode } from './decode.js';
 import { encodeNode, renderAstCanonical } from './encode.js';
@@ -353,6 +353,50 @@ export const decodeNodeTolerant = (json: string): Result<Decoded<Node<unknown>>,
     return { ok: false, error: envErr('INVALID_JSON', '$', parsed.error.message) };
   }
   return decodeTolerant<Node<unknown>>(nodeTagOf, isKnownNodeKind, decodeKnownNode, parsed.value);
+};
+
+// ─── The behind reader's view + the lifted `fallback` (Phase 1812) ───────────
+
+/**
+ * What a reader BEHIND the producer's profile SHOWS for one decoded node
+ * (WIRE_FORMAT.md §15.3 + the Phase 1812 `fallback`): a node it can render —
+ * the node itself, or the author-declared fallback lifted from an `Unknown` —
+ * or the labelled placeholder ("needs `core@1.4`" when the artifact declared a
+ * `requiredProfile`, else the unknown kind by name). Mirrors F# `BehindView`.
+ */
+export type BehindView<TMsg> =
+  | { readonly kind: 'Rendered'; readonly node: Node<TMsg> }
+  | { readonly kind: 'Placeholder'; readonly unknownKind: string; readonly requiredProfile?: string };
+
+/**
+ * Lift the author-declared `fallback` out of an `Unknown`'s preserved payload
+ * WITHOUT removing it from the bytes: `undefined` when the producer authored
+ * none; otherwise the fallback decoded through the SAME policy-gated node
+ * decoder a top-level node meets (`decodeNode`), so a `DecodePolicy` that
+ * refuses a kind refuses it inside a fallback exactly as at the root, and an
+ * authored fallback that does not decode is a refusal the caller turns into
+ * the placeholder. `u.payload` is never edited — `reencodeNode` still
+ * reproduces the producer's bytes, fallback included.
+ */
+export const liftFallback = (
+  u: UnknownKind,
+  policy?: DecodePolicy,
+): Result<Node<unknown>, DecodeError> | undefined => {
+  if (u.payload.kind !== 'JObject') return undefined;
+  const fb = u.payload.fields.get('fallback');
+  if (fb === undefined) return undefined;
+  return decodeNode(renderAstCanonical(fb), policy);
+};
+
+/** The behind reader's decision for one tolerant decode — see `BehindView`. */
+export const behindView = (d: Decoded<Node<unknown>>, policy?: DecodePolicy): BehindView<unknown> => {
+  if (d.known) return { kind: 'Rendered', node: d.value };
+  const lifted = liftFallback(d.unknown, policy);
+  if (lifted !== undefined && lifted.ok) return { kind: 'Rendered', node: lifted.value };
+  const rp = d.unknown.requiredProfile;
+  return rp === undefined
+    ? { kind: 'Placeholder', unknownKind: d.unknown.kind }
+    : { kind: 'Placeholder', unknownKind: d.unknown.kind, requiredProfile: renderProfile(rp) };
 };
 
 // ─── Whole-envelope negotiate → tolerate/refuse → re-encode ──────────────────

@@ -349,3 +349,13 @@ describe('binding.format / localeFormat / locale (Phase 102)', () => {
     expect(locale.explicit('fr-FR')).toEqual({ kind: 'Explicit', tag: 'fr-FR' });
   });
 });
+
+describe('withFallback (Phase 1812)', () => {
+  it('attaches the author-declared fallback on the envelope and leaves the receiver unchanged', () => {
+    const alt = fuaran.markdown('m-alt', 'A chart would appear here.');
+    const n = fuaran.markdown('m', 'body');
+    const withAlt = node.withFallback(alt, n);
+    expect(withAlt.fallback?.id).toBe('m-alt');
+    expect(n.fallback).toBeUndefined();
+  });
+});

@@ -8,6 +8,7 @@
 //  surface stays closed (no encoder path constructs an `Unknown`).
 // ============================================================================
 
+import { admitting } from '@fuaran-ui/schema';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -15,6 +16,9 @@ import {
   decodeEnvelope,
   decodeNode,
   decodeNodeTolerant,
+  behindView,
+  liftFallback,
+  reencodeNode,
   encodeEnvelope,
   encodeNode,
   negotiate,
@@ -164,5 +168,47 @@ describe('Foreign hard-refuse (§15.2)', () => {
       ok: false,
       error: { code: 'FOREIGN_PROFILE' },
     });
+  });
+});
+
+describe('the behind reader lifts the author-declared fallback (Phase 1812)', () => {
+  const fallback =
+    '{"id":"h1-fallback","kind":{"$type":"Markdown","text":"A hologram would appear here."}}';
+  const withFallback = `{"fallback":${fallback},"id":"h1","kind":{"$type":"hologram"},"requiredProfile":"core@1.4","shimmer":true}`;
+
+  it('a known kind is Rendered as itself', () => {
+    const d = decodeNodeTolerant(knownNode);
+    if (!d.ok) throw new Error('known node must decode');
+    expect(behindView(d.value)).toMatchObject({ kind: 'Rendered', node: { id: 'm1' } });
+  });
+
+  it('an unknown kind with a fallback is Rendered as the LIFTED fallback, bytes preserved', () => {
+    const d = decodeNodeTolerant(withFallback);
+    if (!d.ok || d.value.known) throw new Error('hologram should be Unknown');
+    const lifted = liftFallback(d.value.unknown);
+    expect(lifted?.ok && lifted.value.id).toBe('h1-fallback');
+    expect(behindView(d.value)).toMatchObject({ kind: 'Rendered', node: { id: 'h1-fallback' } });
+    // must-ignore-but-preserve is untouched by the lift: fallback and all.
+    expect(reencodeNode(d.value)).toBe(withFallback);
+  });
+
+  it('an unknown kind without a fallback is the labelled Placeholder (§15.3 unchanged)', () => {
+    const d = decodeNodeTolerant(unknownNodeWithProfile);
+    if (!d.ok || d.value.known) throw new Error('hologram should be Unknown');
+    expect(liftFallback(d.value.unknown)).toBeUndefined();
+    expect(behindView(d.value)).toEqual({
+      kind: 'Placeholder',
+      unknownKind: 'hologram',
+      requiredProfile: 'core@1.4',
+    });
+  });
+
+  it('the lifted fallback meets the SAME decode policy a top-level node meets', () => {
+    const d = decodeNodeTolerant(withFallback);
+    if (!d.ok || d.value.known) throw new Error('hologram should be Unknown');
+    const noMarkdown = admitting('no-markdown', ['Box']);
+    const lifted = liftFallback(d.value.unknown, noMarkdown);
+    expect(lifted?.ok).toBe(false);
+    expect(behindView(d.value, noMarkdown).kind).toBe('Placeholder');
   });
 });
