@@ -215,7 +215,8 @@ The envelope shapes (`NodeIntrospection`, `TreeIntrospection`) and the `getNodeS
 
 ### `@fuaran-ui/ai-tools` 0.13.0 — a binding slot names the reactive inputs it reads (fuaran#1674)
 
-**UNRELEASED** — 0.12.0 is the published version; this advances it and no tag has been pushed.
+**Released in `v0.27.0`** — 0.12.0 was the published version; this advanced it, and the tag has
+since published 0.13.0.
 
 `BindingSlotInfo` gains `dependsOn: readonly string[]` — the named reactive inputs the slot reads, as
 `filter:<name>` / `state:<key>` / `query:<name>` / `selection:<nodeId>`. `slotDependencies` is exported
@@ -244,9 +245,9 @@ F# `Fuaran.UI.Tests/DebugGlobalTests.fs`.
 
 ### `@fuaran-ui/renderer` 0.24.0, `@fuaran-ui/renderer-server` 0.22.0 — the pointer cursor moves onto a declared row action (fuaran#1701)
 
-**UNRELEASED, and NO VERSION MOVES.** Both packages already stand on the untagged 0.24.0 / 0.22.0
-draft Phase 1696 cut (0.23.0 / 0.21.0 are what npm serves), and this is the same class of change that
-draft already carries: a behaviour change on rendered output, additive to the emitted class set and
+**Released in `v0.27.0`, and NO VERSION MOVED.** Both packages already stood on the then-untagged
+0.24.0 / 0.22.0 draft Phase 1696 cut (0.23.0 / 0.21.0 were what npm served), and this is the same
+class of change that draft already carries: a behaviour change on rendered output, additive to the emitted class set and
 moving no exported signature. So it rides the draft rather than advancing it. `@fuaran-ui/schema` is
 untouched — the new obligation is a KIND row, which the manifest reader has carried since long before
 `traits`.
@@ -277,8 +278,8 @@ declaration (`WIRE_FORMAT.md` §3.6.24 + §13).
 
 ### `@fuaran-ui/renderer` 0.24.0, `@fuaran-ui/renderer-server` 0.22.0, `@fuaran-ui/schema` 0.23.0 — the declared text direction is EMITTED (fuaran#1696)
 
-**UNRELEASED** — 0.23.0 / 0.21.0 / 0.22.0 are the published versions on npm; this advances all three
-and no tag has been pushed.
+**Released in `v0.27.0`** — 0.23.0 / 0.21.0 / 0.22.0 were the published versions on npm; this
+advanced all three, and the tag has since published them.
 
 Both renderers now emit `dir="ltr"` / `dir="rtl"` on a node whose `style.direction` declares one. They
 have emitted the isolating `fuaran-dir-*` class since 0.x's Phase 1472 adoption, and that is half the
@@ -317,10 +318,10 @@ notice.
 
 ### Rides `@fuaran-ui/renderer` 0.24.0 and `@fuaran-ui/renderer-server` 0.22.0 — a host-fed float sequence is read element-wise against a CLOSED accept set (fuaran#1704)
 
-**UNRELEASED, and it rides the standing draft rather than advancing it.** Both slots are already
-ahead of the newest tag (`v0.26.0` is the repo's newest, and the entry above records 0.23.0 / 0.21.0
-as the published pair), and this is a rendered-output change of the same class the draft already
-carries.
+**Released in `v0.27.0`, and it rode the standing draft rather than advancing it.** Both slots were
+ahead of the newest tag when this was written (`v0.26.0` was then the repo's newest, and the entry
+above records 0.23.0 / 0.21.0 as the published pair), and this is a rendered-output change of the
+same class that draft already carried.
 
 Both renderers read a `Sparkline` source through `floatSeries` rather than `asArray<number>`. Where
 `asArray` handed the elements on with a TYPE ASSERTION — so a host store carrying `["3.5"]` reached
@@ -666,11 +667,11 @@ The rest of `mcp`'s growth is additive: `runInspect`, `UNTRUSTED_TEXT_OBLIGATION
 
 **Both tiers move in one change-set, necessarily.** A server that resolved differently from the client it hands over to is a hydration mismatch, so this is one statement about two packages rather than two changes that happen to agree.
 
-**`@fuaran-ui/schema` 0.24.0 carries the predicate the three seams share.** `stateDefaultDeclared` is an additive export: the one definition of "does this `State` declare a default", read by the encoder (which member to emit, §5's absent-default posture) and by both resolvers (whether an unwritten slot has a default to fall back to). It reads `defaultDeclared` and not just the value, because `defaultValue` carries the slot's typed placeholder whether or not the document said anything — the pair Phase 1656 introduced for exactly this reason. Three copies of a predicate whose whole contract is that they agree is a shape this family has shipped a defect in before; `@fuaran-ui/ops` 0.27.1 is a patch that swaps its own copy for the shared one, changing no byte it emits.
+**`@fuaran-ui/schema` 0.24.0 carries the predicate the three seams share.** `stateDefaultDeclared` is an additive export: the one definition of "does this `State` declare a default", read by the encoder (which member to emit, §5's absent-default posture) and by both resolvers (whether an unwritten slot has a default to fall back to). It reads `defaultDeclared` and not just the value, because `defaultValue` carries the slot's typed placeholder whether or not the document said anything — the pair Phase 1656 introduced for exactly this reason. Three copies of a predicate whose whole contract is that they agree is a shape this family has shipped a defect in before; `@fuaran-ui/ops` swaps its own copy for the shared one, changing no byte it emits. That swap was cut as an 0.27.1 patch and **never published**: fuaran#1821 landed on the same untagged slot with a wire change of a higher class and advanced it, so 0.28.0 is the version a consumer gets it on.
 
 **What certifies it.** `packages/renderer-server/test/bareStateResolution.test.ts`, which asserts both tiers' resolvers and the rendered markup, and whose go-red is measured: restoring the old arm fails it with `expected { kind: 'Resolved', value: undefined }` and with `undefined` present in the markup. The corpus's render-text family pins the same rule as `bare-state-numeric-slot-unresolved`; neither `@fuaran-ui` renderer has a reader for that family, which is why the pin lives here.
 
-### UNRELEASED, ahead of `@fuaran-ui/theme-manifest` 0.11.1 — the manifest gains an ENCODER (fuaran#1729)
+### `@fuaran-ui/theme-manifest` 0.12.0 — the manifest gains an ENCODER (fuaran#1729)
 
 `@fuaran-ui/theme-manifest` exports `encodeManifest(m: ThemeManifest): string`. The package shipped
 `decodeManifest` / `manifestFromJson`, the three projectors and `merge` and **no encoder of any
@@ -701,12 +702,116 @@ package would be a second one in the tier, which is drift by construction; the `
 JSON` pin is the host-neutral half of the claim, and the one a sibling host can check without
 agreeing with this tier about anything else.
 
-**Unreleased, and it does NOT ride a draft — 0.11.1 is the TAGGED version** (`v0.27.0` published it).
-The next release gesture must therefore advance `@fuaran-ui/theme-manifest` to `0.12.0` — the surface
-grows — and, per the release-consistency rule above, bump `@fuaran-ui/style-observer` alongside it:
-`style-observer` 0.11.0 sits on the registry declaring `^0.11.1` for this package, which 0.12.0 would
-exclude. Both bumps belong to that release sweep, not to this change: bumping here in isolation would
-put `dev-scripts/check-peer-ranges.mjs` into exactly the unsatisfiable-set failure it exists to catch.
+**It did NOT ride a draft — 0.11.1 was the TAGGED version** (`v0.27.0` published it), so the release
+gesture advances `@fuaran-ui/theme-manifest` to **0.12.0**: the surface grows. `@fuaran-ui/style-observer`
+**0.11.1** is the bump beside it, per the release-consistency rule — the 0.11.0 npm serves declares
+`@fuaran-ui/theme-manifest` `^0.11.0` (the range recorded here as `^0.11.1` when this was written was
+the workspace's, not the registry's; either spelling excludes 0.12.0). Both belong to the release
+sweep rather than to this change, which is why bumping here in isolation would have put
+`dev-scripts/check-peer-ranges.mjs` into exactly the unsatisfiable-set failure it exists to catch.
+Both land in the 0.28.0 release set recorded below.
+
+### Recorded breaking change — `@fuaran-ui/ops` 0.28.0, the dataframe algebra spells its column members out (fuaran#1821)
+
+**Breaking by the wire test in the list above — "removing or retyping an emitted field".** Three
+members of the dataframe algebra change the name they are EMITTED under, so every document this
+encoder writes that carries a `project` step, a sort key or a window's frame ordering has different
+bytes at 0.28.0 than at 0.27.0:
+
+| Site                                         | 0.27.0 | 0.28.0    | decode alias kept |
+| -------------------------------------------- | ------ | --------- | ----------------- |
+| a `project` step's rename list               | `cols` | `columns` | `cols`            |
+| a sort key                                   | `col`  | `column`  | `col`             |
+| a window's frame-ordering entry (same shape) | `col`  | `column`  | `col`             |
+
+The rule it implements is the 0.28.0 substrate one: a wire member whose only honest name is "the
+column" or "the columns" is spelled out in full and never abbreviated. `decodeOp` / `decodeNode`
+**accept either spelling** through `cFieldAliased`, and **refuse a document that gives both** as the
+same ambiguity every other aliased member of this algebra already refuses. So reading is widened,
+never narrowed; what moves is what this host WRITES.
+
+**What it costs a consumer.** A decoder that predates the rename — this package at ≤ 0.27.0, or any
+sibling host not yet on the 0.28.0 substrate — refuses a `project` step emitted by 0.28.0, as a
+missing `cols` field. The two halves differ here and the difference is worth knowing: the sort-key
+site is a POLARITY SWAP, since fuaran-core#92 already admitted `column` as an alias of `col`, so a
+host carrying that alias reads the new spelling unchanged; the `project` site is genuinely new — it
+read a plain `cols`, so `columns` was a missing field there and the both-present ambiguity had no
+refusal at all. Upgrade the readers before the writers, which the kept aliases are what make
+possible.
+
+**No exported type or signature moves, and the MODEL fields keep their names.** `SortKey.col` and the
+`project` case's `cols` are this package's published interface; renaming them would break every
+consumer's construction sites to say nothing new on the wire. The doc comments in
+`@fuaran-ui/schema`'s `compute.ts` now state the wire spelling beside each one, so the divergence is
+deliberate and findable rather than a discrepancy someone will later "fix". This is therefore NOT the
+author-direction class recorded above — nothing an author constructs changes shape.
+
+**Deliberately not touched**, and pinned by fixtures that did not move: the `col` EXPRESSION `$type`
+tag, which names a kind of expression rather than a column; and the Grid / Masonry box-layout `cols`
+integer, a column COUNT outside this algebra, where `cols` stays canonical and `columns` stays its
+alias — the opposite direction, through the node-layer `fieldAliased`, which lets the canonical win
+rather than refusing. `ColPair`'s `a` / `b` name a POSITION in a pair, which is why the rule does not
+reach them either.
+
+**Why the number is 0.28.0 and not 0.27.2.** 0.27.1 was a DRAFT — cut by fuaran#1690, never
+published, and carrying a patch (the `stateDefaultDeclared` swap, which moved no emitted byte). A
+change of a higher class than the draft already carries advances it rather than riding it, per the
+versioning policy below: the number is what tells a consumer what adopting it costs, and a patch
+number over a change of emitted bytes says the wrong thing. Pre-1.0, per this document's caveat, a
+breaking change is a minor.
+
+**What certifies it.** The corpus families, which are the cross-host oracle for all three sites — the
+bundled snapshot re-syncs to authority `14fa1db`, carrying the renamed fixtures plus
+`lenient/lenient-transform-column-member-legacy` (the pre-rename spelling still decoding) and the two
+both-present refusals, `reject/reject-transform-project-columns-and-cols` and
+`reject/reject-transform-sort-key-column-and-col`. `@fuaran-ui/conformance` 0.25.0 is the bundled
+corpus that carries them.
+
+### Recorded release-consistency bumps — 0.28.0 release set (fuaran#1690, fuaran#1729, fuaran#1821)
+
+The `v0.27.0` tag left published packages declaring `@fuaran-ui/*` ranges that the versions this
+release publishes fall outside, and the publish workflow SKIPS a package whose version has not moved
+— so their registry manifests would keep those ranges in front of consumers. **The remedy is a
+version bump and can only be a version bump**: each range was generated from `workspace:^` at ITS
+package's pack time and is not editable in place.
+
+**The class is decided per package, from what has actually changed since the commit that set its
+current version — not from the fact that a bump is needed.**
+
+| Package                     | From → to       | Class     | What changed since its current version was set                                                                                                                   |
+| --------------------------- | --------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@fuaran-ui/ai-tools`       | 0.13.0 → 0.13.1 | patch     | Only `test/` — an introspection test. Test-only surface is outside semver here. The tarball otherwise differs only in the regenerated `@fuaran-ui/schema` range. |
+| `@fuaran-ui/charts`         | 0.14.1 → 0.14.2 | patch     | Nothing. No source, test, README or manifest edit. The tarball differs only in the regenerated `@fuaran-ui/ops` and `@fuaran-ui/schema` ranges.                  |
+| `@fuaran-ui/client`         | 0.12.1 → 0.12.2 | patch     | Nothing, as `charts` — here for `ops`, `schema` and `renderer`.                                                                                                  |
+| `@fuaran-ui/mcp`            | 0.13.0 → 0.13.1 | patch     | Nothing, as `charts` — here for `ops`, `schema` and `renderer-server`.                                                                                           |
+| `@fuaran-ui/op-stream`      | 0.11.1 → 0.11.2 | patch     | Nothing, as `charts` — here for `ops` and `schema`.                                                                                                              |
+| `@fuaran-ui/react`          | 0.12.1 → 0.12.2 | patch     | Nothing, as `charts` — here for `schema` and `renderer`.                                                                                                         |
+| `@fuaran-ui/style-observer` | 0.11.0 → 0.11.1 | patch     | Only `test/`. The regenerated range is `@fuaran-ui/theme-manifest`, whose 0.12.0 falls outside the published `^0.11.0`.                                          |
+| `@fuaran-ui/ui`             | 0.21.0 → 0.22.0 | **minor** | Nothing under `packages/ui` — and still a minor. See below.                                                                                                      |
+
+**Why `ui` is the one minor in that table.** It is the only package in the set whose entry point
+carries `export * from '@fuaran-ui/schema'`, so `@fuaran-ui/schema` 0.24.0's additive
+`stateDefaultDeclared` is part of what THIS package presents to an author: its exported surface grows
+even though no file under `packages/ui` moved. That is the same distinction the 0.27.0 table drew
+when it kept six packages at patch — the class attaches to the package whose author surface moved,
+and for the seven above the widened `schema` is reached through the consumer's own peer pin, at
+whatever version that pin names.
+
+**`@fuaran-ui/cli` is deliberately NOT bumped**, stated because an absence is otherwise
+indistinguishable from an oversight: its published ranges are `@fuaran-ui/client` `^0.12.1` and
+`@fuaran-ui/mcp` `^0.13.0`, and both of those bumps stay inside their carets. `@fuaran-ui/mock`,
+`@fuaran-ui/layout-observer`, `@fuaran-ui/telemetry`, `@fuaran-ui/validator` and the two defensive
+placeholders declare no `@fuaran-ui/*` range at all and are likewise unmoved.
+
+**Riding their drafts, unchanged by this sweep**: `@fuaran-ui/schema` 0.24.0, `@fuaran-ui/renderer`
+0.25.0, `@fuaran-ui/renderer-server` 0.23.0 and `@fuaran-ui/conformance` 0.25.0 were each cut after
+`v0.27.0` and never published, so they carry their own sections above and fuaran#1821's additions to
+them — doc comments in `schema`, rendered-output snapshots in `renderer`, the bundled corpus in
+`conformance` — ride those numbers rather than advancing them.
+
+**Verified against the registry before the tag**, which is the check's whole point:
+`node dev-scripts/check-peer-ranges.mjs` reports OK over 21 publishable packages, 7 of them already on
+the registry and checked against their PUBLISHED ranges.
 
 ## Unstable surfaces
 
