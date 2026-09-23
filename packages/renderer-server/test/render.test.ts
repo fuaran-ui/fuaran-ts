@@ -138,23 +138,35 @@ describe('server semantics', () => {
 
 describe('BehindView (Phase 1812)', () => {
   it('a Rendered view renders exactly as the node itself does', () => {
-    const fb = decodeNode('{"id":"h1-fallback","kind":{"$type":"Markdown","text":"A hologram would appear here."}}');
+    const fb = decodeNode(
+      '{"id":"h1-fallback","kind":{"$type":"Markdown","text":"A hologram would appear here."}}',
+    );
     if (!fb.ok) throw new Error('the fallback decodes');
     expect(renderBehindToHtml({ kind: 'Rendered', node: fb.value })).toBe(renderToHtml(fb.value));
   });
 
   it('a Placeholder view is the labelled degrade — kind and the declared profile', () => {
-    const html = renderBehindToHtml({ kind: 'Placeholder', unknownKind: 'hologram', requiredProfile: 'core@1.4' });
+    const html = renderBehindToHtml({
+      kind: 'Placeholder',
+      unknownKind: 'hologram',
+      requiredProfile: 'core@1.4',
+    });
     expect(html).toBe(
       '<div class="fuaran-unknown-placeholder" data-fuaran-kind="hologram" data-fuaran-requires="core@1.4">needs core@1.4</div>',
     );
     const bare = renderBehindToHtml({ kind: 'Placeholder', unknownKind: 'hologram' });
-    expect(bare).toBe('<div class="fuaran-unknown-placeholder" data-fuaran-kind="hologram">unknown kind hologram</div>');
+    expect(bare).toBe(
+      '<div class="fuaran-unknown-placeholder" data-fuaran-kind="hologram">unknown kind hologram</div>',
+    );
   });
 
   it('accessibility.speak changes no visual or ARIA output', () => {
-    const named = decodeNode('{"accessibility":{"label":{"$type":"Static","value":"Service status"}},"id":"m","kind":{"$type":"Markdown","text":"body"}}');
-    const spoken = decodeNode('{"accessibility":{"label":{"$type":"Static","value":"Service status"},"speak":"Service status: all systems operational."},"id":"m","kind":{"$type":"Markdown","text":"body"}}');
+    const named = decodeNode(
+      '{"accessibility":{"label":{"$type":"Static","value":"Service status"}},"id":"m","kind":{"$type":"Markdown","text":"body"}}',
+    );
+    const spoken = decodeNode(
+      '{"accessibility":{"label":{"$type":"Static","value":"Service status"},"speak":"Service status: all systems operational."},"id":"m","kind":{"$type":"Markdown","text":"body"}}',
+    );
     if (!named.ok || !spoken.ok) throw new Error('both decode');
     expect(renderToHtml(spoken.value)).toBe(renderToHtml(named.value));
     expect(renderToHtml(spoken.value)).not.toContain('all systems operational');

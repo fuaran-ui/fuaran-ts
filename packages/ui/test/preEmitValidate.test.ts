@@ -473,7 +473,9 @@ describe('preEmitValidate — FUARAN075 dangling filter reference', () => {
   };
 
   it('dependsOn arm: the control declares both names and raises nothing', () => {
-    expect(danglingOf(dependsOnDoc([chip('region', 'Region'), chip('genre', 'Genre')]))).toEqual([]);
+    expect(danglingOf(dependsOnDoc([chip('region', 'Region'), chip('genre', 'Genre')]))).toEqual(
+      [],
+    );
   });
 
   it('dependsOn arm: the negative names the undeclared chip and its reader', () => {
@@ -498,7 +500,9 @@ describe('preEmitValidate — FUARAN075 dangling filter reference', () => {
     // the two arms' assertions would pass for the wrong reason.
     const chipsOnly = fuaran.dashboard<Msg>({
       id: id('root'),
-      children: [fuaran.filters<Msg>({ id: id('edge-chips'), filters: [chip('region', 'Region')] })],
+      children: [
+        fuaran.filters<Msg>({ id: id('edge-chips'), filters: [chip('region', 'Region')] }),
+      ],
     });
     expect(danglingOf(chipsOnly)).toEqual([]);
   });

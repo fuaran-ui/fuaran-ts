@@ -14,7 +14,12 @@
 // is parity-locked to both the React client renderer and the F# reference renderer
 // (see test/parity.test.ts).
 
-export { renderToHtml, renderNodeToHtml, renderBehindToHtml, type RenderToHtmlOptions } from './render.js';
+export {
+  renderToHtml,
+  renderNodeToHtml,
+  renderBehindToHtml,
+  type RenderToHtmlOptions,
+} from './render.js';
 
 export {
   type BindingSources,
