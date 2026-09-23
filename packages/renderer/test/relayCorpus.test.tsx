@@ -30,6 +30,7 @@ import {
   buildDebugGlobal,
   type ChangeHub,
   createChangeHub,
+  createCustomRendererRegistry,
   createRelayPeer,
   FuaranRenderer,
   RELAY_PROFILE,
@@ -131,6 +132,13 @@ interface HarnessOptions {
    * local vocabulary than the wire's would depend on.
    */
   readonly encodeFails?: boolean;
+  /**
+   * What the surface's escape-hatch report is handed (§7.8). The two `hatches`
+   * fixtures address a host that renders under an ENFORCING floor with its
+   * introspection surface not registered on the page, and differ only in the
+   * registry: one guest renderer registered, or none offered at all.
+   */
+  readonly hatches?: 'one-registered' | 'registry-not-offered';
 }
 
 /**
@@ -144,8 +152,26 @@ const harness = (options: HarnessOptions = {}): Harness => {
   const emitted: RelayEnvelope[] = [];
   hub.commit(tree, 'host');
 
+  const hatchInputs =
+    options.hatches === undefined
+      ? {}
+      : {
+          customHashFloor: 'Enforced' as const,
+          ...(options.hatches === 'one-registered'
+            ? {
+                customRenderers: createCustomRendererRegistry().register(
+                  'charts',
+                  'sparkline',
+                  () => null,
+                  { algorithm: 'sha256', hash: '00', strictness: 'Enforced' },
+                ),
+              }
+            : {}),
+        };
+
   const baseSurface = () =>
     buildDebugGlobal(tree, sources, {
+      ...hatchInputs,
       hub,
       runtime: { canDispatch: () => options.denyPolicy !== true, warn: () => {} },
       validate: (candidate) => {
@@ -196,6 +222,10 @@ const harnessFor = (id: string): Harness => {
       return harness({ denyPolicy: true });
     case 'refusal-encode-failed':
       return harness({ encodeFails: true });
+    case 'hatches-open':
+      return harness({ hatches: 'one-registered' });
+    case 'hatches-undecided':
+      return harness({ hatches: 'registry-not-offered' });
     default:
       return harness();
   }
@@ -269,6 +299,14 @@ const assertMeaning = (id: string, envelope: RelayEnvelope): void => {
     case 'hello-node-json':
       // …and a `relay@1.3` session IS told about it.
       expect(p['profile']).toBe('relay@1.3');
+      expect(p['capabilities']).toContain('read.nodeJson');
+      // …but NOT about the `relay@1.5` report: the session is at 1.3.
+      expect(p['capabilities']).not.toContain('hatches');
+      break;
+    case 'hello-hatches':
+      // A `relay@1.5` session is told about `hatches` (§6.3, §7.8).
+      expect(p['profile']).toBe('relay@1.5');
+      expect(p['capabilities']).toContain('hatches');
       expect(p['capabilities']).toContain('read.nodeJson');
       break;
     case 'read-node-json':
@@ -361,6 +399,30 @@ const assertMeaning = (id: string, envelope: RelayEnvelope): void => {
   }
 };
 
+/**
+ * §7.8 — the `hatchSection` document, held to the fixture on everything but
+ * the prose. `kind`, `version`, `section`, and each finding's `predicate`,
+ * `hatch` and `state` are closed vocabulary and are compared BY VALUE, the
+ * findings by position and every object's members IN ORDER — so this host and
+ * the one the fixture was taken from serve the same document byte for byte
+ * wherever their facts coincide. `account` is the host's own sentence about
+ * its own posture (this host's floor is per-renderer, the fixture host's
+ * process-wide) and is compared by type, as `message` is (§12.1, §12.3).
+ */
+const assertHatchSection = (expected: unknown, actual: unknown): void => {
+  const withoutProse = (doc: unknown): unknown => {
+    const d = doc as Record<string, unknown>;
+    return {
+      ...d,
+      findings: (d['findings'] as Record<string, unknown>[]).map(({ account, ...rest }) => ({
+        ...rest,
+        account: typeof account,
+      })),
+    };
+  };
+  expect(JSON.stringify(withoutProse(actual))).toBe(JSON.stringify(withoutProse(expected)));
+};
+
 // ─── the run ─────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -392,8 +454,8 @@ const addressesThisHost = (fixture: ManifestEntry): boolean =>
 
 describe(`devtools-relay corpus (${manifest.profile})`, () => {
   it('enumerates the whole family', () => {
-    expect(manifest.profile).toBe('relay@1.4');
-    expect(manifest.fixtures.length).toBeGreaterThanOrEqual(28);
+    expect(manifest.profile).toBe('relay@1.5');
+    expect(manifest.fixtures.length).toBeGreaterThanOrEqual(31);
   });
 
   it('declares which fixtures address a peer shape this host cannot present (§12.3)', () => {
@@ -448,6 +510,7 @@ describe(`devtools-relay corpus (${manifest.profile})`, () => {
 
       assertShape(expected['payload'], actual.payload, `${fixture.id}.payload`);
       assertMeaning(fixture.id, actual);
+      if (request['type'] === 'hatches') assertHatchSection(expected['payload'], actual.payload);
     });
   }
 

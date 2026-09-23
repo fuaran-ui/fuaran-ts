@@ -29,11 +29,14 @@ import {
   type BindingSources,
   buildDebugGlobal,
   createChangeHub,
+  createCustomRendererRegistry,
   createRelayPeer,
   declaredSlots,
+  type FuaranDebugGlobal,
   FuaranRenderer,
   installRelayPeer,
   parseRelayProfile,
+  readRegisteredDebugGlobal,
   RELAY_PROFILE,
   type RelayEnvelope,
 } from '../src/index.js';
@@ -182,6 +185,9 @@ describe('hello handshake', () => {
       // that this host does not serve, so it is refused CAPABILITY_ABSENT rather
       // than advertised (§6.4).
       'read.nodeJson',
+      // `relay@1.5` — the host's runtime escape-hatch report (§7.8). A bare
+      // token like `apply`, because it asks about the host, not the tree.
+      'hatches',
       'apply',
       'subscribe',
     ]);
@@ -587,6 +593,129 @@ describe('<FuaranRenderer relay> — the host opt-in', () => {
     expect(p['status']).toBe('resolved');
     expect(p['value']).toBe(42);
     expect(p['expression']).toBe('$state.revenue');
+  });
+});
+
+describe('<FuaranRenderer debug relay> — hatches over the live page', () => {
+  it('the relay carries exactly the document the in-page surface reports', async () => {
+    const registry = createCustomRendererRegistry().register('charts', 'sparkline', () => null);
+    await mount(
+      <FuaranRenderer
+        tree={makeTree()}
+        sources={sources}
+        runtime={{ registry }}
+        customHashFloor="Enforced"
+        debug
+        relay
+      />,
+    );
+    const replies = await collectReplies(() => deliver(request('hatches', {}, 'c-h')));
+    expect(replies).toHaveLength(1);
+    expect(replies[0]!.type).toBe('hatches.ok');
+
+    // §7.8 rule 1 — carried, not re-described: the relay payload and a direct
+    // in-page read are the same document, byte for byte.
+    const inPage = readRegisteredDebugGlobal()?.hatches?.();
+    expect(JSON.stringify(replies[0]!.payload)).toBe(JSON.stringify(inPage));
+
+    // The renderer KNOWS what it renders under, so nothing is undecided here —
+    // and the surface answering is, by construction, the one on the page.
+    const states = Object.fromEntries(
+      (inPage?.findings ?? []).map((f) => [f.predicate, f.state] as const),
+    );
+    expect(states).toEqual({
+      'custom-renderer-registered': 'open',
+      'custom-hash-floor-permissive': 'closed',
+      'development-surface-live': 'open',
+    });
+  });
+
+  it('a renderer with no runtime reports the guest door CLOSED, not undecided', async () => {
+    await mount(<FuaranRenderer tree={makeTree()} sources={sources} debug relay />);
+    const doc = readRegisteredDebugGlobal()?.hatches?.();
+    expect(doc?.findings.map((f) => f.state)).toEqual([
+      'closed',
+      // …and the floor it runs under by default is the permissive one, which
+      // the report says rather than letting "nothing is registered" imply it.
+      'open',
+      'open',
+    ]);
+  });
+});
+
+// ─── hatches (§7.8, relay@1.5) ───────────────────────────────────────────────
+
+describe('hatches — the runtime escape-hatch report over the relay (§7.8)', () => {
+  const surfaceWith = (registry = createCustomRendererRegistry()): FuaranDebugGlobal =>
+    buildDebugGlobal(makeTree(), sources, {
+      customRenderers: registry,
+      customHashFloor: 'Enforced',
+    });
+
+  it('answers with the hatchSection document, members in canonical order and nothing added', () => {
+    const peer = createRelayPeer(surfaceWith(), { optedIn: true });
+    const reply = peer.handle(request('hatches'));
+    expect(reply?.type).toBe('hatches.ok');
+    // Rule 1: no summary line, no host label, no revision token.
+    expect(Object.keys(payload(reply))).toEqual(['kind', 'version', 'section', 'findings']);
+    expect(payload(reply)['kind']).toBe('hatchSection');
+    expect(payload(reply)['version']).toBe(1);
+    expect(payload(reply)['section']).toBe('runtime');
+    const findings = payload(reply)['findings'] as Record<string, unknown>[];
+    expect(findings).toHaveLength(3);
+    for (const f of findings)
+      expect(Object.keys(f)).toEqual(['predicate', 'hatch', 'state', 'account']);
+  });
+
+  it('observes at the request, never cached — a later registration changes the answer', () => {
+    const registry = createCustomRendererRegistry();
+    const peer = createRelayPeer(surfaceWith(registry), { optedIn: true });
+    const stateOf = (reply: RelayEnvelope | undefined): unknown =>
+      (payload(reply)['findings'] as Record<string, unknown>[])[0]!['state'];
+
+    expect(stateOf(peer.handle(request('hatches', {}, 'c-1')))).toBe('closed');
+    registry.register('charts', 'sparkline', () => null);
+    expect(stateOf(peer.handle(request('hatches', {}, 'c-2')))).toBe('open');
+  });
+
+  it('is CAPABILITY_ABSENT in a session that predates relay@1.5 — and absent from its hello', () => {
+    const peer = createRelayPeer(surfaceWith(), { optedIn: true });
+    const older = peer.handle(
+      request(
+        'hello',
+        { client: 'x', clientVersion: '1', accepts: ['relay@1.4', 'relay@1.3'] },
+        'c-h',
+        'relay@1.4',
+      ),
+    );
+    expect(payload(older)['profile']).toBe('relay@1.4');
+    expect(payload(older)['capabilities']).not.toContain('hatches');
+
+    const refused = peer.handle(request('hatches', {}, 'c-2', 'relay@1.4'));
+    expect(payload(refused)['class']).toBe('CAPABILITY_ABSENT');
+  });
+
+  it('a surface built without the report is never advertised it — CAPABILITY_ABSENT, not UNKNOWN_MESSAGE', () => {
+    const { hatches: _omitted, ...handBuilt } = surfaceWith();
+    const peer = createRelayPeer(handBuilt, { optedIn: true });
+    expect(peer.capabilities()).not.toContain('hatches');
+    const refused = peer.handle(request('hatches'));
+    expect(payload(refused)['class']).toBe('CAPABILITY_ABSENT');
+    expect((payload(refused)['detail'] as Record<string, unknown>)['capability']).toBe('hatches');
+  });
+
+  it('an opted-out peer refuses it like everything else, reaching the surface for nothing', () => {
+    const surface = surfaceWith();
+    const hatches = vi.fn(surface.hatches);
+    const peer = createRelayPeer({ ...surface, hatches });
+    expect(payload(peer.handle(request('hatches')))['class']).toBe('NOT_OPTED_IN');
+    expect(hatches).not.toHaveBeenCalled();
+  });
+
+  it('a payload that is not an object is MALFORMED_MESSAGE', () => {
+    const peer = createRelayPeer(surfaceWith(), { optedIn: true });
+    const reply = peer.handle({ ...request('hatches'), payload: 'all' });
+    expect(payload(reply)['class']).toBe('MALFORMED_MESSAGE');
   });
 });
 

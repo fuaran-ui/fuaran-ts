@@ -75,9 +75,30 @@ export {
   describeActionDescriptor,
   type CustomRenderer,
   type CustomRendererProps,
+  type CustomRendererRegistration,
   type FuaranRuntime,
   type ActionDescriptor,
 } from './customRegistry.js';
+
+// The RUNTIME section of the escape-hatch report (Phase 1842): which of the
+// places arbitrary behaviour can enter this deployment are open on this host —
+// three states, never two. `__fuaran.hatches()` reports it in the page, and the
+// relay's `hatches` read (`relay@1.5`) carries the same document to a client.
+export {
+  CUSTOM_HASH_FLOOR_PERMISSIVE,
+  CUSTOM_RENDERER_REGISTERED,
+  DEVELOPMENT_SURFACE_HATCH,
+  DEVELOPMENT_SURFACE_LIVE,
+  GUEST_BOUNDARY_HATCH,
+  HATCH_SECTION_KIND,
+  HATCH_SECTION_VERSION,
+  RUNTIME_SECTION,
+  observeRuntimeHatches,
+  type HatchFinding,
+  type HatchSectionDocument,
+  type HatchState,
+  type RuntimeHatchInputs,
+} from './runtimeHatches.js';
 
 // A registered component's prop can declare an INNER wire format (Phase 1107) —
 // the string is a language with its own decoder and its own gate. This tier can

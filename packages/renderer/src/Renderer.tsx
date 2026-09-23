@@ -24,6 +24,7 @@ import { type BehindView, withStateSeeds } from '@fuaran-ui/ops';
 import type { BindingSources } from './bindings.js';
 import type { RenderContext } from './context.js';
 import { collectFragments } from './context.js';
+import { customHashFloorOf } from './customHash.js';
 import type { FuaranRuntime } from './customRegistry.js';
 import { denyNonLocalEgress, type EgressPolicy } from './egress.js';
 import { pageChangeHub } from './changeHub.js';
@@ -126,13 +127,27 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
       ...(props.runtime !== undefined ? { runtime: props.runtime } : {}),
       ...(props.onApply !== undefined ? { applyHandler: props.onApply } : {}),
       ...(props.validate !== undefined ? { validate: props.validate } : {}),
+      // What `hatches()` reports on (Phase 1842): the registry this renderer
+      // resolves `Custom` nodes against (`null` — none, so no guest is
+      // reachable) and the floor in force, the default included. The renderer
+      // KNOWS both, so it hands both over rather than leaving them undecided.
+      customRenderers: props.runtime?.registry ?? null,
+      customHashFloor: customHashFloorOf(props),
     };
     const surface = buildDebugGlobal(props.tree, props.sources ?? {}, options);
     // Announce the committed tree. Idempotent on tree identity, so a
     // re-registration caused by `sources` / `runtime` alone is not a change.
     pageChangeHub.commit(props.tree, 'host');
     return registerDebugGlobal(surface);
-  }, [props.debug, props.tree, props.sources, props.runtime, props.onApply, props.validate]);
+  }, [
+    props.debug,
+    props.tree,
+    props.sources,
+    props.runtime,
+    props.onApply,
+    props.validate,
+    props.customHashFloor,
+  ]);
 
   // The relay peer is installed separately and NOT torn down on every tree
   // change: it holds client subscriptions, and it reads the live surface from

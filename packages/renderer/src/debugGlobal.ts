@@ -29,7 +29,7 @@ import {
   encodeOp,
   type TreeOp,
 } from '@fuaran-ui/ops';
-import type { Node, NodeKind } from '@fuaran-ui/schema';
+import type { HashStrictness, Node, NodeKind } from '@fuaran-ui/schema';
 import type { DenyTelemetry, FuaranTelemetrySink } from '@fuaran-ui/telemetry';
 import {
   bindingExpression,
@@ -48,15 +48,21 @@ import { type ChangeHub, type ChangeListener, pageChangeHub } from './changeHub.
 import { isDeclaredSlot } from './declaredSlots.js';
 import {
   type ActionDescriptor,
+  type CustomRendererRegistry,
   describeActionDescriptor,
   type FuaranRuntime,
 } from './customRegistry.js';
+import { type HatchSectionDocument, observeRuntimeHatches } from './runtimeHatches.js';
 
 /** The window key the debug global is registered under. */
 export const DEBUG_GLOBAL_KEY = '__fuaran';
 
-/** Schema version of the `window.__fuaran` shape (independent of package semver). */
-export const DEBUG_GLOBAL_VERSION = '0.2.0';
+/**
+ * Schema version of the `window.__fuaran` shape (independent of package semver).
+ * **0.3.0** adds `hatches()` — the runtime section of the escape-hatch report
+ * (Phase 1842).
+ */
+export const DEBUG_GLOBAL_VERSION = '0.3.0';
 
 /** A structured error envelope returned in place of a result. */
 export interface DebugError {
@@ -196,6 +202,21 @@ export interface DebugGlobalOptions<TMsg> {
    * host (or a test) from the page-wide signal.
    */
   readonly hub?: ChangeHub;
+  /**
+   * The custom-renderer registry the host RENDERS under, for `hatches()`
+   * (Phase 1842). `null` is a positive statement — the renderer has no
+   * registry, so no guest renderer is reachable from it; omitted means the host
+   * did not offer it, and the report says the finding is undecided rather than
+   * guessing. `<FuaranRenderer debug>` always supplies it.
+   */
+  readonly customRenderers?: CustomRendererRegistry | null;
+  /**
+   * The `Custom` content-hash floor the host renders under, for `hatches()`
+   * (Phase 1842). Omitted means not offered, reported undecided.
+   * `<FuaranRenderer debug>` always supplies the floor in force, default
+   * included.
+   */
+  readonly customHashFloor?: HashStrictness;
 }
 
 /** Where a console-driven apply's outcomes go.
@@ -321,6 +342,19 @@ export interface FuaranDebugGlobal {
    * change log — re-read what you need.
    */
   subscribe(listener: ChangeListener): () => void;
+  /**
+   * The RUNTIME section of the escape-hatch report (Phase 1842): which of the
+   * places arbitrary behaviour can enter this deployment are open on this host,
+   * right now — `open`, `closed`, or `undecided`, never collapsed to two. The
+   * canonical `hatchSection` document, observed per call and never cached,
+   * because a registration made after the surface was built changes the answer.
+   *
+   * Optional on the interface so a surface built by hand before the member
+   * existed still type-checks; `buildDebugGlobal` always provides it, and a
+   * relay peer advertises the `hatches` capability only over a surface that has
+   * it.
+   */
+  hatches?(): HatchSectionDocument;
   /** A one-screen reference of the available methods (print the return value). */
   help(): string;
 }
@@ -337,6 +371,7 @@ const HELP_TEXT = `window.__fuaran — Fuaran in-page introspection (DEBUG-only,
                             (default-deny; deny → envelope, tree untouched)
   .treeRevision()           opaque token identifying the current tree state
   .subscribe(cb)            committed-tree-change signal; returns an unsubscribe fn
+  .hatches()                runtime escape-hatch report: open / closed / undecided
   .help()                   this text
 Tip: __fuaran.inspectTree() lists every node id you can query.`;
 
@@ -571,6 +606,22 @@ export const buildDebugGlobal = <TMsg>(
     return JSON.parse(encodeNode(node)) as unknown;
   },
   apply: (opJson) => buildApplyEnvelope(tree, options, opJson),
+  // Observed per call: the registry is a live object a host may register into
+  // after this surface was built, and whether THIS surface is the one on the
+  // page is a fact about now, not about construction. A NAMED function
+  // expression, so the liveness test can ask whether the registered global's
+  // report is this very function without the literal needing a name of its own.
+  hatches: function hatches(): HatchSectionDocument {
+    return observeRuntimeHatches({
+      ...(options.customRenderers !== undefined
+        ? { customRenderers: options.customRenderers }
+        : {}),
+      ...(options.customHashFloor !== undefined
+        ? { customHashFloor: options.customHashFloor }
+        : {}),
+      developmentSurfaceLive: readRegisteredDebugGlobal()?.hatches === hatches,
+    });
+  },
   help: () => HELP_TEXT,
 });
 

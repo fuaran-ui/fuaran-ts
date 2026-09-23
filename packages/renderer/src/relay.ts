@@ -7,7 +7,7 @@
 //  script — can inspect, and where the host permits edit, a live Fuaran UI.
 //
 //  The contract is specified language-neutrally in the wire-format
-//  specification repository (`DEVTOOLS_RELAY.md`, profile `relay@1.3`) with an
+//  specification repository (`DEVTOOLS_RELAY.md`, profile `relay@1.5`) with an
 //  executable fixture family beside it; this module is written to that document
 //  and pinned against those fixtures in `test/relayCorpus.test.tsx`. Section
 //  references in the comments below are to that document.
@@ -30,13 +30,14 @@
 
 import type { TreeIntrospection } from '@fuaran-ui/ai-tools';
 
-import type {
-  ApplyEnvelope,
-  BindingState,
-  FuaranDebugGlobal,
-  NodeGeometry,
-  NodeJsonError,
-  TreeOpJson,
+import {
+  type ApplyEnvelope,
+  type BindingState,
+  DEBUG_GLOBAL_VERSION,
+  type FuaranDebugGlobal,
+  type NodeGeometry,
+  type NodeJsonError,
+  type TreeOpJson,
 } from './debugGlobal.js';
 
 /**
@@ -45,13 +46,16 @@ import type {
  * (§6.3, and see `selectProfile`), so advancing this is additive for every
  * existing client.
  */
-export const RELAY_PROFILE = 'relay@1.3';
+export const RELAY_PROFILE = 'relay@1.5';
 
 /** The envelope field whose presence marks a message as a relay message (§3.2, §4). */
 export const RELAY_KEY = '$relay';
 
-/** The version of the underlying in-page surface shape, reported in `hello.ok`. */
-const SURFACE_VERSION = '0.2.0';
+/**
+ * The version of the underlying in-page surface shape, reported in `hello.ok` —
+ * the debug global's own schema version, so the two cannot disagree.
+ */
+const SURFACE_VERSION = DEBUG_GLOBAL_VERSION;
 
 /** The host implementation identifier, reported in `hello.ok`. Opaque to clients. */
 const HOST_NAME = 'fuaran-ts';
@@ -76,6 +80,7 @@ export type RelayCapability =
   | 'read.findNodes'
   | 'read.affordances'
   | 'read.nodeJson'
+  | 'hatches'
   | 'apply'
   | 'subscribe';
 
@@ -252,10 +257,23 @@ const READ_TYPES = [
  * `relay@1.2` added no request type at all; it added the optional
  * `attribution.actorClass` field (§8.2.1), which this peer reads for nothing
  * (§8.2) and so needs no entry here — which is why the minors skip 2.
+ *
+ * `relay@1.4` added no request type either. It added `treeSource` (§6.5), a
+ * DECLARATION a page peer makes by OMITTING it, and `UPSTREAM_UNAVAILABLE`,
+ * which only a peer declaring an upstream tree raises. This peer's tree is in
+ * the page by construction — it IS the renderer — so it served 1.4 before it
+ * said so, and declaring 1.5 claims nothing about it that is not already true.
+ *
+ * `hatches` (`relay@1.5`, §7.8) is listed here although it is not a READ of the
+ * tree: it asks the host about its own posture, which is why its token is bare
+ * like `apply` rather than `read.*`. The list is the minor-gate, not a claim
+ * about what a member reads. It is served only over a surface that HAS the
+ * report (see `capabilitiesFor`), because a hand-built surface may predate it.
  */
 const VERSIONED_READ_TYPES = [
   { type: 'read.affordances', since: 1, served: false },
   { type: 'read.nodeJson', since: 3, served: true },
+  { type: 'hatches', since: 5, served: true },
 ] as const;
 
 const REQUEST_TYPES = new Set<string>([
@@ -358,11 +376,12 @@ export const createRelayPeer = (
     if (s === undefined) return [];
     const offerApply = options.offerApply ?? s.canApply;
     const offerSubscribe = options.offerSubscribe ?? true;
+    const hasHatches = typeof s.hatches === 'function';
     return [
       ...READ_TYPES,
-      ...VERSIONED_READ_TYPES.filter((r) => r.served && r.since <= minor).map(
-        (r) => r.type as RelayCapability,
-      ),
+      ...VERSIONED_READ_TYPES.filter(
+        (r) => r.served && r.since <= minor && (r.type !== 'hatches' || hasHatches),
+      ).map((r) => r.type as RelayCapability),
       ...(offerApply ? (['apply'] as const) : []),
       ...(offerSubscribe ? (['subscribe'] as const) : []),
     ];
@@ -571,6 +590,34 @@ export const createRelayPeer = (
     }
   };
 
+  // ── hatches (§7.8) — this host's runtime escape-hatch report ─────────────
+  //
+  // The payload IS the `hatchSection` document the surface's own producer built
+  // — carried, not re-described (§7.8 rule 1): no summary line, no host label,
+  // no revision token (rule 3 — this is a property of the host, not of the
+  // tree). Asked per request, never cached, because a registration made after
+  // this peer was installed changes the answer. The payload is an empty object
+  // and carries no field, so there is nothing to validate beyond the generic
+  // `payload must be an object` check every request already passed.
+
+  const readHatches = (s: FuaranDebugGlobal, id: string, type: string): RelayEnvelope => {
+    // Unreachable while `hatches` is advertised only over a surface that has
+    // the member (`capabilitiesFor`); kept so a surface that lost it between
+    // the capability check and here refuses honestly rather than throwing out
+    // of the page's message listener.
+    if (s.hatches === undefined)
+      return refusal(
+        id,
+        type,
+        'CAPABILITY_ABSENT',
+        'This host does not offer the hatches capability.',
+        {
+          capability: 'hatches',
+        },
+      );
+    return response(id, `${type}.ok`, s.hatches());
+  };
+
   // ── subscribe / unsubscribe (§8.5) ─────────────────────────────────────────
 
   const subscribe = (
@@ -745,6 +792,8 @@ export const createRelayPeer = (
         return readFindNodes(s, id, type, payload);
       case 'read.nodeJson':
         return readNodeJson(s, id, type, payload);
+      case 'hatches':
+        return readHatches(s, id, type);
       case 'apply':
         return applyOp(s, id, type, payload);
       case 'subscribe':

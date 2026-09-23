@@ -116,6 +116,7 @@ __fuaran.apply(op); // policy-gated TreeOp mutation (default-deny)
 __fuaran.getBindingState('counter-kpi', 'Source'); // as getBindingValue, tagged with the binding's identity
 __fuaran.treeRevision(); // opaque token identifying the current tree state
 __fuaran.subscribe((c) => console.log(c)); // committed-tree-change signal → unsubscribe fn
+__fuaran.hatches(); // runtime escape-hatch report: open / closed / undecided, never two
 ```
 
 The global tracks the live tree + sources (it re-registers on each render), so

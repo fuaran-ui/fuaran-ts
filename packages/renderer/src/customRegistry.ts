@@ -58,6 +58,18 @@ interface IdentifiedEntry extends CustomRendererEntry {
   readonly componentId: string;
 }
 
+/**
+ * One registered custom renderer, described for a reader (Phase 1842): its
+ * identity, and whether a tree's declared content hash could ever be checked
+ * against it. A registration without a hash is a renderer no declared hash can
+ * match, which is a different posture — so the flag rides beside the ids.
+ */
+export interface CustomRendererRegistration {
+  readonly moduleId: string;
+  readonly componentId: string;
+  readonly hasContentHash: boolean;
+}
+
 const key = (moduleId: string, componentId: string): string => `${moduleId}.${componentId}`;
 
 /**
@@ -95,6 +107,37 @@ export class CustomRendererRegistry {
   /** True when a renderer is registered for the pair. */
   has(moduleId: string, componentId: string): boolean {
     return this.map.has(key(moduleId, componentId));
+  }
+
+  /**
+   * **What is registered, as a DESCRIPTION rather than as the thing itself**
+   * (Phase 1842, porting the reference host's Phase 1743 member). The escape-
+   * hatch report names every guest renderer this registry admits, so "a door is
+   * open" comes with what opened it. The render function is deliberately not
+   * carried: nothing that reports on a door needs to be able to open it.
+   *
+   * Deterministically ordered by `(moduleId, componentId)`, because a report
+   * whose findings reorder between two reads of an unchanged registry reads as
+   * a change when nothing changed.
+   */
+  registrations(): readonly CustomRendererRegistration[] {
+    return [...this.map.values()]
+      .map((entry) => ({
+        moduleId: entry.moduleId,
+        componentId: entry.componentId,
+        hasContentHash: entry.contentHash !== undefined,
+      }))
+      .sort((a, b) =>
+        a.moduleId === b.moduleId
+          ? a.componentId < b.componentId
+            ? -1
+            : a.componentId > b.componentId
+              ? 1
+              : 0
+          : a.moduleId < b.moduleId
+            ? -1
+            : 1,
+      );
   }
 
   /**
