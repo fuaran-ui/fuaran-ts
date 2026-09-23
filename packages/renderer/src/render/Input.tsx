@@ -755,8 +755,8 @@ const renderFormControl = <TMsg,>(ctx: RenderContext<TMsg>, field: FormField<TMs
         />
       );
     }
-    case 'Date': {
-      // Phase 288 — native date / time / datetime control. The bound value is
+    case 'DateTime': {
+      // Phase 288 — native date / time / datetime control (`Date` until Phase 1811). The bound value is
       // an ISO-8601 string; min/max are ISO strings, step is seconds.
       const inputType =
         k.variant === 'Time' ? 'time' : k.variant === 'DateTime' ? 'datetime-local' : 'date';
@@ -791,9 +791,9 @@ const renderFormControl = <TMsg,>(ctx: RenderContext<TMsg>, field: FormField<TMs
         />
       );
     }
-    case 'DateRange': {
-      // Phase 725 — single-control date range: `Range`'s two-input shape with
-      // `Date`'s native control per variant. Both ends share the min/max/step
+    case 'DateTimeRange': {
+      // Phase 725 — single-control date range (`DateRange` until Phase 1811): `Range`'s two-input shape with
+      // `DateTime`'s native control per variant. Both ends share the min/max/step
       // attributes (they bound the whole range), and either change emits the
       // WHOLE pair through the standard write-back — one value, not two. Class
       // vocabulary is reused, not extended (the reference-CSS parity lock with

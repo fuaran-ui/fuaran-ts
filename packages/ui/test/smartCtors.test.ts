@@ -333,14 +333,14 @@ describe('binding.format / localeFormat / locale (Phase 102)', () => {
     expect(localeFormat.number()).toEqual({ kind: 'Number' });
     expect(localeFormat.number(2)).toEqual({ kind: 'Number', decimals: 2 });
     expect(localeFormat.percent(1)).toEqual({ kind: 'Percent', decimals: 1 });
-    expect(localeFormat.date('Medium')).toEqual({ kind: 'Date', dateStyle: 'Medium' });
+    expect(localeFormat.date('Medium')).toEqual({ kind: 'DateTime', dateStyle: 'Medium' });
     // Phase 1810 — the date-time and time-only constructors beside it.
     expect(localeFormat.dateTime('Medium', 'Short')).toEqual({
-      kind: 'Date',
+      kind: 'DateTime',
       dateStyle: 'Medium',
       timeStyle: 'Short',
     });
-    expect(localeFormat.time('Short')).toEqual({ kind: 'Date', timeStyle: 'Short' });
+    expect(localeFormat.time('Short')).toEqual({ kind: 'DateTime', timeStyle: 'Short' });
     expect(localeFormat.relativeTime('Day')).toEqual({ kind: 'RelativeTime', unit: 'Day' });
   });
 

@@ -156,7 +156,7 @@ const cellFormatArb: fc.Arbitrary<CellFormat> = fc.oneof(
     .option(intArb, { nil: undefined })
     .map((d) => ({ kind: 'Percent', decimals: d }) as CellFormat),
   intArb.map((digits) => ({ kind: 'SignificantDigits', digits }) as CellFormat),
-  nonEmptyStrArb.map((format) => ({ kind: 'Date', format }) as CellFormat),
+  nonEmptyStrArb.map((format) => ({ kind: 'DateTime', format }) as CellFormat),
   fc.constant({ kind: 'Custom', format: () => '<custom>' } as CellFormat),
 );
 
@@ -167,7 +167,7 @@ const allCellFormats: CellFormat[] = [
   { kind: 'Currency', code: 'GBP' },
   { kind: 'Percent' },
   { kind: 'SignificantDigits', digits: 3 },
-  { kind: 'Date', format: 'yyyy-MM-dd' },
+  { kind: 'DateTime', format: 'yyyy-MM-dd' },
   { kind: 'Custom', format: () => '<custom>' },
 ];
 

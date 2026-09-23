@@ -150,8 +150,12 @@ export type ImageLoading = 'Eager' | 'Lazy';
 /** `LayoutKind.ScrollArea` scroll axis (Phase 289). Bare-string enum. */
 export type ScrollOrientation = 'Vertical' | 'Horizontal' | 'Both';
 
-/** `FormFieldKind.Date` temporal breadth (Phase 288). Bare-string enum. */
-export type DateVariant = 'Date' | 'Time' | 'DateTime';
+/**
+ * `FormFieldKind.DateTime` / `DateTimeRange` temporal breadth (Phase 288). Bare-string enum.
+ * Phase 1811 renamed it from `DateVariant` so the type says what the fields accept — a date,
+ * a time of day, or both; the three cases did not move.
+ */
+export type DateTimeVariant = 'Date' | 'Time' | 'DateTime';
 
 /**
  * `DisplayKind.Math` presentation mode (Phase 293). `Inline` flows the equation
@@ -820,7 +824,8 @@ export type CellFormat =
   | { readonly kind: 'Currency'; readonly code: string }
   | { readonly kind: 'Percent'; readonly decimals?: number }
   | { readonly kind: 'SignificantDigits'; readonly digits: number }
-  | { readonly kind: 'Date'; readonly format: string }
+  // Phase 1811 — `DateTime` (was `Date`): the format string renders a date, a time or both.
+  | { readonly kind: 'DateTime'; readonly format: string }
   | { readonly kind: 'Duration'; readonly unit: DurationUnit; readonly style: DurationStyle }
   | { readonly kind: 'RelativeTime'; readonly unit: RelativeTimeUnit }
   | { readonly kind: 'Custom'; readonly format: (value: CellValue) => string };
@@ -832,11 +837,11 @@ export type ColumnWidth =
 
 // ─── Locale-aware formatting (Phase 102) ─────────────────────────────────────
 
-/** Date-presentation breadth for `Format.Date` (maps to Intl `dateStyle`). */
+/** Date-presentation breadth for `Format.DateTime` (maps to Intl `dateStyle`; unchanged by Phase 1811 — it styles only the date part). */
 export type DateStyle = 'Short' | 'Medium' | 'Long' | 'Full';
 
 /**
- * Time-of-day breadth for `Format.Date` (Phase 1810; maps to Intl `timeStyle`).
+ * Time-of-day breadth for `Format.DateTime` (Phase 1810; maps to Intl `timeStyle`).
  * The other half of the platform formatter's `dateStyle` / `timeStyle` pair:
  * `timeStyle` alone displays a time of day, both together a date-time.
  */
@@ -877,7 +882,8 @@ export type Format =
    * shapes. Neither present decodes structurally and is refused by the
    * validator (FUARAN155), never by the codec.
    */
-  | { readonly kind: 'Date'; readonly dateStyle?: DateStyle; readonly timeStyle?: TimeStyle }
+  // Phase 1811 — `DateTime` (was `Date`): an honest name once 1810 made it render a time.
+  | { readonly kind: 'DateTime'; readonly dateStyle?: DateStyle; readonly timeStyle?: TimeStyle }
   | { readonly kind: 'RelativeTime'; readonly unit: RelativeTimeUnit }
   | { readonly kind: 'Duration'; readonly unit: DurationUnit; readonly style: DurationStyle }
   /**
@@ -2436,10 +2442,12 @@ export type FormFieldKind<TMsg> =
       // an ISO-8601 string; `variant` chooses the native input; optional `min` /
       // `max` are ISO strings, `step` is seconds. Mirrors `RangedNumber`'s
       // omit-when-undefined discipline for the bound fields.
-      readonly kind: 'Date';
+      // Phase 1811 — `DateTime` (was `Date`): the field already took a date, a time of
+      // day or both via `variant`; the name now says so.
+      readonly kind: 'DateTime';
       readonly value: Binding<string>;
       readonly onChange?: (value: string) => Action<TMsg>;
-      readonly variant: DateVariant;
+      readonly variant: DateTimeVariant;
       readonly constraints: DateFieldConstraints;
     }
   | {
@@ -2453,10 +2461,10 @@ export type FormFieldKind<TMsg> =
       // pair's ordering is a runtime concern. `variant` chooses the native
       // input; the optional `min` / `max` (ISO strings) + `step` (seconds)
       // bound BOTH ends, mirroring `Date`'s omit-when-undefined discipline.
-      readonly kind: 'DateRange';
+      readonly kind: 'DateTimeRange';
       readonly value: Binding<readonly [string, string]>;
       readonly onChange?: (value: readonly [string, string]) => Action<TMsg>;
-      readonly variant: DateVariant;
+      readonly variant: DateTimeVariant;
       readonly constraints: DateFieldConstraints;
     }
   | {
@@ -2591,8 +2599,8 @@ export const FORM_FIELD_KIND_NAMES: readonly string[] = [
   'RangedNumber',
   'SegmentedChoice',
   'TextArea',
-  'Date',
-  'DateRange',
+  'DateTime',
+  'DateTimeRange',
   'Combobox',
   'Tokens',
   'Rating',

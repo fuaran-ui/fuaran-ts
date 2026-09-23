@@ -83,7 +83,7 @@ import type {
   ColumnErased,
   ColumnWidth,
   ContentHash,
-  DateVariant,
+  DateTimeVariant,
   DeterminismSource,
   DisclosureSpec,
   DisplayKind,
@@ -696,8 +696,32 @@ const decodeCaptureSource = (p: string, j: JsonAst): R<CaptureSource> =>
 const decodeTextDirection = (p: string, j: JsonAst): R<TextDirection> =>
   bareEnum(p, j, ['auto', 'ltr', 'rtl'] as const, 'TextDirection');
 
-const decodeDateVariant = (p: string, j: JsonAst): R<DateVariant> =>
-  bareEnum(p, j, ['Date', 'Time', 'DateTime'] as const, 'DateVariant');
+const decodeDateTimeVariant = (p: string, j: JsonAst): R<DateTimeVariant> =>
+  bareEnum(p, j, ['Date', 'Time', 'DateTime'] as const, 'DateTimeVariant');
+
+/**
+ * Phase 1811 — the `variant` of a `DateTime` / `DateTimeRange` field, read through the §16
+ * `Time` / `TimeRange` alias rule. Under the canonical tag (or the pre-rename alias) `variant` is
+ * required as it always was. Under the time-alias tag the alias SUPPLIES `Time` when the member is
+ * absent, and an explicit member beside it must agree — `{"$type":"Time","variant":"Date"}` is
+ * refused as ambiguous rather than resolved to either (the 0.28.0 column-member posture).
+ */
+const decodeTemporalVariant = (
+  path: string,
+  f: ReadonlyMap<string, JsonAst>,
+  tag: string,
+  timeAlias: string,
+): R<DateTimeVariant> => {
+  if (tag !== timeAlias)
+    return reqField(path, f, 'variant', 'DateTimeVariant', decodeDateTimeVariant);
+  const v = optField(path, f, 'variant', decodeDateTimeVariant);
+  if (!v.ok) return v;
+  if (v.value === undefined || v.value === 'Time') return ok<DateTimeVariant>('Time');
+  return wrongType(
+    `${path}.variant`,
+    `the variant Time, or no variant at all — a $type of ${timeAlias} already fixes the variant to Time, and a different one beside it is ambiguous`,
+  );
+};
 
 const decodeMathDisplay = (p: string, j: JsonAst): R<MathDisplay> =>
   bareEnum(p, j, ['Inline', 'Block'] as const, 'MathDisplay');
@@ -1117,9 +1141,12 @@ const decodeCellFormat = (path: string, j: JsonAst): R<CellFormat> => {
       const r = reqField(path, f, 'digits', 'integer digit count', requireInt);
       return r.ok ? ok({ kind: 'SignificantDigits', digits: r.value }) : r;
     }
+    // Phase 1811 — `DateTime` is canonical; `Date` is its §16 lenient alias (the pre-rename
+    // spelling), decoded to the same value and re-encoded canonical. Never emitted.
+    case 'DateTime':
     case 'Date': {
       const r = reqField(path, f, 'format', 'format string', requireString);
-      return r.ok ? ok({ kind: 'Date', format: r.value }) : r;
+      return r.ok ? ok({ kind: 'DateTime', format: r.value }) : r;
     }
     case 'Duration': {
       // Phase 819 — trendable duration cells: raw float counts `unit`s,
@@ -1141,7 +1168,7 @@ const decodeCellFormat = (path: string, j: JsonAst): R<CellFormat> => {
       return unknownDuCase(
         path,
         d.value,
-        'None | Number | Currency | Percent | SignificantDigits | Date | Duration | RelativeTime | Custom',
+        'None | Number | Currency | Percent | SignificantDigits | DateTime | Duration | RelativeTime | Custom',
       );
   }
 };
@@ -1171,6 +1198,9 @@ const decodeFormat = (path: string, j: JsonAst): R<Format> => {
       const r = requireInt(`${path}.decimals`, dec);
       return r.ok ? ok({ kind: 'Percent', decimals: r.value }) : r;
     }
+    // Phase 1811 — `DateTime` is canonical (an honest name once 1810 made the formatter render a
+    // time of day); `Date` is its §16 lenient alias, decoded to the same value. Never emitted.
+    case 'DateTime':
     case 'Date': {
       // Phase 1810 — both style slots are OPTIONAL: `timeStyle` alone is a
       // time of day, both together a date-time, `dateStyle` alone the shape
@@ -1185,7 +1215,7 @@ const decodeFormat = (path: string, j: JsonAst): R<Format> => {
       );
       if (!t.ok) return t;
       return ok<Format>({
-        kind: 'Date',
+        kind: 'DateTime',
         ...(d.value !== undefined ? { dateStyle: d.value } : {}),
         ...(t.value !== undefined ? { timeStyle: t.value } : {}),
       });
@@ -1214,7 +1244,7 @@ const decodeFormat = (path: string, j: JsonAst): R<Format> => {
       return unknownDuCase(
         path,
         d.value,
-        'Number | Currency | Percent | Date | RelativeTime | Duration | Since',
+        'Number | Currency | Percent | DateTime | RelativeTime | Duration | Since',
       );
   }
 };
@@ -3388,7 +3418,7 @@ const decodeBindingFloatPair = (p: string, j: JsonAst): R<Binding<readonly [numb
 };
 
 const parseStaticStringPair = (p: string, v: JsonAst): R<unknown> => {
-  // Phase 725 — the DateRange control's (from, to) ISO-8601 pair. Mirrors
+  // Phase 725 — the DateTimeRange control's (from, to) ISO-8601 pair. Mirrors
   // `parseStaticFloatPair`: the bare `{from, to}` object is canonical, a
   // two-element `[from, to]` array is the §3.6 lenient coercion.
   //
@@ -3401,7 +3431,7 @@ const parseStaticStringPair = (p: string, v: JsonAst): R<unknown> => {
       ? makeError(
           'WRONG_TYPE',
           p,
-          `date-range start '${a}' is after end '${b}' — a DateRange pair is ordered (from <= to); ISO-8601 strings of one variant compare lexicographically, so swap the two values`,
+          `date-range start '${a}' is after end '${b}' — a DateTimeRange pair is ordered (from <= to); ISO-8601 strings of one variant compare lexicographically, so swap the two values`,
           'ordered ISO-8601 pair ({"from": <iso>, "to": <iso>} with from <= to)',
         )
       : ok([a, b] as const);
@@ -5305,10 +5335,17 @@ const decodeFormFieldKind = (
         rows: rows.value,
       });
     }
-    case 'Date': {
-      const value = valueOr(decodeBinding, controlValueDefaults.date, 'Date value binding');
+    // Phase 1811 — `DateTime` is canonical. `Date` is the pre-rename spelling, kept as a §16
+    // lenient alias by the reference host's D8 ruling; `Time` is the invented spelling the rename
+    // exists to make findable — a `DateTime{variant:"Time"}` an emitter reached for by intent, so
+    // the alias SUPPLIES the variant when absent and REFUSES a disagreeing one beside it. All
+    // three re-encode canonical.
+    case 'DateTime':
+    case 'Date':
+    case 'Time': {
+      const value = valueOr(decodeBinding, controlValueDefaults.dateTime, 'DateTime value binding');
       if (!value.ok) return value;
-      const variant = reqField(path, f, 'variant', 'DateVariant', decodeDateVariant);
+      const variant = decodeTemporalVariant(path, f, d.value, 'Time');
       if (!variant.ok) return variant;
       const min = optField(path, f, 'min', requireString);
       if (!min.ok) return min;
@@ -5317,7 +5354,7 @@ const decodeFormFieldKind = (
       const step = optField(path, f, 'step', requireFloat);
       if (!step.ok) return step;
       return ok({
-        kind: 'Date',
+        kind: 'DateTime',
         value: value.value as Binding<string>,
         ...onChangeField,
         variant: variant.value,
@@ -5328,17 +5365,21 @@ const decodeFormFieldKind = (
         },
       });
     }
-    case 'DateRange': {
+    // Phase 1811 — `DateTimeRange` is canonical; `DateRange` (pre-rename) and `TimeRange`
+    // (invented, fixes `variant` to `Time`) are its §16 lenient aliases on the `DateTime` rule.
+    case 'DateTimeRange':
+    case 'DateRange':
+    case 'TimeRange': {
       // Phase 725 — single-control date range: `Range`'s pair mechanics with
-      // `Date`'s value conventions. `min` / `max` / `step` are flat (they bound
-      // BOTH ends), same omit-when-absent discipline as `Date`.
+      // `DateTime`'s value conventions. `min` / `max` / `step` are flat (they bound
+      // BOTH ends), same omit-when-absent discipline as `DateTime`.
       const value = valueOr(
         decodeBindingStringPair as (p: string, v: JsonAst) => R<Binding<unknown>>,
-        controlValueDefaults.dateRange,
+        controlValueDefaults.dateTimeRange,
         'Binding<[from, to]> ISO-8601 pair value',
       ) as R<Binding<readonly [string, string]>>;
       if (!value.ok) return value;
-      const variant = reqField(path, f, 'variant', 'DateVariant', decodeDateVariant);
+      const variant = decodeTemporalVariant(path, f, d.value, 'TimeRange');
       if (!variant.ok) return variant;
       const min = optField(path, f, 'min', requireString);
       if (!min.ok) return min;
@@ -5347,7 +5388,7 @@ const decodeFormFieldKind = (
       const step = optField(path, f, 'step', requireFloat);
       if (!step.ok) return step;
       return ok({
-        kind: 'DateRange',
+        kind: 'DateTimeRange',
         value: value.value,
         ...onChangeField,
         variant: variant.value,
@@ -5408,7 +5449,7 @@ const decodeCompareRule = (path: string, j: JsonAst): R<CompareRule> => {
  *    does not rescue it — the message is the prose shown when some OTHER slot
  *    is unmet, so a message-only rule is the help-text failure wearing the new
  *    vocabulary's clothes.
- *  - `minLength` above `maxLength`. The `DateRange` ordered-pair rule applied to
+ *  - `minLength` above `maxLength`. The `DateTimeRange` ordered-pair rule applied to
  *    a length pair: an inverted bound admits no value at all, so the field can
  *    never be submitted and the form is dead on arrival.
  *

@@ -107,7 +107,7 @@ const reauthorFormat = (f: Format): Format => {
       return localeFormat.percent(f.decimals);
     case 'Currency':
       return localeFormat.currency(f.isoCode);
-    case 'Date':
+    case 'DateTime':
       // Phase 1810 — the three admitted shapes, one constructor each.
       return f.dateStyle !== undefined && f.timeStyle !== undefined
         ? localeFormat.dateTime(f.dateStyle, f.timeStyle)

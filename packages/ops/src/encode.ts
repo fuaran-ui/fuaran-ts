@@ -1009,8 +1009,8 @@ const cellFormat = (f: CellFormat): string => {
       return caseObj('Percent', f.decimals !== undefined ? [['decimals', num(f.decimals)]] : []);
     case 'SignificantDigits':
       return caseObj('SignificantDigits', [['digits', num(f.digits)]]);
-    case 'Date':
-      return caseObj('Date', [['format', str(f.format)]]);
+    case 'DateTime':
+      return caseObj('DateTime', [['format', str(f.format)]]);
     case 'Duration':
       // Phase 819 — alphabetical field order (style before unit), the
       // canonical ordering rule.
@@ -1035,10 +1035,10 @@ const formatIntent = (f: Format): string => {
       return caseObj('Currency', [['isoCode', str(f.isoCode)]]);
     case 'Percent':
       return caseObj('Percent', f.decimals !== undefined ? [['decimals', num(f.decimals)]] : []);
-    case 'Date':
+    case 'DateTime':
       // Phase 1810 — each style rides only when present; alphabetical field
       // order (dateStyle before timeStyle), the canonical rule.
-      return caseObj('Date', [
+      return caseObj('DateTime', [
         ...(f.dateStyle !== undefined ? [['dateStyle', str(f.dateStyle)] as const] : []),
         ...(f.timeStyle !== undefined ? [['timeStyle', str(f.timeStyle)] as const] : []),
       ]);
@@ -1724,21 +1724,21 @@ const formFieldKind = (autoBind: ControlAutoBind, k: FormFieldKind<unknown>): st
         ['rows', num(k.rows)],
         ...valueField(k.value, controlValueDefaults.text, (v) => binding(v)),
       ]);
-    case 'Date': {
+    case 'DateTime': {
       // Phase 288 — value is Binding<string> (ISO-8601); variant required;
       // min/max (ISO strings) + step (seconds) omitted when undefined, mirroring
       // RangedNumber's optional-constraint discipline.
       const fields: Field[] = [
         ...handlerField('onChange', k.onChange),
-        ...valueField(k.value, controlValueDefaults.date, (v) => binding(v)),
+        ...valueField(k.value, controlValueDefaults.dateTime, (v) => binding(v)),
         ['variant', str(k.variant)],
       ];
       if (k.constraints.min !== undefined) fields.push(['min', str(k.constraints.min)]);
       if (k.constraints.max !== undefined) fields.push(['max', str(k.constraints.max)]);
       if (k.constraints.step !== undefined) fields.push(['step', num(k.constraints.step)]);
-      return caseObj('Date', fields);
+      return caseObj('DateTime', fields);
     }
-    case 'DateRange': {
+    case 'DateTimeRange': {
       // Phase 725 — single-control date range. The Static pair rides as the
       // BARE {from, to} object (the Range posture, no envelope); min/max (ISO
       // strings) + step (seconds) are flat and bound both ends.
@@ -1749,7 +1749,7 @@ const formFieldKind = (autoBind: ControlAutoBind, k: FormFieldKind<unknown>): st
         ]);
       const fields: Field[] = [
         ...handlerField('onChange', k.onChange),
-        ...valueField(k.value, controlValueDefaults.dateRange, (v) =>
+        ...valueField(k.value, controlValueDefaults.dateTimeRange, (v) =>
           v.kind === 'Static' ? staticPair(v.value) : binding(v, staticPair),
         ),
         ['variant', str(k.variant)],
@@ -1757,7 +1757,7 @@ const formFieldKind = (autoBind: ControlAutoBind, k: FormFieldKind<unknown>): st
       if (k.constraints.min !== undefined) fields.push(['min', str(k.constraints.min)]);
       if (k.constraints.max !== undefined) fields.push(['max', str(k.constraints.max)]);
       if (k.constraints.step !== undefined) fields.push(['step', num(k.constraints.step)]);
-      return caseObj('DateRange', fields);
+      return caseObj('DateTimeRange', fields);
     }
     default:
       return assertNever(k);

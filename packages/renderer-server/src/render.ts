@@ -2321,7 +2321,7 @@ const renderFormControl = (ctx: ServerContext, field: FormField<unknown>): strin
         ['value', current],
       ]);
     }
-    case 'Date': {
+    case 'DateTime': {
       const inputType =
         k.variant === 'Time' ? 'time' : k.variant === 'DateTime' ? 'datetime-local' : 'date';
       const current = String(tryResolve(ctx.sources, k.value) ?? '');
@@ -2350,9 +2350,9 @@ const renderFormControl = (ctx: ServerContext, field: FormField<unknown>): strin
       );
       return voidEl('input', attrs);
     }
-    case 'DateRange': {
-      // Phase 725 — single-control date range: `Range`'s two-input shape with
-      // `Date`'s native control per variant. Both ends share the min/max/step
+    case 'DateTimeRange': {
+      // Phase 725 — single-control date range (`DateRange` until Phase 1811): `Range`'s two-input shape with
+      // `DateTime`'s native control per variant. Both ends share the min/max/step
       // attributes; the class vocabulary is the F# renderer's (parity lock).
       const inputType =
         k.variant === 'Time' ? 'time' : k.variant === 'DateTime' ? 'datetime-local' : 'date';

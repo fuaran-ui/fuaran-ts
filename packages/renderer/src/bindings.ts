@@ -676,7 +676,7 @@ export const formatLocaleValue = (localeTag: string, fmt: Format, value: number)
           : { style: 'percent' };
       return new Intl.NumberFormat(loc, opts).format(value);
     }
-    case 'Date': {
+    case 'DateTime': {
       // Phase 1810 — the platform's own `dateStyle` / `timeStyle` pair: each
       // option rides only when declared, so `timeStyle` alone is a time of day
       // and both together a date-time. Mirrors F# `Formatting.format`.
@@ -1124,7 +1124,7 @@ export const formatNumber = (format: CellFormat, value: number): string => {
       return `${(value * 100).toFixed(1)}%`;
     case 'SignificantDigits':
       return Number(value.toPrecision(format.digits)).toString();
-    case 'Date':
+    case 'DateTime':
       return numToString(value);
     case 'Duration':
       return formatDuration(format.unit, format.style, value);

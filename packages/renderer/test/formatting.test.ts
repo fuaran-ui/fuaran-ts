@@ -33,7 +33,7 @@ describe('formatLocaleValue (Intl-backed)', () => {
   });
 
   it('formats an absolute date from Unix-epoch seconds', () => {
-    const s = formatLocaleValue('en-GB', { kind: 'Date', dateStyle: 'Short' }, 1700000000);
+    const s = formatLocaleValue('en-GB', { kind: 'DateTime', dateStyle: 'Short' }, 1700000000);
     expect(s).toContain('2023');
   });
 
@@ -41,7 +41,7 @@ describe('formatLocaleValue (Intl-backed)', () => {
   // the wall-clock digits depend on the runtime's zone, so the assertions are
   // about which PORTIONS are shown rather than which digits.
   it('formats a time of day alone when only timeStyle is declared', () => {
-    const s = formatLocaleValue('en-GB', { kind: 'Date', timeStyle: 'Short' }, 1700000000);
+    const s = formatLocaleValue('en-GB', { kind: 'DateTime', timeStyle: 'Short' }, 1700000000);
     expect(s).not.toContain('2023');
     expect(s).toMatch(/\d{1,2}:\d{2}/);
   });
@@ -49,7 +49,7 @@ describe('formatLocaleValue (Intl-backed)', () => {
   it('formats a date-time when both styles are declared', () => {
     const s = formatLocaleValue(
       'en-GB',
-      { kind: 'Date', dateStyle: 'Medium', timeStyle: 'Short' },
+      { kind: 'DateTime', dateStyle: 'Medium', timeStyle: 'Short' },
       1700000000,
     );
     expect(s).toContain('2023');

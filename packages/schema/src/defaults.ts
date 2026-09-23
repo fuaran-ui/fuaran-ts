@@ -100,13 +100,13 @@ export const controlValueDefaults = {
   checkbox: false as boolean,
   choice: undefined as string | undefined,
   range: [0, 0] as readonly [number, number],
-  /** ISO-empty — the Date control's value is an ISO-8601 string. */
-  date: '' as string,
+  /** ISO-empty — the DateTime control's value is an ISO-8601 string. */
+  dateTime: '' as string,
   /**
-   * ISO-empty both ends — the DateRange control's value is an ordered
+   * ISO-empty both ends — the DateTimeRange control's value is an ordered
    * `(from, to)` pair of ISO-8601 strings (Phase 725, the `range` precedent).
    */
-  dateRange: ['', ''] as readonly [string, string],
+  dateTimeRange: ['', ''] as readonly [string, string],
   /**
    * The EMPTY LIST — a token field with nothing in it (Phase 1121). The list is
    * ordered and the order is the reader's, so an auto-bound field starts with no

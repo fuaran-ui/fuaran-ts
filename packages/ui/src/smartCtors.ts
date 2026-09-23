@@ -49,7 +49,7 @@ import type {
   DataSource,
   DateFieldConstraints,
   DateStyle,
-  DateVariant,
+  DateTimeVariant,
   EffectClass,
   EmbedPermission,
   ImageAspect,
@@ -593,8 +593,9 @@ export const format = {
   significantDigits(digits: number): CellFormat {
     return { kind: 'SignificantDigits', digits };
   },
-  date(fmt: string): CellFormat {
-    return { kind: 'Date', format: fmt };
+  /** Phase 1811 — `dateTime` (was `date`): the format string renders a date, a time or both. */
+  dateTime(fmt: string): CellFormat {
+    return { kind: 'DateTime', format: fmt };
   },
 };
 
@@ -617,21 +618,21 @@ export const localeFormat = {
   },
   /** An absolute date with no time of day — the pre-1810 signature, kept. */
   date(dateStyle: DateStyle): Format {
-    return { kind: 'Date', dateStyle };
+    return { kind: 'DateTime', dateStyle };
   },
   /**
    * Phase 1810 — an absolute date AND its time of day, each at its own
    * breadth (the platform formatter's `dateStyle` / `timeStyle` pair).
    */
   dateTime(dateStyle: DateStyle, timeStyle: TimeStyle): Format {
-    return { kind: 'Date', dateStyle, timeStyle };
+    return { kind: 'DateTime', dateStyle, timeStyle };
   },
   /**
    * Phase 1810 — a time of day ALONE: the display half of a `Time` form
    * field's value. The source is still whole Unix-epoch seconds.
    */
   time(timeStyle: TimeStyle): Format {
-    return { kind: 'Date', timeStyle };
+    return { kind: 'DateTime', timeStyle };
   },
   relativeTime(unit: RelativeTimeUnit): Format {
     return { kind: 'RelativeTime', unit };
@@ -904,25 +905,26 @@ export const formFieldKind = {
   ): FormFieldKind<TMsg> {
     return { kind: 'Color', value, onChange };
   },
-  date<TMsg>(
+  /** Phase 1811 — `dateTime` (was `date`): a date, a time of day or both, per `variant`. */
+  dateTime<TMsg>(
     value: Binding<string>,
     onChange: (value: string) => Action<TMsg>,
-    variant: DateVariant = 'Date',
+    variant: DateTimeVariant = 'Date',
     constraints?: DateFieldConstraints,
   ): FormFieldKind<TMsg> {
-    return { kind: 'Date', value, onChange, variant, constraints: constraints ?? {} };
+    return { kind: 'DateTime', value, onChange, variant, constraints: constraints ?? {} };
   },
   /**
    * Phase 725 — single-control date range. `value` is the ordered `(from, to)`
    * ISO-8601 pair; `constraints` bound BOTH ends.
    */
-  dateRange<TMsg>(
+  dateTimeRange<TMsg>(
     value: Binding<readonly [string, string]>,
     onChange: (value: readonly [string, string]) => Action<TMsg>,
-    variant: DateVariant = 'Date',
+    variant: DateTimeVariant = 'Date',
     constraints?: DateFieldConstraints,
   ): FormFieldKind<TMsg> {
-    return { kind: 'DateRange', value, onChange, variant, constraints: constraints ?? {} };
+    return { kind: 'DateTimeRange', value, onChange, variant, constraints: constraints ?? {} };
   },
 
   // ── Handler-free (declarative) ctors — Phase 426, the control write-back
@@ -1009,21 +1011,21 @@ export const formFieldKind = {
   colorDeclarative<TMsg>(value: Binding<string>): FormFieldKind<TMsg> {
     return { kind: 'Color', value };
   },
-  /** Handler-free `Date` — writes the ISO-8601 string back to the value slot. */
-  dateDeclarative<TMsg>(
+  /** Handler-free `DateTime` — writes the ISO-8601 string back to the value slot. */
+  dateTimeDeclarative<TMsg>(
     value: Binding<string>,
-    variant: DateVariant = 'Date',
+    variant: DateTimeVariant = 'Date',
     constraints?: DateFieldConstraints,
   ): FormFieldKind<TMsg> {
-    return { kind: 'Date', value, variant, constraints: constraints ?? {} };
+    return { kind: 'DateTime', value, variant, constraints: constraints ?? {} };
   },
-  /** Handler-free `DateRange` — writes the changed (from, to) pair back to the value slot. */
-  dateRangeDeclarative<TMsg>(
+  /** Handler-free `DateTimeRange` — writes the changed (from, to) pair back to the value slot. */
+  dateTimeRangeDeclarative<TMsg>(
     value: Binding<readonly [string, string]>,
-    variant: DateVariant = 'Date',
+    variant: DateTimeVariant = 'Date',
     constraints?: DateFieldConstraints,
   ): FormFieldKind<TMsg> {
-    return { kind: 'DateRange', value, variant, constraints: constraints ?? {} };
+    return { kind: 'DateTimeRange', value, variant, constraints: constraints ?? {} };
   },
 };
 
@@ -1082,9 +1084,9 @@ export const filterField = {
   range<TMsg>(name: string): FormFieldKind<TMsg> {
     return { kind: 'Range', value: { kind: 'Filter', name } };
   },
-  /** Date-range chip bound to its own filter key (Phase 725). */
-  dateRange<TMsg>(name: string, variant: DateVariant = 'Date'): FormFieldKind<TMsg> {
-    return { kind: 'DateRange', value: { kind: 'Filter', name }, variant, constraints: {} };
+  /** Date-time-range chip bound to its own filter key (Phase 725; `dateRange` until Phase 1811). */
+  dateTimeRange<TMsg>(name: string, variant: DateTimeVariant = 'Date'): FormFieldKind<TMsg> {
+    return { kind: 'DateTimeRange', value: { kind: 'Filter', name }, variant, constraints: {} };
   },
 };
 
