@@ -20,6 +20,20 @@ import { decodeNode } from '@fuaran-ui/ops';
 
 import { FuaranRenderer, permissiveEgress } from '../src/index.js';
 
+// Phase 1810 — the host ambients a `Format.Date` reads are PINNED for this
+// corpus. WIRE_FORMAT §3.3 makes `LocaleSource.Ambient` defer to the host
+// locale, and the conformance vectors list `Format.Date` in the `excluded`
+// (legitimately-differing) tier — the rendition comes out of the host's locale
+// database and is correct for its target, not canonical. The F# reference host
+// pins its culture in its own tests for the same reason. So the renderer stays
+// ambient by design and the TEST fixes the ambient: an `en-GB` machine renders
+// `format-date-time.json`'s Ambient time as `22:13`, an `en-US` CI runner as
+// `10:13 PM`, and a snapshot must not depend on which one recorded it. The
+// timezone is the other ambient `Intl.DateTimeFormat` reads — pinned to UTC,
+// set before any render so the fork's ICU timezone is reset to it.
+process.env['TZ'] = 'UTC';
+const CORPUS_AMBIENT_LOCALE = 'en-GB';
+
 const here = dirname(fileURLToPath(import.meta.url));
 // packages/renderer/test → workspace-root/wire-format-fixtures
 const nodesDir = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'nodes');
@@ -48,7 +62,11 @@ const renderFixture = (file: string): string => {
   const decoded = decodeNode(json);
   if (!decoded.ok) throw new Error(`decode failed for ${file}: ${JSON.stringify(decoded.error)}`);
   return renderToStaticMarkup(
-    <FuaranRenderer tree={decoded.value} egressPolicy={permissiveEgress} />,
+    <FuaranRenderer
+      tree={decoded.value}
+      egressPolicy={permissiveEgress}
+      sources={{ locale: CORPUS_AMBIENT_LOCALE }}
+    />,
   );
 };
 
@@ -66,6 +84,37 @@ describe('fixture-corpus — decode + render every node fixture', () => {
 
   it.each(fixtureFiles)('%s matches its rendered-output snapshot', (file) => {
     expect(renderFixture(file)).toMatchSnapshot();
+  });
+});
+
+describe('corpus render is independent of the runner locale (Phase 1810)', () => {
+  /**
+   * Render `file` as a machine whose DEFAULT locale is `runnerDefault` would:
+   * every `Intl.DateTimeFormat` constructed with no locale falls back to it,
+   * exactly as the runtime default does on a real machine.
+   */
+  const renderAsRunner = (file: string, runnerDefault: string): string => {
+    const Original = Intl.DateTimeFormat;
+    const Stand = function (
+      locales?: Intl.LocalesArgument,
+      options?: Intl.DateTimeFormatOptions,
+    ): Intl.DateTimeFormat {
+      return new Original(locales ?? runnerDefault, options);
+    } as unknown as typeof Intl.DateTimeFormat;
+    (Intl as { DateTimeFormat: typeof Intl.DateTimeFormat }).DateTimeFormat = Stand;
+    try {
+      return renderFixture(file);
+    } finally {
+      (Intl as { DateTimeFormat: typeof Intl.DateTimeFormat }).DateTimeFormat = Original;
+    }
+  };
+
+  it('format-date-time.json renders byte-identically under an en-US (h12) and an en-GB (h23) runner', () => {
+    const us = renderAsRunner('format-date-time.json', 'en-US');
+    const gb = renderAsRunner('format-date-time.json', 'en-GB');
+    expect(us).toBe(gb);
+    // The Ambient time-of-day cell is the one the runner locale could flip.
+    expect(us).toContain('<p>22:13</p>');
   });
 });
 
