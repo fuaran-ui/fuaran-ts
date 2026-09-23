@@ -88,6 +88,28 @@
 //  every other producer-declared record untouched. Both writers emit the same
 //  byte formatting, so whichever runs second does not re-churn the other's
 //  rows.
+//
+//  THE CONSUMER PREFIX NAMES THE REPOSITORY, NOT THE CHECKOUT (Phase 1802).
+//  A record's consumer path is workspace-relative, and it used to be derived
+//  from this snapshot's absolute path. Run from a git worktree, that path is
+//  the worktree's, so the step declared the worktree as the estate copy and
+//  exited 0. The prefix is now the repository's PRIMARY checkout as the estate
+//  places it (the parent of git's common dir, which a worktree shares with the
+//  checkout it was cut from) plus the snapshot's path inside the repository -
+//  so a worktree and a full checkout write byte-identical records. Where that
+//  identity cannot be established (git cannot name the repository, the
+//  repository has no working-tree `.git` to hang a checkout on, or its primary
+//  checkout does not sit in the canonical side-by-side layout beside the
+//  corpus) the step REFUSES, exit 1, naming which — it never writes a guess.
+//
+//  ---- the corpus root --------------------------------------------------
+//
+//  FUARAN_WIRE_FIXTURES names the corpus root for every mode, on the contract
+//  the estate's other hosts honour: set and non-empty, it must name a corpus
+//  (a manifest.json under it) or the run is REFUSED, exit 1 — never ignored.
+//  Falling back would reach ../wire-format-fixtures, which from a worktree is
+//  the SHARED primary clone: the very clone the override exists to leave alone.
+//  Unset, the canonical sibling clone is the authority, as before.
 // ============================================================================
 
 import { spawnSync } from 'node:child_process';
@@ -97,17 +119,42 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const packageRoot = join(here, '..');
-// packages/conformance → packages → fuaran-ts → the workspace side-by-side root
-const authority = join(packageRoot, '..', '..', '..', 'wire-format-fixtures');
+// The long-name real path: git reports long names, and a relative() between a
+// short (8.3) and a long spelling of one directory would escape with `..`.
+const packageRoot = realpathSync.native(join(here, '..'));
 const snapshot = join(packageRoot, 'corpus');
+
+/** Names the corpus root explicitly — the same variable the estate's other
+ *  hosts read. Set and non-empty, it is honoured or refused, never ignored. */
+const CORPUS_ROOT_ENV = 'FUARAN_WIRE_FIXTURES';
+
+const resolveAuthority = () => {
+  const declared = process.env[CORPUS_ROOT_ENV];
+  // packages/conformance → packages → fuaran-ts → the workspace side-by-side root
+  if (!declared) return join(packageRoot, '..', '..', '..', 'wire-format-fixtures');
+  const root = resolve(declared);
+  if (!existsSync(join(root, 'manifest.json'))) {
+    console.error(
+      `${CORPUS_ROOT_ENV}=${JSON.stringify(declared)} does not name a conformance corpus ` +
+        `(no manifest.json under ${root}).\n` +
+        `Point it at the corpus root, or unset it. It is refused rather than ignored: ` +
+        `falling back would reach ../wire-format-fixtures, which from a worktree is the ` +
+        `shared primary clone the override exists to leave alone.`,
+    );
+    process.exit(1);
+  }
+  return root;
+};
+
+const authority = resolveAuthority();
 const sentinel = join(snapshot, 'snapshot.json');
 
 const SENTINEL_KIND = 'corpusSnapshot';
@@ -124,7 +171,8 @@ if (!existsSync(join(authority, 'manifest.json'))) {
   console.error(
     `Authoritative corpus not found at ${authority}\n` +
       `This script requires the canonical workspace layout (the wire-format ` +
-      `fixtures corpus as a sibling of this fuaran-ts checkout).`,
+      `fixtures corpus as a sibling of this fuaran-ts checkout), or ` +
+      `${CORPUS_ROOT_ENV} naming the corpus root.`,
   );
   process.exit(1);
 }
@@ -216,12 +264,58 @@ const writeSentinel = () => {
 
 // ---- the estate declaration ------------------------------------------------
 
-/** The workspace root: the directory the estates sit under, three levels above
- *  the authority in the canonical layout. `roadmapctl copies` resolves every
- *  consumer path against it, and there is no other root that can address a file
- *  in a different repo. */
-const workspaceRoot = resolve(authority, '..', '..', '..');
 const posix = (p) => p.split('\\').join('/');
+
+/** Stop the declare step, naming why the prefix cannot be established. */
+const refuseDeclare = (why) => {
+  console.error(
+    `Cannot declare: ${why}\n` +
+      `The estate copy registry addresses a consumer by the repository's workspace-relative\n` +
+      `path, and this step refuses rather than write one it cannot establish.`,
+  );
+  process.exit(1);
+};
+
+/** The consumer prefix — the repository as the estate knows it, plus this
+ *  snapshot's path inside it — derived from git's view of the repository, never
+ *  from the checkout's own absolute path (see the header: a worktree and a full
+ *  checkout must declare the same records). */
+const consumerPrefix = () => {
+  const toplevel = git(packageRoot, 'rev-parse', '--show-toplevel');
+  const commonDir = git(packageRoot, 'rev-parse', '--path-format=absolute', '--git-common-dir');
+  if (!toplevel || !commonDir)
+    refuseDeclare(
+      `git cannot name the repository holding ${packageRoot} (not a clone, or no git on PATH).`,
+    );
+
+  const common = realpathSync.native(resolve(commonDir));
+  if (basename(common) !== '.git')
+    refuseDeclare(
+      `the repository's git directory ${common} is not a checkout's .git, so there is no ` +
+        `checkout to name it by (a bare repository, or a separated git dir).`,
+    );
+
+  // A worktree's common dir is the .git of the checkout it was cut from, so this
+  // is the PRIMARY checkout whichever of the two is running.
+  const checkout = dirname(common);
+  const inRepo = posix(relative(realpathSync.native(resolve(toplevel)), snapshot));
+  if (inRepo === '' || inRepo.startsWith('..') || isAbsolute(inRepo))
+    refuseDeclare(
+      `the snapshot at ${snapshot} does not sit inside its repository's toplevel ${toplevel}.`,
+    );
+
+  if (!existsSync(join(dirname(checkout), 'wire-format-fixtures', 'manifest.json')))
+    refuseDeclare(
+      `the repository's primary checkout ${checkout} does not sit in the canonical side-by-side ` +
+        `layout (no wire-format-fixtures corpus beside it), so its workspace-relative path is unknown.`,
+    );
+
+  // The workspace root: three levels above a checkout in the canonical layout
+  // (<workspace>/Fuaran/Fuaran-UI/<repo>). `roadmapctl copies` resolves every
+  // consumer path against it.
+  const repoPath = posix(relative(resolve(checkout, '..', '..', '..'), checkout));
+  return `${repoPath}/${inRepo}`;
+};
 const copiesManifest = join(authority, 'copies.json');
 
 /** JSON carries no comment syntax, so the header note the registry's readers
@@ -242,16 +336,7 @@ const declare = () => {
   const dirs = payloadDirs(authority);
   const files = certificationFiles(authority, dirs);
 
-  const prefix = posix(relative(workspaceRoot, snapshot));
-  if (prefix === '' || prefix.startsWith('..')) {
-    console.error(
-      `Cannot declare: the bundled snapshot at ${snapshot} does not sit under the\n` +
-        `workspace root inferred from the authority (${workspaceRoot}). The estate copy\n` +
-        `registry addresses consumers by workspace-relative path, so a checkout outside\n` +
-        `the canonical side-by-side layout cannot declare — re-run from one that is.`,
-    );
-    process.exit(1);
-  }
+  const prefix = consumerPrefix();
 
   // One record per COPY, not per source. A source bundled by two hosts is two
   // records, because a record carries exactly one `regen` clause and the two
