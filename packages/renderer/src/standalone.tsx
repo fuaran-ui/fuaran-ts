@@ -64,11 +64,12 @@ export interface MountOptions<TMsg = unknown> {
    */
   readonly egressPolicy?: EgressPolicy;
   /**
-   * Phase 1021 — the host's minimum `NodeKind.Custom` content-hash strictness. A
-   * tree may only tighten it. Omitting it means `'AdvisoryWarning'` (the
-   * pre-1021 behaviour); a host that registers custom renderers with recorded
-   * hashes and wants an unverifiable `Custom` node REFUSED passes
-   * `'StrictReplay'`.
+   * Phase 1021 — the host's `NodeKind.Custom` content-hash floor. A tree may
+   * only tighten it. Omitting it means `'Enforced'` since Phase 1856: a `Custom`
+   * node whose declared hash mismatches the registered renderer's is REFUSED,
+   * and one declaring no hash still renders. `'AdvisoryWarning'` is the named
+   * opt-back (a mismatch warns and renders); `'StrictReplay'` additionally
+   * refuses a node declaring no hash at all.
    */
   readonly customHashFloor?: HashStrictness;
   /**
@@ -196,7 +197,7 @@ export function mount<TMsg = unknown>(
         ...(runtime !== undefined ? { runtime } : {}),
         // Absent, `<FuaranRenderer>` defaults to `denyNonLocalEgress`.
         ...(options?.egressPolicy !== undefined ? { egressPolicy: options.egressPolicy } : {}),
-        // Absent, `<FuaranRenderer>` defaults to the lenient `'AdvisoryWarning'` floor.
+        // Absent, `<FuaranRenderer>` defaults to the enforcing `'Enforced'` floor.
         ...(options?.customHashFloor !== undefined
           ? { customHashFloor: options.customHashFloor }
           : {}),

@@ -63,16 +63,18 @@ export interface FuaranRendererProps<TMsg = unknown> {
    */
   readonly egressPolicy?: EgressPolicy;
   /**
-   * Phase 1021 — the host's MINIMUM `NodeKind.Custom` content-hash strictness. A
-   * tree's own declared strictness may raise it, never lower it; under an
-   * enforcing floor (`'StrictReplay'` / `'Enforced'`) a `Custom` node whose hash
-   * cannot be verified — the tree declared none, or the registry recorded none —
-   * is refused rather than rendered.
+   * Phase 1021 — the host's `NodeKind.Custom` content-hash floor. A tree's own
+   * declared strictness may raise it, never lower it. Under an enforcing floor
+   * (`'Enforced'` / `'StrictReplay'`) a `Custom` node whose declared hash
+   * MISMATCHES the registered renderer's is refused rather than rendered, and so
+   * is one declaring a hash the registry recorded none for; `'StrictReplay'`
+   * additionally refuses a node declaring no hash at all.
    *
-   * **Omitting it means `'AdvisoryWarning'`** — the pre-1021 behaviour,
-   * byte-for-byte. Unlike `egressPolicy` the safe default here is the lenient
-   * one (a `Custom` node with no hash is the common legitimate case), so
-   * enforcement is the act a host takes by name.
+   * **Omitting it means `'Enforced'` since Phase 1856** (the reference host's
+   * Phase 1550 default): an unconfigured renderer refuses a mismatch, and a
+   * `Custom` node with no hash — the common legitimate case — still renders.
+   * `customHashFloor="AdvisoryWarning"` is the named opt-back: a mismatch warns
+   * and renders, the pre-1856 default, with the warning intact.
    */
   readonly customHashFloor?: HashStrictness;
   /**
@@ -181,8 +183,8 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
     inErrorBoundary: false,
     // Phase 1037 — default-deny. A host widens it BY NAME via `egressPolicy`.
     egressPolicy: props.egressPolicy ?? denyNonLocalEgress,
-    // Phase 1021 — absent means the lenient default floor. `exactOptionalPropertyTypes`:
-    // omit rather than pass an explicit `undefined`.
+    // Phase 1021 / 1856 — absent means the shipped ENFORCING default floor.
+    // `exactOptionalPropertyTypes`: omit rather than pass an explicit `undefined`.
     ...(props.customHashFloor !== undefined ? { customHashFloor: props.customHashFloor } : {}),
   };
 

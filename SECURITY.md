@@ -38,6 +38,22 @@ AI-emitted — and renders the typed tree into the DOM.
   path that performs one of those actions without consulting a hook the host supplied, or that
   reaches a host effect outside that set, is in scope. An absent hook allows: unlike the F#
   reference host, this tier does not yet refuse by default.
+- **The `Custom` content-hash floor (a shipped default that now refuses).** `ContentHash` on a
+  `NodeKind.Custom` node is drift detection between the tree and the registered renderer, never
+  authentication of the tree — a match proves only that whoever wrote the tree knew the registered
+  renderer's hash. The renderer's **floor** decides what a disagreement costs, and since
+  `@fuaran-ui/renderer` 0.26.0 (Phase 1856) it defaults to `'Enforced'`: a tree whose declared hash
+  disagrees with the registered renderer's is refused by a host that configured nothing, as is one
+  declaring a hash the registry recorded none for. Until then the default was `'AdvisoryWarning'` —
+  a mismatch warned and rendered — on the page a stranger's tree is replayed into. That reading is
+  now a deliberate opt-back, written `customHashFloor: 'AdvisoryWarning'` on `<FuaranRenderer>`,
+  on the render context, or on the standalone entry's options, so one search for that literal
+  enumerates every host where the permissive posture is in force. The floor decides a MISMATCH, not
+  an absence: a tree carrying no hash at all — the common legitimate case — renders exactly as it
+  did, and `'StrictReplay'` is the posture that refuses that too. A tree may raise the floor, never
+  lower it, and a `Mount` guest inherits its host's. The floor is carried per renderer instance, not
+  process-wide, so one surface on a page cannot relax another's. Both hosts decide the same document
+  the same way; a document one host refuses and the other renders is a finding in scope.
 
 ## Reporting a vulnerability
 

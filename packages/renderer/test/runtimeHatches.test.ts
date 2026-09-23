@@ -20,6 +20,7 @@ import {
   DEVELOPMENT_SURFACE_LIVE,
   observeRuntimeHatches,
   registerDebugGlobal,
+  customHashFloorOf,
 } from '../src/index.js';
 
 const tree = fuaran.stack<unknown>({ id: 'root', children: [] });
@@ -93,19 +94,43 @@ describe('custom-renderer-registered', () => {
 });
 
 describe('custom-hash-floor-permissive', () => {
-  it('is OPEN under the permissive floor — the default here, reported rather than implied', () => {
+  it('is OPEN only under the permissive floor, and says it was declared BY NAME', () => {
     const finding = byPredicate(
       observeRuntimeHatches({ customHashFloor: 'AdvisoryWarning', developmentSurfaceLive: false }),
     )[CUSTOM_HASH_FLOOR_PERMISSIVE]!;
     expect(finding.state).toBe('open');
-    expect(finding.account).toContain("'advisory-warning'");
+    expect(finding.account).toBe(
+      "this renderer's content-hash floor is 'advisory-warning' — a host declared the permissive " +
+        "posture BY NAME. A guest whose declared hash disagrees with the registered renderer's warns " +
+        'and renders anyway, so a declared hash mediates nothing here.',
+    );
   });
 
-  it.each(['Enforced', 'StrictReplay'] as const)('is CLOSED under %s', (floor) => {
+  it('is CLOSED under the shipped default, and says an unhashed guest still renders', () => {
+    // Phase 1856: the default is `Enforced`, so this is what an unconfigured
+    // renderer reports. The sentence is the reference host's, with "this
+    // renderer's" for "the process" — the one fact that differs here.
     const finding = byPredicate(
-      observeRuntimeHatches({ customHashFloor: floor, developmentSurfaceLive: false }),
+      observeRuntimeHatches({
+        customHashFloor: customHashFloorOf({}),
+        developmentSurfaceLive: false,
+      }),
     )[CUSTOM_HASH_FLOOR_PERMISSIVE]!;
     expect(finding.state).toBe('closed');
+    expect(finding.account).toBe(
+      "this renderer's content-hash floor is 'enforced': a guest whose declared hash disagrees with " +
+        "the registered renderer's is REFUSED rather than rendered. A guest declaring no hash at all " +
+        'still renders — the common legitimate case.',
+    );
+  });
+
+  it('is CLOSED under StrictReplay, which refuses an unhashed guest too', () => {
+    const finding = byPredicate(
+      observeRuntimeHatches({ customHashFloor: 'StrictReplay', developmentSurfaceLive: false }),
+    )[CUSTOM_HASH_FLOOR_PERMISSIVE]!;
+    expect(finding.state).toBe('closed');
+    expect(finding.account).toContain("'strict-replay'");
+    expect(finding.account).toContain('a guest declaring no hash at all is refused too.');
   });
 });
 

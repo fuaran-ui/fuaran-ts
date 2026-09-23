@@ -31,6 +31,7 @@ import {
   type ChangeHub,
   createChangeHub,
   createCustomRendererRegistry,
+  customHashFloorOf,
   createRelayPeer,
   FuaranRenderer,
   RELAY_PROFILE,
@@ -137,6 +138,12 @@ interface HarnessOptions {
    * fixtures address a host that renders under an ENFORCING floor with its
    * introspection surface not registered on the page, and differ only in the
    * registry: one guest renderer registered, or none offered at all.
+   *
+   * The floor handed over is the one an UNDECLARED renderer runs under
+   * (`customHashFloorOf({})`, exactly what `<FuaranRenderer debug>` supplies),
+   * not a named `'Enforced'`: the fixture host reports its shipped default, and
+   * since Phase 1856 this host's default is the same enforcing floor, so the
+   * vectors hold the two DEFAULTS to one document rather than one declaration.
    */
   readonly hatches?: 'one-registered' | 'registry-not-offered';
 }
@@ -156,7 +163,7 @@ const harness = (options: HarnessOptions = {}): Harness => {
     options.hatches === undefined
       ? {}
       : {
-          customHashFloor: 'Enforced' as const,
+          customHashFloor: customHashFloorOf({}),
           ...(options.hatches === 'one-registered'
             ? {
                 customRenderers: createCustomRendererRegistry().register(

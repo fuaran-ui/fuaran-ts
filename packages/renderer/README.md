@@ -54,18 +54,24 @@ another host's source**; what follows is only how this host binds it.
 **`ContentHash` is drift detection, never authentication.** The tree supplies its
 own hash record, so a match proves only that whoever wrote the tree knew the
 registered renderer's hash. Strictness is therefore a **host floor a tree may
-only tighten**, and under an enforcing floor a hash that cannot be verified —
-because the tree declared none, or the registry recorded none — is a refusal
-rather than a silent render:
+only tighten**. Under an enforcing floor a declared hash that DISAGREES with the
+registered renderer's is a refusal rather than a render, and so is a declared hash
+the registry recorded none for.
+
+**Omitting `customHashFloor` means `'Enforced'`** (since 0.26.0, Phase 1856 — the
+same default as the reference host): an unconfigured renderer refuses a mismatch.
+The floor governs mismatch, not absence, so a `Custom` node declaring no hash —
+the common legitimate case — still renders. The other two postures are named:
 
 ```tsx
+// The permissive opt-back: a mismatch warns and renders, the pre-0.26.0 default.
+<FuaranRenderer tree={tree} runtime={{ registry }} customHashFloor="AdvisoryWarning" />
+// The strictest: additionally refuses a node that declares no hash at all.
 <FuaranRenderer tree={tree} runtime={{ registry }} customHashFloor="StrictReplay" />
 ```
 
-Omitting `customHashFloor` means `'AdvisoryWarning'`: a `Custom` node with no
-hash is the common legitimate case, so the default is the lenient one and
-enforcement is an act a host takes by name. `classifyCustomHashUnder` is exported
-as the pure join, so the rule is testable without a render.
+`classifyCustomHashUnder` is exported as the pure join, so the rule is testable
+without a render. See [`docs/migrations/1856-custom-hash-floor-enforces.md`](../../docs/migrations/1856-custom-hash-floor-enforces.md).
 
 **`Mount` is unprivileged by default.** `runtime.loadGuest` is the guest loader
 seam; the renderer's `Mount` arm owns the only call to it and derives the guest's

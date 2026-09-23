@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@fuaran-ui/renderer": "^0.25.0",
+    "@fuaran-ui/renderer": "^0.26.0",
     "@fuaran-ui/schema": "^0.24.0",
     "@fuaran-ui/ui": "^0.22.0",
     "react": "^19.0.0",

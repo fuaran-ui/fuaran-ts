@@ -37,18 +37,20 @@
 //  The predicates, inventory numbers and states are shared with the reference
 //  host. The account prose is not always, because two of the facts it reports
 //  are different facts here: this host's content-hash floor is ambient on a
-//  renderer's context rather than process-wide, and under an enforcing floor it
-//  refuses an UNVERIFIABLE guest (no hash declared, or none registered) as well
-//  as a mismatched one; and its registries are per renderer instance, with no
-//  render scopes. An account that copied the reference host's sentence would
-//  describe the other host.
+//  renderer's context rather than process-wide, and its registries are per
+//  renderer instance, with no render scopes. An account that copied the
+//  reference host's sentence would describe the other host. Where the facts
+//  coincide the sentence does too: since Phase 1856 the two hosts share one
+//  default (`Enforced`) and one verdict per floor, so the floor account differs
+//  from the reference host's only in naming this renderer rather than the
+//  process.
 //
 //  Pure over what it is handed: no clock, no DOM, no module state.
 // ============================================================================
 
 import type { HashStrictness } from '@fuaran-ui/schema';
 
-import { isEnforcingHashStrictness } from './customHash.js';
+import { isEnforcingHashStrictness, refusesUnverifiableHashStrictness } from './customHash.js';
 import type { CustomRendererRegistration, CustomRendererRegistry } from './customRegistry.js';
 
 /** Whether a door is open, closed, or could not be seen. Closed set. */
@@ -169,7 +171,9 @@ const floorToken = (floor: HashStrictness): string => {
 /**
  * Is the mediation on the guest boundary in force? Reported for every floor,
  * the default included, so the finding is a positive statement about the
- * posture rather than an absence of complaint.
+ * posture rather than an absence of complaint. The shipped default is
+ * `Enforced` (Phase 1856), so an unconfigured renderer reports CLOSED, and the
+ * only way to an OPEN finding is a host naming `AdvisoryWarning`.
  */
 export const customHashFloorFinding = (floor: HashStrictness | undefined): HatchFinding => {
   const finding = (state: HatchState, account: string): HatchFinding => ({
@@ -188,14 +192,16 @@ export const customHashFloorFinding = (floor: HashStrictness | undefined): Hatch
     return finding(
       'closed',
       `this renderer's content-hash floor is '${floorToken(floor)}': a guest whose declared hash ` +
-        "disagrees with the registered renderer's is REFUSED rather than rendered, and so is one whose " +
-        'hash cannot be verified at all — declared by the tree but not registered, or not declared.',
+        "disagrees with the registered renderer's is REFUSED rather than rendered" +
+        (refusesUnverifiableHashStrictness(floor)
+          ? ', and a guest declaring no hash at all is refused too.'
+          : '. A guest declaring no hash at all still renders — the common legitimate case.'),
     );
   return finding(
     'open',
-    `this renderer's content-hash floor is '${floorToken(floor)}' — the posture this host takes when ` +
-      'no floor is declared, or one declared by name. A guest whose declared hash disagrees with the ' +
-      "registered renderer's warns and renders anyway, so a declared hash mediates nothing here.",
+    `this renderer's content-hash floor is '${floorToken(floor)}' — a host declared the permissive ` +
+      "posture BY NAME. A guest whose declared hash disagrees with the registered renderer's warns " +
+      'and renders anyway, so a declared hash mediates nothing here.',
   );
 };
 

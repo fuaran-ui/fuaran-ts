@@ -635,11 +635,28 @@ describe('<FuaranRenderer debug relay> — hatches over the live page', () => {
     const doc = readRegisteredDebugGlobal()?.hatches?.();
     expect(doc?.findings.map((f) => f.state)).toEqual([
       'closed',
-      // …and the floor it runs under by default is the permissive one, which
-      // the report says rather than letting "nothing is registered" imply it.
-      'open',
+      // …and the floor it runs under by default is the ENFORCING one since
+      // Phase 1856, which the report says rather than letting "nothing is
+      // registered" imply it.
+      'closed',
       'open',
     ]);
+  });
+
+  it('the permissive floor is reported OPEN only when the host names it', async () => {
+    await mount(
+      <FuaranRenderer
+        tree={makeTree()}
+        sources={sources}
+        customHashFloor="AdvisoryWarning"
+        debug
+        relay
+      />,
+    );
+    const doc = readRegisteredDebugGlobal()?.hatches?.();
+    const floor = doc?.findings.find((f) => f.predicate === 'custom-hash-floor-permissive');
+    expect(floor?.state).toBe('open');
+    expect(floor?.account).toContain('BY NAME');
   });
 });
 

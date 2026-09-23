@@ -21,6 +21,13 @@
 //  rather than to each other's observed behaviour. The second block pins the
 //  same rule through an actual render, which is where a floor that is computed
 //  but never consulted would still look green.
+//
+//  Phase 1856 ports the reference host's Phase 1550 flip: the shipped default is
+//  `Enforced`, the permissive posture is a declaration made BY NAME, and the
+//  floor governs MISMATCH rather than tree-side ABSENCE (only `StrictReplay`
+//  refuses a tree declaring no hash). The third block is the cross-host
+//  comparison over the same documents, with the reference host's column taken
+//  from EXECUTING its classifier rather than from reading it.
 // ============================================================================
 
 import type { ContentHash, HashStrictness, Node } from '@fuaran-ui/schema';
@@ -28,6 +35,8 @@ import { defaults, nodeId } from '@fuaran-ui/schema';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
+import { refusesUnverifiableHashStrictness } from '../src/customHash.js';
+import type { CustomHashOutcome } from '../src/index.js';
 import {
   classifyCustomHashUnder,
   createCustomRendererRegistry,
@@ -47,12 +56,27 @@ const hash = (h: string, strictness: HashStrictness): ContentHash => ({
 // ─── The translated oracle (reference host: `CustomHash.classifyUnder`) ──────
 
 describe('Custom content-hash floor — the classifier (Phase 783 parity oracle)', () => {
-  it('omitting the hash is a REFUSAL under an enforcing floor', () => {
+  it('omitting the hash is a REFUSAL under a StrictReplay floor', () => {
     expect(classifyCustomHashUnder('StrictReplay', undefined, hash('abc', 'StrictReplay'))).toBe(
       'Unverifiable',
     );
-    // …and the default floor is unchanged: no tree hash still renders.
     expect(classifyCustomHashUnder('AdvisoryWarning', undefined, hash('abc', 'StrictReplay'))).toBe(
+      'NoTreeHash',
+    );
+  });
+
+  it('an Enforced floor refuses a MISMATCH and renders a tree that declared no hash', () => {
+    // Phase 1856 (the reference host's Phase 1550): what makes the enforcing
+    // default shippable. Before this phase `Enforced` refused the absence here
+    // and rendered it on the reference host — the same document, two verdicts.
+    expect(
+      classifyCustomHashUnder(
+        'Enforced',
+        hash('aaa', 'AdvisoryWarning'),
+        hash('bbb', 'AdvisoryWarning'),
+      ),
+    ).toBe('MismatchStrict');
+    expect(classifyCustomHashUnder('Enforced', undefined, hash('abc', 'StrictReplay'))).toBe(
       'NoTreeHash',
     );
   });
@@ -98,16 +122,26 @@ describe('Custom content-hash floor — the classifier (Phase 783 parity oracle)
     }
   });
 
-  it('`Enforced` reaching a renderer is as strict as `StrictReplay`', () => {
+  it('refusesUnverifiable separates the two enforcing floors', () => {
+    // Both enforcing floors refuse a MISMATCH…
     expect(isEnforcingHashStrictness('AdvisoryWarning')).toBe(false);
     expect(isEnforcingHashStrictness('StrictReplay')).toBe(true);
     expect(isEnforcingHashStrictness('Enforced')).toBe(true);
+    // …and only the one whose name says the tree must replay exactly refuses an
+    // ABSENCE. Pinned directly so the distinction cannot be quietly collapsed.
+    expect(refusesUnverifiableHashStrictness('StrictReplay')).toBe(true);
+    expect(refusesUnverifiableHashStrictness('Enforced')).toBe(false);
+    expect(refusesUnverifiableHashStrictness('AdvisoryWarning')).toBe(false);
   });
 
-  it('an undeclared floor reads as the lenient default, not as an enforcing one', () => {
-    expect(defaultCustomHashFloor).toBe('AdvisoryWarning');
-    expect(customHashFloorOf({})).toBe('AdvisoryWarning');
-    expect(customHashFloorOf({ customHashFloor: 'Enforced' })).toBe('Enforced');
+  it('the shipped default is Enforced, and AdvisoryWarning is reachable BY NAME', () => {
+    expect(defaultCustomHashFloor).toBe('Enforced');
+    // An absent declaration resolves to the default…
+    expect(customHashFloorOf({})).toBe('Enforced');
+    // …and a present one REPLACES it, so the permissive posture is declarable
+    // rather than unreachable (the reference host's decision 1 at Phase 1550).
+    expect(customHashFloorOf({ customHashFloor: 'AdvisoryWarning' })).toBe('AdvisoryWarning');
+    expect(customHashFloorOf({ customHashFloor: 'StrictReplay' })).toBe('StrictReplay');
   });
 });
 
@@ -165,33 +199,66 @@ describe('Custom content-hash floor — through the renderer (Phase 1021)', () =
     expect(warn).toHaveBeenCalled();
   });
 
-  it('THE REGRESSION CASE: remove the floor and the same tree renders', () => {
-    // This is the assertion that goes red if the guard is deleted — the pair
-    // above and below differ ONLY in the declared floor. Without it, "the
-    // renderer did not run" could be true for any number of reasons.
+  it('THE GO-RED CASE (Phase 1856): an UNDECLARED host refuses a mismatched Custom', () => {
+    // The flip itself. No `customHashFloor` at all — the host that never
+    // configured one — and the registered renderer must not run.
     const invoked: string[] = [];
+    const warn = vi.fn();
     const html = renderToStaticMarkup(
       <FuaranRenderer<string>
         tree={customNode(hash('aaa', 'AdvisoryWarning'))}
-        runtime={{
-          registry: registryRecording(invoked, hash('bbb', 'StrictReplay')),
-          warn: vi.fn(),
-        }}
+        runtime={{ registry: registryRecording(invoked, hash('bbb', 'StrictReplay')), warn }}
+      />,
+    );
+
+    expect(invoked).toEqual([]);
+    expect(html).not.toContain('the-registered-renderer');
+    expect(html).toContain('fuaran-custom-placeholder');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('FuaranCustomHashMismatch'));
+  });
+
+  it('the NAMED opt-back: the same page with AdvisoryWarning warns and renders', () => {
+    // This is the pair's other half — the two renders differ ONLY in the
+    // declared floor, so "the renderer did not run" above is about the floor
+    // and nothing else. The warning is intact: the opt-back relaxes the verdict,
+    // never the report.
+    const invoked: string[] = [];
+    const warn = vi.fn();
+    const html = renderToStaticMarkup(
+      <FuaranRenderer<string>
+        tree={customNode(hash('aaa', 'AdvisoryWarning'))}
+        runtime={{ registry: registryRecording(invoked, hash('bbb', 'StrictReplay')), warn }}
+        customHashFloor="AdvisoryWarning"
       />,
     );
 
     expect(invoked).toEqual(['sparkline']);
     expect(html).toContain('the-registered-renderer');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('FuaranCustomHashMismatch'));
   });
 
-  it('omitting the hash entirely is refused under an enforcing floor', () => {
+  it('an undeclared host refuses a declared hash the registry recorded none for', () => {
+    // Registry-side absence: the tree made a claim nothing can check.
+    const invoked: string[] = [];
+    const html = renderToStaticMarkup(
+      <FuaranRenderer<string>
+        tree={customNode(hash('aaa', 'AdvisoryWarning'))}
+        runtime={{ registry: registryRecording(invoked), warn: vi.fn() }}
+      />,
+    );
+
+    expect(invoked).toEqual([]);
+    expect(html).toContain('fuaran-custom-placeholder');
+  });
+
+  it('omitting the hash entirely is refused under a StrictReplay floor', () => {
     const invoked: string[] = [];
     const warn = vi.fn();
     const html = renderToStaticMarkup(
       <FuaranRenderer<string>
         tree={customNode(undefined)}
         runtime={{ registry: registryRecording(invoked, hash('bbb', 'StrictReplay')), warn }}
-        customHashFloor="Enforced"
+        customHashFloor="StrictReplay"
       />,
     );
 
@@ -200,8 +267,25 @@ describe('Custom content-hash floor — through the renderer (Phase 1021)', () =
     expect(warn).toHaveBeenCalled();
   });
 
-  it('the no-floor default is byte-compatible: an unhashed tree still renders', () => {
-    // The stability claim of this phase, asserted rather than assumed.
+  it('omitting the hash still renders under Enforced — the floor governs mismatch, not absence', () => {
+    const invoked: string[] = [];
+    const html = renderToStaticMarkup(
+      <FuaranRenderer<string>
+        tree={customNode(undefined)}
+        runtime={{
+          registry: registryRecording(invoked, hash('bbb', 'StrictReplay')),
+          warn: vi.fn(),
+        }}
+        customHashFloor="Enforced"
+      />,
+    );
+
+    expect(invoked).toEqual(['sparkline']);
+    expect(html).toContain('the-registered-renderer');
+  });
+
+  it('under the default, an unhashed tree still renders — as on the reference host', () => {
+    // The upgrade claim of the flip, asserted rather than assumed.
     const invoked: string[] = [];
     const html = renderToStaticMarkup(
       <FuaranRenderer<string>
@@ -270,4 +354,93 @@ describe('Custom content-hash floor — through the renderer (Phase 1021)', () =
     expect(html).toContain('refused');
     expect(html).toContain('could not be verified');
   });
+});
+
+// ─── The cross-host comparison (Phase 1856) ──────────────────────────────────
+//
+//  The same documents, under the same host declarations, on both hosts. The
+//  corpus carries no `Custom` content-hash vectors, so the oracle is the
+//  reference host's classifier EXECUTED over these documents (its
+//  `CustomHash.classifyForRender None`, with the declaration made through
+//  `installCustomHashFloor` — that host's analogue of this renderer's
+//  `customHashFloor`, and "none" meaning no install at all). The expected column
+//  below is its output, pasted; the phase's outcome carries the same table.
+
+type Declaration = HashStrictness | 'none';
+
+const crossHostDocuments: ReadonlyArray<
+  readonly [string, ContentHash | undefined, ContentHash | undefined]
+> = [
+  ['match', hash('same', 'AdvisoryWarning'), hash('same', 'StrictReplay')],
+  ['mismatch', hash('aaa', 'AdvisoryWarning'), hash('bbb', 'StrictReplay')],
+  ['mismatch-tree-strict', hash('aaa', 'StrictReplay'), hash('bbb', 'AdvisoryWarning')],
+  ['no-tree-hash', undefined, hash('bbb', 'StrictReplay')],
+  ['no-registry-hash', hash('aaa', 'AdvisoryWarning'), undefined],
+];
+
+const referenceHostOutcomes: Readonly<
+  Record<string, Readonly<Record<Declaration, CustomHashOutcome>>>
+> = {
+  match: { none: 'Match', AdvisoryWarning: 'Match', StrictReplay: 'Match', Enforced: 'Match' },
+  mismatch: {
+    none: 'MismatchStrict',
+    AdvisoryWarning: 'MismatchAdvisory',
+    StrictReplay: 'MismatchStrict',
+    Enforced: 'MismatchStrict',
+  },
+  'mismatch-tree-strict': {
+    none: 'MismatchStrict',
+    AdvisoryWarning: 'MismatchStrict',
+    StrictReplay: 'MismatchStrict',
+    Enforced: 'MismatchStrict',
+  },
+  'no-tree-hash': {
+    none: 'NoTreeHash',
+    AdvisoryWarning: 'NoTreeHash',
+    StrictReplay: 'Unverifiable',
+    Enforced: 'NoTreeHash',
+  },
+  'no-registry-hash': {
+    none: 'Unverifiable',
+    AdvisoryWarning: 'RegistryNoHash',
+    StrictReplay: 'Unverifiable',
+    Enforced: 'Unverifiable',
+  },
+};
+
+const declarations: readonly Declaration[] = [
+  'none',
+  'AdvisoryWarning',
+  'StrictReplay',
+  'Enforced',
+];
+
+const renders = (outcome: CustomHashOutcome): boolean =>
+  outcome !== 'MismatchStrict' && outcome !== 'Unverifiable';
+
+describe('Custom content-hash floor — the same documents decide the same way on both hosts', () => {
+  for (const [doc, treeHash, registryHash] of crossHostDocuments) {
+    for (const declared of declarations) {
+      const expected = referenceHostOutcomes[doc]![declared];
+      it(`${doc} under ${declared === 'none' ? 'no declaration' : declared} → ${expected}`, () => {
+        const ctx = declared === 'none' ? {} : { customHashFloor: declared };
+        // The verdict, through the same accessor the render arm reads.
+        expect(classifyCustomHashUnder(customHashFloorOf(ctx), treeHash, registryHash)).toBe(
+          expected,
+        );
+
+        // …and the render decision, through an actual render: a floor computed
+        // but never consulted would pass the line above and fail here.
+        const invoked: string[] = [];
+        renderToStaticMarkup(
+          <FuaranRenderer<string>
+            tree={customNode(treeHash)}
+            runtime={{ registry: registryRecording(invoked, registryHash), warn: vi.fn() }}
+            {...ctx}
+          />,
+        );
+        expect(invoked).toEqual(renders(expected) ? ['sparkline'] : []);
+      });
+    }
+  }
 });

@@ -853,6 +853,68 @@ no leg of this tier. `test/manifestFlags.test.ts` pins the order corpus-independ
 code-point case the corpus does not carry. Peer ranges are unaffected: no `@fuaran-ui/*` package
 depends on `@fuaran-ui/style-observer`, and its own `@fuaran-ui/theme-manifest` range is unchanged.
 
+### Recorded breaking change — `@fuaran-ui/renderer` 0.26.0, the `Custom` content-hash floor enforces by default (Phase 1856)
+
+**The shipped default of `customHashFloor` moves from `'AdvisoryWarning'` to `'Enforced'`.** An
+unconfigured `<FuaranRenderer>` — and a hand-built `RenderContext`, and the standalone entry's
+`mount` — now REFUSES a `NodeKind.Custom` node whose declared `contentHash` disagrees with the
+registered renderer's, where it used to warn and render; and it refuses a node declaring a hash the
+registry recorded none for, where it used to warn and render. `defaultCustomHashFloor` reads
+`'Enforced'`, and the `hatches` report's `custom-hash-floor-permissive` finding is `closed` for an
+unconfigured renderer where it was `open`. No exported signature moves and no wire byte moves: the
+break is behavioural, on rendered output, which is the class this package has always recorded as
+breaking.
+
+**The argument is the reference host's, unchanged** (its Phase 1550, `Fuaran.UI.Renderer`): the
+shipped default is what an unconfigured host receives, so a default that allows is the gate for
+exactly the hosts that never configured one — and this is the renderer that runs in a browser, on
+the page a stranger's tree is replayed into. The permissive posture stays reachable **by name**,
+`customHashFloor: 'AdvisoryWarning'`, with the mismatch warning intact, so one search for that literal
+enumerates every host that opted back. The reference host's 0.14.0 dispatch-gate flip made the same move on the same
+reasoning.
+
+**Two semantic alignments ride the flip, both mirrored from the reference host rather than
+re-derived, so the two hosts decide the same document the same way:**
+
+- **The floor governs MISMATCH, not tree-side ABSENCE.** A `Custom` node declaring no hash renders
+  under the default, as it always did — the common legitimate case. Only `'StrictReplay'` refuses it
+  (`refusesUnverifiableHashStrictness`). Until this version `'Enforced'` refused it here while the
+  reference host rendered it; a host that declared `'Enforced'` to close the declare-nothing route
+  now declares `'StrictReplay'`. This is the one case the change relaxes, and it closes a cross-host
+  divergence rather than opening a door.
+- **The default and the declaration are different facts.** `RenderContext.customHashFloor` stays
+  `HashStrictness | undefined`; absent resolves to the default through `customHashFloorOf`, present
+  REPLACES it — which is what keeps `'AdvisoryWarning'` declarable under an enforcing default.
+  Raise-only applies among declarations: a tree's own declared strictness may only tighten the
+  host's, and a `Mount` guest inherits its host's floor. `'StrictReplay'` now ranks above
+  `'Enforced'` in that lattice, since it refuses a strict superset.
+
+The carrier does not change: the floor stays per renderer instance on the `RenderContext`, never
+process-wide, for the reason `customHash.ts` gives — a policy held process-wide in a browser bundle is
+shared by every unrelated surface on the page.
+
+**The version ADVANCES rather than riding.** 0.25.0 was published by the `v0.28.0` tag, so there is
+no draft slot to ride; a breaking change to a published surface advances the package, and pre-1.0
+that is the minor: **0.25.0 → 0.26.0**. The starter template's `@fuaran-ui/renderer` pin follows it,
+as `check-starter-pins.mjs` requires. **Three published packages declare a range that excludes it**
+— `@fuaran-ui/client` 0.12.2, `@fuaran-ui/react` 0.12.2 and `@fuaran-ui/renderer-server` 0.23.0 each
+carry `@fuaran-ui/renderer` `^0.25.0` — and `node dev-scripts/check-peer-ranges.mjs` names all three.
+They are release-consistency bumps, cut at the release gesture beside the rest of that release set
+as the 0.27.0 and 0.28.0 sets were, not here: none of the three changes, and the class each bump
+carries is decided from what has moved in that package by the time the tag is cut.
+
+**What certifies it.** `packages/renderer/test/customHashFloor.test.tsx`: the go-red case (an
+undeclared host refuses a mismatched `Custom`, its registered renderer never invoked) beside the
+named opt-back (the same page with `'AdvisoryWarning'` warns and renders), and a cross-host
+comparison over five documents × four declarations whose expected column is the reference host's
+classifier EXECUTED over the same documents. Against the previous `customHash.ts` that comparison
+fails on exactly the three cells the two hosts used to disagree on — a mismatch under no
+declaration, a hash-less tree under `'Enforced'`, a registry without a hash under no declaration.
+The `devtools-relay` corpus's two `hatches` vectors are unchanged and now run against the floor an
+UNDECLARED renderer hands the report, so they hold the two hosts' defaults to one document; against
+the previous default both go red on the floor finding's state. Migration:
+[`docs/migrations/1856-custom-hash-floor-enforces.md`](docs/migrations/1856-custom-hash-floor-enforces.md).
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:
