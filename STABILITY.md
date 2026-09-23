@@ -813,6 +813,44 @@ them — doc comments in `schema`, rendered-output snapshots in `renderer`, the 
 `node dev-scripts/check-peer-ranges.mjs` reports OK over 21 publishable packages, 7 of them already on
 the registry and checked against their PUBLISHED ranges.
 
+### `@fuaran-ui/style-observer` 0.11.2 — palette attribution follows the canonical token-path order (Phase 1840)
+
+**Unreleased** — 0.11.2 is ahead of the newest tag (`v0.28.0` published 0.11.1).
+
+**What moved.** `verifyUsageBudgets` attributes a node's rendered fill to ONE palette token — the
+first colour token whose value matches — and it used to iterate the tokens in the order
+`@fuaran-ui/theme-manifest`'s decoder yields them, which is DOCUMENT order. It now iterates them in
+**canonical token-path order**, the ruling Phase 1727 recorded in the theme-manifest contract text:
+paths compare segment by segment, a shorter prefix first, each segment by Unicode code point. So when
+a manifest declares two same-valued colour tokens (an alias, say), the fill is attributed to the
+path-first one, whatever order the file declares them in. Two details are deliberate: the order is
+segment-wise, not a sort of the dotted string (`color.brand.base` precedes `color.brand-alt` although
+`-` sorts before `.` as a character), and a segment compares by code point, not by JavaScript's
+default UTF-16 code-unit comparison, which would put a supplementary-plane character ahead of
+U+E000–U+FFFF where every other host puts it after. The decoder is unchanged — it still preserves
+document order, which a projection consumer may rely on — so the ordering lives at the attribution
+site, the same shape the F# reference and Python hosts took.
+
+**What it costs a consumer.** Nothing for a manifest whose colour values are distinct — attribution
+is unambiguous there and no flag moves. For a manifest that carried a tie, the `UsageBudgetExceeded`
+flags can change: the area now counts against the path-first token's budget. No exported signature
+moved and no wire byte moves (`encodeStyleFlag` / `encodeStyleObservation` are untouched), so this is
+a **patch** — a behavioural alignment of an existing function, advancing the TAGGED 0.11.1 rather
+than riding a draft, because there was none for this package. `perNodeFlags` asks only whether a fill
+is on the palette at all, so its output cannot depend on the order.
+
+**Which hosts moved.** Under the ruling, three hosts' attribution could change: the F# reference and
+Python (Phase 1727) and this one. Go and Rust already yielded tokens in that order from their DTCG
+walk and were pinned rather than changed. With this change all five hosts in the theme-manifest
+family — F#, Python, Go, Rust and TypeScript — attribute the two tie vectors identically.
+
+**What certifies it.** `test/corpusConformance.test.ts` runs every `style-observer` vector in the
+shared corpus — all three tiers, the two `budget-same-valued-tokens-*` vectors among them — against
+the bytes the reference host recorded when it emitted them; the family was previously certified on
+no leg of this tier. `test/manifestFlags.test.ts` pins the order corpus-independently, including the
+code-point case the corpus does not carry. Peer ranges are unaffected: no `@fuaran-ui/*` package
+depends on `@fuaran-ui/style-observer`, and its own `@fuaran-ui/theme-manifest` range is unchanged.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:

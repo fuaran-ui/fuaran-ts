@@ -22,6 +22,7 @@ import {
   white,
   type StyleObservation,
 } from '../src/index.js';
+import { compareTokenPaths } from '../src/manifestFlags.js';
 
 const brand = rgb(59, 91, 219); // #3b5bdb
 
@@ -170,5 +171,85 @@ describe('observer wiring', () => {
     });
     const flags = obs.observe('c1')?.flags ?? [];
     expect(flags).toContainEqual({ kind: 'TokenResolutionFailed', slot: 'Critical' });
+  });
+});
+
+// ─── Palette attribution order (Phase 1727 ruling; Phase 1840 on this host) ───
+//
+// Two same-valued colour tokens are legal, and a fill matching both is
+// attributed to the first by canonical token-path order — never by document
+// order. These pins are corpus-independent so a standalone clone still goes red
+// on a regression; the corpus vectors themselves are certified in
+// `corpusConformance.test.ts`.
+
+const tieManifest = (
+  tokens: ReadonlyArray<readonly [string, string]>,
+  budgets: ReadonlyArray<string>,
+): ThemeManifest => ({
+  meta: { name: '', version: '' },
+  tokens: tokens.map(([name, value]) => ({ name, type: 'color', value })),
+  roles: [],
+  invariants: budgets.map((token, i) =>
+    invariant({ kind: 'UsageBudget', token, targetPct: i === 0 ? 10 : 0, tolerancePct: 5 }),
+  ),
+});
+
+const tieNodes: Array<readonly [StyleObservation, number]> = [
+  [tonedObs('a', undefined, rgb(1, 2, 3), 21), 60],
+  [tonedObs('b', undefined, rgb(9, 9, 9), 21), 40],
+];
+
+describe('palette attribution order (Phase 1727 ruling)', () => {
+  it('attributes a same-valued fill to the path-first token, whatever the declaration order', () => {
+    // Declared secondary-before-brand; document order would attribute to secondary.
+    const m = tieManifest(
+      [
+        ['color.secondary', '#010203'],
+        ['color.brand', '#010203'],
+      ],
+      ['color.brand', 'color.secondary'],
+    );
+    expect(verifyUsageBudgets(m, tieNodes)).toEqual([
+      { kind: 'UsageBudgetExceeded', token: 'color.brand', declaredPct: 10, observedPct: 60 },
+    ]);
+  });
+
+  it('orders segment-wise: color.brand.base precedes color.brand-alt', () => {
+    const m = tieManifest(
+      [
+        ['color.brand-alt', '#010203'],
+        ['color.brand.base', '#010203'],
+      ],
+      ['color.brand.base', 'color.brand-alt'],
+    );
+    expect(verifyUsageBudgets(m, tieNodes)).toEqual([
+      { kind: 'UsageBudgetExceeded', token: 'color.brand.base', declaredPct: 10, observedPct: 60 },
+    ]);
+  });
+
+  it('compares segments by code point, not by UTF-16 code unit', () => {
+    // U+FF5E is one code unit (0xFF5E); U+1F600 is a surrogate pair led by
+    // 0xD83D. Code-unit order puts the emoji first; code-point order — every
+    // other host's — puts U+FF5E first.
+    const bmp = 'color.\uFF5E';
+    const astral = 'color.\u{1F600}';
+    expect(compareTokenPaths(bmp, astral)).toBeLessThan(0);
+    expect(compareTokenPaths(astral, bmp)).toBeGreaterThan(0);
+    const m = tieManifest(
+      [
+        [astral, '#010203'],
+        [bmp, '#010203'],
+      ],
+      [bmp, astral],
+    );
+    expect(verifyUsageBudgets(m, tieNodes)).toEqual([
+      { kind: 'UsageBudgetExceeded', token: bmp, declaredPct: 10, observedPct: 60 },
+    ]);
+  });
+
+  it('puts a shorter prefix first and is a total order on equal paths', () => {
+    expect(compareTokenPaths('color.brand', 'color.brand.base')).toBeLessThan(0);
+    expect(compareTokenPaths('color.brand.base', 'color.brand')).toBeGreaterThan(0);
+    expect(compareTokenPaths('color.brand', 'color.brand')).toBe(0);
   });
 });

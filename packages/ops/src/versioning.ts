@@ -366,7 +366,11 @@ export const decodeNodeTolerant = (json: string): Result<Decoded<Node<unknown>>,
  */
 export type BehindView<TMsg> =
   | { readonly kind: 'Rendered'; readonly node: Node<TMsg> }
-  | { readonly kind: 'Placeholder'; readonly unknownKind: string; readonly requiredProfile?: string };
+  | {
+      readonly kind: 'Placeholder';
+      readonly unknownKind: string;
+      readonly requiredProfile?: string;
+    };
 
 /**
  * Lift the author-declared `fallback` out of an `Unknown`'s preserved payload
@@ -389,7 +393,10 @@ export const liftFallback = (
 };
 
 /** The behind reader's decision for one tolerant decode — see `BehindView`. */
-export const behindView = (d: Decoded<Node<unknown>>, policy?: DecodePolicy): BehindView<unknown> => {
+export const behindView = (
+  d: Decoded<Node<unknown>>,
+  policy?: DecodePolicy,
+): BehindView<unknown> => {
   if (d.known) return { kind: 'Rendered', node: d.value };
   const lifted = liftFallback(d.unknown, policy);
   if (lifted !== undefined && lifted.ok) return { kind: 'Rendered', node: lifted.value };
