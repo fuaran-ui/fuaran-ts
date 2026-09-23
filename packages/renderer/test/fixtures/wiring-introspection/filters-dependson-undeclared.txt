@@ -1,0 +1,10 @@
+wiring (fuaran-wiring-introspection/1): 1 edges, 1 controls, 4 consumers, 2 unresolved
+edges:
+  filter region: edge-chips -> scoped-metric [declared-edge] via declared-filter
+controls:
+  filter region @ edge-chips (declared-filter)
+unresolved:
+  ungrounded filter genre @ scoped-metric (declared-edge)
+  ungrounded query orders @ scoped-metric (value-read)
+untagged state reads: (none)
+opaque reader: no; opaque writer: no

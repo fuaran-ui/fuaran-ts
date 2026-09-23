@@ -117,7 +117,47 @@ __fuaran.getBindingState('counter-kpi', 'Source'); // as getBindingValue, tagged
 __fuaran.treeRevision(); // opaque token identifying the current tree state
 __fuaran.subscribe((c) => console.log(c)); // committed-tree-change signal → unsubscribe fn
 __fuaran.hatches(); // runtime escape-hatch report: open / closed / undecided, never two
+__fuaran.getWiring(); // wiring graph: controls, consumers, filter/transform/state edges, unresolved
+console.log(__fuaran.describeWiring()); // the same graph as text, edges first
 ```
+
+### The wiring graph (`getWiring()` / `describeWiring()`)
+
+When a chip, a multi-select or a `SetState` button "does nothing", the question
+is which consumer it drives — and that is the **wiring graph**: every control
+(a `Filters` chip's declaration, a control whose write-back commits to a filter,
+a `SetState`, a `Call into:`, a selection-producing grid), every consumer, and
+every edge between them — including the filter and transform edges a
+`Query.dependsOn` name or a `Transform` / `Expr` param sourced from a filter
+declares. An edge's `controlKinds` says what drives it (`filter-write-back`
+marks a write-back position); `unresolved` lists every control that drives
+nothing (`undriven`) and every declared read of something nothing produces
+(`ungrounded`) — the relation the validator's wiring rules decide on.
+
+```text
+wiring (fuaran-wiring-introspection/1): 1 edges, 2 controls, 2 consumers, 0 unresolved
+edges:
+  filter depts: dept-chip -> dept-grid [declared-edge] via filter-write-back
+controls:
+  filter depts @ dept-chip (filter-write-back)
+  selection dept-grid @ dept-grid (selection-producer)
+unresolved:
+  (none)
+untagged state reads: (none)
+opaque reader: no; opaque writer: no
+```
+
+**This host reads the graph; it does not derive it.** The graph has one
+derivation — the reference .NET host's binding walk — and a second walk here
+would be a second answer to "what drives what". So the DTO
+(`fuaran-wiring-introspection/1`) is supplied by the host, typically by the
+server that emitted the tree: `<FuaranRenderer debug wiring={dto} />`, or
+`DebugGlobalOptions.wiring` returning the current tree's DTO. It is decoded
+strictly on every call; without one, both methods return an error saying so
+rather than an empty graph, which would read as "nothing is wired". For the
+same DTO, `encodeWiringIntrospection` and `describeWiringIntrospection` produce
+the reference host's bytes exactly — the vectors under
+`test/fixtures/wiring-introspection/` hold both hosts to it.
 
 The global tracks the live tree + sources (it re-registers on each render), so
 a value read after a state change reflects the new state. Its shape is

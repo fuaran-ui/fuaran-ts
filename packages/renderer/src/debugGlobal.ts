@@ -53,6 +53,12 @@ import {
   type FuaranRuntime,
 } from './customRegistry.js';
 import { type HatchSectionDocument, observeRuntimeHatches } from './runtimeHatches.js';
+import {
+  decodeWiringIntrospection,
+  describeWiringIntrospection,
+  isWiringDecodeError,
+  type WiringIntrospection,
+} from './wiringIntrospection.js';
 
 /** The window key the debug global is registered under. */
 export const DEBUG_GLOBAL_KEY = '__fuaran';
@@ -60,9 +66,11 @@ export const DEBUG_GLOBAL_KEY = '__fuaran';
 /**
  * Schema version of the `window.__fuaran` shape (independent of package semver).
  * **0.3.0** adds `hatches()` — the runtime section of the escape-hatch report
- * (Phase 1842).
+ * (Phase 1842). **0.4.0** adds `getWiring()` / `describeWiring()` — the wiring
+ * graph the validator's wiring rules decide on, read from the reference host's
+ * DTO (Phase 1844).
  */
-export const DEBUG_GLOBAL_VERSION = '0.3.0';
+export const DEBUG_GLOBAL_VERSION = '0.4.0';
 
 /** A structured error envelope returned in place of a result. */
 export interface DebugError {
@@ -217,6 +225,19 @@ export interface DebugGlobalOptions<TMsg> {
    * included.
    */
   readonly customHashFloor?: HashStrictness;
+  /**
+   * The wiring graph of the tree this surface is built over, for `getWiring()`
+   * / `describeWiring()` (Phase 1844): the reference host's wiring
+   * introspection DTO (`fuaran-wiring-introspection/1`), as a parsed object or
+   * its JSON text — typically emitted by the server beside the tree it
+   * serves. Read per call and decoded strictly, so a function returning the
+   * CURRENT tree's DTO keeps the answer current across edits.
+   *
+   * This host derives no wiring of its own: the graph has one derivation, and
+   * a second walk here would be a second answer to "what drives what".
+   * Omitted, the two methods say so rather than reporting an empty graph.
+   */
+  readonly wiring?: () => unknown;
 }
 
 /** Where a console-driven apply's outcomes go.
@@ -355,6 +376,17 @@ export interface FuaranDebugGlobal {
    * it.
    */
   hatches?(): HatchSectionDocument;
+  /**
+   * The wiring graph (Phase 1844): every control, consumer, filter / transform
+   * / state / query / selection edge, and every end that met nothing — the
+   * relation the validator's wiring rules decide on. Read from
+   * {@link DebugGlobalOptions.wiring}; a {@link DebugError} when the host
+   * supplied none or it does not decode. Optional on the interface for the
+   * `hatches` reason; `buildDebugGlobal` always provides it.
+   */
+  getWiring?(): WiringIntrospection | DebugError;
+  /** The same graph as printable text, edges first (print the return value). */
+  describeWiring?(): string | DebugError;
   /** A one-screen reference of the available methods (print the return value). */
   help(): string;
 }
@@ -372,6 +404,8 @@ const HELP_TEXT = `window.__fuaran — Fuaran in-page introspection (DEBUG-only,
   .treeRevision()           opaque token identifying the current tree state
   .subscribe(cb)            committed-tree-change signal; returns an unsubscribe fn
   .hatches()                runtime escape-hatch report: open / closed / undecided
+  .getWiring()              wiring graph: controls, consumers, edges (filter/transform/state/...), unresolved
+  .describeWiring()         the same graph as printable text, edges first
   .help()                   this text
 Tip: __fuaran.inspectTree() lists every node id you can query.`;
 
@@ -622,8 +656,43 @@ export const buildDebugGlobal = <TMsg>(
       developmentSurfaceLive: readRegisteredDebugGlobal()?.hatches === hatches,
     });
   },
+  getWiring: () => readWiring(options.wiring),
+  describeWiring: () => {
+    const wiring = readWiring(options.wiring);
+    return 'error' in wiring ? wiring : describeWiringIntrospection(wiring);
+  },
   help: () => HELP_TEXT,
 });
+
+/**
+ * The host-supplied wiring DTO, decoded strictly — or why there is none. Never
+ * an empty graph in place of an absent one: "nothing is wired" and "this host
+ * was not told" are different answers to a developer's question.
+ */
+const readWiring = (source: (() => unknown) | undefined): WiringIntrospection | DebugError => {
+  if (source === undefined) {
+    return {
+      error:
+        'No wiring introspection on this host: the wiring graph is derived by the reference binding walk, and this surface was given no DTO (DebugGlobalOptions.wiring / the `wiring` prop).',
+    };
+  }
+  let supplied: unknown;
+  try {
+    supplied = source();
+  } catch (e) {
+    // The surface never throws (see `FuaranDebugGlobal`); a host source that
+    // does is reported, not propagated into the developer's console call.
+    return {
+      error: `The host's wiring source threw: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+  const decoded = decodeWiringIntrospection(supplied);
+  return isWiringDecodeError(decoded)
+    ? {
+        error: `The host's wiring introspection did not decode: ${decoded.error} at '${decoded.path}'.`,
+      }
+    : decoded;
+};
 
 /**
  * Register `global` under `window.__fuaran`. No-op when there is no `window`

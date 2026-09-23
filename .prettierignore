@@ -20,3 +20,6 @@ packages/mcp/src/recipeBank.generated.ts
 # diff. Reformatting it would make every regeneration a whole-file diff and hide
 # the one line that actually moved.
 packages/spec-hash/test/vectors/cross-host-vectors.json
+# Cross-host wiring-introspection vectors (Phase 1844) — emitted byte-for-byte by the
+# reference host; this package's decoder + encoder are held to those exact bytes.
+packages/renderer/test/fixtures/wiring-introspection

@@ -1,0 +1,11 @@
+wiring (fuaran-wiring-introspection/1): 0 edges, 0 controls, 3 consumers, 3 unresolved
+edges:
+  (none)
+controls:
+  (none)
+unresolved:
+  ungrounded filter region @ query-dependson (declared-edge)
+  ungrounded filter status @ query-dependson (declared-edge)
+  ungrounded query orders @ query-dependson (value-read)
+untagged state reads: (none)
+opaque reader: no; opaque writer: no

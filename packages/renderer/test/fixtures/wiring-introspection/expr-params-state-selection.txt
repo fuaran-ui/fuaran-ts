@@ -1,0 +1,15 @@
+wiring (fuaran-wiring-introspection/1): 0 edges, 0 controls, 7 consumers, 7 unresolved
+edges:
+  (none)
+controls:
+  (none)
+unresolved:
+  ungrounded filter statuses @ membership (declared-edge)
+  ungrounded query catalogue.unitPrice @ order-total (value-read)
+  ungrounded selection tracks @ badge-preview (value-read)
+  ungrounded state form.firstName @ badge-preview (value-read)
+  ungrounded state form.lastName @ badge-preview (value-read)
+  ungrounded state form.quantity @ order-total (value-read)
+  ungrounded state row.status @ membership (value-read)
+untagged state reads: form.firstName, form.lastName, form.quantity, row.status
+opaque reader: no; opaque writer: no

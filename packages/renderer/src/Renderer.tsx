@@ -110,6 +110,12 @@ export interface FuaranRendererProps<TMsg = unknown> {
    * production feature flag.
    */
   readonly relay?: boolean;
+  /**
+   * The reference host's wiring introspection DTO for `tree` (alongside
+   * `debug`), served by `window.__fuaran.getWiring()` / `describeWiring()`.
+   * See {@link DebugGlobalOptions.wiring}; omitted, both say no DTO was given.
+   */
+  readonly wiring?: unknown;
 }
 
 const noopDispatch = (): void => {};
@@ -133,6 +139,8 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
       // KNOWS both, so it hands both over rather than leaving them undecided.
       customRenderers: props.runtime?.registry ?? null,
       customHashFloor: customHashFloorOf(props),
+      // Phase 1844 — the wiring DTO is the host's to supply; read per call.
+      ...(props.wiring !== undefined ? { wiring: () => props.wiring } : {}),
     };
     const surface = buildDebugGlobal(props.tree, props.sources ?? {}, options);
     // Announce the committed tree. Idempotent on tree identity, so a
@@ -147,6 +155,7 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
     props.onApply,
     props.validate,
     props.customHashFloor,
+    props.wiring,
   ]);
 
   // The relay peer is installed separately and NOT torn down on every tree

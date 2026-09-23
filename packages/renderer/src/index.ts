@@ -35,6 +35,26 @@ export {
   type TreeOpJson,
 } from './debugGlobal.js';
 
+// The wiring section of that surface (Phase 1844) — the reference host's wiring
+// DTO, read strictly and rendered to the same bytes on both hosts.
+export {
+  WIRING_INTROSPECTION_FORMAT,
+  canonicalWiringIntrospection,
+  decodeWiringIntrospection,
+  describeWiringIntrospection,
+  encodeWiringIntrospection,
+  isWiringDecodeError,
+  type WiringChannel,
+  type WiringConsumerEntry,
+  type WiringConsumerKind,
+  type WiringControlEntry,
+  type WiringControlKind,
+  type WiringDecodeError,
+  type WiringEdgeEntry,
+  type WiringIntrospection,
+  type WiringUnresolvedEntry,
+} from './wiringIntrospection.js';
+
 // Committed-tree-change signal — what `__fuaran.subscribe(cb)` is built on, and
 // what a non-renderer host commits its own tree changes to.
 export {

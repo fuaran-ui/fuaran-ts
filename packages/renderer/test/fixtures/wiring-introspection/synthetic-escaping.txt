@@ -1,0 +1,11 @@
+wiring (fuaran-wiring-introspection/1): 1 edges, 1 controls, 1 consumers, 0 unresolved
+edges:
+  filter q"b\cn
+t	l pair😀lone�end: chips -> grid [declared-edge] via declared-filter
+controls:
+  filter q"b\cn
+t	l pair😀lone�end @ chips (declared-filter)
+unresolved:
+  (none)
+untagged state reads: sortkey
+opaque reader: no; opaque writer: yes

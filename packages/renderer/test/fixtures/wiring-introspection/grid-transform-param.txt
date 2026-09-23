@@ -1,0 +1,9 @@
+wiring (fuaran-wiring-introspection/1): 0 edges, 1 controls, 1 consumers, 1 unresolved
+edges:
+  (none)
+controls:
+  selection grid-transform-param @ grid-transform-param (selection-producer)
+unresolved:
+  ungrounded filter dept @ grid-transform-param (declared-edge)
+untagged state reads: (none)
+opaque reader: no; opaque writer: no

@@ -1,0 +1,10 @@
+wiring (fuaran-wiring-introspection/1): 1 edges, 2 controls, 3 consumers, 1 unresolved
+edges:
+  filter region: edge-chips -> scoped-grid [declared-edge] via declared-filter
+controls:
+  filter region @ edge-chips (declared-filter)
+  selection scoped-grid @ scoped-grid (selection-producer)
+unresolved:
+  ungrounded filter genre @ scoped-grid (declared-edge)
+untagged state reads: (none)
+opaque reader: no; opaque writer: no

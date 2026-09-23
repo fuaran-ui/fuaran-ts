@@ -1,0 +1,10 @@
+wiring (fuaran-wiring-introspection/1): 1 edges, 2 controls, 2 consumers, 0 unresolved
+edges:
+  filter depts: dept-chip -> dept-grid [declared-edge] via filter-write-back
+controls:
+  filter depts @ dept-chip (filter-write-back)
+  selection dept-grid @ dept-grid (selection-producer)
+unresolved:
+  (none)
+untagged state reads: (none)
+opaque reader: no; opaque writer: no

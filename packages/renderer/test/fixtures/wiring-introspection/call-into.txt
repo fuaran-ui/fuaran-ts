@@ -1,0 +1,11 @@
+wiring (fuaran-wiring-introspection/1): 2 edges, 2 controls, 2 consumers, 0 unresolved
+edges:
+  query orders: btn-fetch-orders -> orders-metric [value-read] via fetch-into-query
+  state total: btn-fetch-total -> total-metric [value-read] via fetch-into-state
+controls:
+  query orders @ btn-fetch-orders (fetch-into-query)
+  state total @ btn-fetch-total (fetch-into-state)
+unresolved:
+  (none)
+untagged state reads: total
+opaque reader: no; opaque writer: yes
