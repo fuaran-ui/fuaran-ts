@@ -68,7 +68,15 @@ Set-Location $PSScriptRoot
 # skipped compares $null, takes the success branch, and `exit $null` returns 0 —
 # a green gate that built nothing and tested nothing. This one line is what makes
 # every guard below honest.
-$LASTEXITCODE = 0
+#
+# It MUST be seeded as $global:LASTEXITCODE. A native command writes the GLOBAL
+# automatic variable; a bare `$LASTEXITCODE = 0` here creates a SCRIPT-scope
+# variable of the same name that shadows it, and Invoke-Stage (a function, so a
+# child of this script scope) resolves the name to that shadow — which stays 0
+# forever. Every stage's failure was then invisible and the gate printed PASS
+# and exited 0 over red stages. The guard reads $global: explicitly for the
+# same reason.
+$global:LASTEXITCODE = 0
 
 # Sibling launcher conventions — the canonical helper body; do not diverge.
 function Invoke-Pnpm {
@@ -97,10 +105,11 @@ function Invoke-Stage {
     Write-Host ''
     Write-Host "== [$script:StageNumber] $Name ==" -ForegroundColor Cyan
     & $Body
-    if ($LASTEXITCODE -ne 0) {
+    $code = $global:LASTEXITCODE
+    if ($code -ne 0) {
         Write-Host ''
-        Write-Host "FAILED: $Name (exit $LASTEXITCODE)" -ForegroundColor Red
-        exit $LASTEXITCODE
+        Write-Host "FAILED: $Name (exit $code)" -ForegroundColor Red
+        exit $code
     }
 }
 

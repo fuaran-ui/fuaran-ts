@@ -3431,7 +3431,10 @@ export const renderNodeToHtml = <TMsg>(
  * degrade the section has always specified ("needs `core@1.4`", else the unknown
  * kind by name), byte-identical to the reference SSR host's.
  */
-export const renderBehindToHtml = (view: BehindView<unknown>, options: RenderToHtmlOptions = {}): string => {
+export const renderBehindToHtml = (
+  view: BehindView<unknown>,
+  options: RenderToHtmlOptions = {},
+): string => {
   if (view.kind === 'Rendered') return renderToHtml(view.node, options);
   const label =
     view.requiredProfile !== undefined
@@ -3441,6 +3444,7 @@ export const renderBehindToHtml = (view: BehindView<unknown>, options: RenderToH
     ['class', 'fuaran-unknown-placeholder'],
     ['data-fuaran-kind', view.unknownKind],
   ];
-  if (view.requiredProfile !== undefined) attrs.push(['data-fuaran-requires', view.requiredProfile]);
+  if (view.requiredProfile !== undefined)
+    attrs.push(['data-fuaran-requires', view.requiredProfile]);
   return textEl('div', attrs, label);
 };

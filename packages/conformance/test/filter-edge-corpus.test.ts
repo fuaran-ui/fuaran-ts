@@ -58,7 +58,11 @@ const danglingOf = (name: string): readonly { nodeId: string; name: string }[] =
     .map((d) => ({ nodeId: d.nodeId, name: d.name }));
 
 describe.each([
-  { arm: 'Transform param source (Phase 1784)', stem: 'filters-param-source', reader: 'scoped-grid' },
+  {
+    arm: 'Transform param source (Phase 1784)',
+    stem: 'filters-param-source',
+    reader: 'scoped-grid',
+  },
   { arm: 'Query dependsOn (Phase 1800)', stem: 'filters-dependson', reader: 'scoped-metric' },
 ])('FUARAN075 over the corpus — $arm', ({ stem, reader }) => {
   it('the control is clean OUTRIGHT, not merely free of this one code', () => {

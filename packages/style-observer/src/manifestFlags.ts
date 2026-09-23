@@ -32,7 +32,57 @@ import { sameRgb, tryParseHex, type Rgba, type StyleFlag, type StyleObservation 
 const ri = (v: number): number => Math.round(v);
 const rgbString = (c: Rgba): string => `rgb(${ri(c.r)}, ${ri(c.g)}, ${ri(c.b)})`;
 
-/** The manifest's colour palette parsed to Rgba + the declaring token name. */
+/**
+ * Lexicographic comparison of two sequences under an element comparator: the
+ * first differing element decides, and a sequence that is a prefix of the other
+ * sorts first.
+ */
+const compareSeq = <T>(a: readonly T[], b: readonly T[], cmp: (x: T, y: T) => number): number => {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    const c = cmp(a[i]!, b[i]!);
+    if (c !== 0) return c;
+  }
+  return a.length - b.length;
+};
+
+/**
+ * A string's Unicode code points. `Array.from` iterates by code point, so a
+ * surrogate pair is ONE element; a lone surrogate is its own element.
+ */
+const codePoints = (s: string): number[] => Array.from(s, (ch) => ch.codePointAt(0)!);
+
+const compareNumber = (x: number, y: number): number => x - y;
+
+/**
+ * Canonical token-path order: the order palette ATTRIBUTION iterates in (Phase
+ * 1727; the rule is stated once, in the theme-manifest contract text under
+ * "Palette attribution order", and pinned by the corpus's
+ * `style-observer/budget-same-valued-tokens-*` vectors). Paths compare segment by
+ * segment, a shorter prefix first, each segment by Unicode code point (UTF-8 byte
+ * order). It is deliberately segment-wise rather than a sort of the dotted
+ * string: `color.brand.base` precedes `color.brand-alt` although `-` sorts before
+ * `.` as a character. And it is by code point, not by JavaScript's default
+ * UTF-16 code-unit comparison, which orders a supplementary-plane character
+ * (a surrogate pair, 0xD800-0xDFFF) before U+E000-U+FFFF, where every other host
+ * orders it after.
+ *
+ * This host's decoder preserves DOCUMENT order, and a projection consumer may
+ * rely on that, so the ordering lives here, at the one site where order is a
+ * contract — not in `@fuaran-ui/theme-manifest`'s decoder.
+ */
+export const compareTokenPaths = (a: string, b: string): number =>
+  compareSeq(a.split('.'), b.split('.'), (x, y) =>
+    compareSeq(codePoints(x), codePoints(y), compareNumber),
+  );
+
+/**
+ * The manifest's colour palette parsed to Rgba + the declaring token name, in
+ * canonical token-path order. The first entry whose colour matches a rendered
+ * fill is the token the fill is ATTRIBUTED to, so two same-valued tokens
+ * attribute to the path-first one on every host. The sort is stable, so two
+ * tokens declaring the same path keep their document order.
+ */
 const paletteRgba = (manifest: ThemeManifest): Array<readonly [Rgba, string]> => {
   const out: Array<readonly [Rgba, string]> = [];
   for (const t of manifest.tokens) {
@@ -40,7 +90,7 @@ const paletteRgba = (manifest: ThemeManifest): Array<readonly [Rgba, string]> =>
     const c = tryParseHex(t.value);
     if (c !== undefined) out.push([c, t.name] as const);
   }
-  return out;
+  return out.sort(([, a], [, b]) => compareTokenPaths(a, b));
 };
 
 /** Resolve an emitted slot (a tone name or a named role) to its declared token. */
@@ -94,9 +144,12 @@ export const perNodeFlags = (manifest: ThemeManifest, obs: StyleObservation): St
  * Tree-level area-weighted usage-budget verification. `nodes` pairs each
  * observation with its rendered area (px²) — the caller joins StyleObservation
  * with the layout observer's width × height per NodeId. Each node's area is
- * attributed to the manifest token its effectiveBackground matches; per-token
- * area share is compared to the UsageBudget target ± tolerance. Empty when no
- * area is available (graceful degradation). Deterministic.
+ * attributed to the ONE manifest token its effectiveBackground matches — the
+ * first in canonical token-path order (`compareTokenPaths`), so a fill matching
+ * two same-valued tokens is attributed to the path-first one, never to whichever
+ * the manifest declared first; per-token area share is compared to the
+ * UsageBudget target ± tolerance. Empty when no area is available (graceful
+ * degradation). Deterministic.
  */
 export const verifyUsageBudgets = (
   manifest: ThemeManifest,

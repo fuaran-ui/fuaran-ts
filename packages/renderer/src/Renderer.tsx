@@ -198,7 +198,9 @@ export function FuaranBehindRenderer<TMsg>(
     <div
       className="fuaran-unknown-placeholder"
       data-fuaran-kind={view.unknownKind}
-      {...(view.requiredProfile !== undefined ? { 'data-fuaran-requires': view.requiredProfile } : {})}
+      {...(view.requiredProfile !== undefined
+        ? { 'data-fuaran-requires': view.requiredProfile }
+        : {})}
     >
       {label}
     </div>
