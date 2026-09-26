@@ -9,8 +9,8 @@
 //    - a typed registry (register / tryFind / enumerate, default-deny dispatch),
 //    - arg-validation default-deny by shape (an arg must address a declared
 //      hole and lie in its space; every required hole bound; a slot hole with no
-//      declared space is not scalar-invocable) — every refusal NAMED, never a
-//      throw,
+//      declared space ranges over the tree space its constraint names, Phase
+//      1873) — every refusal NAMED, never a throw,
 //    - the Phase-27 replay `invocationKey` (id + FNV-1a of the canonical,
 //      injective pre-image of the addr-sorted args — Phase 1860, the
 //      reference's fuaran-core#225 form), byte-identical to the F# arithmetic,
@@ -243,12 +243,34 @@ export const createCapability = (
 });
 
 /**
+ * The value space an argument for this hole must lie in.
+ *
+ * The rule (Phase 1873, from fuaran-core#229): a slot hole with no declared
+ * space ranges over the tree space constrained to its `slotKind`, so it admits
+ * a well-formed wire document whose `"kind"` satisfies that constraint (any
+ * kind when the slot is unconstrained) — exactly the space the reference's
+ * decoder restores for a slot entry that travels without one.
+ *
+ * The reference writes a slot's space only when it disagrees with the slot's
+ * constraint, so this is the ordinary shape of a slotted capability on the
+ * wire. The space is supplied here, at validation, rather than written into
+ * the declaration, so a declaration re-encodes to the bytes it arrived as.
+ * Every other hole answers its declared space.
+ */
+const invocationSpace = (hole: CapabilitySigEntry): CapabilitySpace | undefined => {
+  if (hole.space !== undefined || hole.kind !== 'slot') return hole.space;
+  return hole.slotKind === undefined
+    ? { kind: 'SlotTree' }
+    : { kind: 'SlotTree', slotKind: hole.slotKind };
+};
+
+/**
  * Validate typed `args` against the capability's signature *before* dispatch
- * (default-deny by shape, FGP 3): every arg must address a declared value/repeat
- * hole and lie in its space; every required hole must be bound; a slot hole is
- * not scalar-invocable. Port of F# `Capability.validateArgs` — same named-error
- * set (`UnknownArg` / `ArgOutOfSpace` / `UninvocableArg` / `RequiredArgsUnbound`),
- * never a throw.
+ * (default-deny by shape, FGP 3): every arg must address a declared hole and
+ * lie in its space (a spaceless slot hole's space is its tree space, see
+ * `invocationSpace`); every required hole must be bound. Port of F#
+ * `Capability.validateArgs` — same named-error set (`UnknownArg` /
+ * `ArgOutOfSpace` / `UninvocableArg` / `RequiredArgsUnbound`), never a throw.
  */
 export const validateArgs = (
   cap: Capability,
@@ -261,13 +283,14 @@ export const validateArgs = (
   for (const { addr, value } of args) {
     const hole = holes.find((h) => h.addr === addr);
     if (hole === undefined) return err({ kind: 'UnknownArg', addr, declared });
-    if (hole.space === undefined) return err({ kind: 'UninvocableArg', addr }); // a slot hole
+    const space = invocationSpace(hole);
+    if (space === undefined) return err({ kind: 'UninvocableArg', addr }); // a spaceless hole
     // A tree space: an argument that is no tree at all is uninvocable; a tree of
     // the wrong kind is out of the space (fuaran-core#229, the reference's order).
-    if (hole.space.kind === 'SlotTree' && slotKindOf(value) === undefined)
+    if (space.kind === 'SlotTree' && slotKindOf(value) === undefined)
       return err({ kind: 'UninvocableArg', addr });
-    if (!spaceValidate(hole.space, value))
-      return err({ kind: 'ArgOutOfSpace', addr, space: hole.space, got: value });
+    if (!spaceValidate(space, value))
+      return err({ kind: 'ArgOutOfSpace', addr, space, got: value });
   }
 
   // 2. every required hole is bound.
