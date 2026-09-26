@@ -11,8 +11,8 @@
 //    - arg-validation default-deny by shape (an arg must address a declared
 //      value/repeat hole and lie in its space; every required hole bound; a slot
 //      hole is not scalar-invocable) — every refusal NAMED, never a throw,
-//    - the Phase-27 replay `invocationKey` (id + FNV-1a of the addr-sorted
-//      `addr=value` arg string), byte-identical to the F# arithmetic,
+//    - the Phase-27 replay `invocationKey` (id + FNV-1a of the canonical,
+//      injective pre-image of the addr-sorted args), byte-identical to the F#,
 //    - `discover` (each capability's id + its signature's JSON-Schema — the
 //      compute analogue of node-introspection),
 //    - `makeCapabilityInvoker` (validate → run the host body → `Deferred`),

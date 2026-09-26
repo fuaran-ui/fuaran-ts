@@ -33,7 +33,6 @@ import type {
   CapabilitySigEntry,
   CapabilitySignature,
   DeterminismSource,
-  HoleValueSpace,
   HostEffect,
   IslandKind,
   Placement,
@@ -75,12 +74,16 @@ const PLACEMENT_WIRE: Record<Placement['kind'], string> = {
   Precomputed: 'precomputed',
 };
 
-const SPACE_WIRE: Record<HoleValueSpace['kind'], string> = {
+/** A signature entry's value space: a `HoleValueSpace`, or the tree space `SlotTree`. */
+type CapabilitySpace = NonNullable<CapabilitySigEntry['space']>;
+
+const SPACE_WIRE: Record<CapabilitySpace['kind'], string> = {
   IntRange: 'intRange',
   FloatRange: 'floatRange',
   StringLen: 'stringLen',
   Enum: 'enum',
   AnyString: 'anyString',
+  SlotTree: 'slotTree',
 };
 
 const ISLANDS: readonly IslandKind[] = ['pyodide', 'fable', 'js'];
@@ -95,7 +98,7 @@ const SPACE_OF = invert(SPACE_WIRE);
 
 // ─── Encode ──────────────────────────────────────────────────────────────────
 
-const spaceJson = (s: HoleValueSpace): string => {
+const spaceJson = (s: CapabilitySpace): string => {
   switch (s.kind) {
     case 'IntRange':
       return caseObj(SPACE_WIRE[s.kind], [
@@ -116,6 +119,13 @@ const spaceJson = (s: HoleValueSpace): string => {
       return caseObj(SPACE_WIRE[s.kind], [['values', jArray(s.choices.map(str))]]);
     case 'AnyString':
       return caseObj(SPACE_WIRE[s.kind], []);
+    case 'SlotTree':
+      // The explicit tree space (fuaran-core#229); the constraint is omitted
+      // when there is none (WIRE_FORMAT.md §2 — absence, never `null`).
+      return caseObj(
+        SPACE_WIRE[s.kind],
+        s.slotKind !== undefined ? [['slotKind', str(s.slotKind)]] : [],
+      );
   }
 };
 
@@ -195,7 +205,7 @@ const numAt = (o: Record<string, unknown>, k: string): number => {
     : fail(`missing or non-finite numeric field: ${k}`);
 };
 
-const spaceOf = (raw: unknown): HoleValueSpace => {
+const spaceOf = (raw: unknown): CapabilitySpace => {
   const o = asObject(raw, 'value-space');
   const tag = strAt(o, '$type');
   const kind = SPACE_OF[tag];
@@ -214,6 +224,8 @@ const spaceOf = (raw: unknown): HoleValueSpace => {
     }
     case 'AnyString':
       return { kind };
+    case 'SlotTree':
+      return 'slotKind' in o ? { kind, slotKind: strAt(o, 'slotKind') } : { kind };
     default:
       return fail(
         `unknown value-space kind: ${tag}; expected one of: ${Object.values(SPACE_WIRE).join(', ')}`,

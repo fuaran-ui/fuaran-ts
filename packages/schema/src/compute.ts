@@ -323,13 +323,18 @@ export type CapabilityInvoker = (
  * One signature entry — the introspectable projection of a capability hole. A
  * `value` / `repeat` hole carries its value-`space`; a `slot` hole carries its
  * `slotKind` constraint (and no scalar space). Port of F# `SigEntry`; the value
- * space reuses `HoleValueSpace` (the same five cases).
+ * space reuses `HoleValueSpace` (the same five cases), plus the tree space
+ * `SlotTree` (fuaran-core#229): an argument that is a wire document whose
+ * `"kind"` satisfies `slotKind` (any kind when absent). The reference writes an
+ * explicit `SlotTree` space only when a slot's space disagrees with its
+ * constraint, or a non-slot hole ranges over trees. It is a CAPABILITY space
+ * only — the UI wire's `HoleValueSpace` does not carry it.
  */
 export interface CapabilitySigEntry {
   readonly addr: string;
   readonly name: string;
   readonly kind: 'value' | 'slot' | 'repeat';
-  readonly space?: HoleValueSpace;
+  readonly space?: HoleValueSpace | { readonly kind: 'SlotTree'; readonly slotKind?: string };
   readonly slotKind?: string;
   readonly required: boolean;
 }

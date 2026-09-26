@@ -8,10 +8,12 @@
 //
 //    - a typed registry (register / tryFind / enumerate, default-deny dispatch),
 //    - arg-validation default-deny by shape (an arg must address a declared
-//      value/repeat hole and lie in its space; every required hole bound; a slot
-//      hole is not scalar-invocable) — every refusal NAMED, never a throw,
-//    - the Phase-27 replay `invocationKey` (id + FNV-1a of the addr-sorted
-//      `addr=value` arg string), byte-identical to the F# arithmetic,
+//      hole and lie in its space; every required hole bound; a slot hole with no
+//      declared space is not scalar-invocable) — every refusal NAMED, never a
+//      throw,
+//    - the Phase-27 replay `invocationKey` (id + FNV-1a of the canonical,
+//      injective pre-image of the addr-sorted args — Phase 1860, the
+//      reference's fuaran-core#225 form), byte-identical to the F# arithmetic,
 //    - `toJsonSchema` (a signature's standard JSON-Schema projection).
 //
 //  The agent-tool half (validate / discover / makeCapabilityInvoker, a port of
@@ -25,7 +27,6 @@ import type {
   CapabilitySignature,
   DeterminismSource,
   EffectClass,
-  HoleValueSpace,
   HostEffect,
   InvokeArg,
   Placement,
@@ -33,6 +34,13 @@ import type {
 } from '@fuaran-ui/schema';
 
 import { err, ok } from './result.js';
+
+/**
+ * The value space a capability signature entry ranges over: a `HoleValueSpace`,
+ * or the tree space `SlotTree` (fuaran-core#229) — its argument is a wire
+ * document whose `"kind"` satisfies `slotKind` (any kind when absent).
+ */
+export type CapabilitySpace = NonNullable<CapabilitySigEntry['space']>;
 
 /**
  * Why a typed invocation (or a registration) was refused — total, names the
@@ -47,7 +55,7 @@ export type InvokeError =
   | {
       readonly kind: 'ArgOutOfSpace';
       readonly addr: string;
-      readonly space: HoleValueSpace;
+      readonly space: CapabilitySpace;
       readonly got: string;
     }
   | { readonly kind: 'RequiredArgsUnbound'; readonly addrs: readonly string[] }
@@ -78,8 +86,26 @@ export const describeInvokeError = (e: InvokeError): string => {
 
 const INT_RE = /^[+-]?\d+$/;
 
+/**
+ * The kind tag of a tree argument: the top-level string `"kind"` when the
+ * string is a well-formed wire document whose top level is an object, and
+ * `undefined` for a scalar, a malformed document, or an object with no string
+ * `"kind"`. Decodes nothing below the tag. Mirrors F# `Space.slotKindOf`.
+ */
+export const slotKindOf = (s: string): string | undefined => {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(s);
+  } catch {
+    return undefined;
+  }
+  if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) return undefined;
+  const kind = (doc as Record<string, unknown>)['kind'];
+  return typeof kind === 'string' ? kind : undefined;
+};
+
 /** Is a candidate string value within the value-space? Mirrors F# `Space.validate`. */
-export const spaceValidate = (space: HoleValueSpace, s: string): boolean => {
+export const spaceValidate = (space: CapabilitySpace, s: string): boolean => {
   switch (space.kind) {
     case 'IntRange': {
       if (!INT_RE.test(s.trim())) return false;
@@ -98,6 +124,10 @@ export const spaceValidate = (space: HoleValueSpace, s: string): boolean => {
       return space.choices.includes(s);
     case 'AnyString':
       return true;
+    case 'SlotTree': {
+      const kind = slotKindOf(s);
+      return kind !== undefined && (space.slotKind === undefined || kind === space.slotKind);
+    }
   }
 };
 
@@ -119,16 +149,59 @@ export const fnv1a = (s: string): string => {
 };
 
 /**
+ * The terminator of every field of a canonical pre-image: U+0001 (SOH). No
+ * canonical wire encoding emits it unescaped. Port of F# `Hash.foldSep`.
+ */
+export const FOLD_SEP = '\u0001';
+
+/**
+ * The escape `canonicalField` writes before a `FOLD_SEP` or a `FIELD_ESC` a
+ * field carries: U+0010 (DLE). Port of F# `Hash.fieldEsc`.
+ */
+export const FIELD_ESC = '\u0010';
+
+/**
+ * ONE field of an injective canonical pre-image: every `FIELD_ESC` and every
+ * `FOLD_SEP` the field carries escaped by a preceding `FIELD_ESC`, then the
+ * field terminated by `FOLD_SEP`. The first UNESCAPED `FOLD_SEP` is therefore
+ * always the end of the field, whatever it contains. Escaping `FIELD_ESC`
+ * first keeps the escapes the second replacement inserts from being escaped
+ * again. Port of F# `Hash.canonicalField`.
+ */
+export const canonicalField = (s: string): string =>
+  s
+    .split(FIELD_ESC)
+    .join(FIELD_ESC + FIELD_ESC)
+    .split(FOLD_SEP)
+    .join(FIELD_ESC + FOLD_SEP) + FOLD_SEP;
+
+/**
+ * The canonical pre-image of a field sequence: each field through
+ * `canonicalField`, concatenated. Injective — two field lists with one
+ * pre-image are one list. Port of F# `Hash.canonicalFields`.
+ */
+export const canonicalFields = (fields: readonly string[]): string =>
+  fields.map(canonicalField).join('');
+
+/**
  * The effect-identity key the Phase 27 capture seam journals a non-deterministic
- * invocation under: the capability id + a hash of the canonical (addr-sorted)
- * `addr=value` arg string. Two invocations with the same args replay the same
- * captured value; different args do not collide. Port of F# `invocationKey`.
+ * invocation under: the capability id + a hash of the canonical pre-image of
+ * the addr-sorted args — two fields per binding (addr, value) through
+ * `canonicalFields`. Two invocations with the same args replay the same
+ * captured value, and the pre-image is injective, so distinct argument sets
+ * never share one whatever their values contain (Phase 1860; the reference's
+ * fuaran-core#225 form, which replaced the old separator-free `addr=value`
+ * join under which [a="1b=2"] and [a="1"; b="2"] collided). That two distinct
+ * pre-images hash apart is a property of `fnv1a` and is not claimed. The sort
+ * is stable and by UTF-16 code unit, as the reference's ordinal sort is.
+ * Port of F# `Capability.invocationKey`.
  */
 export const invocationKey = (cap: Capability, args: readonly InvokeArg[]): string => {
-  const canonical = [...args]
-    .sort((a, b) => (a.addr < b.addr ? -1 : a.addr > b.addr ? 1 : 0))
-    .map((a) => `${a.addr}=${a.value}`)
-    .join('');
+  const canonical = canonicalFields(
+    [...args]
+      .sort((a, b) => (a.addr < b.addr ? -1 : a.addr > b.addr ? 1 : 0))
+      .flatMap((a) => [a.addr, a.value]),
+  );
   return `${cap.id}#${fnv1a(canonical)}`;
 };
 
@@ -189,6 +262,10 @@ export const validateArgs = (
     const hole = holes.find((h) => h.addr === addr);
     if (hole === undefined) return err({ kind: 'UnknownArg', addr, declared });
     if (hole.space === undefined) return err({ kind: 'UninvocableArg', addr }); // a slot hole
+    // A tree space: an argument that is no tree at all is uninvocable; a tree of
+    // the wrong kind is out of the space (fuaran-core#229, the reference's order).
+    if (hole.space.kind === 'SlotTree' && slotKindOf(value) === undefined)
+      return err({ kind: 'UninvocableArg', addr });
     if (!spaceValidate(hole.space, value))
       return err({ kind: 'ArgOutOfSpace', addr, space: hole.space, got: value });
   }
@@ -263,7 +340,7 @@ const effectJson = (e: EffectClass): Record<string, unknown> => ({
   determinism: determinismTag(e.determinism),
 });
 
-const spaceSchema = (s: HoleValueSpace): Record<string, unknown> => {
+const spaceSchema = (s: CapabilitySpace): Record<string, unknown> => {
   switch (s.kind) {
     case 'IntRange':
       return { type: 'integer', minimum: s.min, maximum: s.max };
@@ -275,6 +352,10 @@ const spaceSchema = (s: HoleValueSpace): Record<string, unknown> => {
       return { enum: [...s.choices] };
     case 'AnyString':
       return { type: 'string' };
+    case 'SlotTree':
+      return s.slotKind !== undefined
+        ? { type: 'object', description: `slot of kind: ${s.slotKind}` }
+        : { type: 'object' };
   }
 };
 

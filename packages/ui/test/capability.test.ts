@@ -171,10 +171,11 @@ describe('invocationKey — FNV-1a replay keying, byte-identical to the F# arith
     expect(fnv1a('foobar')).toBe('bf9cf968');
   });
 
-  it('keys on the id + a hash of the addr-sorted "addr=value" arg string', () => {
+  it('keys on the id + a hash of the canonical pre-image of the addr-sorted args', () => {
     expect(invocationKey(doubleCap, [])).toBe(`compute.double#${fnv1a('')}`);
+    // Two fields per binding (addr, value), each terminated by U+0001 (Phase 1860).
     expect(invocationKey(doubleCap, [{ addr: 'n', value: '7' }])).toBe(
-      `compute.double#${fnv1a('n=7')}`,
+      `compute.double#${fnv1a('n\u00017\u0001')}`,
     );
   });
 
