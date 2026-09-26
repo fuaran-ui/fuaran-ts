@@ -42,6 +42,7 @@
     "@fuaran-ui/schema": "workspace:^"
   },
   "devDependencies": {
+    "@fuaran-ui/core-twins": "workspace:*",
     "@fuaran-ui/schema": "workspace:*"
   },
   "publishConfig": {

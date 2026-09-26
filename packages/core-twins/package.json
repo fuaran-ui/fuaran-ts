@@ -1,22 +1,14 @@
 {
-  "name": "@fuaran-ui/ops",
-  "version": "0.28.0",
-  "description": "Canonical-JSON codec (encoder + structural decoder) and tree-op apply engine for the Fuaran UI wire format — a conformant TypeScript host of the language-neutral contract in fuaran-dotnet/docs/WIRE_FORMAT.md, verified byte-for-byte against the workspace wire-format-fixtures corpus.",
-  "keywords": [
-    "fuaran",
-    "ui",
-    "ai",
-    "wire-format",
-    "json",
-    "codec"
-  ],
+  "name": "@fuaran-ui/core-twins",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Workspace-internal home of this host's twins of the Fuaran.Core reference subsystems: the DataFrame / Transform evaluator with list-parameter substitution and its canonical float layout, the capability runtime (invocationKey, validateArgs, registry), the function registry (findBySignature), and the op-stream actor encoding. Deliberately not published: each published package that re-exports a twin bundles it at build time, so no public import path depends on this package.",
   "license": "Apache-2.0",
-  "author": "Andrew J. Willshire <andrew@fuaran.com> (Diametrical Ltd)",
   "homepage": "https://github.com/fuaran-ui/fuaran-ts",
   "repository": {
     "type": "git",
     "url": "https://github.com/fuaran-ui/fuaran-ts.git",
-    "directory": "packages/ops"
+    "directory": "packages/core-twins"
   },
   "type": "module",
   "main": "./dist/index.js",
@@ -39,16 +31,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "lint": "tsc --noEmit -p tsconfig.test.json"
   },
-  "peerDependencies": {
-    "@fuaran-ui/schema": "workspace:^"
-  },
   "devDependencies": {
-    "@fuaran-ui/core-twins": "workspace:*",
     "@fuaran-ui/schema": "workspace:*",
     "@types/node": "^22.10.2",
-    "fast-check": "^3.23.2"
-  },
-  "publishConfig": {
-    "access": "public"
+    "typescript": "^5.6.3"
   }
 }

@@ -25,9 +25,17 @@
 //  against node:crypto in the test suite). See test/hashChain.test.ts.
 // ============================================================================
 
+import { encodeActor, jsonString, type Actor } from '@fuaran-ui/core-twins';
+
 import { encodeOp } from './ops.js';
 import type { TreeOp } from './ops.js';
-import type { Actor, OpRecord, OpResultEnvelope, VerificationError } from './types.js';
+import type { OpRecord, OpResultEnvelope, VerificationError } from './types.js';
+
+// The actor's canonical encoding (and the canonical string escape it shares with
+// this module) is a Core twin: since Phase 1861 it lives behind the
+// workspace-internal core-twins boundary. Re-exported so this module's surface
+// is unchanged.
+export { encodeActor };
 
 /**
  * The chain FORMAT version, folded FIRST into the hash pre-image (the leading
@@ -41,39 +49,6 @@ import type { Actor, OpRecord, OpResultEnvelope, VerificationError } from './typ
  * is treated as the pre-406 v1 format.)
  */
 export const CHAIN_FORMAT_VERSION = 2;
-
-/**
- * Canonical JSON string escaping — only `"` / `\` / control chars (control as
- * `\u00xx`), matching F# `CanonicalJson.appendRawString` / `StreamEntry` `jstr`
- * so every hashed pre-image is byte-identical across hosts.
- */
-const jsonString = (s: string): string => {
-  let out = '"';
-  for (let i = 0; i < s.length; i += 1) {
-    const c = s[i]!;
-    const code = s.charCodeAt(i);
-    if (c === '"') {
-      out += '\\"';
-    } else if (c === '\\') {
-      out += '\\\\';
-    } else if (code < 0x20) {
-      out += '\\u' + code.toString(16).padStart(4, '0');
-    } else {
-      out += c;
-    }
-  }
-  return out + '"';
-};
-
-/**
- * Canonical JSON encoding of the typed actor — folded into the op-record hash
- * (Phase 320). Field order is pinned (kind first, then case fields). MUST stay
- * byte-for-byte aligned with F# / Core `Actor.encode`.
- */
-export const encodeActor = (a: Actor): string =>
-  a.kind === 'human'
-    ? `{"kind":"human","id":${jsonString(a.id)}}`
-    : `{"kind":"agent","model":${jsonString(a.model)},"version":${jsonString(a.version)},"id":${jsonString(a.id)}}`;
 
 /**
  * Canonical encoding of the apply outcome (Phase 406). Lowercase tag; a failure

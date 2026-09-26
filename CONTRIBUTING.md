@@ -44,6 +44,27 @@ git clone https://github.com/Fuaran-Core/fuaran-model-execution-spec
 As above, absence is a **loud failure naming the checkout**, never a skip — a conformance gate that
 quietly does nothing leaves the build green, and everybody reads that as agreement.
 
+## The Core-twin boundary
+
+Some subsystems this host needs are twins of the `Fuaran.Core` reference: the DataFrame /
+`Transform` evaluator with list-parameter substitution (and the canonical float layout it renders
+with), the capability runtime (`invocationKey`, `validateArgs`, the typed registry), the function
+registry (`findBySignature`), and the op-stream actor encoding. They live together in
+`packages/core-twins` (`@fuaran-ui/core-twins`), a workspace-internal package that mirrors
+`Fuaran.Core` and is **never published**. `@fuaran-ui/ops`, `@fuaran-ui/ui` and
+`@fuaran-ui/op-stream` re-export the twins under the names they always exported, and bundle the code
+into their own `dist`, so no public import path changes.
+
+The boundary is held by a test, not a convention: `packages/core-twins/test/boundary.test.ts` fails if
+anything in `packages/core-twins/src` imports from another `@fuaran-ui/*` package. The one admitted
+edge is an erased `import type` of a pinned list of `@fuaran-ui/schema` types. The same suite fails if
+a published package's built `dist` references the private package. A change to Core semantics
+belongs in `packages/core-twins`, and a twin that needs a new host type extends the pinned list on
+purpose.
+
+The wire codecs and the wire-versioning envelope stay in `@fuaran-ui/ops`: in this host they share
+the UI decode-error vocabulary and the wire resource limits, so they are not domain-free.
+
 ## Tooling
 
 - **Node**: `>=22` (see `engines` in `package.json`).

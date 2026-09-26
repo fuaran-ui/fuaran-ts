@@ -143,6 +143,18 @@ importers:
         specifier: ^22.10.2
         version: 22.19.19
 
+  packages/core-twins:
+    devDependencies:
+      '@fuaran-ui/schema':
+        specifier: workspace:*
+        version: link:../schema
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.19
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
   packages/fuaran:
     devDependencies:
       typescript:
@@ -251,6 +263,9 @@ importers:
 
   packages/op-stream:
     devDependencies:
+      '@fuaran-ui/core-twins':
+        specifier: workspace:*
+        version: link:../core-twins
       '@fuaran-ui/ops':
         specifier: workspace:*
         version: link:../ops
@@ -263,6 +278,9 @@ importers:
 
   packages/ops:
     devDependencies:
+      '@fuaran-ui/core-twins':
+        specifier: workspace:*
+        version: link:../core-twins
       '@fuaran-ui/schema':
         specifier: workspace:*
         version: link:../schema
@@ -466,6 +484,9 @@ importers:
 
   packages/ui:
     devDependencies:
+      '@fuaran-ui/core-twins':
+        specifier: workspace:*
+        version: link:../core-twins
       '@fuaran-ui/schema':
         specifier: workspace:*
         version: link:../schema

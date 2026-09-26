@@ -19,6 +19,8 @@
 //     interface; the in-memory sink resolves synchronously-computed values.
 // ============================================================================
 
+import type { Actor } from '@fuaran-ui/core-twins';
+
 import type { ApplyError, Node, TreeOp } from './ops.js';
 
 /**
@@ -32,28 +34,10 @@ export type OpResultEnvelope =
   | { readonly kind: 'Success' }
   | { readonly kind: 'Failure'; readonly code: string; readonly message: string };
 
-/**
- * Who authored an op (Phase 320 — typed attested provenance). The Human/Agent
- * distinction is the load-bearing AI-accountability fact; `model`/`version`
- * doubles as corpus-quality metadata. Port of F# `Fuaran.UI.OpStream.Abstractions.Actor`
- * (and the `Fuaran.Core.OpStream.Actor` contract) — the canonical encoding
- * (`encodeActor`, hashChain.ts) is folded into the op-record hash, so the
- * cross-host hashed pre-image is byte-identical.
- */
-export type Actor =
-  | { readonly kind: 'human'; readonly id: string }
-  | {
-      readonly kind: 'agent';
-      readonly model: string;
-      readonly version: string;
-      readonly id: string;
-    };
-
-/** The stable attribution id — the user id (human) or the agent id (agent). */
-export const actorId = (a: Actor): string => a.id;
-
-/** Lift a pre-320 bare-string actor to the typed `human` case. */
-export const humanActor = (id: string): Actor => ({ kind: 'human', id });
+// The actor (`Actor` / `actorId` / `humanActor`) is a Core twin: since Phase
+// 1861 it lives behind the workspace-internal core-twins boundary. Re-exported
+// so every importer of this module is unchanged.
+export { actorId, humanActor, type Actor } from '@fuaran-ui/core-twins';
 
 /**
  * One stream-position's worth of apply trace. Append-only — sinks reject
