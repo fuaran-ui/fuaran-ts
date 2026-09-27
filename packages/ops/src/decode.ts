@@ -6301,6 +6301,12 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
     if (!pk.ok) return pk;
     pageStateKey = pk.value;
   }
+  // Phase 1892 — the row window key, and the declared total as an int Binding
+  // decoded exactly as `Tabs.activeIndex` / `Stepper.activeStep` are.
+  const windowStateKey = optField(path, f, 'windowStateKey', requireString);
+  if (!windowStateKey.ok) return windowStateKey;
+  const rowTotal = optField(path, f, 'rowTotal', decodeBindingInt);
+  if (!rowTotal.ok) return rowTotal;
   // Phase 1123 — the two ends of one shared transfer key. A present member of
   // any type other than string is WRONG_TYPE and is never coerced: the slot
   // names a STATE KEY, so an ordinal or a boolean names no key, and a grid
@@ -6339,6 +6345,8 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
     ...(sortStateKey !== undefined ? { sortStateKey } : {}),
     ...(pageSize !== undefined ? { pageSize } : {}),
     ...(pageStateKey !== undefined ? { pageStateKey } : {}),
+    ...(windowStateKey.value !== undefined ? { windowStateKey: windowStateKey.value } : {}),
+    ...(rowTotal.value !== undefined ? { rowTotal: rowTotal.value } : {}),
     ...(defaultSort !== undefined ? { defaultSort } : {}),
     ...(editStateKey !== undefined ? { editStateKey } : {}),
     ...(transferOutKey.value !== undefined ? { transferOutKey: transferOutKey.value } : {}),

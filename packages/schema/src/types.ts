@@ -2824,6 +2824,15 @@ export interface GridSpec<TMsg> {
   // does not slice. Both omitted on the wire when absent.
   readonly pageSize?: number;
   readonly pageStateKey?: string;
+  // Phase 1892 — the row window, the fourth instance of the same rule.
+  // `windowStateKey` names the State key carrying `{"offset": <int >= 0>,
+  // "count": <int >= 1>}`, which the renderer writes as the viewport moves and
+  // reads back to present only that slice of the rows. `rowTotal` is the
+  // DECLARED size of the whole result set for a grid whose host slices it (a
+  // `Query` whose `dependsOn` names the window or page key); it is read only
+  // there. Both omitted on the wire when absent.
+  readonly windowStateKey?: string;
+  readonly rowTotal?: Binding<number>;
   // Phase 861 — the bound path's declared INITIAL order, reusing the same
   // `DefaultSort` record and field name `staticRows` carries (Phase 801): same
   // behaviour, same spelling, no twin. It applies while the sort state key

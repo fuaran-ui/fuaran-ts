@@ -1959,6 +1959,10 @@ const gridSpec = (s: GridSpec<unknown>): string => {
   // stays byte-identical.
   if (s.pageSize !== undefined) fields.push(['pageSize', num(s.pageSize)]);
   if (s.pageStateKey !== undefined) fields.push(['pageStateKey', str(s.pageStateKey)]);
+  // Phase 1892 — the row window and the declared total, each emitted only when
+  // declared, so every pre-1892 grid stays byte-identical.
+  if (s.windowStateKey !== undefined) fields.push(['windowStateKey', str(s.windowStateKey)]);
+  if (s.rowTotal !== undefined) fields.push(['rowTotal', binding(s.rowTotal)]);
   // Phase 861 — the bound path's declared initial order, through the SAME
   // encoder the staticRows spelling uses.
   if (s.defaultSort !== undefined) fields.push(['defaultSort', defaultSortJson(s.defaultSort)]);

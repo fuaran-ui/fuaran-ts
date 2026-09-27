@@ -1603,6 +1603,13 @@ export interface GridOptions<TRow, TMsg> {
    */
   readonly transferOutKey?: string;
   readonly transferInKey?: string;
+  /**
+   * Phase 1892 — the State key carrying the row window `{"offset", "count"}`
+   * the renderer writes as the viewport moves, and the declared size of the
+   * whole result set for a grid whose host slices it.
+   */
+  readonly windowStateKey?: string;
+  readonly rowTotal?: NumberInput;
 }
 
 /**
@@ -2498,6 +2505,10 @@ export const fuaran = {
             // only when declared.
             ...(o.transferOutKey !== undefined ? { transferOutKey: o.transferOutKey } : {}),
             ...(o.transferInKey !== undefined ? { transferInKey: o.transferInKey } : {}),
+            // Phase 1892 — the row window and the declared total; each rides
+            // only when declared.
+            ...(o.windowStateKey !== undefined ? { windowStateKey: o.windowStateKey } : {}),
+            ...(o.rowTotal !== undefined ? { rowTotal: numberBinding(o.rowTotal) } : {}),
             ...(o.onRowClick !== undefined
               ? { onRowClick: (row: unknown) => o.onRowClick!(row as TRow) }
               : {}),
