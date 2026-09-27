@@ -24,8 +24,16 @@ import type {
   Node,
   TextSource,
 } from '@fuaran-ui/schema';
-import type { Result } from '@fuaran-ui/schema';
+import type { ChartSpec, ColumnType, GridSpec, Result } from '@fuaran-ui/schema';
 import { defaults } from '@fuaran-ui/schema';
+
+import {
+  ofPipeline,
+  schemaHas,
+  schemaNames,
+  schemaTypeOf,
+  type SchemaKnowledge,
+} from './schemaWalk.js';
 
 /** A pre-emit defect surfaced by `validate`. Discriminated by `code`. */
 export type PreEmitDefect =
@@ -178,7 +186,71 @@ export type PreEmitDefect =
       readonly code: 'DANGLING_FILTER_REFERENCE';
       readonly nodeId: string;
       readonly name: string;
+    }
+  /**
+   * FUARAN086 (error) — a chart's `xField` or a `yFields` entry names a column
+   * its own `Transform` source cannot PRODUCE (Phase 1889, porting the
+   * reference's Phase 640/1486 rule). The produced schema is the one the static
+   * walk (`schemaWalk.ts`) derives over the whole pipeline, and only a CLOSED
+   * walk supports the verdict: a `Ref` source, a `pivot`, a live source, or any
+   * non-Transform source passes ungrounded. `schemaColumns` is what the source
+   * does produce — under a pipeline it is no longer readable off the tree.
+   */
+  | {
+      readonly code: 'CHART_FIELD_UNGROUNDED';
+      readonly nodeId: string;
+      readonly field: string;
+      readonly schemaColumns: readonly string[];
+    }
+  /**
+   * FUARAN087 (error) — a grounded chart VALUE field (a `yFields` entry, or the
+   * `xField` of a non-temporal `Scatter`) has a column type the lowering cannot
+   * plot numerically; anything outside int/float/bool reads as 0, a silently
+   * flat series. Only where the column's type is decidable — a `derive`d column
+   * of data-dependent type says nothing here.
+   */
+  | {
+      readonly code: 'CHART_FIELD_TYPE_MISMATCH';
+      readonly nodeId: string;
+      readonly field: string;
+      readonly columnType: string;
+    }
+  /**
+   * FUARAN097 (error) — a chart declaring `xScale: 'Temporal'` whose grounded
+   * `xField` is neither a `date` nor a `timestamp` column: every row's x would
+   * read as the epoch.
+   */
+  | {
+      readonly code: 'CHART_TEMPORAL_X_NOT_DATE';
+      readonly nodeId: string;
+      readonly field: string;
+      readonly columnType: string;
+    }
+  /**
+   * FUARAN114 (error) — a grid column's `field`, or the grid's `rowKeyField`,
+   * names a column its own `Transform` source cannot produce: the cell renders
+   * blank, or every row keys off one empty string. The read-side twin of
+   * FUARAN086, over the same walk and by the same restraint.
+   */
+  | {
+      readonly code: 'GRID_FIELD_UNGROUNDED';
+      readonly nodeId: string;
+      readonly field: string;
+      readonly schemaColumns: readonly string[];
     };
+
+/**
+ * The schema a reader's `source` slot PRODUCES, when that slot is a non-live
+ * `Transform` — the only shape the grounding rules judge. `undefined` for a
+ * live Transform (its table is a decode-time snapshot, not a statement about
+ * later rows) and for every other binding.
+ */
+const producedSchemaOf = (source: { readonly kind: string }): SchemaKnowledge | undefined => {
+  const b = source as Binding<unknown>;
+  return b.kind === 'Transform' && b.source.kind === 'Data'
+    ? ofPipeline(b.source.source, b.pipeline)
+    : undefined;
+};
 
 /**
  * A `Node` proven to have passed `validate`. The phantom brand makes "I have
@@ -194,6 +266,24 @@ export type ValidatedNode<TMsg> = Node<TMsg> & { readonly __validated: 'PreEmitV
  */
 export function preEmitValidate<TMsg>(
   node: Node<TMsg>,
+): Result<ValidatedNode<TMsg>, readonly PreEmitDefect[]> {
+  return runPreEmit(node, undefined);
+}
+
+/** A chart or grid the walk reached: its wire kind name and its row source. */
+interface ReachedReader {
+  readonly reader: 'Chart' | 'DataGrid';
+  readonly source: Binding<unknown>;
+}
+
+/**
+ * The one walk behind `preEmitValidate` and `bindingChecks`. `onReader` sees
+ * every chart and grid the walk reaches, so the report grades exactly the
+ * readers the rules judged — one walk, so the two cannot drift.
+ */
+function runPreEmit<TMsg>(
+  node: Node<TMsg>,
+  onReader: ((id: string, r: ReachedReader) => void) | undefined,
 ): Result<ValidatedNode<TMsg>, readonly PreEmitDefect[]> {
   const defects: PreEmitDefect[] = [];
   const nodeIdCounts = new Map<string, number>();
@@ -211,6 +301,68 @@ export function preEmitValidate<TMsg>(
   // commit pipeline carries the change independently of the handler.
   const isWriteBackTarget = (binding: { readonly kind: string }): boolean =>
     binding.kind === 'State' || binding.kind === 'Filter' || binding.kind === 'Local';
+
+  // ── FUARAN086 / 087 / 097 / 114 — references grounded in the produced schema ──
+  //
+  // Phase 1889. The reference's rules, in the reference's order, over the same
+  // walk: a CLOSED produced schema refuses an absent name; an open one — or no
+  // Transform at all — stands down. Nothing here guesses: a column present with
+  // a data-dependent type grounds FUARAN086 and says nothing typed.
+  const checkChartGrounding = (nodeId: string, spec: ChartSpec<TMsg>): void => {
+    const produced = producedSchemaOf(spec.source);
+    if (produced === undefined || produced.kind !== 'Closed') return;
+    const schemaColumns = schemaNames(produced);
+    const numeric = (t: ColumnType): boolean => t === 'int' || t === 'float' || t === 'bool';
+    const temporalX = spec.xScale === 'Temporal';
+
+    if (!schemaHas(spec.xField, produced)) {
+      defects.push({ code: 'CHART_FIELD_UNGROUNDED', nodeId, field: spec.xField, schemaColumns });
+    } else {
+      const t = schemaTypeOf(spec.xField, produced);
+      if (t !== undefined) {
+        if (temporalX && t !== 'date' && t !== 'timestamp')
+          defects.push({
+            code: 'CHART_TEMPORAL_X_NOT_DATE',
+            nodeId,
+            field: spec.xField,
+            columnType: t,
+          });
+        // The x arm is narrowed by a temporal declaration: a temporal Scatter
+        // reads its x as dates, which FUARAN097 governs.
+        if (spec.kind === 'Scatter' && !numeric(t) && !temporalX)
+          defects.push({
+            code: 'CHART_FIELD_TYPE_MISMATCH',
+            nodeId,
+            field: spec.xField,
+            columnType: t,
+          });
+      }
+    }
+
+    for (const yf of spec.yFields) {
+      if (!schemaHas(yf, produced)) {
+        defects.push({ code: 'CHART_FIELD_UNGROUNDED', nodeId, field: yf, schemaColumns });
+      } else {
+        const t = schemaTypeOf(yf, produced);
+        if (t !== undefined && !numeric(t))
+          defects.push({ code: 'CHART_FIELD_TYPE_MISMATCH', nodeId, field: yf, columnType: t });
+      }
+    }
+  };
+
+  const checkGridGrounding = (nodeId: string, spec: GridSpec<TMsg>): void => {
+    const produced = producedSchemaOf(spec.source);
+    if (produced === undefined || produced.kind !== 'Closed') return;
+    const schemaColumns = schemaNames(produced);
+    // Per offending name, not once per grid: a grid pointed at the wrong source
+    // names several missing columns, and the author repairs each of them.
+    const ground = (field: string): void => {
+      if (!schemaHas(field, produced))
+        defects.push({ code: 'GRID_FIELD_UNGROUNDED', nodeId, field, schemaColumns });
+    };
+    for (const c of spec.columns) if (c.field !== undefined) ground(c.field);
+    if (spec.rowKeyField !== undefined) ground(spec.rowKeyField);
+  };
 
   // ── The accessibility family (FUARAN109/110/111) ───────────────────────────
   //
@@ -518,8 +670,14 @@ export function preEmitValidate<TMsg>(
         // directly a `State` binding — so the rule and the render agree by
         // construction rather than by two people writing the same condition.
         const vis = k.visualisation;
+        if (vis.kind === 'Chart') {
+          onReader?.(n.id, { reader: 'Chart', source: vis.spec.source as Binding<unknown> });
+          checkChartGrounding(n.id, vis.spec);
+        }
         if (vis.kind === 'Grid') {
           const spec = vis.spec;
+          onReader?.(n.id, { reader: 'DataGrid', source: spec.source as Binding<unknown> });
+          checkGridGrounding(n.id, spec);
           const destination = spec.editStateKey !== undefined || spec.source.kind === 'State';
           if (spec.editable && !destination) {
             defects.push({ code: 'INERT_EDITABLE_GRID', nodeId: n.id });
@@ -666,4 +824,226 @@ export function preEmitValidate<TMsg>(
   return defects.length === 0
     ? { ok: true, value: node as ValidatedNode<TMsg> }
     : { ok: false, error: defects };
+}
+
+// ============================================================================
+//  Phase 1889 — the binding-check report: every chart and grid, graded.
+//
+//  The port of the reference's `PreEmitValidate.bindingChecks`. The grounding
+//  rules above say what is WRONG; they cannot say which readers were JUDGED —
+//  a reader over a `Query`, a `State`, an undeclared `Ref` or a `pivot` passes
+//  exactly as a proven-correct one does. This report separates the two: each
+//  reader is graded `Checked` or `Unchecked` (with why), and each finding is
+//  located by JSONPath into the canonical wire document and paired with the
+//  schema the source does produce. It mints no code and changes no verdict.
+//
+//  Paths address the WIRE document, so the caller passes it: this package has
+//  no encoder (that is `@fuaran-ui/ops`), and a path computed from the
+//  in-memory shape would address a document nobody receives. The call is
+//  `bindingChecks(tree, JSON.parse(encodeNode(tree)))`.
+//
+//  ONE NAMED DIVERGENCE: a reader the document carries but this host's walk
+//  does not reach is graded `NotReached` — the grounding rules did not judge it
+//  either, and saying so is the honest answer. The reference's walk reaches
+//  every node its encoder emits, so it never produces this grade.
+// ============================================================================
+
+/** Why a reader could not be judged — a statement about its SOURCE. */
+export type UncheckedReason =
+  /** A Transform whose produced column set is open (`why` is the walk's own sentence). */
+  | { readonly kind: 'OpenSchema'; readonly why: string }
+  /** A live Transform: its table is a decode-time snapshot. */
+  | { readonly kind: 'LiveSource' }
+  /** Not a Transform at all; `sourceKind` is the source binding's wire `$type`. */
+  | { readonly kind: 'NoStaticSchema'; readonly sourceKind: string }
+  /** A grid carrying `staticRows`: its rows are in the tree. */
+  | { readonly kind: 'StaticRows' }
+  /** This host's walk does not reach the reader (see the divergence above). */
+  | { readonly kind: 'NotReached' };
+
+export type BindingGrade =
+  | { readonly kind: 'Checked' }
+  | { readonly kind: 'Unchecked'; readonly reason: UncheckedReason };
+
+/** One produced column; `type` absent where data-dependent. */
+export interface ProducedColumn {
+  readonly name: string;
+  readonly type?: ColumnType;
+}
+
+/** One grounding finding about a reader, located. */
+export interface BindingDiagnostic {
+  /** The FUARAN code (`FUARAN086` / `087` / `097` / `114`). */
+  readonly code: string;
+  /** JSONPath of the slot the finding is about. */
+  readonly path: string;
+  readonly defect: PreEmitDefect;
+}
+
+export interface BindingCheck {
+  readonly nodeId: string;
+  /** `Chart` or `DataGrid` — the wire kind name. */
+  readonly reader: 'Chart' | 'DataGrid';
+  /** JSONPath of the reader's `source` slot (a `staticRows` grid: that slot). */
+  readonly path: string;
+  readonly grade: BindingGrade;
+  readonly produced: readonly ProducedColumn[];
+  readonly diagnostics: readonly BindingDiagnostic[];
+}
+
+type JsonObject = { readonly [k: string]: unknown };
+
+const isObject = (v: unknown): v is JsonObject =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+const jsonPathMember = (key: string): string =>
+  /^[A-Za-z_][A-Za-z0-9_]*$/.test(key)
+    ? `.${key}`
+    : `['${key.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}']`;
+
+/** Every Chart / DataGrid node object in the document, in document order, with its path. */
+const readerObjects = (
+  doc: unknown,
+): { id: string; reader: 'Chart' | 'DataGrid'; path: string; kind: JsonObject }[] => {
+  const found: { id: string; reader: 'Chart' | 'DataGrid'; path: string; kind: JsonObject }[] = [];
+  const go = (path: string, v: unknown): void => {
+    if (Array.isArray(v)) {
+      v.forEach((child, i) => go(`${path}[${i}]`, child));
+    } else if (isObject(v)) {
+      const kind = v['kind'];
+      if (typeof v['id'] === 'string' && isObject(kind)) {
+        const t = kind['$type'];
+        if (t === 'Chart' || t === 'DataGrid') found.push({ id: v['id'], reader: t, path, kind });
+      }
+      for (const [k, child] of Object.entries(v)) go(path + jsonPathMember(k), child);
+    }
+  };
+  go('$', doc);
+  return found;
+};
+
+/** The slots a finding of rule `rule` can be about, in that rule's reading order. */
+const referenceSlots = (
+  rule: string,
+  reader: 'Chart' | 'DataGrid',
+  kindPath: string,
+  kind: JsonObject,
+): { field: string; path: string }[] => {
+  const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+  if (reader === 'Chart') {
+    const xf = str(kind['xField']);
+    const x = xf === undefined ? [] : [{ field: xf, path: `${kindPath}.xField` }];
+    const yRaw = kind['yFields'];
+    const ys = Array.isArray(yRaw)
+      ? yRaw.flatMap((y, i) => {
+          const f = str(y);
+          return f === undefined ? [] : [{ field: f, path: `${kindPath}.yFields[${i}]` }];
+        })
+      : [];
+    const scatter = kind['kind'] === 'Scatter';
+    const temporal = kind['xScale'] === 'Temporal';
+    if (rule === 'FUARAN097') return x;
+    if (rule === 'FUARAN087') return [...(scatter && !temporal ? x : []), ...ys];
+    return [...x, ...ys];
+  }
+  const colsRaw = kind['columns'];
+  const cols = Array.isArray(colsRaw)
+    ? colsRaw.flatMap((c, i) => {
+        const f = isObject(c) ? str(c['field']) : undefined;
+        return f === undefined ? [] : [{ field: f, path: `${kindPath}.columns[${i}].field` }];
+      })
+    : [];
+  const rk = str(kind['rowKeyField']);
+  return [...cols, ...(rk === undefined ? [] : [{ field: rk, path: `${kindPath}.rowKeyField` }])];
+};
+
+/** The FUARAN code and the reader a grounding defect is about, or undefined for any other defect. */
+const groundingOf = (
+  d: PreEmitDefect,
+): { code: string; reader: 'Chart' | 'DataGrid'; nodeId: string; field: string } | undefined => {
+  switch (d.code) {
+    case 'CHART_FIELD_UNGROUNDED':
+      return { code: 'FUARAN086', reader: 'Chart', nodeId: d.nodeId, field: d.field };
+    case 'CHART_FIELD_TYPE_MISMATCH':
+      return { code: 'FUARAN087', reader: 'Chart', nodeId: d.nodeId, field: d.field };
+    case 'CHART_TEMPORAL_X_NOT_DATE':
+      return { code: 'FUARAN097', reader: 'Chart', nodeId: d.nodeId, field: d.field };
+    case 'GRID_FIELD_UNGROUNDED':
+      return { code: 'FUARAN114', reader: 'DataGrid', nodeId: d.nodeId, field: d.field };
+    default:
+      return undefined;
+  }
+};
+
+/**
+ * Every chart and grid in `node`, graded, with the grounding findings about each
+ * located by JSONPath into `document` — the node's canonical wire JSON, parsed —
+ * and paired with the schema its source produces. A repeated node id is
+ * reported once, at its first occurrence.
+ */
+export function bindingChecks<TMsg>(node: Node<TMsg>, document: unknown): readonly BindingCheck[] {
+  const reached = new Map<string, ReachedReader>();
+  const result = runPreEmit(node, (id, r) => {
+    if (!reached.has(id)) reached.set(id, r);
+  });
+  const findings = result.ok ? [] : result.error;
+  const seen = new Set<string>();
+
+  return readerObjects(document)
+    .filter((r) => {
+      if (seen.has(r.id)) return false;
+      seen.add(r.id);
+      return true;
+    })
+    .map(({ id, reader, path, kind }) => {
+      const kindPath = `${path}.kind`;
+      const staticRows = reader === 'DataGrid' && kind['staticRows'] !== undefined;
+      let grade: BindingGrade;
+      let produced: readonly ProducedColumn[] = [];
+      const site = reached.get(id);
+      if (staticRows) {
+        grade = { kind: 'Unchecked', reason: { kind: 'StaticRows' } };
+      } else if (site === undefined) {
+        grade = { kind: 'Unchecked', reason: { kind: 'NotReached' } };
+      } else if (site.source.kind === 'Transform' && site.source.source.kind === 'Live') {
+        grade = { kind: 'Unchecked', reason: { kind: 'LiveSource' } };
+      } else if (site.source.kind === 'Transform') {
+        const knowledge = producedSchemaOf(site.source) as SchemaKnowledge;
+        produced = knowledge.columns;
+        grade =
+          knowledge.kind === 'Closed'
+            ? { kind: 'Checked' }
+            : { kind: 'Unchecked', reason: { kind: 'OpenSchema', why: knowledge.reason } };
+      } else {
+        const src = kind['source'];
+        const t = isObject(src) && typeof src['$type'] === 'string' ? src['$type'] : 'absent';
+        grade = { kind: 'Unchecked', reason: { kind: 'NoStaticSchema', sourceKind: t } };
+      }
+
+      const consumed = new Set<string>();
+      const locate = (rule: string, field: string): string => {
+        const slot = referenceSlots(rule, reader, kindPath, kind).find(
+          (s) => s.field === field && !consumed.has(rule + s.path),
+        );
+        if (slot === undefined) return kindPath;
+        consumed.add(rule + slot.path);
+        return slot.path;
+      };
+
+      const diagnostics = findings.flatMap((d) => {
+        const g = groundingOf(d);
+        return g !== undefined && g.nodeId === id && g.reader === reader
+          ? [{ code: g.code, path: locate(g.code, g.field), defect: d }]
+          : [];
+      });
+
+      return {
+        nodeId: id,
+        reader,
+        path: kindPath + (staticRows ? '.staticRows' : '.source'),
+        grade,
+        produced,
+        diagnostics,
+      };
+    });
 }
