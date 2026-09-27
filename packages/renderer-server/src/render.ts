@@ -109,7 +109,13 @@ import {
   tryResolveScalarFloat,
   tryResolveScalarText,
 } from './bindings.js';
-import { chartLowerSpecOf, drawingSvg, mathMl } from '@fuaran-ui/renderer';
+import {
+  CODE_HIGHLIGHT_TIER,
+  chartLowerSpecOf,
+  codeHighlight,
+  drawingSvg,
+  mathMl,
+} from '@fuaran-ui/renderer';
 // Phase 1075 — the `Binding.State` seeding pass. One definition, shared with
 // the client renderer, so the two tiers cannot drift on the charter's §4/§5.
 import { type BehindView, withStateSeeds } from '@fuaran-ui/ops';
@@ -1582,9 +1588,14 @@ const renderDisplay = (
 
     case 'CodeBlock': {
       // Phase 290 — DETERMINISTIC <pre><code> (HTML-escaped, NO markdown
-      // library), byte-identical SSR↔CSR. Syntax highlighting is a client-only
-      // post-hydration enhancement keyed on `language-{x}` — not emitted here.
+      // library), byte-identical SSR↔CSR. Phase 1854 — a language with a grammar
+      // (F*, F#) gets the deterministic highlighting tier from the shared
+      // `codeHighlight` builder (class-only `tok-*` spans, marked
+      // `data-highlighted="deterministic"`); any other language keeps its escaped
+      // text. A richer client-only highlighter keyed on `language-{x}` stays
+      // outside parity. See fuaran-dotnet/docs/CODE-HIGHLIGHT.md.
       const spec = display.spec;
+      const highlighted = codeHighlight(spec.language, spec.code);
       const containerClass = spec.lineNumbers
         ? 'fuaran-codeblock fuaran-codeblock-numbered'
         : 'fuaran-codeblock';
@@ -1602,7 +1613,20 @@ const renderDisplay = (
       const code = el(
         'pre',
         [['class', 'fuaran-codeblock-pre']],
-        textEl('code', [['class', `fuaran-codeblock-code language-${spec.language}`]], spec.code),
+        highlighted !== null
+          ? el(
+              'code',
+              [
+                ['class', `fuaran-codeblock-code language-${spec.language}`],
+                ['data-highlighted', CODE_HIGHLIGHT_TIER],
+              ],
+              highlighted,
+            )
+          : textEl(
+              'code',
+              [['class', `fuaran-codeblock-code language-${spec.language}`]],
+              spec.code,
+            ),
       );
       const attrs: Attr[] = [
         ['class', containerClass],

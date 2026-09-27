@@ -196,6 +196,16 @@ export {
 export { accessibilityAttributes } from './accessibility.js';
 export { drawingSvg } from './drawingSvg.js';
 export { mathMl } from './mathMl.js';
+// Phase 1854 — the deterministic CodeBlock highlighting tier, shared with renderer-server.
+export {
+  CODE_HIGHLIGHT_TIER,
+  codeGrammarFor,
+  codeHighlight,
+  codeHighlightWith,
+  FSHARP,
+  FSTAR,
+  type CodeGrammar,
+} from './codeHighlight.js';
 // The `Chart` node → chart-lowering bridge. Exported for the same reason
 // `drawingSvg` is: the string server renderer must lower from the SAME declared
 // fields this renderer does, and a second copy of that decision is how the two

@@ -45,6 +45,7 @@ import { imageAspectClass, toneVar, trendSentiment } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { drawingSvg } from '../drawingSvg.js';
 import { mathMl } from '../mathMl.js';
+import { CODE_HIGHLIGHT_TIER, codeHighlight } from '../codeHighlight.js';
 import { sanitizeEmbedSrcForEgress, sanitizeUrlForEgress } from '../egress.js';
 import { sanitizeLinkAnchor } from '../sanitize.js';
 import { toHtmlWithEgress } from '../markdown.js';
@@ -655,11 +656,16 @@ export const renderDisplay = <TMsg,>(
 
     case 'CodeBlock': {
       // Phase 290 — DETERMINISTIC <pre><code> (HTML-escaped by React, NO markdown
-      // library), byte-identical across hosts + SSR. Syntax highlighting is a
-      // client-only post-hydration enhancement that targets the `language-{x}`
-      // class — explicitly NOT emitted here (outside the parity output). Line
-      // numbers + highlight ranges are deterministic class / data hooks.
+      // library), byte-identical across hosts + SSR. Line numbers + highlight
+      // ranges are deterministic class / data hooks. Phase 1854 — a language
+      // with a grammar (F*, F#) gets the deterministic highlighting tier: the
+      // shared `codeHighlight` builder's class-only `tok-*` spans (byte-identical
+      // to the server renderer and the F# renderers), marked
+      // `data-highlighted="deterministic"` so a richer client-only highlighter
+      // targeting `language-{x}` can skip or replace it. Any other language keeps
+      // its escaped text. See fuaran-dotnet/docs/CODE-HIGHLIGHT.md.
       const spec = display.spec;
+      const highlighted = codeHighlight(spec.language, spec.code);
       const containerClass = spec.lineNumbers
         ? 'fuaran-codeblock fuaran-codeblock-numbered'
         : 'fuaran-codeblock';
@@ -675,7 +681,15 @@ export const renderDisplay = <TMsg,>(
             </button>
           ) : null}
           <pre className="fuaran-codeblock-pre">
-            <code className={`fuaran-codeblock-code language-${spec.language}`}>{spec.code}</code>
+            {highlighted !== null ? (
+              <code
+                className={`fuaran-codeblock-code language-${spec.language}`}
+                data-highlighted={CODE_HIGHLIGHT_TIER}
+                dangerouslySetInnerHTML={{ __html: trustedHtml(highlighted) }}
+              />
+            ) : (
+              <code className={`fuaran-codeblock-code language-${spec.language}`}>{spec.code}</code>
+            )}
           </pre>
         </div>
       );
