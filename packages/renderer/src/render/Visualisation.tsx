@@ -8,6 +8,7 @@
 // ============================================================================
 
 import type { ReactElement, ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type {
   Binding,
@@ -34,6 +35,7 @@ import {
   renderCellValue,
   renderText,
   resolve,
+  resolveScalarFloat,
   tryResolve,
   type BindingSources,
 } from '../bindings.js';
@@ -137,30 +139,26 @@ const renderGrid = <TMsg,>(
   // rule (a `Query` depending on the page key returns the page itself), in
   // which case the pager still renders and drives the query but the grid does
   // NOT slice again.
-  const paging =
-    spec.pageStateKey !== undefined && spec.pageSize !== undefined && spec.pageSize > 0
-      ? (() => {
-          const key = spec.pageStateKey;
-          const size = spec.pageSize;
-          const hostPages = sourceHostPagesOn(spec.source, key);
-          const requested = readPageDescriptor(ctx.sources, key);
-          return {
-            key,
-            size,
-            hostPages,
-            page: hostPages ? Math.max(1, requested) : clampPage(size, requested, rows.length),
-          };
-        })()
-      : undefined;
+  // Phase 1892 — `gridPage` is the one page rule: a HOST-paged grid with a
+  // declared `rowTotal` clamps and names its last page, one without keeps to
+  // previous/next. A grid whose HOST returns the window slices nothing: the
+  // rows it resolved ARE the window, page and all.
+  const paging = gridPage(ctx.sources, spec, rows.length);
+  const hostWindows = gridHostWindows(spec);
+  const pageSliced = paging !== undefined && !paging.hostPages && !hostWindows;
   // The rows this render actually paints. `rowOffset` is what makes the
   // page-relative index the cell loop hands back addressable in the FULL set —
   // without it a page-2 edit would commit to the matching row of page 1 (the
   // Phase-663 write-back indexes `rows`).
-  const pageRows =
-    paging !== undefined && !paging.hostPages
-      ? sliceRowsToPage(paging.size, paging.page, rows)
-      : rows;
-  const rowOffset = paging !== undefined && !paging.hostPages ? (paging.page - 1) * paging.size : 0;
+  const pagedRows =
+    paging !== undefined && pageSliced ? sliceRowsToPage(paging.size, paging.page, rows) : rows;
+  const pageOffset = paging !== undefined && pageSliced ? (paging.page - 1) * paging.size : 0;
+  // Phase 1892 — the row window, over the page. A client-sliced window's
+  // offset joins the page offset, so an edit in a scrolled window commits to
+  // the row the reader saw; a host-windowed grid's rows are all `rows` holds.
+  const presented = gridWindow(ctx.sources, spec, pagedRows);
+  const pageRows = presented !== undefined ? presented.rows : pagedRows;
+  const rowOffset = pageOffset + (presented !== undefined && !hostWindows ? presented.offset : 0);
   // Phase 427 — the default row-click write (the 423/426 archetype for the
   // Selection channel): a data-bearing grid whose `onRowClick` is omitted
   // writes the clicked row to the host selection seam (`runtime.setSelection`)
@@ -366,12 +364,13 @@ const renderGrid = <TMsg,>(
   // Phase 862 — the pager. RENDERER-OWNED, which is the whole point of the
   // Phase-860 rule: because the grid draws it, the control that writes the page
   // state and the grid that reads it cannot come apart, so the decorative-pager
-  // shape is not authorable. Host-paged grids cannot know the row total, so the
-  // pager degrades to previous/next with no page count — a stated limit of this
-  // cut, not an oversight. Parity-locked with the F# renderer's `pager`.
+  // shape is not authorable. A host-paged grid knows its row total only when the
+  // document declares `rowTotal` (Phase 1892); without one the pager degrades
+  // to previous/next with no page count. Parity-locked with the F# renderer's
+  // `pager`.
   const pager = (): ReactElement | undefined => {
     if (paging === undefined) return undefined;
-    const lastPage = paging.hostPages ? undefined : pageCountOf(paging.size, rows.length);
+    const lastPage = paging.lastPage;
     const goTo = (target: number): void => {
       runAction(ctx, { kind: 'SetState', key: paging.key, value: { page: target } });
     };
@@ -418,9 +417,14 @@ const renderGrid = <TMsg,>(
     };
   };
 
-  const gridTable = (
+  // Phase 1892 — a windowed grid tells assistive technology its rows are a
+  // slice; an unwindowed one carries no attribute, so its markup is unchanged.
+  // `before` / `after` are the viewport's spacer rows (see GridWindowViewport).
+  const rowCount = windowRowCount(presented);
+  const gridTable = (before?: ReactNode, after?: ReactNode): ReactElement => (
     <table
       className={`fuaran-grid${gridPrintBreakClasses(spec.keepRowsTogether, spec.repeatHeader)}`}
+      {...(rowCount !== undefined ? { 'aria-rowcount': rowCount } : {})}
     >
       <thead>
         <tr>
@@ -429,9 +433,11 @@ const renderGrid = <TMsg,>(
         </tr>
       </thead>
       <tbody>
+        {before}
         {pageRows.map((row, ri) => {
           const isSelected =
             selectedKey !== undefined && rowKeyOf !== undefined && rowKeyOf(row) === selectedKey;
+          const rowIndex = windowRowIndex(presented, ri);
           return (
             <tr
               key={ri}
@@ -449,6 +455,7 @@ const renderGrid = <TMsg,>(
                 onRowClick !== undefined ? runAction(ctx, onRowClick(row)) : writeSelection(row)
               }
               {...reorderRowProps(ri)}
+              {...(rowIndex !== undefined ? { 'aria-rowindex': rowIndex } : {})}
             >
               {reorderCell(ri)}
               {spec.columns.map((col, ci) => (
@@ -459,17 +466,135 @@ const renderGrid = <TMsg,>(
             </tr>
           );
         })}
+        {after}
       </tbody>
     </table>
   );
 
+  // Phase 1892 — a grid declaring `windowStateKey` renders inside the scroll
+  // viewport that writes the window descriptor as it moves; a grid declaring
+  // none emits byte-identical DOM to before this phase.
+  const windowKey = spec.windowStateKey;
+  const gridBody =
+    windowKey === undefined || presented === undefined ? (
+      gridTable()
+    ) : (
+      <GridWindowViewport
+        offset={presented.offset}
+        presentedCount={presented.rows.length}
+        total={presented.total}
+        colSpan={spec.columns.length + (reorderCommit === undefined ? 0 : 1)}
+        current={readWindowDescriptor(ctx.sources, windowKey)}
+        write={(w) =>
+          runAction(ctx, {
+            kind: 'SetState',
+            key: windowKey,
+            value: { offset: w.offset, count: w.count },
+          })
+        }
+        renderTable={gridTable}
+      />
+    );
+
   // The paged grid gains ONE wrapper element; an unpaged grid emits
   // byte-identical DOM to before this phase.
-  if (paging === undefined) return gridTable;
+  if (paging === undefined) return gridBody;
   return (
     <div className="fuaran-grid-paged">
-      {gridTable}
+      {gridBody}
       {pager()}
+    </div>
+  );
+};
+
+// ─── The window viewport (Phase 1892 — viewport-driven window requests) ─────
+//
+// The interactive half of `windowStateKey`: the grid renders inside a vertical
+// scroll container and WRITES `{"offset", "count"}` to the key — on mount, and
+// whenever the first visible row or the number of visible rows changes — through
+// the same SetState route the pager's `{"page": N}` takes. It never writes an
+// unchanged window, so a write that re-renders the grid cannot loop. The scroll
+// extent of the whole range is kept by a spacer row before the window and one
+// after it (none after where the total is unknown), so the scrollbar describes
+// the set rather than the window. A static render runs no effect and therefore
+// writes nothing. No `fuaran-*` class is minted: the container and spacers are
+// structure, styled inline, so the server renderer's class set is unchanged.
+
+/** The row height assumed until a rendered row can be measured (e.g. under jsdom). */
+const DEFAULT_WINDOW_ROW_HEIGHT_PX = 32;
+/** The viewport's height bound, and the height assumed where none is measurable. */
+const WINDOW_VIEWPORT_MAX_HEIGHT_PX = 480;
+
+const sameWindow = (a: RowWindow | undefined, b: RowWindow): boolean =>
+  a !== undefined && a.offset === b.offset && a.count === b.count;
+
+const GridWindowViewport = ({
+  offset,
+  presentedCount,
+  total,
+  colSpan,
+  current,
+  write,
+  renderTable,
+}: {
+  readonly offset: number;
+  readonly presentedCount: number;
+  readonly total: number | undefined;
+  readonly colSpan: number;
+  readonly current: RowWindow | undefined;
+  readonly write: (w: RowWindow) => void;
+  readonly renderTable: (before?: ReactNode, after?: ReactNode) => ReactElement;
+}): ReactElement => {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [rowHeight, setRowHeight] = useState(DEFAULT_WINDOW_ROW_HEIGHT_PX);
+  const lastWritten = useRef<RowWindow | undefined>(undefined);
+
+  const measure = (): void => {
+    const el = ref.current;
+    if (el === null) return;
+    const row = el.querySelector('tbody > tr.fuaran-grid-row');
+    const measured = row !== null ? row.getBoundingClientRect().height : 0;
+    const height = measured > 0 ? measured : rowHeight;
+    if (measured > 0 && measured !== rowHeight) setRowHeight(measured);
+    const head = el.querySelector('thead');
+    const headHeight = head !== null ? head.getBoundingClientRect().height : 0;
+    const viewport = el.clientHeight > 0 ? el.clientHeight : WINDOW_VIEWPORT_MAX_HEIGHT_PX;
+    const next: RowWindow = {
+      offset: Math.max(0, Math.floor((el.scrollTop - headHeight) / height)),
+      count: Math.max(1, Math.ceil(viewport / height)),
+    };
+    if (sameWindow(lastWritten.current, next) || sameWindow(current, next)) return;
+    lastWritten.current = next;
+    write(next);
+  };
+  const measureRef = useRef(measure);
+  measureRef.current = measure;
+
+  // After every render: a re-render with an unchanged viewport writes nothing.
+  useEffect(() => measureRef.current());
+  // A resized viewport changes the visible count.
+  useEffect(() => {
+    const el = ref.current;
+    if (el === null || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(() => measureRef.current());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const spacer = (rows: number): ReactNode =>
+    rows > 0 ? (
+      <tr aria-hidden="true" style={{ height: `${rows * rowHeight}px` }}>
+        <td colSpan={colSpan} />
+      </tr>
+    ) : undefined;
+  const trailing = total !== undefined ? Math.max(0, total - offset - presentedCount) : 0;
+  return (
+    <div
+      ref={ref}
+      style={{ overflowY: 'auto', maxHeight: `${WINDOW_VIEWPORT_MAX_HEIGHT_PX}px` }}
+      onScroll={() => measureRef.current()}
+    >
+      {renderTable(spacer(offset), spacer(trailing))}
     </div>
   );
 };
@@ -524,7 +649,7 @@ const pageCountOf = (pageSize: number, rowCount: number): number =>
 const clampPage = (pageSize: number, page: number, rowCount: number): number =>
   Math.min(Math.max(1, page), pageCountOf(pageSize, rowCount));
 
-const sliceRowsToPage = (
+export const sliceRowsToPage = (
   pageSize: number,
   page: number,
   rows: readonly unknown[],
@@ -534,6 +659,196 @@ const sliceRowsToPage = (
   const start = (clamped - 1) * pageSize;
   return rows.slice(start, start + pageSize);
 };
+
+// ─── The row window (Phase 1892 — `windowStateKey` / `rowTotal`) ────────────
+//
+// Parity-locked with F# `BindingResolver.windowOfJVal` / `readWindowDescriptor`
+// / `sourceHostWindowsOn` / `resolveRowTotal` / `presentWindow` /
+// `declaredPageCount` / `gridHostWindows` / `gridPage` / `gridWindow` /
+// `windowRowCount` / `windowRowIndex`. The fourth instance of the grid-behaviour
+// rule, shaped like the page machinery above: the grid names a State key, the
+// runtime reads a VALIDATED descriptor from it, the renderer writes it as the
+// viewport moves. One definition serves both render legs (the server renderer
+// imports these), so the two cannot disagree about which rows are in a window.
+//
+// Who slices extends the page rule by one key: a `Query` whose `dependsOn`
+// names the window key returns the window itself, so the grid slices nothing
+// and its total is the one the document DECLARES through `rowTotal`. Otherwise
+// the grid holds the rows it presents and windows them, and their count is the
+// total.
+
+/** A usable window descriptor: the 0-based offset of the first row, and how many rows. */
+export interface RowWindow {
+  readonly offset: number;
+  readonly count: number;
+}
+
+/**
+ * What a grid presents once the window is applied: the rows, the index of the
+ * first of them in the range the window moves over, that range's size where it
+ * is known, and whether a window is in effect at all.
+ */
+export interface PresentedWindow<T> {
+  readonly rows: readonly T[];
+  readonly offset: number;
+  readonly total: number | undefined;
+  readonly windowed: boolean;
+}
+
+/** A JSON integer — `2.0` parses to `2`, so a number with no fractional part. */
+const integerOf = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isInteger(value) ? value : undefined;
+
+/**
+ * Validate a RAW window descriptor: usable only as an object whose `offset` is
+ * an integer >= 0 and whose `count` an integer >= 1. Every other shape is NO
+ * window — the honest default, so no malformed value can hide a row.
+ */
+export const windowOfValue = (raw: unknown): RowWindow | undefined => {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const rec = raw as Record<string, unknown>;
+  const offset = integerOf(rec['offset']);
+  const count = integerOf(rec['count']);
+  if (offset === undefined || count === undefined || offset < 0 || count < 1) return undefined;
+  return { offset, count };
+};
+
+/** Read the window descriptor carried at `key` in the State store. */
+export const readWindowDescriptor = (sources: BindingSources, key: string): RowWindow | undefined =>
+  windowOfValue(sources.state?.[key]);
+
+/** Does this source window HOST-side? The page rule's test, on the window key. */
+export const sourceHostWindowsOn = (
+  source: Binding<readonly unknown[]>,
+  windowKey: string,
+): boolean => sourceHostPagesOn(source, windowKey);
+
+/** A RAW resolved row total: an integer >= 0, or undefined — unknown, never guessed. */
+export const rowTotalOfValue = (raw: unknown): number | undefined => {
+  const n = integerOf(raw);
+  return n !== undefined && n >= 0 ? n : undefined;
+};
+
+/**
+ * Resolve a declared `rowTotal` binding to an integer >= 0, or undefined. A
+ * `Transform` / `Expr` total resolves through the scalar-slot path; every other
+ * binding resolves as the renderer resolves it anywhere, and the value is then
+ * validated rather than trusted — a fractional or negative total is no total.
+ */
+export const resolveRowTotal = (
+  sources: BindingSources,
+  rowTotal: Binding<number> | undefined,
+): number | undefined => {
+  if (rowTotal === undefined) return undefined;
+  const r = resolveScalarFloat(sources, rowTotal);
+  return r.kind === 'Resolved' ? rowTotalOfValue(r.value) : undefined;
+};
+
+/**
+ * The window a grid presents over `range` — the rows it holds after sort and
+ * page. A host-windowed grid slices nothing: `range` IS the host's window, its
+ * position is the descriptor's offset (0 where there is none yet) and its total
+ * the declared one. Otherwise the offset CLAMPS to
+ * `min(offset, max(0, n - count))`, so a window past the end presents the last
+ * full window, and the total is the range's own row count.
+ */
+export const presentWindow = <T,>(
+  hostWindows: boolean,
+  declaredTotal: number | undefined,
+  window: RowWindow | undefined,
+  range: readonly T[],
+): PresentedWindow<T> => {
+  if (hostWindows)
+    return { rows: range, offset: window?.offset ?? 0, total: declaredTotal, windowed: true };
+  const n = range.length;
+  if (window === undefined) return { rows: range, offset: 0, total: n, windowed: false };
+  const offset = Math.min(window.offset, Math.max(0, n - window.count));
+  return { rows: range.slice(offset, offset + window.count), offset, total: n, windowed: true };
+};
+
+/** The page count a HOST-paged grid can state once its total is declared. */
+export const declaredPageCount = (
+  pageSize: number,
+  declaredTotal: number | undefined,
+): number | undefined =>
+  declaredTotal === undefined ? undefined : pageCountOf(pageSize, declaredTotal);
+
+/** Does this grid's HOST return the window? Then the grid slices neither a page nor a window. */
+export const gridHostWindows = <TMsg,>(spec: GridSpec<TMsg>): boolean =>
+  spec.windowStateKey !== undefined && sourceHostWindowsOn(spec.source, spec.windowStateKey);
+
+/** The page a paged grid shows, and the last page it can name (undefined: previous/next only). */
+export interface GridPage {
+  readonly key: string;
+  readonly size: number;
+  readonly page: number;
+  readonly hostPages: boolean;
+  readonly lastPage: number | undefined;
+}
+
+/**
+ * The page rule plus the declared total. A client-paged grid counts its own
+ * rows; a HOST-paged grid clamps and states a page count only when the document
+ * declares `rowTotal`, and otherwise keeps to previous/next. Undefined for a
+ * grid that does not page.
+ */
+export const gridPage = <TMsg,>(
+  sources: BindingSources,
+  spec: GridSpec<TMsg>,
+  rowCount: number,
+): GridPage | undefined => {
+  if (spec.pageStateKey === undefined || spec.pageSize === undefined || spec.pageSize <= 0)
+    return undefined;
+  const key = spec.pageStateKey;
+  const size = spec.pageSize;
+  const hostPages = sourceHostPagesOn(spec.source, key);
+  const requested = readPageDescriptor(sources, key);
+  const lastPage = hostPages
+    ? declaredPageCount(size, resolveRowTotal(sources, spec.rowTotal))
+    : pageCountOf(size, rowCount);
+  const page =
+    lastPage !== undefined ? Math.min(Math.max(1, requested), lastPage) : Math.max(1, requested);
+  return { key, size, page, hostPages, lastPage };
+};
+
+/**
+ * The window a grid presents over `range`, or undefined for a grid naming no
+ * window key. The declared total is read only where the host windows.
+ */
+export const gridWindow = <TMsg, T>(
+  sources: BindingSources,
+  spec: GridSpec<TMsg>,
+  range: readonly T[],
+): PresentedWindow<T> | undefined => {
+  if (spec.windowStateKey === undefined) return undefined;
+  const hostWindows = sourceHostWindowsOn(spec.source, spec.windowStateKey);
+  const declared = hostWindows ? resolveRowTotal(sources, spec.rowTotal) : undefined;
+  return presentWindow(
+    hostWindows,
+    declared,
+    readWindowDescriptor(sources, spec.windowStateKey),
+    range,
+  );
+};
+
+/**
+ * The table's `aria-rowcount` where a window is in effect: the total plus the
+ * header row, or -1 where the total is unknown. Undefined otherwise, so an
+ * unwindowed grid's markup is unchanged.
+ */
+export const windowRowCount = <T,>(window: PresentedWindow<T> | undefined): number | undefined =>
+  window === undefined || !window.windowed
+    ? undefined
+    : window.total !== undefined
+      ? window.total + 1
+      : -1;
+
+/** A presented row's `aria-rowindex` (0-based index in the range plus 2), or undefined. */
+export const windowRowIndex = <T,>(
+  window: PresentedWindow<T> | undefined,
+  rowIndex: number,
+): number | undefined =>
+  window === undefined || !window.windowed ? undefined : window.offset + rowIndex + 2;
 
 // ─── The grid's whole-rows write destination (Phase 863 / Phase 934) ─────────
 //
@@ -697,7 +1012,7 @@ const compareCells = (a: CellValue, b: CellValue): number => {
   return cellSortRank(a) - cellSortRank(b);
 };
 
-const sortRowsByDescriptor = <TMsg,>(
+export const sortRowsByDescriptor = <TMsg,>(
   columns: readonly ColumnErased<TMsg>[],
   descriptor: readonly [number, SortDirection] | undefined,
   rows: readonly unknown[],

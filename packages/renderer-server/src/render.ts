@@ -114,7 +114,12 @@ import {
   chartLowerSpecOf,
   codeHighlight,
   drawingSvg,
+  gridHostWindows,
+  gridPage,
+  gridWindow,
   mathMl,
+  windowRowCount,
+  windowRowIndex,
 } from '@fuaran-ui/renderer';
 // Phase 1075 — the `Binding.State` seeding pass. One definition, shared with
 // the client renderer, so the two tiers cannot drift on the charter's §4/§5.
@@ -2669,27 +2674,22 @@ const renderGrid = (
   // The wire declaration is this phase's; what a static host renders for a
   // bound grid more broadly is Phase 668's, and this follows 818's shipped
   // precedent rather than pre-empting it.
-  const paging =
-    spec.pageStateKey !== undefined && spec.pageSize !== undefined && spec.pageSize > 0
-      ? (() => {
-          const key = spec.pageStateKey;
-          const size = spec.pageSize;
-          const hostPages = sourceHostPagesOn(spec.source, key);
-          const requested = readPageDescriptor(ctx.sources, key);
-          return {
-            size,
-            hostPages,
-            page: hostPages
-              ? Math.max(1, requested)
-              : Math.min(Math.max(1, requested), pageCountOf(size, sorted.length)),
-            lastPage: hostPages ? undefined : pageCountOf(size, sorted.length),
-          };
-        })()
-      : undefined;
-  const rows =
-    paging !== undefined && !paging.hostPages
-      ? sliceRowsToPage(paging.size, paging.page, sorted)
-      : sorted;
+  //
+  // Phase 1892 — the page rule and the row window come from the client
+  // renderer's own functions, so the two surfaces cannot present different
+  // rows: a HOST-paged grid with a declared `rowTotal` states "Page X of N" and
+  // clamps; a grid whose HOST returns the window slices nothing; otherwise the
+  // grid pages, then windows, by the seeded State. The window is a data
+  // operation, so a static host performs it; writing the descriptor is the
+  // interactive half, and this host writes nothing.
+  const paging = gridPage(ctx.sources, spec, sorted.length);
+  const hostWindows = gridHostWindows(spec);
+  const pageSliced = paging !== undefined && !paging.hostPages && !hostWindows;
+  const pagedRows =
+    paging !== undefined && pageSliced ? sliceRowsToPage(paging.size, paging.page, sorted) : sorted;
+  const presented = gridWindow(ctx.sources, spec, pagedRows);
+  const rows = presented !== undefined ? presented.rows : pagedRows;
+  const rowCount = windowRowCount(presented);
   // Phase 663 / 863 / 934 — the two whole-rows affordances, under exactly the
   // conditions the client renderer draws them (`editDestination` /
   // `reorderDestination`, parity-locked with F# `BindingResolver`). The server
@@ -2708,7 +2708,9 @@ const renderGrid = (
     sortDescriptor === undefined &&
     hasGridWriteDestination(spec.reorderable, spec.editStateKey, spec.source);
   const editable = hasGridWriteDestination(spec.editable, spec.editStateKey, spec.source);
-  const rowOffset = paging !== undefined && !paging.hostPages ? (paging.page - 1) * paging.size : 0;
+  const rowOffset =
+    (paging !== undefined && pageSliced ? (paging.page - 1) * paging.size : 0) +
+    (presented !== undefined && !hostWindows ? presented.offset : 0);
   const reorderHeaderCell = reorderable
     ? el('th', [
         ['class', 'fuaran-grid-reorder-header'],
@@ -2761,9 +2763,15 @@ const renderGrid = (
       // This host wires no click, but the class states what the DOCUMENT
       // declared, and the row it marks is the seed the hydrated grid takes
       // over: a marked row here is a row that is about to become clickable.
+      const ariaRowIndex = windowRowIndex(presented, rowIndex);
       return el(
         'tr',
-        [['class', `fuaran-grid-row${gridRowInteractiveClass(spec.onRowClick !== undefined)}`]],
+        [
+          ['class', `fuaran-grid-row${gridRowInteractiveClass(spec.onRowClick !== undefined)}`],
+          ...(ariaRowIndex !== undefined
+            ? ([['aria-rowindex', String(ariaRowIndex)]] as const)
+            : []),
+        ],
         reorderCell(rowIndex) + cells,
       );
     })
@@ -2771,7 +2779,10 @@ const renderGrid = (
   const body = el('tbody', [], bodyRows);
   const table = el(
     'table',
-    [['class', `fuaran-grid${gridPrintBreakClasses(spec.keepRowsTogether, spec.repeatHeader)}`]],
+    [
+      ['class', `fuaran-grid${gridPrintBreakClasses(spec.keepRowsTogether, spec.repeatHeader)}`],
+      ...(rowCount !== undefined ? ([['aria-rowcount', String(rowCount)]] as const) : []),
+    ],
     head + body,
   );
   if (paging === undefined) return table;
@@ -2855,17 +2866,6 @@ const effectiveSortDescriptor = (
 
 // ─── Data-bound grid pagination (Phase 862 — `pageStateKey` / `pageSize`;
 // parity-locked with the client renderer and with F# `BindingResolver`) ──────
-
-const readPageDescriptor = (sources: BindingSources, key: string): number => {
-  const raw = sources.state?.[key];
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return 1;
-  const page = (raw as Record<string, unknown>)['page'];
-  if (typeof page !== 'number' || !Number.isInteger(page) || page < 1) return 1;
-  return page;
-};
-
-const sourceHostPagesOn = (source: Binding<readonly unknown[]>, pageKey: string): boolean =>
-  source.kind === 'Query' && (source.dependsOn ?? []).includes(pageKey);
 
 const pageCountOf = (pageSize: number, rowCount: number): number =>
   pageSize <= 0 ? 1 : Math.max(1, Math.ceil(rowCount / pageSize));

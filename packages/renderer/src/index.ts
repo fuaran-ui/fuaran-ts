@@ -211,6 +211,26 @@ export {
 // fields this renderer does, and a second copy of that decision is how the two
 // surfaces come to draw different pictures from one tree.
 export { chartLowerSpecOf } from './chartLowerSpec.js';
+// Phase 1892 — the grid's row-window rule. Exported for the same reason: the
+// string server renderer slices a windowed grid from the seeded State through
+// the SAME functions, so the two surfaces cannot present different rows.
+export {
+  declaredPageCount,
+  gridHostWindows,
+  gridPage,
+  gridWindow,
+  presentWindow,
+  readWindowDescriptor,
+  resolveRowTotal,
+  rowTotalOfValue,
+  sourceHostWindowsOn,
+  windowOfValue,
+  windowRowCount,
+  windowRowIndex,
+  type GridPage,
+  type PresentedWindow,
+  type RowWindow,
+} from './render/Visualisation.js';
 
 // Isomorphic hydration: in-browser decode (@fuaran-ui/ops) + React hydrateRoot.
 export {
