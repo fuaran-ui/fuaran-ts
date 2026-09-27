@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { mathMl } from '../src/mathMl.js';
+import { createHtml } from '../src/trustedTypes.js';
 
 const tag = (disp: 'block' | 'inline'): string =>
   `<math xmlns="http://www.w3.org/1998/Math/MathML" display="${disp}">`;
@@ -105,5 +106,175 @@ describe('mathMl — out-of-subset → null (the renderer falls back to the sour
     ['\\frac', 'fraction with no arguments'],
   ])('%s → null (%s)', (src) => {
     expect(mathMl(src, 'Inline')).toBeNull();
+  });
+});
+
+// Phase 1853 — the subset grows logic, relations and named terms. Rows 21–49 of the
+// design-doc fixture table, pinned against the SAME strings as the F# MathMlTests.
+const inSubset1853: ReadonlyArray<readonly [number, string, 'Block' | 'Inline', string]> = [
+  [
+    21,
+    '\\forall x.\\ x \\in S \\Rightarrow f(x) \\le c',
+    'Block',
+    '<mo>∀</mo><mi>x</mi><mo>.</mo><mspace width="0.3333em"></mspace><mi>x</mi><mo>∈</mo><mi>S</mi><mo>⇒</mo><mi>f</mi><mrow><mo>(</mo><mi>x</mi><mo>)</mo></mrow><mo>≤</mo><mi>c</mi>',
+  ],
+  [
+    22,
+    '\\exists n, n \\ge 0',
+    'Inline',
+    '<mo>∃</mo><mi>n</mi><mo separator="true">,</mo><mi>n</mi><mo>≥</mo><mn>0</mn>',
+  ],
+  [
+    23,
+    'p \\land q \\lor \\neg r \\iff \\top',
+    'Inline',
+    '<mi>p</mi><mo>∧</mo><mi>q</mi><mo>∨</mo><mo>¬</mo><mi>r</mi><mo>⇔</mo><mi>⊤</mi>',
+  ],
+  [
+    24,
+    '\\Gamma \\vdash e \\mapsto v',
+    'Inline',
+    '<mi>Γ</mi><mo>⊢</mo><mi>e</mi><mo>↦</mo><mi>v</mi>',
+  ],
+  [
+    25,
+    'A \\subseteq B \\cup C \\cap D',
+    'Inline',
+    '<mi>A</mi><mo>⊆</mo><mi>B</mi><mo>∪</mo><mi>C</mi><mo>∩</mo><mi>D</mi>',
+  ],
+  [
+    26,
+    'x \\notin \\emptyset, a \\ne b, a \\equiv b',
+    'Inline',
+    '<mi>x</mi><mo>∉</mo><mi>∅</mi><mo separator="true">,</mo><mi>a</mi><mo>≠</mo><mi>b</mi><mo separator="true">,</mo><mi>a</mi><mo>≡</mo><mi>b</mi>',
+  ],
+  [27, 'a \\lt b \\gt c', 'Inline', '<mi>a</mi><mo>&lt;</mo><mi>b</mi><mo>&gt;</mo><mi>c</mi>'],
+  [28, '2 \\times 3 \\cdot 4', 'Inline', '<mn>2</mn><mo>×</mo><mn>3</mn><mo>⋅</mo><mn>4</mn>'],
+  [
+    29,
+    '\\mathit{unregistered\\_refused}(k) \\to \\bot',
+    'Inline',
+    '<mi mathvariant="italic">unregistered_refused</mi><mrow><mo>(</mo><mi>k</mi><mo>)</mo></mrow><mo>→</mo><mi>⊥</mi>',
+  ],
+  [
+    30,
+    '\\mathrm{Dom}(f) \\subset \\text{Keys}',
+    'Inline',
+    '<mi mathvariant="normal">Dom</mi><mrow><mo>(</mo><mi>f</mi><mo>)</mo></mrow><mo>⊂</mo><mtext>Keys</mtext>',
+  ],
+  [
+    31,
+    'a\\,b\\:c\\;d\\quad e',
+    'Inline',
+    '<mi>a</mi><mspace width="0.1667em"></mspace><mi>b</mi><mspace width="0.2222em"></mspace><mi>c</mi><mspace width="0.2778em"></mspace><mi>d</mi><mspace width="1em"></mspace><mi>e</mi>',
+  ],
+  [
+    32,
+    '[a, b]^2',
+    'Inline',
+    '<msup><mrow><mo>[</mo><mi>a</mi><mo separator="true">,</mo><mi>b</mi><mo>]</mo></mrow><mn>2</mn></msup>',
+  ],
+  [
+    33,
+    '\\{a, b\\}',
+    'Inline',
+    '<mrow><mo>{</mo><mi>a</mi><mo separator="true">,</mo><mi>b</mi><mo>}</mo></mrow>',
+  ],
+  [34, '|x| \\le 1', 'Inline', '<mo>|</mo><mi>x</mi><mo>|</mo><mo>≤</mo><mn>1</mn>'],
+  [35, 'x^{n+1}', 'Inline', '<msup><mi>x</mi><mrow><mi>n</mi><mo>+</mo><mn>1</mn></mrow></msup>'],
+  [
+    36,
+    '\\frac{a+b}{2}',
+    'Block',
+    '<mfrac><mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow><mn>2</mn></mfrac>',
+  ],
+];
+
+describe('mathMl — Phase 1853 in-subset → exact MathML (rows 21–36)', () => {
+  it.each(inSubset1853)('%i. %s → exact MathML', (_n, src, disp, body) => {
+    expect(mathMl(src, disp)).toBe(`${tag(disp === 'Block' ? 'block' : 'inline')}${body}</math>`);
+  });
+
+  it.each([
+    ['\\neg', '\\lnot'],
+    ['\\land', '\\wedge'],
+    ['\\lor', '\\vee'],
+    ['\\Rightarrow', '\\implies'],
+    ['\\Leftrightarrow', '\\iff'],
+    ['\\to', '\\rightarrow'],
+    ['\\le', '\\leq'],
+    ['\\ge', '\\geq'],
+    ['\\ne', '\\neq'],
+  ])('the operator alias %s translates identically to %s', (a, b) => {
+    const ta = mathMl(`x ${a} y`, 'Inline');
+    expect(ta).not.toBeNull();
+    expect(mathMl(`x ${b} y`, 'Inline')).toBe(ta);
+  });
+
+  it('the only character references emitted are &lt; and &gt;', () => {
+    for (const [, src, disp] of inSubset1853) {
+      const markup = mathMl(src, disp);
+      expect(markup).not.toBeNull();
+      expect((markup as string).replaceAll('&lt;', '').replaceAll('&gt;', '')).not.toContain('&');
+    }
+  });
+
+  it('every widened payload is invariant under the sanitising floor', () => {
+    for (const [, src, disp] of inSubset1853) {
+      const markup = mathMl(src, disp) as string;
+      expect(createHtml(markup)).toBe(markup);
+    }
+  });
+});
+
+describe('mathMl — Phase 1853 out-of-subset neighbours → null (rows 37–49)', () => {
+  it.each([
+    ['x > y', 'bare > is not in the alphabet'],
+    ['a & b', 'bare & is not in the alphabet'],
+    ['\\mathit{a b}', 'a named-term argument containing a space'],
+    ['\\mathit{}', 'an empty named-term argument'],
+    ['\\text{a-b}', 'a named-term argument outside [A-Za-z0-9] and \\_'],
+    ['\\forallx', 'unknown command (a command name is the whole letter run)'],
+    ['.5', 'a dot directly followed by a digit outside a number'],
+    ['[a, b)', 'mismatched fences'],
+    ['\\{a}', 'an unclosed set brace'],
+    ['x^{}', 'an empty brace group'],
+    ['|x|^2', 'a script on the bare | operator'],
+    ['\\qquad', '\\qquad is not in the spacing table'],
+    ['\\mathit{a_b}', 'a bare _ in a named-term argument (a subscript in LaTeX; write \\_)'],
+  ])('%s → null (%s)', (src) => {
+    expect(mathMl(src, 'Inline')).toBeNull();
+  });
+
+  // A table lookup must see only the table's OWN entries: an inherited member name
+  // is an unknown command, exactly as the F# `match` treats it.
+  it.each(['\\constructor', '\\toString', '\\valueOf', '\\hasOwnProperty', 'x \\constructor y'])(
+    '%s → null (an inherited Object member is not a table entry)',
+    (src) => {
+      expect(mathMl(src, 'Inline')).toBeNull();
+    },
+  );
+
+  it.each([
+    '\\',
+    '\\ ',
+    '\\{',
+    '\\}',
+    '\\mathit',
+    '\\mathit{',
+    '\\mathit{a',
+    '\\text{}',
+    '[',
+    ']',
+    '[a',
+    'a]',
+    '\\{a\\}\\}',
+    '.',
+    ',',
+    '|',
+    '\\lt',
+    '\\forall',
+  ])('%s never throws', (src) => {
+    expect(() => mathMl(src, 'Inline')).not.toThrow();
   });
 });

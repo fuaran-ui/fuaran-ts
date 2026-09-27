@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { enhanceMath, parseMathSegments } from '../src/enhanceMath.js';
+import { mathMl } from '../src/mathMl.js';
 
 describe('parseMathSegments', () => {
   it('returns a single text segment when there is no math', () => {
@@ -108,6 +109,40 @@ describe('enhanceMath — Math nodes (Phase 658: container-targeted, wholesale)'
     const first = document.querySelector('.fuaran-math')!.innerHTML;
     enhanceMath(document.body);
     expect(document.querySelector('.fuaran-math')!.innerHTML).toBe(first);
+  });
+
+  // Phase 1853 — the widened subset changed only the MathML INSIDE the container,
+  // never the container, so the enhancement is unchanged: it reads the LaTeX from
+  // `data-fuaran-math-src`, replaces the widened MathML wholesale, and a second pass
+  // leaves it byte-identical.
+  it.each([
+    ['\\forall x.\\ x \\in S \\Rightarrow f(x) \\le c', true],
+    ['\\mathit{unregistered\\_refused}(k) \\lt \\mathrm{Dom} \\subset \\text{Keys}', false],
+  ])('upgrades a widened-subset MathML container wholesale and idempotently: %s', (src, block) => {
+    const markup = mathMl(src, block ? 'Block' : 'Inline');
+    expect(markup).not.toBeNull();
+    const container = document.createElement(block ? 'div' : 'span');
+    container.className = block
+      ? 'fuaran-math fuaran-math-block'
+      : 'fuaran-math fuaran-math-inline';
+    container.setAttribute('data-math-display', block ? 'block' : 'inline');
+    container.setAttribute('data-fuaran-math-src', src);
+    container.innerHTML = markup as string;
+    document.body.replaceChildren(container);
+    // the deterministic tier really is the widened MathML before the pass
+    expect(container.querySelector(':scope > math mo')).not.toBeNull();
+
+    enhanceMath(document.body);
+    expect(container.querySelector('.katex')).not.toBeNull();
+    // wholesale: the deterministic <math> child is gone (KaTeX's own MathML lives
+    // inside its `.katex` root, never as a direct child of the container)
+    expect(container.querySelector(':scope > math')).toBeNull();
+    expect(container.getAttribute('data-fuaran-math-done')).toBe('');
+    expect(container.querySelector('.katex-display') !== null).toBe(block);
+
+    const first = container.innerHTML;
+    enhanceMath(document.body);
+    expect(container.innerHTML).toBe(first);
   });
 });
 
