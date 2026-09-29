@@ -24,7 +24,7 @@ import type {
   Node,
   TextSource,
 } from '@fuaran-ui/schema';
-import type { ChartSpec, ColumnType, GridSpec, Result } from '@fuaran-ui/schema';
+import type { ChartSpec, ColumnErased, ColumnType, GridSpec, Result } from '@fuaran-ui/schema';
 import { defaults } from '@fuaran-ui/schema';
 
 import {
@@ -228,16 +228,53 @@ export type PreEmitDefect =
     }
   /**
    * FUARAN114 (error) — a grid column's `field`, or the grid's `rowKeyField`,
-   * names a column its own `Transform` source cannot produce: the cell renders
-   * blank, or every row keys off one empty string. The read-side twin of
-   * FUARAN086, over the same walk and by the same restraint.
+   * names a column its own `Transform` source cannot produce: whatever reads the
+   * name (a cell that displays the field, sort, export) reads nothing, or every
+   * row keys off one empty string. The read-side twin of FUARAN086, over the
+   * same walk and by the same restraint. Phase 1909: an action column's field is
+   * never grounded (FUARAN163 below).
    */
   | {
       readonly code: 'GRID_FIELD_UNGROUNDED';
       readonly nodeId: string;
       readonly field: string;
       readonly schemaColumns: readonly string[];
+    }
+  /**
+   * FUARAN114 (error), the `TonedPill` sub-case (Phase 1909) — a column's
+   * `TonedPill` cell names, in its OWN `field`, a column the grid's source
+   * cannot produce. The field is the pill's label and its tone key, so every row
+   * draws an empty pill in the default tone. Same window, same repair as
+   * FUARAN114, so the same code; the column label locates the cell.
+   */
+  | {
+      readonly code: 'GRID_PILL_FIELD_UNGROUNDED';
+      readonly nodeId: string;
+      readonly columnLabel: string;
+      readonly field: string;
+      readonly schemaColumns: readonly string[];
+    }
+  /**
+   * FUARAN163 (warning, Phase 1909) — an ACTION column (cell kind `Button` /
+   * `ButtonGroup`) declares a `field`. The cell draws its own label and hands
+   * the whole row to its handler, so the field is never displayed, and sort
+   * and export ignore it: drop it. An action column carries no field.
+   */
+  | {
+      readonly code: 'ACTION_COLUMN_FIELD';
+      readonly nodeId: string;
+      readonly columnLabel: string;
+      readonly field: string;
     };
+
+/**
+ * Phase 1909 — an ACTION column: cell kind `Button` or `ButtonGroup`. Its cell
+ * never displays the column's `field`, so no rule grounds that field, and sort
+ * and export ignore it (the renderer's `Visualisation.tsx` reads the same kind
+ * test). Parity with the reference's `GridColumn.isAction`.
+ */
+const isActionColumn = <TMsg>(col: ColumnErased<TMsg>): boolean =>
+  col.kind.kind === 'Button' || col.kind.kind === 'ButtonGroup';
 
 /**
  * The schema a reader's `source` slot PRODUCES, when that slot is a non-live
@@ -360,8 +397,29 @@ function runPreEmit<TMsg>(
       if (!schemaHas(field, produced))
         defects.push({ code: 'GRID_FIELD_UNGROUNDED', nodeId, field, schemaColumns });
     };
-    for (const c of spec.columns) if (c.field !== undefined) ground(c.field);
+    // Phase 1909 — an action column's field is read by nothing, so it is not
+    // grounded; a TonedPill's OWN field is a column reference and is (FUARAN114's
+    // sub-case), in the reference's order: each column's field, then its pill.
+    for (const c of spec.columns) {
+      if (c.field !== undefined && !isActionColumn(c)) ground(c.field);
+      if (c.kind.kind === 'TonedPill' && !schemaHas(c.kind.field, produced))
+        defects.push({
+          code: 'GRID_PILL_FIELD_UNGROUNDED',
+          nodeId,
+          columnLabel: c.label,
+          field: c.kind.field,
+          schemaColumns,
+        });
+    }
     if (spec.rowKeyField !== undefined) ground(spec.rowKeyField);
+  };
+
+  // FUARAN163 (Phase 1909): a declared field on an action column does nothing.
+  // Independent of the source — the field is dead whatever the grid reads.
+  const checkActionColumns = (nodeId: string, spec: GridSpec<TMsg>): void => {
+    for (const c of spec.columns)
+      if (isActionColumn(c) && c.field !== undefined)
+        defects.push({ code: 'ACTION_COLUMN_FIELD', nodeId, columnLabel: c.label, field: c.field });
   };
 
   // ── The accessibility family (FUARAN109/110/111) ───────────────────────────
@@ -677,6 +735,7 @@ function runPreEmit<TMsg>(
         if (vis.kind === 'Grid') {
           const spec = vis.spec;
           onReader?.(n.id, { reader: 'DataGrid', source: spec.source as Binding<unknown> });
+          checkActionColumns(n.id, spec);
           checkGridGrounding(n.id, spec);
           const destination = spec.editStateKey !== undefined || spec.source.kind === 'State';
           if (spec.editable && !destination) {
@@ -947,9 +1006,29 @@ const referenceSlots = (
     return [...x, ...ys];
   }
   const colsRaw = kind['columns'];
+  const cellTypeOf = (c: JsonObject): string | undefined => {
+    const k = c['kind'];
+    return isObject(k) ? str(k['$type']) : undefined;
+  };
+  // Phase 1909 — FUARAN114's TonedPill sub-case names the cell's OWN field.
+  if (rule === 'FUARAN114-pill')
+    return Array.isArray(colsRaw)
+      ? colsRaw.flatMap((c, i) => {
+          if (!isObject(c) || cellTypeOf(c) !== 'TonedPill') return [];
+          const k = c['kind'] as JsonObject;
+          const f = str(k['field']);
+          return f === undefined
+            ? []
+            : [{ field: f, path: `${kindPath}.columns[${i}].kind.field` }];
+        })
+      : [];
+  // An action column's field is never grounded, so it is no slot a finding is about.
   const cols = Array.isArray(colsRaw)
     ? colsRaw.flatMap((c, i) => {
-        const f = isObject(c) ? str(c['field']) : undefined;
+        if (!isObject(c)) return [];
+        const t = cellTypeOf(c);
+        if (t === 'Button' || t === 'ButtonGroup') return [];
+        const f = str(c['field']);
         return f === undefined ? [] : [{ field: f, path: `${kindPath}.columns[${i}].field` }];
       })
     : [];
@@ -960,7 +1039,9 @@ const referenceSlots = (
 /** The FUARAN code and the reader a grounding defect is about, or undefined for any other defect. */
 const groundingOf = (
   d: PreEmitDefect,
-): { code: string; reader: 'Chart' | 'DataGrid'; nodeId: string; field: string } | undefined => {
+):
+  | { code: string; rule?: string; reader: 'Chart' | 'DataGrid'; nodeId: string; field: string }
+  | undefined => {
   switch (d.code) {
     case 'CHART_FIELD_UNGROUNDED':
       return { code: 'FUARAN086', reader: 'Chart', nodeId: d.nodeId, field: d.field };
@@ -970,6 +1051,14 @@ const groundingOf = (
       return { code: 'FUARAN097', reader: 'Chart', nodeId: d.nodeId, field: d.field };
     case 'GRID_FIELD_UNGROUNDED':
       return { code: 'FUARAN114', reader: 'DataGrid', nodeId: d.nodeId, field: d.field };
+    case 'GRID_PILL_FIELD_UNGROUNDED':
+      return {
+        code: 'FUARAN114',
+        rule: 'FUARAN114-pill',
+        reader: 'DataGrid',
+        nodeId: d.nodeId,
+        field: d.field,
+      };
     default:
       return undefined;
   }
@@ -1033,7 +1122,7 @@ export function bindingChecks<TMsg>(node: Node<TMsg>, document: unknown): readon
       const diagnostics = findings.flatMap((d) => {
         const g = groundingOf(d);
         return g !== undefined && g.nodeId === id && g.reader === reader
-          ? [{ code: g.code, path: locate(g.code, g.field), defect: d }]
+          ? [{ code: g.code, path: locate(g.rule ?? g.code, g.field), defect: d }]
           : [];
       });
 

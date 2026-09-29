@@ -313,7 +313,13 @@ const renderGrid = <TMsg,>(
     // Phase 861 — the column flag NARROWS, never widens: absent inherits,
     // `false` opts out, and `true` cannot turn the affordance on where the grid
     // names no sort state key (FUARAN094 refuses that pre-emit).
-    if (spec.sortStateKey === undefined || col.field === undefined || col.sortable === false) {
+    // Phase 1909 — read through `dataFieldOf`, so an action column (Button /
+    // ButtonGroup) never offers a sort, even where a tree still declares a field.
+    if (
+      spec.sortStateKey === undefined ||
+      dataFieldOf(col) === undefined ||
+      col.sortable === false
+    ) {
       return (
         <th key={colIndex} className="fuaran-grid-header">
           {col.label}
@@ -1012,6 +1018,18 @@ const compareCells = (a: CellValue, b: CellValue): number => {
   return cellSortRank(a) - cellSortRank(b);
 };
 
+/**
+ * Phase 1909 — the field a column's DATA is read through: what sort keys off.
+ * `undefined` on an ACTION column (cell kind `Button` / `ButtonGroup`), whose
+ * cell draws its own label and never displays a field — an action column
+ * carries no field, and a pre-existing tree that still declares one keeps
+ * rendering while sort ignores it. Parity with the reference's
+ * `GridColumn.dataField`; this host draws no export control, so sort is the
+ * only reader.
+ */
+export const dataFieldOf = <TMsg,>(col: ColumnErased<TMsg>): string | undefined =>
+  col.kind.kind === 'Button' || col.kind.kind === 'ButtonGroup' ? undefined : col.field;
+
 export const sortRowsByDescriptor = <TMsg,>(
   columns: readonly ColumnErased<TMsg>[],
   descriptor: readonly [number, SortDirection] | undefined,
@@ -1019,7 +1037,9 @@ export const sortRowsByDescriptor = <TMsg,>(
 ): readonly unknown[] => {
   if (descriptor === undefined) return rows;
   const [colIndex, direction] = descriptor;
-  const field = columns[colIndex]?.field;
+  const col = columns[colIndex];
+  // Phase 1909 — an action column sorts nothing, whatever field it declares.
+  const field = col === undefined ? undefined : dataFieldOf(col);
   if (field === undefined) return rows;
   const keyed = rows.map((r) => [projectRowFieldValue(r, field), r] as const);
   keyed.sort(([ka], [kb]) => {
