@@ -31,11 +31,13 @@ function textOf(result: Awaited<ReturnType<Client['callTool']>>): string {
 }
 
 describe('the fuaran MCP server over the wire', () => {
-  it('exposes exactly the six tools, none taking a credential argument', async () => {
+  it('exposes exactly the seven tools, none taking a credential argument', async () => {
     const client = await connect({ config: {} });
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
       'fuaran_ask',
+      // Phase 1914 — JSON Schema -> Form, the reference host's formFromSchema.
+      'fuaran_formFromSchema',
       'fuaran_generate',
       // Phase 1547 — the introspection snapshot, with text provenance.
       'fuaran_inspect',

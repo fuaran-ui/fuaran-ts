@@ -211,6 +211,9 @@ importers:
       '@fuaran-ui/schema':
         specifier: workspace:^
         version: link:../schema
+      '@fuaran-ui/ui':
+        specifier: workspace:^
+        version: link:../ui
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@3.25.76)
@@ -224,9 +227,6 @@ importers:
       '@fuaran-ui/renderer':
         specifier: workspace:*
         version: link:../renderer
-      '@fuaran-ui/ui':
-        specifier: workspace:*
-        version: link:../ui
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.19
@@ -487,6 +487,9 @@ importers:
       '@fuaran-ui/core-twins':
         specifier: workspace:*
         version: link:../core-twins
+      '@fuaran-ui/ops':
+        specifier: workspace:*
+        version: link:../ops
       '@fuaran-ui/schema':
         specifier: workspace:*
         version: link:../schema

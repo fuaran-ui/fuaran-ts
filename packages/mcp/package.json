@@ -49,12 +49,12 @@
     "@fuaran-ui/ops": "workspace:^",
     "@fuaran-ui/renderer-server": "workspace:^",
     "@fuaran-ui/schema": "workspace:^",
+    "@fuaran-ui/ui": "workspace:^",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@fuaran-ui/renderer": "workspace:*",
-    "@fuaran-ui/ui": "workspace:*",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

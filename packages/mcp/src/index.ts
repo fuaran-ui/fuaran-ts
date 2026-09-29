@@ -50,4 +50,10 @@ export {
   type ScaffoldTarget,
   type ScaffoldPattern,
 } from './tools/scaffold.js';
+export {
+  runFormFromSchema,
+  FORM_FROM_SCHEMA_TOOL,
+  type FormFromSchemaArgs,
+  type FormFromSchemaResult,
+} from './tools/formFromSchema.js';
 export type { RecipeEntry } from './recipeTypes.js';

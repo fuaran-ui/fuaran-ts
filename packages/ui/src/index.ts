@@ -14,3 +14,4 @@ export * from './preEmitValidate.js';
 export * from './compute.js';
 export * from './capability.js';
 export * from './function.js';
+export * from './schemaForm.js';

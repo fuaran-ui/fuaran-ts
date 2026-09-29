@@ -1,0 +1,491 @@
+{
+  "about": "Phase 1914 - the schema-to-form parity table, a PAIRED test table: each schema (as text) with the outcome the reference host (Fuaran.UI.SchemaForm, Phase 1816) derives from it - the Form's canonical wire, or the refusal envelope. Certified by schemaForm.parity.certify.fsx; asserted byte-for-byte by schemaForm.test.ts. Never hand-edit 'outcome' or 'wire'.",
+  "cases": [
+    {
+      "name": "string-text",
+      "schema": "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"name\",\"kind\":{\"$type\":\"Text\"},\"label\":\"name\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "string-textarea-past-threshold",
+      "schema": "{\"type\":\"object\",\"properties\":{\"bio\":{\"type\":\"string\",\"maxLength\":201}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"bio\",\"kind\":{\"$type\":\"TextArea\",\"rows\":4},\"label\":\"bio\",\"required\":false,\"rule\":{\"maxLength\":201}}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "string-text-at-threshold",
+      "schema": "{\"type\":\"object\",\"properties\":{\"bio\":{\"type\":\"string\",\"maxLength\":200}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"bio\",\"kind\":{\"$type\":\"Text\"},\"label\":\"bio\",\"required\":false,\"rule\":{\"maxLength\":200}}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "string-format-date",
+      "schema": "{\"type\":\"object\",\"properties\":{\"d\":{\"type\":\"string\",\"format\":\"date\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"d\",\"kind\":{\"$type\":\"DateTime\",\"variant\":\"Date\"},\"label\":\"d\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "string-format-time",
+      "schema": "{\"type\":\"object\",\"properties\":{\"t\":{\"type\":\"string\",\"format\":\"time\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"t\",\"kind\":{\"$type\":\"DateTime\",\"variant\":\"Time\"},\"label\":\"t\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "string-format-date-time",
+      "schema": "{\"type\":\"object\",\"properties\":{\"dt\":{\"type\":\"string\",\"format\":\"date-time\",\"default\":\"2026-01-02T03:04\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"dt\",\"kind\":{\"$type\":\"DateTime\",\"value\":{\"$type\":\"State\",\"defaultValue\":\"2026-01-02T03:04\",\"key\":\"dt\"},\"variant\":\"DateTime\"},\"label\":\"dt\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "string-format-color",
+      "schema": "{\"type\":\"object\",\"properties\":{\"c\":{\"type\":\"string\",\"format\":\"color\",\"default\":\"#AbCdEf\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"c\",\"kind\":{\"$type\":\"Color\",\"value\":{\"$type\":\"State\",\"defaultValue\":\"#AbCdEf\",\"key\":\"c\"}},\"label\":\"c\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "string-format-email",
+      "schema": "{\"type\":\"object\",\"properties\":{\"e\":{\"type\":\"string\",\"format\":\"email\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"e\",\"kind\":{\"$type\":\"Text\"},\"label\":\"e\",\"required\":false,\"rule\":{\"format\":\"email\"}}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "string-format-uri-long-stays-text",
+      "schema": "{\"type\":\"object\",\"properties\":{\"u\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":500}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"u\",\"kind\":{\"$type\":\"Text\"},\"label\":\"u\",\"required\":false,\"rule\":{\"format\":\"url\",\"maxLength\":500}}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "string-rule-slots",
+      "schema": "{\"type\":\"object\",\"properties\":{\"code\":{\"type\":\"string\",\"minLength\":2,\"maxLength\":8,\"pattern\":\"^[A-Z]+$\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"code\",\"kind\":{\"$type\":\"Text\"},\"label\":\"code\",\"required\":false,\"rule\":{\"maxLength\":8,\"minLength\":2,\"pattern\":\"^[A-Z]+$\"}}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "number-unbounded",
+      "schema": "{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"number\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"n\",\"kind\":{\"$type\":\"Number\"},\"label\":\"n\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "number-min-only",
+      "schema": "{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"number\",\"minimum\":0.5}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"n\",\"kind\":{\"$type\":\"RangedNumber\",\"min\":0.5},\"label\":\"n\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "number-max-and-multipleOf",
+      "schema": "{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"number\",\"maximum\":10,\"multipleOf\":0.25,\"default\":2.5}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"n\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":10,\"step\":0.25,\"value\":{\"$type\":\"State\",\"defaultValue\":2.5,\"key\":\"n\"}},\"label\":\"n\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "integer-unbounded-steps-by-one",
+      "schema": "{\"type\":\"object\",\"properties\":{\"i\":{\"type\":\"integer\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"i\",\"kind\":{\"$type\":\"RangedNumber\",\"step\":1},\"label\":\"i\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "integer-multipleOf",
+      "schema": "{\"type\":\"object\",\"properties\":{\"i\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":100,\"multipleOf\":5,\"default\":20}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"i\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":100,\"min\":0,\"step\":5,\"value\":{\"$type\":\"State\",\"defaultValue\":20,\"key\":\"i\"}},\"label\":\"i\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "integer-exclusive-bounds",
+      "schema": "{\"type\":\"object\",\"properties\":{\"i\":{\"type\":\"integer\",\"exclusiveMinimum\":0,\"exclusiveMaximum\":10.5}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"i\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":10,\"min\":1,\"step\":1},\"label\":\"i\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "integer-exclusive-and-inclusive-tightest-wins",
+      "schema": "{\"type\":\"object\",\"properties\":{\"i\":{\"type\":\"integer\",\"minimum\":3,\"exclusiveMinimum\":1,\"maximum\":7,\"exclusiveMaximum\":9}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"i\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":7,\"min\":3,\"step\":1},\"label\":\"i\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "boolean-checkbox",
+      "schema": "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\",\"default\":true}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"ok\",\"kind\":{\"$type\":\"Checkbox\",\"value\":{\"$type\":\"State\",\"defaultValue\":true,\"key\":\"ok\"}},\"label\":\"ok\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "enum-segmented-at-max",
+      "schema": "{\"type\":\"object\",\"properties\":{\"s\":{\"enum\":[\"a\",\"b\",\"c\",\"d\"],\"default\":\"b\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"s\",\"kind\":{\"$type\":\"SegmentedChoice\",\"options\":{\"$type\":\"Static\",\"value\":[{\"label\":\"a\",\"value\":\"a\"},{\"label\":\"b\",\"value\":\"b\"},{\"label\":\"c\",\"value\":\"c\"},{\"label\":\"d\",\"value\":\"d\"}]},\"orientation\":\"Horizontal\",\"value\":{\"$type\":\"State\",\"defaultValue\":\"b\",\"key\":\"s\"}},\"label\":\"s\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "enum-choice",
+      "schema": "{\"type\":\"object\",\"properties\":{\"s\":{\"type\":\"string\",\"enum\":[\"a\",\"b\",\"c\",\"d\",\"e\"]}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"s\",\"kind\":{\"$type\":\"Choice\",\"options\":{\"$type\":\"Static\",\"value\":[{\"label\":\"a\",\"value\":\"a\"},{\"label\":\"b\",\"value\":\"b\"},{\"label\":\"c\",\"value\":\"c\"},{\"label\":\"d\",\"value\":\"d\"},{\"label\":\"e\",\"value\":\"e\"}]}},\"label\":\"s\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "enum-choice-at-max",
+      "schema": "{\"type\":\"object\",\"properties\":{\"s\":{\"type\":\"string\",\"enum\":[\"0\",\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\",\"10\",\"11\"]}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"s\",\"kind\":{\"$type\":\"Choice\",\"options\":{\"$type\":\"Static\",\"value\":[{\"label\":\"0\",\"value\":\"0\"},{\"label\":\"1\",\"value\":\"1\"},{\"label\":\"2\",\"value\":\"2\"},{\"label\":\"3\",\"value\":\"3\"},{\"label\":\"4\",\"value\":\"4\"},{\"label\":\"5\",\"value\":\"5\"},{\"label\":\"6\",\"value\":\"6\"},{\"label\":\"7\",\"value\":\"7\"},{\"label\":\"8\",\"value\":\"8\"},{\"label\":\"9\",\"value\":\"9\"},{\"label\":\"10\",\"value\":\"10\"},{\"label\":\"11\",\"value\":\"11\"}]}},\"label\":\"s\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "enum-combobox",
+      "schema": "{\"type\":\"object\",\"properties\":{\"s\":{\"type\":\"string\",\"enum\":[\"0\",\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\",\"10\",\"11\",\"12\"]}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"s\",\"kind\":{\"$type\":\"Combobox\",\"options\":{\"$type\":\"Static\",\"value\":[{\"label\":\"0\",\"value\":\"0\"},{\"label\":\"1\",\"value\":\"1\"},{\"label\":\"2\",\"value\":\"2\"},{\"label\":\"3\",\"value\":\"3\"},{\"label\":\"4\",\"value\":\"4\"},{\"label\":\"5\",\"value\":\"5\"},{\"label\":\"6\",\"value\":\"6\"},{\"label\":\"7\",\"value\":\"7\"},{\"label\":\"8\",\"value\":\"8\"},{\"label\":\"9\",\"value\":\"9\"},{\"label\":\"10\",\"value\":\"10\"},{\"label\":\"11\",\"value\":\"11\"},{\"label\":\"12\",\"value\":\"12\"}]}},\"label\":\"s\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "array-of-enum-tokens",
+      "schema": "{\"type\":\"object\",\"properties\":{\"tags\":{\"type\":\"array\",\"uniqueItems\":true,\"items\":{\"type\":\"string\",\"enum\":[\"x\",\"y\",\"z\"]},\"default\":[\"z\",\"x\"]}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"tags\",\"kind\":{\"$type\":\"Tokens\",\"allowFreeText\":false,\"suggestions\":{\"$type\":\"Static\",\"value\":[{\"label\":\"x\",\"value\":\"x\"},{\"label\":\"y\",\"value\":\"y\"},{\"label\":\"z\",\"value\":\"z\"}]},\"value\":{\"$type\":\"State\",\"defaultValue\":[\"z\",\"x\"],\"key\":\"tags\"}},\"label\":\"tags\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "nested-object-group",
+      "schema": "{\"type\":\"object\",\"required\":[\"addr\"],\"properties\":{\"addr\":{\"type\":\"object\",\"title\":\"Address\",\"required\":[\"city\"],\"properties\":{\"city\":{\"type\":\"string\",\"title\":\"City\"},\"zip\":{\"type\":\"string\"}}}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"addr.city\",\"kind\":{\"$type\":\"Text\"},\"label\":\"Address: City\",\"required\":true},{\"id\":\"addr.zip\",\"kind\":{\"$type\":\"Text\"},\"label\":\"Address: zip\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "nested-object-optional-no-required",
+      "schema": "{\"type\":\"object\",\"properties\":{\"opt\":{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"boolean\"}}}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"opt.a\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"opt: a\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "required-title-description",
+      "schema": "{\"type\":\"object\",\"required\":[\"name\"],\"properties\":{\"name\":{\"type\":\"string\",\"title\":\"Full name\",\"description\":\"As on your passport\"},\"nick\":{\"type\":\"string\",\"title\":\"\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"help\":\"As on your passport\",\"id\":\"name\",\"kind\":{\"$type\":\"Text\"},\"label\":\"Full name\",\"required\":true},{\"id\":\"nick\",\"kind\":{\"$type\":\"Text\"},\"label\":\"nick\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "ref-local-sibling-title-wins",
+      "schema": "{\"type\":\"object\",\"$defs\":{\"Qty\":{\"type\":\"integer\",\"minimum\":1,\"title\":\"Quantity\"}},\"properties\":{\"q\":{\"$ref\":\"#/$defs/Qty\",\"title\":\"How many\"},\"r\":{\"$ref\":\"#/$defs/Qty\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"q\",\"kind\":{\"$type\":\"RangedNumber\",\"min\":1,\"step\":1},\"label\":\"How many\",\"required\":false},{\"id\":\"r\",\"kind\":{\"$type\":\"RangedNumber\",\"min\":1,\"step\":1},\"label\":\"Quantity\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "ref-chained-and-definitions",
+      "schema": "{\"type\":\"object\",\"definitions\":{\"A\":{\"$ref\":\"#/definitions/B\"},\"B\":{\"type\":\"boolean\"}},\"properties\":{\"a\":{\"$ref\":\"#/definitions/A\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"a\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"a\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "root-ref",
+      "schema": "{\"$ref\":\"#/$defs/Root\",\"$defs\":{\"Root\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"string\"}}}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"x\",\"kind\":{\"$type\":\"Text\"},\"label\":\"x\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "nullable-type-union",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":[\"string\",\"null\"]},\"b\":{\"type\":[\"null\",\"integer\"]}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"a\",\"kind\":{\"$type\":\"Text\"},\"label\":\"a\",\"required\":false},{\"id\":\"b\",\"kind\":{\"$type\":\"RangedNumber\",\"step\":1},\"label\":\"b\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "additional-properties-accepted",
+      "schema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"o\":{\"type\":\"object\",\"additionalProperties\":true,\"properties\":{\"x\":{\"type\":\"number\"}}}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"o.x\",\"kind\":{\"$type\":\"Number\"},\"label\":\"o: x\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "annotations-read-not-rendered",
+      "schema": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"$id\":\"urn:x\",\"$comment\":\"c\",\"title\":\"T\",\"description\":\"D\",\"examples\":[{}],\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"string\",\"examples\":[\"e\"],\"$comment\":\"k\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"x\",\"kind\":{\"$type\":\"Text\"},\"label\":\"x\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "null-member-is-absence",
+      "schema": "{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"string\",\"default\":null,\"title\":null}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"x\",\"kind\":{\"$type\":\"Text\"},\"label\":\"x\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "mixed-order-preserved",
+      "schema": "{\"type\":\"object\",\"properties\":{\"z\":{\"type\":\"boolean\"},\"a\":{\"type\":\"number\"},\"m\":{\"type\":\"string\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"z\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"z\",\"required\":false},{\"id\":\"a\",\"kind\":{\"$type\":\"Number\"},\"label\":\"a\",\"required\":false},{\"id\":\"m\",\"kind\":{\"$type\":\"Text\"},\"label\":\"m\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "escapes-in-labels",
+      "schema": "{\"type\":\"object\",\"properties\":{\"q\\\"uote\":{\"type\":\"string\",\"title\":\"Tab\\there \\\"q\\\" \\\\ é\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"q\\\"uote\",\"kind\":{\"$type\":\"Text\"},\"label\":\"Tab\\u0009here \\\"q\\\" \\\\ é\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "defaults-equal-to-placeholders",
+      "schema": "{\"type\":\"object\",\"properties\":{\"s\":{\"type\":\"string\",\"default\":\"\"},\"b\":{\"type\":\"boolean\",\"default\":false},\"n\":{\"type\":\"number\",\"default\":0},\"i\":{\"type\":\"integer\",\"default\":0},\"t\":{\"type\":\"array\",\"items\":{\"enum\":[\"a\"]},\"default\":[]},\"c\":{\"type\":\"string\",\"format\":\"color\",\"default\":\"#000000\"},\"d\":{\"type\":\"string\",\"format\":\"date\",\"default\":\"\"},\"a\":{\"type\":\"string\",\"maxLength\":999,\"default\":\"\"},\"e\":{\"enum\":[\"x\",\"y\"],\"default\":\"x\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"s\",\"kind\":{\"$type\":\"Text\"},\"label\":\"s\",\"required\":false},{\"id\":\"b\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"b\",\"required\":false},{\"id\":\"n\",\"kind\":{\"$type\":\"Number\"},\"label\":\"n\",\"required\":false},{\"id\":\"i\",\"kind\":{\"$type\":\"RangedNumber\",\"step\":1},\"label\":\"i\",\"required\":false},{\"id\":\"t\",\"kind\":{\"$type\":\"Tokens\",\"allowFreeText\":false,\"suggestions\":{\"$type\":\"Static\",\"value\":[{\"label\":\"a\",\"value\":\"a\"}]}},\"label\":\"t\",\"required\":false},{\"id\":\"c\",\"kind\":{\"$type\":\"Color\"},\"label\":\"c\",\"required\":false},{\"id\":\"d\",\"kind\":{\"$type\":\"DateTime\",\"variant\":\"Date\"},\"label\":\"d\",\"required\":false},{\"id\":\"a\",\"kind\":{\"$type\":\"TextArea\",\"rows\":4},\"label\":\"a\",\"required\":false,\"rule\":{\"maxLength\":999}},{\"id\":\"e\",\"kind\":{\"$type\":\"SegmentedChoice\",\"options\":{\"$type\":\"Static\",\"value\":[{\"label\":\"x\",\"value\":\"x\"},{\"label\":\"y\",\"value\":\"y\"}]},\"orientation\":\"Horizontal\",\"value\":{\"$type\":\"State\",\"defaultValue\":\"x\",\"key\":\"e\"}},\"label\":\"e\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "text-whole-float-default-and-float-count",
+      "schema": "{\"type\":\"object\",\"properties\":{\"i\":{\"type\":\"integer\",\"default\":3.0,\"maximum\":1e1},\"m\":{\"type\":\"string\",\"maxLength\":5.0}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'maxLength' has a malformed or contradictory value\",\"path\":\"/properties/m/maxLength\"}]}"
+    },
+    {
+      "name": "text-integer-like-keys-keep-document-order",
+      "schema": "{\"type\":\"object\",\"properties\":{\"b\":{\"type\":\"string\"},\"10\":{\"type\":\"string\"},\"2\":{\"type\":\"boolean\"}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"b\",\"kind\":{\"$type\":\"Text\"},\"label\":\"b\",\"required\":false},{\"id\":\"10\",\"kind\":{\"$type\":\"Text\"},\"label\":\"10\",\"required\":false},{\"id\":\"2\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"2\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "text-duplicate-keys-are-kept",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\"},\"a\":{\"type\":\"number\"}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"duplicate-field-id\",\"message\":\"two properties derive to field id 'a'\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "text-escapes-and-whitespace",
+      "schema": " {\t\"type\" : \"object\",\r\n \"properties\":{\"ké\\n\":{\"type\":\"string\",\"title\":\"a\\/b\\u0001\uD83D\uDE00\"}}} ",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"ké\\u000a\",\"kind\":{\"$type\":\"Text\"},\"label\":\"a/b\\u0001\uD83D\uDE00\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "int32-edge-and-negative-zero",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"integer\",\"minimum\":-2147483648,\"maximum\":2147483648},\"b\":{\"type\":\"number\",\"minimum\":-0,\"maximum\":1.5e-7}}}",
+      "outcome": "form",
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"a\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":2147483648,\"min\":-2147483648,\"step\":1},\"label\":\"a\",\"required\":false},{\"id\":\"b\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":1.5E-07,\"min\":0},\"label\":\"b\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+    },
+    {
+      "name": "refuse-schema-not-json",
+      "schema": "{\"type\":",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"schema-not-json\",\"message\":\"the schema is not JSON: not valid JSON: unexpected end of input at position 8\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-json-bad-escape",
+      "schema": "{\"type\":\"obj\\qect\"}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"schema-not-json\",\"message\":\"the schema is not JSON: not valid JSON: bad escape '\\\\q' at position 14\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-json-trailing",
+      "schema": "{\"type\":\"object\"} x",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"schema-not-json\",\"message\":\"the schema is not JSON: not valid JSON: trailing characters at position 18\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-json-unexpected-char",
+      "schema": "{\"type\":@}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"schema-not-json\",\"message\":\"the schema is not JSON: not valid JSON: unexpected character '@' at position 8\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-json-bad-literal",
+      "schema": "{\"a\":tru}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"schema-not-json\",\"message\":\"the schema is not JSON: not valid JSON: expected 'true' at position 5\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-json-huge-int",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"integer\",\"minimum\":90071992547409930}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"schema-not-json\",\"message\":\"the schema is not JSON: not valid JSON: integer literal outside the int53 safe range (|n| > 2^53); it cannot round-trip without precision loss: 90071992547409930 at position 80\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-json-infinite-float",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"number\",\"minimum\":1e400}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"schema-not-json\",\"message\":\"the schema is not JSON: not valid JSON: number outside the finite double range; it cannot round-trip on the wire: 1e400 at position 67\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-json-bad-hex",
+      "schema": "{\"a\":\"\\u12G4\"}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"schema-not-json\",\"message\":\"the schema is not JSON: not valid JSON: bad hex digit in \\\\u escape at position 8\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-json-missing-colon",
+      "schema": "{\"a\" 1}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"schema-not-json\",\"message\":\"the schema is not JSON: not valid JSON: expected ':' at position 5\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-json-empty",
+      "schema": "",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"schema-not-json\",\"message\":\"the schema is not JSON: not valid JSON: unexpected end of input at position 0\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-json-root-null",
+      "schema": "null",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"schema-not-json\",\"message\":\"the schema is not JSON: not valid JSON: null is not representable in the Fuaran wire JVal model, and this position has no absence to erase it to (only an object-member null is erased) at position 0\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-json-malformed-number",
+      "schema": "{\"a\":-}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"schema-not-json\",\"message\":\"the schema is not JSON: not valid JSON: malformed number: - at position 6\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-null-in-array-not-json",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"enum\":[\"x\",null]}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"schema-not-json\",\"message\":\"the schema is not JSON: not valid JSON: null is not representable in the Fuaran wire JVal model, and this position has no absence to erase it to (only an object-member null is erased) at position 48\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-root-not-object-array",
+      "schema": "[1,2]",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"root-not-object\",\"message\":\"the root schema is not an object schema\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-root-not-object-type",
+      "schema": "{\"type\":\"string\"}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"root-not-object\",\"message\":\"the root schema is not an object schema\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-no-fields-empty",
+      "schema": "{\"type\":\"object\",\"properties\":{}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"no-fields\",\"message\":\"the root object declares no properties\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-no-fields-absent",
+      "schema": "{\"type\":\"object\"}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"no-fields\",\"message\":\"the root object declares no properties\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-combinator-typed",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\",\"oneOf\":[{\"const\":\"x\"}]}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"combinator\",\"message\":\"'oneOf' has no single form; it is refused rather than guessed\",\"path\":\"/properties/a/oneOf\"}]}"
+    },
+    {
+      "name": "refuse-combinator-untyped",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"number\"}],\"not\":{}}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"combinator\",\"message\":\"'anyOf' has no single form; it is refused rather than guessed\",\"path\":\"/properties/a/anyOf\"},{\"code\":\"combinator\",\"message\":\"'not' has no single form; it is refused rather than guessed\",\"path\":\"/properties/a/not\"}]}"
+    },
+    {
+      "name": "refuse-combinator-root",
+      "schema": "{\"type\":\"object\",\"allOf\":[{}],\"properties\":{\"a\":{\"type\":\"string\"}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"combinator\",\"message\":\"'allOf' has no single form; it is refused rather than guessed\",\"path\":\"/allOf\"}]}"
+    },
+    {
+      "name": "refuse-ref-cycle",
+      "schema": "{\"type\":\"object\",\"$defs\":{\"A\":{\"$ref\":\"#/$defs/B\"},\"B\":{\"$ref\":\"#/$defs/A\"}},\"properties\":{\"a\":{\"$ref\":\"#/$defs/A\"}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"ref-cycle\",\"message\":\"'$ref' #/$defs/A reaches itself\",\"path\":\"/properties/a/$ref\"}]}"
+    },
+    {
+      "name": "refuse-ref-unresolved",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"$ref\":\"#/$defs/Missing\"},\"b\":{\"$ref\":\"https://example.com/s.json\"},\"c\":{\"$ref\":\"#/properties/a/x/0\"}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"ref-unresolved\",\"message\":\"'$ref' #/$defs/Missing is not a local pointer to a schema in this document\",\"path\":\"/properties/a/$ref\"},{\"code\":\"ref-unresolved\",\"message\":\"'$ref' https://example.com/s.json is not a local pointer to a schema in this document\",\"path\":\"/properties/b/$ref\"},{\"code\":\"ref-unresolved\",\"message\":\"'$ref' #/properties/a/x/0 is not a local pointer to a schema in this document\",\"path\":\"/properties/c/$ref\"}]}"
+    },
+    {
+      "name": "refuse-ref-foreign-sibling",
+      "schema": "{\"type\":\"object\",\"$defs\":{\"A\":{\"type\":\"string\"}},\"properties\":{\"a\":{\"$ref\":\"#/$defs/A\",\"minLength\":1}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"unsupported-keyword\",\"message\":\"keyword 'minLength' is not read by this derivation\",\"path\":\"/properties/a/minLength\"}]}"
+    },
+    {
+      "name": "refuse-ref-not-string",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"$ref\":5}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"invalid-keyword-value\",\"message\":\"keyword '$ref' has a malformed or contradictory value\",\"path\":\"/properties/a/$ref\"}]}"
+    },
+    {
+      "name": "refuse-ref-to-non-object",
+      "schema": "{\"type\":\"object\",\"$defs\":{\"A\":[1]},\"properties\":{\"a\":{\"$ref\":\"#/$defs/A/0\"}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"ref-unresolved\",\"message\":\"'$ref' #/$defs/A/0 is not a local pointer to a schema in this document\",\"path\":\"/properties/a/$ref\"}]}"
+    },
+    {
+      "name": "refuse-nesting-too-deep",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"object\",\"properties\":{\"b\":{\"type\":\"object\",\"properties\":{\"c\":{\"type\":\"string\"}}}}}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"nesting-too-deep\",\"message\":\"an object more than one level below the root has no form; only one nested level lowers to a group\",\"path\":\"/properties/a/properties/b\"}]}"
+    },
+    {
+      "name": "refuse-unsupported-types",
+      "schema": "{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"null\"},\"u\":{\"type\":[\"string\",\"number\"]},\"x\":{\"title\":\"no type\"},\"arr\":{\"type\":\"array\"},\"arrn\":{\"type\":\"array\",\"items\":{\"type\":\"number\"}},\"w\":{\"type\":\"widget\"},\"o\":{\"type\":{\"a\":1.5}}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"unsupported-type\",\"message\":\"type \\\"null\\\" has no form control\",\"path\":\"/properties/n/type\"},{\"code\":\"unsupported-type\",\"message\":\"type [\\\"string\\\",\\\"number\\\"] has no form control\",\"path\":\"/properties/u/type\"},{\"code\":\"unsupported-type\",\"message\":\"type (absent) has no form control\",\"path\":\"/properties/x\"},{\"code\":\"unsupported-type\",\"message\":\"type array without items has no form control\",\"path\":\"/properties/arr\"},{\"code\":\"unsupported-type\",\"message\":\"type array of number has no form control\",\"path\":\"/properties/arrn/items\"},{\"code\":\"unsupported-keyword\",\"message\":\"keyword 'type' is not read by this derivation\",\"path\":\"/properties/w/type\"},{\"code\":\"unsupported-type\",\"message\":\"type {\\\"a\\\":1.5} has no form control\",\"path\":\"/properties/o/type\"}]}"
+    },
+    {
+      "name": "refuse-unsupported-format",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\",\"format\":\"ipv4\"}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"unsupported-format\",\"message\":\"format 'ipv4' has no form control or rule\",\"path\":\"/properties/a/format\"}]}"
+    },
+    {
+      "name": "refuse-unsupported-keyword",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\",\"const\":\"x\",\"minimum\":1},\"b\":{\"type\":\"boolean\",\"enum\":[\"t\"]}},\"patternProperties\":{}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"unsupported-keyword\",\"message\":\"keyword 'patternProperties' is not read by this derivation\",\"path\":\"/patternProperties\"}]}"
+    },
+    {
+      "name": "refuse-unsupported-keyword-per-property",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\",\"const\":\"x\",\"minimum\":1},\"b\":{\"type\":\"boolean\",\"enum\":[\"t\"]},\"c\":{\"type\":\"array\",\"items\":{\"enum\":[\"a\"]},\"minItems\":1}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"unsupported-keyword\",\"message\":\"keyword 'const' is not read by this derivation\",\"path\":\"/properties/a/const\"},{\"code\":\"unsupported-keyword\",\"message\":\"keyword 'minimum' is not read by this derivation\",\"path\":\"/properties/a/minimum\"},{\"code\":\"unsupported-keyword\",\"message\":\"keyword 'enum' is not read by this derivation\",\"path\":\"/properties/b/enum\"},{\"code\":\"unsupported-keyword\",\"message\":\"keyword 'minItems' is not read by this derivation\",\"path\":\"/properties/c/minItems\"}]}"
+    },
+    {
+      "name": "refuse-keyword-not-carried",
+      "schema": "{\"type\":\"object\",\"properties\":{\"d\":{\"type\":\"string\",\"format\":\"date\",\"pattern\":\"x\",\"maxLength\":3},\"c\":{\"type\":\"string\",\"format\":\"color\",\"minLength\":1},\"n\":{\"type\":\"number\",\"exclusiveMinimum\":0,\"exclusiveMaximum\":1},\"e\":{\"enum\":[\"a\"],\"format\":\"email\",\"pattern\":\"a\"},\"t\":{\"type\":\"array\",\"items\":{\"type\":\"string\",\"enum\":[\"a\"],\"minLength\":1}},\"tf\":{\"type\":\"array\",\"items\":{\"type\":\"string\",\"enum\":[\"a\"],\"format\":\"date\"}},\"o\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"},\"properties\":{\"x\":{\"type\":\"string\"}}}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"keyword-not-carried\",\"message\":\"keyword 'maxLength' cannot be carried by a DateTime field\",\"path\":\"/properties/d/maxLength\"},{\"code\":\"keyword-not-carried\",\"message\":\"keyword 'pattern' cannot be carried by a DateTime field\",\"path\":\"/properties/d/pattern\"},{\"code\":\"keyword-not-carried\",\"message\":\"keyword 'minLength' cannot be carried by a Color field\",\"path\":\"/properties/c/minLength\"},{\"code\":\"keyword-not-carried\",\"message\":\"keyword 'exclusiveMinimum' cannot be carried by a RangedNumber field\",\"path\":\"/properties/n/exclusiveMinimum\"},{\"code\":\"keyword-not-carried\",\"message\":\"keyword 'exclusiveMaximum' cannot be carried by a RangedNumber field\",\"path\":\"/properties/n/exclusiveMaximum\"},{\"code\":\"keyword-not-carried\",\"message\":\"keyword 'pattern' cannot be carried by a SegmentedChoice field\",\"path\":\"/properties/e/pattern\"},{\"code\":\"keyword-not-carried\",\"message\":\"keyword 'format' cannot be carried by a SegmentedChoice field\",\"path\":\"/properties/e/format\"},{\"code\":\"keyword-not-carried\",\"message\":\"keyword 'format' cannot be carried by a Tokens field\",\"path\":\"/properties/tf/items/format\"},{\"code\":\"keyword-not-carried\",\"message\":\"keyword 'additionalProperties' cannot be carried by a Form field\",\"path\":\"/properties/o/additionalProperties\"}]}"
+    },
+    {
+      "name": "refuse-invalid-keyword-values",
+      "schema": "{\"type\":\"object\",\"required\":[\"a\",\"ghost\"],\"properties\":{\"a\":{\"type\":\"string\",\"minLength\":5,\"maxLength\":2},\"b\":{\"type\":\"string\",\"maxLength\":-1},\"c\":{\"type\":\"string\",\"pattern\":5},\"d\":{\"type\":\"string\",\"format\":7},\"e\":{\"type\":\"number\",\"minimum\":\"x\"},\"f\":{\"type\":\"integer\",\"multipleOf\":0.5},\"g\":{\"type\":\"number\",\"multipleOf\":0},\"h\":{\"type\":\"number\",\"minimum\":5,\"maximum\":1},\"i\":{\"type\":\"string\",\"enum\":[]},\"j\":{\"type\":\"string\",\"enum\":[\"a\",\"a\"]},\"k\":{\"type\":\"string\",\"enum\":\"a\"},\"l\":{\"type\":\"object\",\"properties\":[1]}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'required' has a malformed or contradictory value\",\"path\":\"/required\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'minLength' has a malformed or contradictory value\",\"path\":\"/properties/a/minLength\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'maxLength' has a malformed or contradictory value\",\"path\":\"/properties/b/maxLength\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'pattern' has a malformed or contradictory value\",\"path\":\"/properties/c/pattern\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'format' has a malformed or contradictory value\",\"path\":\"/properties/d/format\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'minimum' has a malformed or contradictory value\",\"path\":\"/properties/e/minimum\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'multipleOf' has a malformed or contradictory value\",\"path\":\"/properties/f/multipleOf\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'multipleOf' has a malformed or contradictory value\",\"path\":\"/properties/g/multipleOf\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'minimum' has a malformed or contradictory value\",\"path\":\"/properties/h/minimum\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'enum' has a malformed or contradictory value\",\"path\":\"/properties/i/enum\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'enum' has a malformed or contradictory value\",\"path\":\"/properties/j/enum\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'enum' has a malformed or contradictory value\",\"path\":\"/properties/k/enum\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'properties' has a malformed or contradictory value\",\"path\":\"/properties/l/properties\"}]}"
+    },
+    {
+      "name": "refuse-invalid-defaults",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\",\"default\":1},\"b\":{\"type\":\"boolean\",\"default\":\"yes\"},\"c\":{\"type\":\"integer\",\"default\":1.5},\"d\":{\"type\":\"number\",\"minimum\":0,\"default\":-1},\"e\":{\"enum\":[\"x\"],\"default\":\"y\"},\"f\":{\"type\":\"array\",\"items\":{\"enum\":[\"x\"]},\"default\":[\"x\",\"x\"]},\"g\":{\"type\":\"array\",\"items\":{\"enum\":[\"x\"]},\"default\":\"x\"}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'default' has a malformed or contradictory value\",\"path\":\"/properties/a/default\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'default' has a malformed or contradictory value\",\"path\":\"/properties/b/default\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'default' has a malformed or contradictory value\",\"path\":\"/properties/c/default\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'default' has a malformed or contradictory value\",\"path\":\"/properties/d/default\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'default' has a malformed or contradictory value\",\"path\":\"/properties/e/default\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'default' has a malformed or contradictory value\",\"path\":\"/properties/f/default\"},{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'default' has a malformed or contradictory value\",\"path\":\"/properties/g/default\"}]}"
+    },
+    {
+      "name": "refuse-required-not-array",
+      "schema": "{\"type\":\"object\",\"required\":\"a\",\"properties\":{\"a\":{\"type\":\"string\"}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'required' has a malformed or contradictory value\",\"path\":\"/required\"}]}"
+    },
+    {
+      "name": "refuse-properties-not-object-at-root",
+      "schema": "{\"type\":\"object\",\"properties\":[{\"type\":\"string\"}]}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"invalid-keyword-value\",\"message\":\"keyword 'properties' has a malformed or contradictory value\",\"path\":\"/properties\"}]}"
+    },
+    {
+      "name": "refuse-enum-not-strings",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"enum\":[1,2]},\"b\":{\"type\":\"integer\",\"enum\":[1]}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"enum-not-strings\",\"message\":\"an enum member is not a string; a choice field submits strings\",\"path\":\"/properties/a/enum\"},{\"code\":\"unsupported-keyword\",\"message\":\"keyword 'enum' is not read by this derivation\",\"path\":\"/properties/b/enum\"}]}"
+    },
+    {
+      "name": "refuse-invalid-property-name",
+      "schema": "{\"type\":\"object\",\"properties\":{\"\":{\"type\":\"string\"},\"host.token\":{\"type\":\"string\"},\"host\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"string\"}}}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"invalid-property-name\",\"message\":\"property name '' cannot be a field id (empty, or a host-reserved state key)\",\"path\":\"/properties/\"},{\"code\":\"invalid-property-name\",\"message\":\"property name 'host.token' cannot be a field id (empty, or a host-reserved state key)\",\"path\":\"/properties/host.token\"},{\"code\":\"invalid-property-name\",\"message\":\"property name 'x' cannot be a field id (empty, or a host-reserved state key)\",\"path\":\"/properties/host/properties/x\"}]}"
+    },
+    {
+      "name": "refuse-duplicate-field-id",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a.b\":{\"type\":\"string\"},\"a\":{\"type\":\"object\",\"properties\":{\"b\":{\"type\":\"string\"}}}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"duplicate-field-id\",\"message\":\"two properties derive to field id 'a.b'\",\"path\":\"\"}]}"
+    },
+    {
+      "name": "refuse-required-under-optional-object",
+      "schema": "{\"type\":\"object\",\"properties\":{\"o\":{\"type\":\"object\",\"required\":[\"x\"],\"properties\":{\"x\":{\"type\":\"string\"}}}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"required-under-optional-object\",\"message\":\"'x' is required only when its optional parent object is present, which a flat form cannot say\",\"path\":\"/properties/o/properties/x\"}]}"
+    },
+    {
+      "name": "refuse-pointer-escapes-in-paths",
+      "schema": "{\"type\":\"object\",\"properties\":{\"a/b~c\":{\"type\":\"string\",\"format\":\"ipv4\"}},\"$defs\":{\"x/y\":{\"type\":\"bogus\"}}}",
+      "outcome": "refused",
+      "wire": "{\"refusals\":[{\"code\":\"unsupported-format\",\"message\":\"format 'ipv4' has no form control or rule\",\"path\":\"/properties/a~1b~0c/format\"}]}"
+    }
+  ]
+}

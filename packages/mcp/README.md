@@ -8,20 +8,21 @@ reading docs and hand-wiring.
 
 > The **endpoint URL** and the **paid access token** are the commercial gate.
 > This server is a thin, open-source tool layer over public surfaces;
-> installing it does not grant access. Five of the six tools
+> installing it does not grant access. Six of the seven tools
 > (`fuaran_validate`, `fuaran_inspect`, `fuaran_recipe`, `fuaran_scaffold`,
-> `fuaran_ask`) work with no credentials at all.
+> `fuaran_ask`, `fuaran_formFromSchema`) work with no credentials at all.
 
-## The six tools
+## The seven tools
 
-| Tool              | What it does                                                                                                                                                                              | Needs credentials? |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| `fuaran_recipe`   | Query → the canonical cookbook recipe for a UI pattern: canonical prompts, the reference target tree (F#), variant points, anti-patterns.                                                 | No                 |
-| `fuaran_generate` | Prompt (+ optional current tree) → a canonical Fuaran wire-format UI tree via the Fuaran generation endpoint. Pass the previous `treeJson` back to make the turn a cheap repair diff.     | Yes                |
-| `fuaran_validate` | Wire JSON → pass/fail + structured diagnostics against the canonical schema (the same codec every conformant host trusts).                                                                | No                 |
-| `fuaran_inspect`  | Wire JSON → the introspection snapshot: per node its kind, binding slots, text slots and children. Every text slot carries a provenance, and text resolved from data is marked untrusted. | No                 |
-| `fuaran_scaffold` | Target stack (`ts-react` / `fsharp-fable`) → the integration boilerplate: the `@fuaran-ui/client` call, renderer wiring, and credential handling.                                         | No                 |
-| `fuaran_ask`      | An elicitation envelope (a wire tree + a typed answer contract) → a hosted question the human answers on a loopback page → exactly one typed outcome (a conforming answer, not prose).    | No                 |
+| Tool                    | What it does                                                                                                                                                                                                                      | Needs credentials? |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `fuaran_recipe`         | Query → the canonical cookbook recipe for a UI pattern: canonical prompts, the reference target tree (F#), variant points, anti-patterns.                                                                                         | No                 |
+| `fuaran_generate`       | Prompt (+ optional current tree) → a canonical Fuaran wire-format UI tree via the Fuaran generation endpoint. Pass the previous `treeJson` back to make the turn a cheap repair diff.                                             | Yes                |
+| `fuaran_validate`       | Wire JSON → pass/fail + structured diagnostics against the canonical schema (the same codec every conformant host trusts).                                                                                                        | No                 |
+| `fuaran_inspect`        | Wire JSON → the introspection snapshot: per node its kind, binding slots, text slots and children. Every text slot carries a provenance, and text resolved from data is marked untrusted.                                         | No                 |
+| `fuaran_scaffold`       | Target stack (`ts-react` / `fsharp-fable`) → the integration boilerplate: the `@fuaran-ui/client` call, renderer wiring, and credential handling.                                                                                 | No                 |
+| `fuaran_ask`            | An elicitation envelope (a wire tree + a typed answer contract) → a hosted question the human answers on a loopback page → exactly one typed outcome (a conforming answer, not prose).                                            | No                 |
+| `fuaran_formFromSchema` | A JSON Schema object → the Fuaran `Form` it derives to, as canonical wire JSON, or a refusal list naming each unsupported construct by its schema path. The same derivation and bytes as the .NET tier's `fuaran.formFromSchema`. | No                 |
 
 ### `fuaran_inspect` — text provenance, and the obligation it carries
 

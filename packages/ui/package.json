@@ -43,6 +43,7 @@
   },
   "devDependencies": {
     "@fuaran-ui/core-twins": "workspace:*",
+    "@fuaran-ui/ops": "workspace:*",
     "@fuaran-ui/schema": "workspace:*"
   },
   "publishConfig": {

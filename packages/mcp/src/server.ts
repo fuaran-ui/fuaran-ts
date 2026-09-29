@@ -1,12 +1,13 @@
 // @fuaran-ui/mcp — the MCP server wiring.
 //
-// Six tools over Fuaran's public surfaces:
+// Seven tools over Fuaran's public surfaces:
 //   fuaran_recipe    — query → a matching cookbook recipe (bundled bank)
 //   fuaran_generate  — prompt (+ optional tree) → a canonical UI tree
 //   fuaran_validate  — wire JSON → pass/fail + canonical-codec diagnostics
 //   fuaran_inspect   — wire JSON → the introspection snapshot + text provenance
 //   fuaran_scaffold  — target stack → the SDK integration boilerplate
 //   fuaran_ask       — elicitation envelope → hosted question → typed outcome
+//   fuaran_formFromSchema — JSON Schema → the Form it derives to (or refusals)
 //
 // Secret hygiene: the endpoint URL, access token, and BYOK key are read from
 // the environment at construction (never tool inputs), and every outgoing
@@ -20,6 +21,7 @@ import type { FetchLike } from '@fuaran-ui/client';
 
 import { readConfigFromEnv, redactSecrets, type FuaranMcpConfig } from './config.js';
 import { runAsk } from './tools/ask.js';
+import { FORM_FROM_SCHEMA_TOOL, runFormFromSchema } from './tools/formFromSchema.js';
 import { runGenerate } from './tools/generate.js';
 import { runInspect } from './tools/inspect.js';
 import { listRecipes, runRecipe } from './tools/recipe.js';
@@ -183,6 +185,37 @@ export function createFuaranMcpServer(options?: CreateServerOptions): McpServer 
       },
     },
     async (args) => asContent(await runAsk(args)),
+  );
+
+  // Phase 1914 — the result IS the wire (or the refusal envelope), returned
+  // verbatim rather than re-serialised, so its bytes are the canonical ones.
+  server.registerTool(
+    FORM_FROM_SCHEMA_TOOL,
+    {
+      title: 'Derive a Fuaran Form from a JSON Schema',
+      description:
+        'Derive a Fuaran Form node from a JSON Schema object (string, number, integer, ' +
+        'boolean, enum, array-of-enum and one nested object level). Returns the canonical ' +
+        'wire JSON of the Form, or a refusal list naming each unsupported construct by its ' +
+        'schema path. Use it instead of hand-writing a form for a schema you already hold.',
+      inputSchema: {
+        schema: z
+          .record(z.string(), z.unknown())
+          .describe('The JSON Schema to derive the form from.'),
+        formId: z.string().optional().describe('The Form node’s id (default "schema-form").'),
+        submitLabel: z
+          .string()
+          .optional()
+          .describe('The submit button’s label (default "Submit").'),
+      },
+    },
+    (args) => {
+      const result = runFormFromSchema(args);
+      const text = redactSecrets(result.ok ? result.wire : result.refusals, config);
+      return result.ok
+        ? { content: [{ type: 'text', text }] }
+        : { content: [{ type: 'text', text }], isError: true };
+    },
   );
 
   return server;
