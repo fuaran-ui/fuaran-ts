@@ -29,6 +29,8 @@ export {
 } from './dataframe.js';
 export {
   decodeNode,
+  decodeNodeWithDefects,
+  orderDefects,
   decodeOp,
   decodeOps,
   coerce,

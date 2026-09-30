@@ -26,6 +26,7 @@ import {
   decodeElicitation,
   decodeElicitationOutcome,
   decodeNode,
+  decodeNodeWithDefects,
   decodeOp,
   encodeElicitation,
   encodeElicitationOutcome,
@@ -38,8 +39,10 @@ import { FORM_FIELD_KIND_NAMES, NODE_KIND_NAMES } from '@fuaran-ui/schema';
 import { WRONG_FORM_FIELD_KIND_HINT, WRONG_NODE_KIND_HINT } from '../src/decode.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-// packages/ops/test → workspace-root/wire-format-fixtures
-const corpusRoot = join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+// packages/ops/test → workspace-root/wire-format-fixtures, unless FUARAN_WIRE_FIXTURES
+// names the corpus (a worktree gating against a corpus change it carries).
+const corpusRoot =
+  process.env['FUARAN_WIRE_FIXTURES'] || join(here, '..', '..', '..', '..', 'wire-format-fixtures');
 
 interface ManifestFixture {
   readonly id: string;
@@ -59,6 +62,8 @@ interface ManifestFixture {
   readonly expectedFile?: string;
   readonly expectedErrorCode?: string;
   readonly expectedPath?: string;
+  /** WIRE_FORMAT.md §29 — the full defect list, in canonical order (Phase 1935). */
+  readonly expectedDefects?: readonly { readonly code: string; readonly path: string }[];
   readonly description: string;
 }
 
@@ -139,6 +144,39 @@ describe('wire-format corpus — round-trip + cross-implementation parity', () =
       }
     },
   );
+});
+
+// ─── Phase 1935 — every independent defect (WIRE_FORMAT.md §29) ─────────────
+//
+// This host ADOPTS §29 (§29.5): for every node reject fixture its defect list is
+// exactly the manifest's `expectedDefects`, or — absent that — exactly the one
+// defect the single-error fields name; and `decodeNode` returns the list's head.
+// The lists are the reference host's, so this is byte-identical agreement with
+// it on (code, path), entry for entry.
+describe('wire-format corpus — defect lists (WIRE_FORMAT §29)', () => {
+  const nodeRejects = rejects.filter((f) => f.decoder === 'node');
+  it('carries the §29 multi-defect fixtures', () => {
+    expect(
+      nodeRejects.filter((f) => f.expectedDefects !== undefined).length,
+    ).toBeGreaterThanOrEqual(15);
+  });
+  it.each(nodeRejects.map((f) => [f.id, f] as const))('%s', (_id, f) => {
+    const input = readFixture(f.inputFile);
+    const listed = decodeNodeWithDefects(input);
+    expect(listed.ok).toBe(false);
+    if (listed.ok) return;
+    const got = listed.error.map((d) => ({ code: d.code, path: d.path }));
+    if (f.expectedDefects !== undefined) {
+      expect(got).toEqual(f.expectedDefects);
+    } else {
+      expect(got.length, `${f.id}: a fixture without expectedDefects holds one defect`).toBe(1);
+      expect(got[0]!.code).toBe(f.expectedErrorCode);
+      expect(got[0]!.path.startsWith(f.expectedPath ?? '$')).toBe(true);
+    }
+    const single = decodeNode(input);
+    expect(single.ok).toBe(false);
+    if (!single.ok) expect({ code: single.error.code, path: single.error.path }).toEqual(got[0]);
+  });
 });
 
 describe('wire-format corpus — reject fixtures surface the F# error code + path', () => {

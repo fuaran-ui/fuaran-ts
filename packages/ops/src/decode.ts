@@ -249,19 +249,350 @@ type R<T> = Result<T, DecodeError>;
 
 const ok = <T>(value: T): R<T> => ({ ok: true, value });
 
+// ─── The defect walk (WIRE_FORMAT.md §29; Phase 1935) ────────────────────────
+//
+// A node decode reports EVERY independent defect, not the first one it trips
+// over. The reference host gets there by construction — it decodes each member of
+// an object on its own and only PICKS the first error at the combine — so every
+// error it constructs is a defect. This decoder is written the other way, member
+// after member with an early return, so it reaches the same list by walking ON
+// past a failure:
+//
+//  * every decoder of the `(path, j)` shape runs in a FRAME (`framed`), as does
+//    every member a helper decodes (`reqField` and friends) and every element of
+//    an array (`traverseIndexed`);
+//  * a frame whose decode fails TAINTS its parent and hands it the stand-in
+//    `HOLE` in place of the value, so the parent carries on to its next member;
+//  * an error constructed in a frame that is already tainted is a CONSEQUENCE of
+//    a defect already collected (a check reading a stand-in), and is dropped —
+//    WIRE_FORMAT §29.1's "object rules apply only to a defect-free object";
+//  * a missing member and a §21 breach are always collected: the first is a
+//    defect of the member, not of the object's rules, and the second ends the walk.
+//
+// Nothing here runs unless a collecting decode is in flight (`collecting` is
+// null otherwise), so `decodeOp` and every other entry point keep their
+// fail-fast behaviour exactly.
+
+interface DefectFrame {
+  tainted: boolean;
+}
+
+interface DefectWalk {
+  readonly defects: DecodeError[];
+  readonly frames: DefectFrame[];
+}
+
+let collecting: DefectWalk | null = null;
+
+/**
+ * The stand-in a failed member decodes to while a defect walk carries on. Every
+ * read of it yields itself, it iterates as empty, and it converts to `NaN` or
+ * `''`, so the code after a failed member runs to its next member rather than
+ * throwing. It never escapes: a walk that produced one is a refusal.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const HOLE: any = new Proxy(() => undefined, {
+  get: (_t, k) => {
+    if (k === Symbol.toPrimitive) return (hint: string) => (hint === 'number' ? Number.NaN : '');
+    if (k === Symbol.iterator) return () => ({ next: () => ({ done: true, value: undefined }) });
+    if (k === 'then' || k === 'toJSON') return undefined;
+    if (k === 'length' || k === 'size') return 0;
+    return HOLE;
+  },
+  apply: () => HOLE,
+  has: () => false,
+  ownKeys: () => [],
+});
+
+const currentFrame = (w: DefectWalk): DefectFrame => w.frames[w.frames.length - 1]!;
+
+/**
+ * Whether `path` is at or beneath the path of a defect already collected — a
+ * location whose meaning a defect above it already took away (§29.1: nothing
+ * beneath a defect is reported).
+ */
+const beneathCollected = (w: DefectWalk, path: string): boolean => {
+  for (let i = 1; i <= path.length; i += 1) {
+    if (i === path.length || path[i] === '.' || path[i] === '[') {
+      const prefix = path.slice(0, i);
+      if (w.defects.some((d) => d.path === prefix)) return true;
+    }
+  }
+  return false;
+};
+
+/** Collect `e` unless it is a consequence of a defect already collected. */
+const noteError = (e: DecodeError, forced: boolean): void => {
+  const w = collecting;
+  if (w === null) return;
+  if (e.code === 'LIMIT_EXCEEDED') {
+    w.defects.push(e);
+    return;
+  }
+  if (beneathCollected(w, e.path)) return;
+  if (forced || !currentFrame(w).tainted) w.defects.push(e);
+};
+
+const makeErrorWith = (
+  forced: boolean,
+  code: DecodeErrorCode,
+  path: string,
+  message: string,
+  expectedShape?: string,
+): R<never> => {
+  const error: DecodeError =
+    expectedShape === undefined ? { code, path, message } : { code, path, message, expectedShape };
+  noteError(error, forced || code === 'LIMIT_EXCEEDED' || code === 'MISSING_FIELD');
+  return { ok: false, error };
+};
+
 const makeError = (
   code: DecodeErrorCode,
   path: string,
   message: string,
   expectedShape?: string,
-): R<never> => ({
-  ok: false,
-  error:
-    expectedShape === undefined ? { code, path, message } : { code, path, message, expectedShape },
-});
+): R<never> => makeErrorWith(false, code, path, message, expectedShape);
+
+/**
+ * Run `run` as one frame of the defect walk. Outside a walk it is a plain call.
+ * Inside one, a failure (or a tainted frame) taints the parent and yields the
+ * stand-in, so the parent decodes its remaining members. An exception thrown
+ * AFTER the frame was tainted is a consequence of reading a stand-in and is
+ * absorbed the same way; one thrown from an untainted frame is a real fault and
+ * propagates.
+ */
+const inFrame = <T>(run: () => R<T>): R<T> => {
+  const w = collecting;
+  if (w === null) return run();
+  const parent = currentFrame(w);
+  const frame: DefectFrame = { tainted: false };
+  w.frames.push(frame);
+  let r: R<T> | undefined;
+  try {
+    r = run();
+  } catch (ex) {
+    if (!frame.tainted) throw ex;
+  } finally {
+    w.frames.pop();
+  }
+  if (r === undefined || !r.ok || frame.tainted) {
+    parent.tainted = true;
+    return ok(HOLE as T);
+  }
+  return r;
+};
+
+/** A `(path, j)` decoder, run as a frame of the defect walk (see above). */
+const framed =
+  <A extends unknown[], T>(
+    f: (path: string, j: JsonAst, ...rest: A) => R<T>,
+  ): ((path: string, j: JsonAst, ...rest: A) => R<T>) =>
+  (path, j, ...rest) => {
+    const w = collecting;
+    if (w === null) return f(path, j, ...rest);
+    if (j === HOLE) {
+      currentFrame(w).tainted = true;
+      return ok(HOLE as T);
+    }
+    return inFrame(() => f(path, j, ...rest));
+  };
+
+/**
+ * `framed` for a helper that reads members off an object it is handed as
+ * `Fields` (the children list, a near-miss check, a shared case body).
+ */
+const framedFields =
+  <A extends unknown[], T>(
+    f: (path: string, fields: Fields, ...rest: A) => R<T>,
+  ): ((path: string, fields: Fields, ...rest: A) => R<T>) =>
+  (path, fields, ...rest) => {
+    const w = collecting;
+    if (w === null) return f(path, fields, ...rest);
+    if (fields === HOLE) {
+      currentFrame(w).tainted = true;
+      return ok(HOLE as T);
+    }
+    return inFrame(() => f(path, fields, ...rest));
+  };
+
+/**
+ * Run a decode that is TRIED and may be abandoned — a speculative parse whose
+ * error the caller swallows — with the walk suspended, so it behaves exactly as
+ * it does outside one and leaves nothing behind (§29.1: an abandoned attempt is
+ * not a defect of the document).
+ */
+const quietly = <T>(run: () => T): T => {
+  const w = collecting;
+  if (w === null) return run();
+  collecting = null;
+  try {
+    return run();
+  } finally {
+    collecting = w;
+  }
+};
+
+/**
+ * Run `run` inside the walk and pass every defect it collects through `rewrite`
+ * — the walk's form of a site that rewrites the error a member returned (a more
+ * didactic message, a more specific wording). Outside a walk it is a plain call;
+ * the site's own rewrite of the returned error still applies there.
+ */
+const amending = <T>(run: () => R<T>, rewrite: (e: DecodeError) => DecodeError): R<T> => {
+  const w = collecting;
+  if (w === null) return run();
+  const mark = w.defects.length;
+  const r = run();
+  for (let i = mark; i < w.defects.length; i += 1) w.defects[i] = rewrite(w.defects[i]!);
+  return r;
+};
+
+/** One segment of a §6 path — a member name or an array index (§29.3). */
+type PathSegment = { readonly index: string } | { readonly name: string };
+
+const isDigits = (t: string): boolean => t.length > 0 && /^[0-9]+$/.test(t);
+
+/**
+ * Split a `$`-rooted §6 path into its segments exactly as the reference host
+ * does: `.name` runs to the next `.` or `[`; `[digits]` is an index; anything
+ * else in brackets is read as a name.
+ */
+const pathSegments = (path: string): PathSegment[] => {
+  const n = path.length;
+  const segs: PathSegment[] = [];
+  let i = n > 0 && path[0] === '$' ? 1 : 0;
+  const readName = (start: number): number => {
+    let k = start;
+    while (k < n && path[k] !== '.' && path[k] !== '[') k += 1;
+    return k;
+  };
+  while (i < n) {
+    const c = path[i];
+    if (c === '.') {
+      const e = readName(i + 1);
+      segs.push({ name: path.slice(i + 1, e) });
+      i = e;
+    } else if (c === '[') {
+      const close = path.indexOf(']', i + 1);
+      if (close >= 0 && isDigits(path.slice(i + 1, close))) {
+        segs.push({ index: path.slice(i + 1, close) });
+        i = close + 1;
+      } else {
+        const e = readName(i + 1);
+        segs.push({ name: path.slice(i, e) });
+        i = e;
+      }
+    } else {
+      const e = readName(i);
+      segs.push({ name: path.slice(i, e) });
+      i = e;
+    }
+  }
+  return segs;
+};
+
+/** Ordinal (UTF-16 code unit) comparison — the §2 rule-2 member order. */
+const compareOrdinal = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+const compareSegment = (a: PathSegment, b: PathSegment): number => {
+  if ('index' in a && 'index' in b) {
+    const x = a.index.replace(/^0+/, '');
+    const y = b.index.replace(/^0+/, '');
+    return x.length !== y.length ? (x.length < y.length ? -1 : 1) : compareOrdinal(x, y);
+  }
+  if ('index' in a) return -1;
+  if ('index' in b) return 1;
+  return compareOrdinal(a.name, b.name);
+};
+
+const compareDefectPaths = (a: string, b: string): number => {
+  const xs = pathSegments(a);
+  const ys = pathSegments(b);
+  const n = Math.min(xs.length, ys.length);
+  for (let i = 0; i < n; i += 1) {
+    const c = compareSegment(xs[i]!, ys[i]!);
+    if (c !== 0) return c;
+  }
+  return xs.length - ys.length < 0 ? -1 : xs.length === ys.length ? 0 : 1;
+};
+
+/**
+ * A defect list in the WIRE_FORMAT §29.3 canonical order: by path (segment by
+ * segment, an index numerically, a member name Ordinally, an ancestor before its
+ * descendants), then by code; one entry per (code, path), the LAST constructed
+ * kept. Exported so a consumer holding defects from elsewhere orders them
+ * exactly as the decoder does.
+ */
+export const orderDefects = (defects: readonly DecodeError[]): DecodeError[] => {
+  const latest = new Map<string, DecodeError>();
+  for (const d of defects) {
+    const key = `${d.code}\u0000${d.path}`;
+    latest.delete(key);
+    latest.set(key, d);
+  }
+  return [...latest.values()].sort((a, b) => {
+    const c = compareDefectPaths(a.path, b.path);
+    return c !== 0 ? c : compareOrdinal(a.code, b.code);
+  });
+};
+
+/**
+ * Run one node walk collecting defects, and turn a refusal into its §29 list. A
+ * §21 breach ends the walk and is reported alone — the first one reached.
+ */
+const collectDefects = <T>(walk: () => R<T>): Result<T, readonly DecodeError[]> => {
+  const outer = collecting;
+  const root: DefectFrame = { tainted: false };
+  const w: DefectWalk = { defects: [], frames: [root] };
+  collecting = w;
+  let r: R<T>;
+  try {
+    r = walk();
+  } finally {
+    collecting = outer;
+  }
+  if (r.ok && !root.tainted && r.value !== HOLE) return { ok: true, value: r.value };
+  const all = [...w.defects];
+  if (!r.ok && !all.some((d) => d.code === r.error.code && d.path === r.error.path))
+    all.push(r.error);
+  const breach = all.find((d) => d.code === 'LIMIT_EXCEEDED');
+  if (breach !== undefined) return { ok: false, error: [breach] };
+  if (all.length === 0) {
+    // A walk refused with nothing collected would be a refusal naming no defect.
+    throw new Error('defect walk: a refused document collected no defect');
+  }
+  return { ok: false, error: orderDefects(all) };
+};
 
 const missingField = (path: string, key: string, expected: string): R<never> =>
-  makeError('MISSING_FIELD', `${path}.${key}`, `missing required field '${key}'`, expected);
+  makeErrorWith(
+    true,
+    'MISSING_FIELD',
+    `${path}.${key}`,
+    `missing required field '${key}'`,
+    expected,
+  );
+
+/**
+ * A required member that is absent, inside a defect walk: ALWAYS collected (it is
+ * a defect of the member, independent of its siblings, even when an earlier
+ * sibling already failed), the object marked defective, and the stand-in handed
+ * back so the object's remaining members are decoded. Outside a walk it is the
+ * plain refusal.
+ */
+const absentMember = (path: string, key: string, expected: string): R<never> => {
+  const w = collecting;
+  const r = makeErrorWith(
+    true,
+    'MISSING_FIELD',
+    `${path}.${key}`,
+    `missing required field '${key}'`,
+    expected,
+  );
+  if (w === null) return r;
+  currentFrame(w).tainted = true;
+  return ok(HOLE) as unknown as R<never>;
+};
 
 const wrongType = (path: string, expected: string): R<never> =>
   makeError('WRONG_TYPE', path, `expected ${expected}`, expected);
@@ -299,8 +630,10 @@ const OPAQUE = '<opaque>';
 
 type Fields = ReadonlyMap<string, JsonAst>;
 
-const requireObject = (path: string, j: JsonAst): R<Fields> =>
-  j.kind === 'JObject' ? ok(j.fields) : wrongType(path, 'JSON object');
+const requireObject = framed(
+  (path: string, j: JsonAst): R<Fields> =>
+    j.kind === 'JObject' ? ok(j.fields) : wrongType(path, 'JSON object'),
+);
 
 // Lenient AI-ingest (WIRE_FORMAT.md 3.6, generalised 2026-07-18): a Static
 // envelope wrapped around a PLAIN scalar unwraps before the scalar readers —
@@ -317,17 +650,17 @@ const unwrapStaticEnvelope = (j: JsonAst): JsonAst => {
   return j;
 };
 
-const requireString = (path: string, jRaw: JsonAst): R<string> => {
+const requireString = framed((path: string, jRaw: JsonAst): R<string> => {
   const j = unwrapStaticEnvelope(jRaw);
   return j.kind === 'JString' ? ok(j.value) : wrongType(path, 'JSON string');
-};
+});
 
-const requireBool = (path: string, jRaw: JsonAst): R<boolean> => {
+const requireBool = framed((path: string, jRaw: JsonAst): R<boolean> => {
   const j = unwrapStaticEnvelope(jRaw);
   return j.kind === 'JBool' ? ok(j.value) : wrongType(path, 'JSON boolean');
-};
+});
 
-const requireFloat = (path: string, jRaw: JsonAst): R<number> => {
+const requireFloat = framed((path: string, jRaw: JsonAst): R<number> => {
   const j = unwrapStaticEnvelope(jRaw);
   if (j.kind === 'JNumber') return ok(j.value);
   if (j.kind === 'JString') {
@@ -336,7 +669,7 @@ const requireFloat = (path: string, jRaw: JsonAst): R<number> => {
     if (j.value === '-Infinity') return ok(-Infinity);
   }
   return wrongType(path, "JSON number (or 'NaN' / 'Infinity' / '-Infinity' sentinel string)");
-};
+});
 
 /**
  * A value admissible at a typed INT32 slot (WIRE_FORMAT §7.1): finite, no
@@ -358,7 +691,7 @@ const isInt32Slot = (n: number): boolean =>
  * it to two different numbers from the same bytes. A refusal is the only answer
  * that neither invents data nor discards it.
  */
-const requireInt = (path: string, jRaw: JsonAst): R<number> => {
+const requireInt = framed((path: string, jRaw: JsonAst): R<number> => {
   const j = unwrapStaticEnvelope(jRaw);
   if (j.kind !== 'JNumber') return wrongType(path, 'JSON number (integer)');
   if (!Number.isFinite(j.value)) {
@@ -380,16 +713,18 @@ const requireInt = (path: string, jRaw: JsonAst): R<number> => {
     );
   }
   return ok(j.value);
-};
+});
 
-const requireArray = (path: string, j: JsonAst): R<readonly JsonAst[]> =>
-  j.kind === 'JArray' ? ok(j.items) : wrongType(path, 'JSON array');
+const requireArray = framed(
+  (path: string, j: JsonAst): R<readonly JsonAst[]> =>
+    j.kind === 'JArray' ? ok(j.items) : wrongType(path, 'JSON array'),
+);
 
 const tryField = (fields: Fields, key: string): JsonAst | undefined => fields.get(key);
 
 const requireField = (path: string, fields: Fields, key: string, expected: string): R<JsonAst> => {
   const v = fields.get(key);
-  return v === undefined ? missingField(path, key, expected) : ok(v);
+  return v === undefined ? absentMember(path, key, expected) : ok(v);
 };
 
 const requireDiscriminator = (path: string, fields: Fields): R<string> => {
@@ -401,6 +736,16 @@ const requireDiscriminator = (path: string, fields: Fields): R<string> => {
     : wrongType(`${path}.$type`, 'JSON string discriminator');
 };
 
+/**
+ * A required member whose value is decoded in the context of a sibling that is
+ * already defective (§29.1): only its PRESENCE is checked, and the stand-in is
+ * returned in place of a value nobody will read.
+ */
+const presentOnly = <T>(path: string, fields: Fields, key: string, expected: string): R<T> => {
+  const v = requireField(path, fields, key, expected);
+  return v.ok ? ok(HOLE as T) : v;
+};
+
 /** Decode a required field through `dec` at `path.key`. */
 const reqField = <T>(
   path: string,
@@ -410,7 +755,9 @@ const reqField = <T>(
   dec: (p: string, j: JsonAst) => R<T>,
 ): R<T> => {
   const v = requireField(path, fields, key, expected);
-  return v.ok ? dec(`${path}.${key}`, v.value) : v;
+  if (!v.ok) return v;
+  if (v.value === HOLE) return ok(HOLE as T);
+  return inFrame(() => dec(`${path}.${key}`, v.value));
 };
 
 /** Decode an optional field; absent → `undefined` (None per WIRE_FORMAT.md §2 rule 4). */
@@ -422,7 +769,7 @@ const optField = <T>(
 ): R<T | undefined> => {
   const v = tryField(fields, key);
   if (v === undefined) return ok(undefined);
-  return dec(`${path}.${key}`, v);
+  return inFrame(() => dec(`${path}.${key}`, v));
 };
 
 // 2026-07-17 - lenient-ingest FIELD-NAME aliases (decode-only; WIRE_FORMAT 3.6).
@@ -453,8 +800,8 @@ const reqFieldAliased = <T>(
   dec: (p: string, j: JsonAst) => R<T>,
 ): R<T> => {
   const v = fieldAliased(fields, canonical, aliases);
-  if (v === undefined) return missingField(path, canonical, expected);
-  return dec(`${path}.${canonical}`, v);
+  if (v === undefined) return absentMember(path, canonical, expected);
+  return inFrame(() => dec(`${path}.${canonical}`, v));
 };
 
 /** `optField` with decode-only field-name aliases. */
@@ -467,7 +814,7 @@ const optFieldAliased = <T>(
 ): R<T | undefined> => {
   const v = fieldAliased(fields, canonical, aliases);
   if (v === undefined) return ok(undefined);
-  return dec(`${path}.${canonical}`, v);
+  return inFrame(() => dec(`${path}.${canonical}`, v));
 };
 
 const traverseIndexed = <T>(
@@ -476,7 +823,9 @@ const traverseIndexed = <T>(
 ): R<T[]> => {
   const out: T[] = [];
   for (let i = 0; i < items.length; i += 1) {
-    const r = f(i, items[i]!);
+    // Each element is its own frame: a failing element does not stop its
+    // siblings from being decoded (WIRE_FORMAT §29.1).
+    const r = inFrame(() => f(i, items[i]!));
     if (!r.ok) return r;
     out.push(r.value);
   }
@@ -524,7 +873,7 @@ const nullNotRepresentable = (path: string): R<never> =>
     'null is not representable in the Fuaran wire model — omit the field instead',
   );
 
-const decodeJVal = (path: string, j: JsonAst): R<JsonValue> => {
+const decodeJVal = framed((path: string, j: JsonAst): R<JsonValue> => {
   switch (j.kind) {
     case 'JNull':
       return nullNotRepresentable(path);
@@ -553,9 +902,9 @@ const decodeJVal = (path: string, j: JsonAst): R<JsonValue> => {
       return ok(out);
     }
   }
-};
+});
 
-const decodeJValMap = (path: string, j: JsonAst): R<Record<string, JsonValue>> => {
+const decodeJValMap = framed((path: string, j: JsonAst): R<Record<string, JsonValue>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const out: Record<string, JsonValue> = {};
@@ -565,7 +914,7 @@ const decodeJValMap = (path: string, j: JsonAst): R<Record<string, JsonValue>> =
     out[k] = r.value;
   }
   return ok(out);
-};
+});
 
 // ─── Bare-string enum decoders ───────────────────────────────────────────────
 
@@ -588,13 +937,13 @@ const ORIENTATION_ALIASES: Readonly<Record<string, Orientation>> = {
   column: 'Vertical',
 };
 
-const decodeOrientation = (p: string, j: JsonAst): R<Orientation> => {
+const decodeOrientation = framed((p: string, j: JsonAst): R<Orientation> => {
   if (j.kind === 'JString' && j.value in ORIENTATION_ALIASES)
     return ok(ORIENTATION_ALIASES[j.value]!);
   return bareEnum(p, j, ['Vertical', 'Horizontal'] as const, 'Orientation');
-};
+});
 
-const decodeBadgeVariant = (p: string, j: JsonAst): R<BadgeVariant> => {
+const decodeBadgeVariant = framed((p: string, j: JsonAst): R<BadgeVariant> => {
   // Default -> the identity case; Danger -> the Bootstrap prior (WIRE_FORMAT 3.6).
   if (j.kind === 'JString' && j.value === 'Default') return ok('Neutral');
   if (j.kind === 'JString' && j.value === 'Danger') return ok('Critical');
@@ -604,9 +953,9 @@ const decodeBadgeVariant = (p: string, j: JsonAst): R<BadgeVariant> => {
     ['Neutral', 'Brand', 'Success', 'Warning', 'Critical', 'Info'] as const,
     'BadgeVariant',
   );
-};
+});
 
-const decodeButtonVariant = (p: string, j: JsonAst): R<ButtonVariant> => {
+const decodeButtonVariant = framed((p: string, j: JsonAst): R<ButtonVariant> => {
   // Bootstrap's Danger names the same concept as Destructive (WIRE_FORMAT 3.6).
   if (j.kind === 'JString' && j.value === 'Danger') return ok('Destructive');
   return bareEnum(
@@ -615,28 +964,34 @@ const decodeButtonVariant = (p: string, j: JsonAst): R<ButtonVariant> => {
     ['Primary', 'Secondary', 'Tertiary', 'Destructive'] as const,
     'ButtonVariant',
   );
-};
+});
 
-const decodeHeadingVariant = (p: string, j: JsonAst): R<HeadingVariant> => {
+const decodeHeadingVariant = framed((p: string, j: JsonAst): R<HeadingVariant> => {
   // Default -> the identity case; Title/Page/Section stay rejects (ambiguous mapping).
   if (j.kind === 'JString' && j.value === 'Default') return ok('Standard');
   return bareEnum(p, j, ['Standard', 'Eyebrow', 'Caption', 'Lead'] as const, 'HeadingVariant');
-};
+});
 
-const decodeImageVariant = (p: string, j: JsonAst): R<ImageVariant> =>
-  bareEnum(p, j, ['Default', 'Avatar', 'Rounded'] as const, 'ImageVariant');
+const decodeImageVariant = framed(
+  (p: string, j: JsonAst): R<ImageVariant> =>
+    bareEnum(p, j, ['Default', 'Avatar', 'Rounded'] as const, 'ImageVariant'),
+);
 
 // Phase 1077 — the three `Image` presentation vocabularies. Bare enums, so an
 // unrecognised case reports at the field's own path with no `.$type` suffix.
-const decodeImageFit = (p: string, j: JsonAst): R<ImageFit> =>
-  bareEnum(p, j, ['Natural', 'Cover', 'Contain'] as const, 'ImageFit');
+const decodeImageFit = framed(
+  (p: string, j: JsonAst): R<ImageFit> =>
+    bareEnum(p, j, ['Natural', 'Cover', 'Contain'] as const, 'ImageFit'),
+);
 
 // Phase 1119 — `ModalSpec.modality`. Two cases and no lenient spelling: the
 // member decides whether the surface BLOCKS the page, and absence already
 // spells the safe answer (`Modal`, the pre-1119 behaviour), so a value the
 // decoder cannot read must be refused rather than recovered from.
-const decodeModalityKind = (p: string, j: JsonAst): R<ModalityKind> =>
-  bareEnum(p, j, ['Modal', 'Popover'] as const, 'ModalityKind');
+const decodeModalityKind = framed(
+  (p: string, j: JsonAst): R<ModalityKind> =>
+    bareEnum(p, j, ['Modal', 'Popover'] as const, 'ModalityKind'),
+);
 
 // Phase 1536 — `Action.Navigate.target`. Two cases, closed, and NO lenient
 // spelling: HTML's `_self` / `_blank` / `_parent` / `_top` are not accepted as
@@ -645,19 +1000,25 @@ const decodeModalityKind = (p: string, j: JsonAst): R<ModalityKind> =>
 // that the HTML vocabulary is the one in force here. Absence is `Self`, the
 // pre-1536 behaviour and the safe answer, so an unknown token is
 // UNKNOWN_DU_CASE and never a fallback.
-const decodeNavigateTarget = (p: string, j: JsonAst): R<NavigateTarget> =>
-  bareEnum(p, j, ['Self', 'Blank'] as const, 'NavigateTarget');
+const decodeNavigateTarget = framed(
+  (p: string, j: JsonAst): R<NavigateTarget> =>
+    bareEnum(p, j, ['Self', 'Blank'] as const, 'NavigateTarget'),
+);
 
-const decodeImageAspect = (p: string, j: JsonAst): R<ImageAspect> =>
-  bareEnum(
-    p,
-    j,
-    ['Natural', 'Square', 'FourThree', 'ThreeTwo', 'SixteenNine'] as const,
-    'ImageAspect',
-  );
+const decodeImageAspect = framed(
+  (p: string, j: JsonAst): R<ImageAspect> =>
+    bareEnum(
+      p,
+      j,
+      ['Natural', 'Square', 'FourThree', 'ThreeTwo', 'SixteenNine'] as const,
+      'ImageAspect',
+    ),
+);
 
-const decodeImageLoading = (p: string, j: JsonAst): R<ImageLoading> =>
-  bareEnum(p, j, ['Eager', 'Lazy'] as const, 'ImageLoading');
+const decodeImageLoading = framed(
+  (p: string, j: JsonAst): R<ImageLoading> =>
+    bareEnum(p, j, ['Eager', 'Lazy'] as const, 'ImageLoading'),
+);
 
 // Phase 1111 — one embed sandbox relaxation. A bare enum inside a LIST, so an
 // unrecognised case reports at the ELEMENT's own path with no `.$type` suffix.
@@ -665,39 +1026,51 @@ const decodeImageLoading = (p: string, j: JsonAst): R<ImageLoading> =>
 // that silently dropped an unrecognised permission would turn a document asking
 // for something this vocabulary has no name for into one asking for less, which
 // reads as success — and a decoder that guessed would be worse.
-const decodeEmbedPermission = (p: string, j: JsonAst): R<EmbedPermission> =>
-  bareEnum(
-    p,
-    j,
-    ['AllowScripts', 'AllowSameOrigin', 'AllowForms', 'AllowFullscreen'] as const,
-    'EmbedPermission',
-  );
+const decodeEmbedPermission = framed(
+  (p: string, j: JsonAst): R<EmbedPermission> =>
+    bareEnum(
+      p,
+      j,
+      ['AllowScripts', 'AllowSameOrigin', 'AllowForms', 'AllowFullscreen'] as const,
+      'EmbedPermission',
+    ),
+);
 
-const decodeScrollOrientation = (p: string, j: JsonAst): R<ScrollOrientation> =>
-  bareEnum(p, j, ['Vertical', 'Horizontal', 'Both'] as const, 'ScrollOrientation');
+const decodeScrollOrientation = framed(
+  (p: string, j: JsonAst): R<ScrollOrientation> =>
+    bareEnum(p, j, ['Vertical', 'Horizontal', 'Both'] as const, 'ScrollOrientation'),
+);
 
 // Phase 1110 — a track's kind. `metadata` is deliberately NOT a member: its cues
 // are rendered by no user agent and read only by script.
-const decodeTrackKind = (p: string, j: JsonAst): R<TrackKind> =>
-  bareEnum(p, j, ['Subtitles', 'Captions', 'Descriptions', 'Chapters'] as const, 'TrackKind');
+const decodeTrackKind = framed(
+  (p: string, j: JsonAst): R<TrackKind> =>
+    bareEnum(p, j, ['Subtitles', 'Captions', 'Descriptions', 'Chapters'] as const, 'TrackKind'),
+);
 
 // Phase 1116 — the recording device. A BARE enum, so an unknown token reports at
 // the member's own path with no `.$type` suffix (WIRE_FORMAT.md §6): the near
 // miss an emitter will actually write is `"Screen"`, and it is refused rather
 // than reserved.
-const decodeCaptureSource = (p: string, j: JsonAst): R<CaptureSource> =>
-  bareEnum(p, j, ['Camera', 'Microphone'] as const, 'CaptureSource');
+const decodeCaptureSource = framed(
+  (p: string, j: JsonAst): R<CaptureSource> =>
+    bareEnum(p, j, ['Camera', 'Microphone'] as const, 'CaptureSource'),
+);
 
 // Phase 1472 — the declared base direction. LOWER-CASE on the wire, spelled in
 // the values the isolation is ultimately expressed in. An unrecognised token is
 // REFUSED, never coerced to the default: a document that meant `rtl` and
 // misspelled it would otherwise render as reordered digits with nothing said
 // anywhere, which is the failure the member exists to prevent.
-const decodeTextDirection = (p: string, j: JsonAst): R<TextDirection> =>
-  bareEnum(p, j, ['auto', 'ltr', 'rtl'] as const, 'TextDirection');
+const decodeTextDirection = framed(
+  (p: string, j: JsonAst): R<TextDirection> =>
+    bareEnum(p, j, ['auto', 'ltr', 'rtl'] as const, 'TextDirection'),
+);
 
-const decodeDateTimeVariant = (p: string, j: JsonAst): R<DateTimeVariant> =>
-  bareEnum(p, j, ['Date', 'Time', 'DateTime'] as const, 'DateTimeVariant');
+const decodeDateTimeVariant = framed(
+  (p: string, j: JsonAst): R<DateTimeVariant> =>
+    bareEnum(p, j, ['Date', 'Time', 'DateTime'] as const, 'DateTimeVariant'),
+);
 
 /**
  * Phase 1811 — the `variant` of a `DateTime` / `DateTimeRange` field, read through the §16
@@ -723,8 +1096,10 @@ const decodeTemporalVariant = (
   );
 };
 
-const decodeMathDisplay = (p: string, j: JsonAst): R<MathDisplay> =>
-  bareEnum(p, j, ['Inline', 'Block'] as const, 'MathDisplay');
+const decodeMathDisplay = framed(
+  (p: string, j: JsonAst): R<MathDisplay> =>
+    bareEnum(p, j, ['Inline', 'Block'] as const, 'MathDisplay'),
+);
 
 // Phase 460 — lenient-ingest aliases (decode-only; never encoded — canonical
 // re-encode normalises to the DU case names). Faithful semantic mappings only,
@@ -759,22 +1134,26 @@ const TONE_NAMES = [
   'Info',
 ] as const;
 
-const decodeTone = (p: string, j: JsonAst): R<ToneVariant> => {
+const decodeTone = framed((p: string, j: JsonAst): R<ToneVariant> => {
   if (j.kind === 'JString' && j.value in TONE_ALIASES) return ok(TONE_ALIASES[j.value]!);
   return bareEnum(p, j, TONE_NAMES, 'ToneVariant');
-};
+});
 
-const decodeWeight = (p: string, j: JsonAst): R<StyleWeight> =>
-  // StyleWeight deliberately not aliased — `Bold`/`Heavy` is font-weight intent, but
-  // Compact|Standard|Spacious means density (WIRE_FORMAT.md §3.6).
-  bareEnum(p, j, ['Compact', 'Standard', 'Spacious'] as const, 'StyleWeight');
+const decodeWeight = framed(
+  (p: string, j: JsonAst): R<StyleWeight> =>
+    // StyleWeight deliberately not aliased — `Bold`/`Heavy` is font-weight intent, but
+    // Compact|Standard|Spacious means density (WIRE_FORMAT.md §3.6).
+    bareEnum(p, j, ['Compact', 'Standard', 'Spacious'] as const, 'StyleWeight'),
+);
 
 // Phase 867 - `Neutral` is RESERVED, not admitted, so it is refused here like
 // any other unknown case rather than silently reading as the default.
-const decodeTrendPolarity = (p: string, j: JsonAst): R<TrendPolarity> =>
-  bareEnum(p, j, ['HigherIsBetter', 'LowerIsBetter'] as const, 'TrendPolarity');
+const decodeTrendPolarity = framed(
+  (p: string, j: JsonAst): R<TrendPolarity> =>
+    bareEnum(p, j, ['HigherIsBetter', 'LowerIsBetter'] as const, 'TrendPolarity'),
+);
 
-const decodeEmphasis = (p: string, j: JsonAst): R<Emphasis> => {
+const decodeEmphasis = framed((p: string, j: JsonAst): R<Emphasis> => {
   if (j.kind === 'JString' && j.value in EMPHASIS_ALIASES) return ok(EMPHASIS_ALIASES[j.value]!);
   // 0.2.8 (2026-07-19 collision sweep) — `emphasis` is a same-name
   // cross-vocabulary collision (style ENUM here vs behavioural BOOL on
@@ -783,7 +1162,7 @@ const decodeEmphasis = (p: string, j: JsonAst): R<Emphasis> => {
   // sites' direction lives in `decodeEmphasisFlag`.
   if (j.kind === 'JBool') return ok(j.value ? 'Loud' : 'Normal');
   return bareEnum(p, j, ['Quiet', 'Normal', 'Loud'] as const, 'Emphasis');
-};
+});
 
 /**
  * The behavioural `emphasis` BOOL (Fact / LabelValueRow) — the other half of
@@ -795,7 +1174,7 @@ const decodeEmphasis = (p: string, j: JsonAst): R<Emphasis> => {
  * (Loud/Strong/Bold ⇒ true, Normal/Quiet/Subtle/Muted ⇒ false); any other
  * string is the didactic reject naming both vocabularies.
  */
-const decodeEmphasisFlag = (p: string, j: JsonAst): R<boolean> => {
+const decodeEmphasisFlag = framed((p: string, j: JsonAst): R<boolean> => {
   if (j.kind === 'JBool') return ok(j.value);
   if (j.kind === 'JString') {
     if (j.value === 'Loud' || j.value === 'Strong' || j.value === 'Bold') return ok(true);
@@ -809,31 +1188,45 @@ const decodeEmphasisFlag = (p: string, j: JsonAst): R<boolean> => {
     );
   }
   return requireBool(p, j);
-};
+});
 
 // Phase 528.1 — SVG text-anchor for DrawStyle (Shape.Label alignment).
-const decodeTextAnchor = (p: string, j: JsonAst): R<TextAnchor> =>
-  bareEnum(p, j, ['Start', 'Middle', 'End'] as const, 'TextAnchor');
+const decodeTextAnchor = framed(
+  (p: string, j: JsonAst): R<TextAnchor> =>
+    bareEnum(p, j, ['Start', 'Middle', 'End'] as const, 'TextAnchor'),
+);
 
 // Phase 147 — the additive style-role / font-voice DUs. Optional on the wire
 // (omitted at default); the style decoder restores the default on absence.
-const decodeStyleRole = (p: string, j: JsonAst): R<StyleRole> =>
-  bareEnum(p, j, ['None', 'Eyebrow', 'Data', 'Lede', 'Caption'] as const, 'StyleRole');
+const decodeStyleRole = framed(
+  (p: string, j: JsonAst): R<StyleRole> =>
+    bareEnum(p, j, ['None', 'Eyebrow', 'Data', 'Lede', 'Caption'] as const, 'StyleRole'),
+);
 
-const decodeFontVoice = (p: string, j: JsonAst): R<FontVoice> =>
-  bareEnum(p, j, ['Default', 'Display', 'Structural'] as const, 'FontVoice');
+const decodeFontVoice = framed(
+  (p: string, j: JsonAst): R<FontVoice> =>
+    bareEnum(p, j, ['Default', 'Display', 'Structural'] as const, 'FontVoice'),
+);
 
-const decodeChartKind = (p: string, j: JsonAst): R<ChartKind> =>
-  bareEnum(p, j, ['Line', 'Bar', 'Area', 'Pie', 'Scatter', 'Heatmap'] as const, 'ChartKind');
+const decodeChartKind = framed(
+  (p: string, j: JsonAst): R<ChartKind> =>
+    bareEnum(p, j, ['Line', 'Bar', 'Area', 'Pie', 'Scatter', 'Heatmap'] as const, 'ChartKind'),
+);
 
-const decodeChartLegendPosition = (p: string, j: JsonAst): R<ChartLegendPosition> =>
-  bareEnum(p, j, ['Top', 'Right', 'Bottom', 'None'] as const, 'ChartLegendPosition');
+const decodeChartLegendPosition = framed(
+  (p: string, j: JsonAst): R<ChartLegendPosition> =>
+    bareEnum(p, j, ['Top', 'Right', 'Bottom', 'None'] as const, 'ChartLegendPosition'),
+);
 
-const decodeChartDataLabels = (p: string, j: JsonAst): R<ChartDataLabels> =>
-  bareEnum(p, j, ['Off', 'Ends'] as const, 'ChartDataLabels');
+const decodeChartDataLabels = framed(
+  (p: string, j: JsonAst): R<ChartDataLabels> =>
+    bareEnum(p, j, ['Off', 'Ends'] as const, 'ChartDataLabels'),
+);
 
-const decodeChartXScale = (p: string, j: JsonAst): R<ChartXScale> =>
-  bareEnum(p, j, ['Category', 'Temporal'] as const, 'ChartXScale');
+const decodeChartXScale = framed(
+  (p: string, j: JsonAst): R<ChartXScale> =>
+    bareEnum(p, j, ['Category', 'Temporal'] as const, 'ChartXScale'),
+);
 
 // ─── Chart annotations (Phase 1490/1491/1492 — §4l) ──────────────────────────
 
@@ -893,7 +1286,7 @@ const isCanonicalIsoDay = (text: string): boolean => {
  * does not misplace one marker — it drags the domain back to the epoch and
  * rescales the whole picture.
  */
-const decodeChartAnnotationX = (path: string, j: JsonAst): R<ChartAnnotationX> => {
+const decodeChartAnnotationX = framed((path: string, j: JsonAst): R<ChartAnnotationX> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -908,17 +1301,22 @@ const decodeChartAnnotationX = (path: string, j: JsonAst): R<ChartAnnotationX> =
     case 'Date': {
       const iso = reqField(path, f, 'iso', 'ISO-8601 date (YYYY-MM-DD)', requireString);
       if (!iso.ok) return iso;
-      if (!isCanonicalIsoDay(iso.value))
-        return wrongType(
-          `${path}.iso`,
-          'a canonical ISO-8601 date (YYYY-MM-DD, optionally followed by a time) naming a real calendar day — an event marker’s date is the address it is drawn at, and an unreadable one would place the marker at 1970-01-01 and drag the axis back with it',
-        );
-      return ok({ kind: 'Date', iso: iso.value });
+      // A member-local check, in the member's own frame (§29.1).
+      const isoDay = inFrame((): R<string> => {
+        if (!isCanonicalIsoDay(iso.value))
+          return wrongType(
+            `${path}.iso`,
+            'a canonical ISO-8601 date (YYYY-MM-DD, optionally followed by a time) naming a real calendar day — an event marker’s date is the address it is drawn at, and an unreadable one would place the marker at 1970-01-01 and drag the axis back with it',
+          );
+        return ok(iso.value);
+      });
+      if (!isoDay.ok) return isoDay;
+      return ok({ kind: 'Date', iso: isoDay.value });
     }
     default:
       return unknownDuCase(path, disc.value, 'Category, Date');
   }
-};
+});
 
 /**
  * A range band's PAIR (Phase 1492, §4l "The three addressing forms"). The case
@@ -937,7 +1335,7 @@ const decodeChartAnnotationX = (path: string, j: JsonAst): R<ChartAnnotationX> =
  * the ROWS' order, a cross-reference rather than a local property of the
  * address, and pre-emit owns it.
  */
-const decodeChartAnnotationRange = (path: string, j: JsonAst): R<ChartAnnotationRange> => {
+const decodeChartAnnotationRange = framed((path: string, j: JsonAst): R<ChartAnnotationRange> => {
   const finite = (slot: string, v: JsonAst): R<number> => {
     const r = requireFloat(`${path}.${slot}`, v);
     if (!r.ok) return r;
@@ -998,7 +1396,7 @@ const decodeChartAnnotationRange = (path: string, j: JsonAst): R<ChartAnnotation
     default:
       return unknownDuCase(path, disc.value, 'ValueRange, XRange');
   }
-};
+});
 
 /**
  * A chart's data-addressed annotation (Phase 1490, §4l). One closed
@@ -1013,7 +1411,7 @@ const decodeChartAnnotationRange = (path: string, j: JsonAst): R<ChartAnnotation
  * gridline, tick and mark on the chart at a NaN coordinate. The picture is not
  * merely wrong at the annotation, it is wrong everywhere.
  */
-const decodeChartAnnotation = (path: string, j: JsonAst): R<ChartAnnotation> => {
+const decodeChartAnnotation = framed((path: string, j: JsonAst): R<ChartAnnotation> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -1026,13 +1424,17 @@ const decodeChartAnnotation = (path: string, j: JsonAst): R<ChartAnnotation> => 
     case 'ReferenceLine': {
       const valueJ = requireField(path, f, 'value', 'reference-line value (a finite JSON number)');
       if (!valueJ.ok) return valueJ;
-      const value = requireFloat(`${path}.value`, valueJ.value);
+      const value = inFrame((): R<number> => {
+        const v = requireFloat(`${path}.value`, valueJ.value);
+        if (!v.ok) return v;
+        if (!Number.isFinite(v.value))
+          return wrongType(
+            `${path}.value`,
+            "a FINITE JSON number — a reference line names a place on the value axis, and NaN / Infinity names none; give the value in the axis's own units, or drop the annotation",
+          );
+        return v;
+      });
       if (!value.ok) return value;
-      if (!Number.isFinite(value.value))
-        return wrongType(
-          `${path}.value`,
-          "a FINITE JSON number — a reference line names a place on the value axis, and NaN / Infinity names none; give the value in the axis's own units, or drop the annotation",
-        );
       return ok({ kind: 'ReferenceLine', value: value.value, ...withLabel });
     }
     case 'EventMarker': {
@@ -1052,10 +1454,12 @@ const decodeChartAnnotation = (path: string, j: JsonAst): R<ChartAnnotation> => 
     default:
       return unknownDuCase(path, disc.value, 'ReferenceLine, EventMarker, RangeBand');
   }
-};
+});
 
-const decodeFileReadEncoding = (p: string, j: JsonAst): R<FileReadEncoding> =>
-  bareEnum(p, j, ['Text', 'Base64', 'DataUrl'] as const, 'FileReadEncoding');
+const decodeFileReadEncoding = framed(
+  (p: string, j: JsonAst): R<FileReadEncoding> =>
+    bareEnum(p, j, ['Text', 'Base64', 'DataUrl'] as const, 'FileReadEncoding'),
+);
 
 const NAMED_ARIA_ROLES = [
   'button',
@@ -1075,43 +1479,53 @@ const NAMED_ARIA_ROLES = [
   'tabpanel',
 ] as const;
 
-const decodeAriaRole = (p: string, j: JsonAst): R<AriaRole> => {
+const decodeAriaRole = framed((p: string, j: JsonAst): R<AriaRole> => {
   // Any string is accepted — named roles or the AriaRole.Custom raw escape
   // (WIRE_FORMAT.md §10.2: both encode as the raw string, decode prefers it).
   if (j.kind !== 'JString') return wrongType(p, 'JSON string (ARIA role)');
   return ok(j.value as AriaRole);
-};
+});
 
-const decodeLiveRegion = (p: string, j: JsonAst): R<LiveRegionKind> =>
-  bareEnum(p, j, ['polite', 'assertive', 'off'] as const, 'LiveRegionKind');
+const decodeLiveRegion = framed(
+  (p: string, j: JsonAst): R<LiveRegionKind> =>
+    bareEnum(p, j, ['polite', 'assertive', 'off'] as const, 'LiveRegionKind'),
+);
 
 // ─── CellFormat / ColumnWidth / IconSource ───────────────────────────────────
 
 // Phase 819 — the Duration / RelativeTime format enums. Defined ahead of
 // `decodeCellFormat` (which references them); `decodeFormat` below shares them.
-const decodeDurationUnit = (p: string, j: JsonAst): R<DurationUnit> =>
-  bareEnum(p, j, ['Seconds', 'Minutes', 'Hours'] as const, 'DurationUnit');
+const decodeDurationUnit = framed(
+  (p: string, j: JsonAst): R<DurationUnit> =>
+    bareEnum(p, j, ['Seconds', 'Minutes', 'Hours'] as const, 'DurationUnit'),
+);
 
-const decodeDurationStyle = (p: string, j: JsonAst): R<DurationStyle> =>
-  bareEnum(p, j, ['Compact', 'Clock', 'Long'] as const, 'DurationStyle');
+const decodeDurationStyle = framed(
+  (p: string, j: JsonAst): R<DurationStyle> =>
+    bareEnum(p, j, ['Compact', 'Clock', 'Long'] as const, 'DurationStyle'),
+);
 
-const decodeRelativeTimeUnit = (p: string, j: JsonAst): R<RelativeTimeUnit> =>
-  bareEnum(
-    p,
-    j,
-    ['Second', 'Minute', 'Hour', 'Day', 'Week', 'Month', 'Year'] as const,
-    'RelativeTimeUnit',
-  );
+const decodeRelativeTimeUnit = framed(
+  (p: string, j: JsonAst): R<RelativeTimeUnit> =>
+    bareEnum(
+      p,
+      j,
+      ['Second', 'Minute', 'Hour', 'Day', 'Week', 'Month', 'Year'] as const,
+      'RelativeTimeUnit',
+    ),
+);
 
 /**
  * Phase 1533 — the `Binding.Now` grain: a strict SUBSET of `RelativeTimeUnit`.
  * `Week` / `Month` / `Year` are refused rather than quietly accepted, because a
  * calendar instant has no truncation to those that every host agrees on.
  */
-const decodeTimeGrain = (p: string, j: JsonAst): R<TimeGrain> =>
-  bareEnum(p, j, ['Second', 'Minute', 'Hour', 'Day'] as const, 'TimeGrain');
+const decodeTimeGrain = framed(
+  (p: string, j: JsonAst): R<TimeGrain> =>
+    bareEnum(p, j, ['Second', 'Minute', 'Hour', 'Day'] as const, 'TimeGrain'),
+);
 
-const decodeCellFormat = (path: string, j: JsonAst): R<CellFormat> => {
+const decodeCellFormat = framed((path: string, j: JsonAst): R<CellFormat> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -1171,11 +1585,11 @@ const decodeCellFormat = (path: string, j: JsonAst): R<CellFormat> => {
         'None | Number | Currency | Percent | SignificantDigits | DateTime | Duration | RelativeTime | Custom',
       );
   }
-};
+});
 
 // ─── Format / LocaleSource (Phase 102) ───────────────────────────────────────
 
-const decodeFormat = (path: string, j: JsonAst): R<Format> => {
+const decodeFormat = framed((path: string, j: JsonAst): R<Format> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -1247,9 +1661,9 @@ const decodeFormat = (path: string, j: JsonAst): R<Format> => {
         'Number | Currency | Percent | DateTime | RelativeTime | Duration | Since',
       );
   }
-};
+});
 
-const decodeLocaleSource = (path: string, j: JsonAst): R<LocaleSource> => {
+const decodeLocaleSource = framed((path: string, j: JsonAst): R<LocaleSource> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -1265,9 +1679,9 @@ const decodeLocaleSource = (path: string, j: JsonAst): R<LocaleSource> => {
     default:
       return unknownDuCase(path, d.value, 'Ambient | Explicit');
   }
-};
+});
 
-const decodeColumnWidth = (path: string, j: JsonAst): R<ColumnWidth> => {
+const decodeColumnWidth = framed((path: string, j: JsonAst): R<ColumnWidth> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -1287,16 +1701,16 @@ const decodeColumnWidth = (path: string, j: JsonAst): R<ColumnWidth> => {
     default:
       return unknownDuCase(path, d.value, 'Auto | Fixed | Flex');
   }
-};
+});
 
-const decodeIconSource = (path: string, j: JsonAst): R<IconSource> => {
+const decodeIconSource = framed((path: string, j: JsonAst): R<IconSource> => {
   const r = requireString(path, j);
   return r.ok ? ok(r.value as IconSource) : r;
-};
+});
 
 // ─── LocalFlushTrigger / Binding (recursive) ─────────────────────────────────
 
-const decodeLocalFlushTrigger = (path: string, j: JsonAst): R<LocalFlushTrigger> => {
+const decodeLocalFlushTrigger = framed((path: string, j: JsonAst): R<LocalFlushTrigger> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -1316,7 +1730,7 @@ const decodeLocalFlushTrigger = (path: string, j: JsonAst): R<LocalFlushTrigger>
     default:
       return unknownDuCase(path, d.value, 'OnBlur | OnSubmit | OnDebounce | OnCommitAction');
   }
-};
+});
 
 // ─── Compute layer (Phase 282 / 284) — DataSource / Transform / ColExpr / Cell ─
 //
@@ -2269,7 +2683,7 @@ export const decodePipelineCore = (j: JsonAst): CR<Transform[]> => {
  * `[{"addr","value"}]` scalar pairs. Shared by both decoders; surfaces the
  * standard `DecodeError` surface (byte-identical paths/codes to the F# decoder).
  */
-const decodeInvokeArgs = (path: string, j: JsonAst): R<InvokeArg[]> => {
+const decodeInvokeArgs = framed((path: string, j: JsonAst): R<InvokeArg[]> => {
   if (j.kind !== 'JArray') return wrongType(path, 'JSON array of invoke args');
   return traverseIndexed(j.items, (i, el) => {
     const p = `${path}[${i}]`;
@@ -2281,7 +2695,7 @@ const decodeInvokeArgs = (path: string, j: JsonAst): R<InvokeArg[]> => {
     if (!value.ok) return value;
     return ok<InvokeArg>({ addr: addr.value, value: value.value });
   });
-};
+});
 
 /**
  * Phase 1534 / 1662 — one walk over a `ColExpr`, answering both questions this
@@ -2482,20 +2896,22 @@ const decodeExprParams = (
   }
   const arr = requireArray(`${path}.params`, paramsField);
   if (!arr.ok) return arr;
-  return traverseIndexed(arr.value, (_i, el) => {
-    const po = requireObject(`${path}.params[]`, el);
+  return traverseIndexed(arr.value, (i, el) => {
+    // Each element's path carries its index (§29.3), as on the reference host.
+    const ep = `${path}.params[${i}]`;
+    const po = requireObject(ep, el);
     if (!po.ok) return po;
-    const name = reqField(`${path}.params[]`, po.value, 'name', 'param name string', requireString);
+    const name = reqField(ep, po.value, 'name', 'param name string', requireString);
     if (!name.ok) return name;
     // Field alias: value — the observed repair-attempt shape ({name, value}).
-    const from = reqFieldAliased(
-      `${path}.params[]`,
-      po.value,
-      'from',
-      ['value'],
-      'param source Binding',
-      decodeBinding,
-    );
+    // The binding is located by the param's NAME (`params.<name>.from`), as on
+    // the reference host and as in the map form above. Its presence is checked
+    // whatever the name holds; its value is decoded only under a good name
+    // (WIRE_FORMAT §29.1).
+    const fromJ = fieldAliased(po.value, 'from', ['value']);
+    if (fromJ === undefined) return absentMember(ep, 'from', 'param source Binding');
+    if (name.value === HOLE) return ok(HOLE as TransformParam);
+    const from = inFrame(() => decodeBinding(`${path}.params.${name.value}.from`, fromJ));
     if (!from.ok) return from;
     return ok<TransformParam>({ name: name.value, from: from.value });
   });
@@ -2509,621 +2925,657 @@ const decodeExprParams = (
  * the generic behaviour exactly (faithful AST value; `"<opaque>"` fallback);
  * the enumerated slot-typed wrappers below supply the typed pair.
  */
-const decodeBinding = (
-  path: string,
-  j: JsonAst,
-  parseStatic: (p: string, v: JsonAst) => R<unknown> = (_p, v) => ok(decodeAstValue(v)),
-  placeholder: unknown = OPAQUE,
-): R<Binding<unknown>> => {
-  // Lenient AI-ingest shape coercion (WIRE_FORMAT.md §3.6): a bare JSON array
-  // where a Binding is expected is accepted as `Static` with the array as its
-  // value — `options: ["A","B"]` (the HTML select prior) and `data: [1,2,3]`
-  // (the Chart.js prior). Unambiguous: every Binding case is a
-  // `$type`-discriminated object, so an array can only mean Static.
-  // Decode-only — the canonical encoder still emits the envelope. Bare
-  // scalars/objects stay strict: an object without `$type` is more plausibly
-  // a mistyped binding than a Static value. Mirror of F# `bindingGeneric`.
-  // Extended 2026-07-17 second wave: bare SCALARS coerce too (fraction: 0.9,
-  // activeStep: 1 — launch-eval evidence); null / untyped objects stay strict.
-  if (j.kind === 'JArray' || j.kind === 'JString' || j.kind === 'JNumber' || j.kind === 'JBool') {
-    const parsed = parseStatic(path, j);
-    return parsed.ok ? ok({ kind: 'Static', value: parsed.value }) : parsed;
-  }
-  const fo = requireObject(path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const d = requireDiscriminator(path, f);
-  if (!d.ok) return d;
-  switch (d.value) {
-    case 'Static': {
-      // Phase 677 — absence is structural: a MISSING `value` means the binding
-      // carries none. The legacy `"value": null` form still decodes (§16
-      // shorthand) by routing to the very same per-slot absent handling, so the
-      // two spellings cannot disagree.
-      const raw = f.get('value') ?? ({ kind: 'JNull' } as const);
-      const parsed = parseStatic(`${path}.value`, raw);
+const decodeBinding = framed(
+  (
+    path: string,
+    j: JsonAst,
+    parseStatic: (p: string, v: JsonAst) => R<unknown> = (_p, v) => ok(decodeAstValue(v)),
+    placeholder: unknown = OPAQUE,
+  ): R<Binding<unknown>> => {
+    // Lenient AI-ingest shape coercion (WIRE_FORMAT.md §3.6): a bare JSON array
+    // where a Binding is expected is accepted as `Static` with the array as its
+    // value — `options: ["A","B"]` (the HTML select prior) and `data: [1,2,3]`
+    // (the Chart.js prior). Unambiguous: every Binding case is a
+    // `$type`-discriminated object, so an array can only mean Static.
+    // Decode-only — the canonical encoder still emits the envelope. Bare
+    // scalars/objects stay strict: an object without `$type` is more plausibly
+    // a mistyped binding than a Static value. Mirror of F# `bindingGeneric`.
+    // Extended 2026-07-17 second wave: bare SCALARS coerce too (fraction: 0.9,
+    // activeStep: 1 — launch-eval evidence); null / untyped objects stay strict.
+    if (j.kind === 'JArray' || j.kind === 'JString' || j.kind === 'JNumber' || j.kind === 'JBool') {
+      const parsed = parseStatic(path, j);
       return parsed.ok ? ok({ kind: 'Static', value: parsed.value }) : parsed;
     }
-    case 'Query': {
-      const r = reqField(path, f, 'name', 'query name string', requireString);
-      if (!r.ok) return r;
-      // Phase 421 — optional `dependsOn` string array (the declared filter edge); absent → omitted.
-      const dependsOnField = fieldAliased(f, 'dependsOn', ['deps', 'dependencies']);
-      let dependsOn: readonly string[] | undefined;
-      if (dependsOnField !== undefined) {
-        const arr = requireArray(`${path}.dependsOn`, dependsOnField);
-        if (!arr.ok) return arr;
-        const strs = traverseIndexed(arr.value, (_i, el) =>
-          requireString(`${path}.dependsOn[]`, el),
-        );
-        if (!strs.ok) return strs;
-        dependsOn = strs.value;
+    const fo = requireObject(path, j);
+    if (!fo.ok) return fo;
+    const f = fo.value;
+    const d = requireDiscriminator(path, f);
+    if (!d.ok) return d;
+    switch (d.value) {
+      case 'Static': {
+        // Phase 677 — absence is structural: a MISSING `value` means the binding
+        // carries none. The legacy `"value": null` form still decodes (§16
+        // shorthand) by routing to the very same per-slot absent handling, so the
+        // two spellings cannot disagree.
+        const raw = f.get('value') ?? ({ kind: 'JNull' } as const);
+        const parsed = parseStatic(`${path}.value`, raw);
+        return parsed.ok ? ok({ kind: 'Static', value: parsed.value }) : parsed;
       }
-      // Phase 421 identity-accessor fix: project the host's queryResults value straight through
-      // (`(raw) => raw`) instead of discarding it, so host-fed data flows through decoded trees.
-      return ok({
-        kind: 'Query',
-        name: r.value,
-        accessor: (raw: unknown) => raw,
-        ...(dependsOn !== undefined ? { dependsOn } : {}),
-      });
-    }
-    case 'Filter': {
-      const r = reqField(path, f, 'name', 'filter name string', requireString);
-      if (!r.ok) return r;
-      // 0.2.0 — optional `defaultValue`: the value the resolver yields (and
-      // the renderer seeds the store with) before the filter is first
-      // written. Decoded through the slot's typed static parser, mirroring
-      // `State.defaultValue`; an absent / unparseable default stays omitted.
-      const dv = tryField(f, 'defaultValue');
-      let defaultValue: unknown;
-      let hasDefault = false;
-      if (dv !== undefined) {
-        const parsed = parseStatic(`${path}.defaultValue`, dv);
-        if (parsed.ok) {
-          defaultValue = parsed.value;
-          hasDefault = true;
+      case 'Query': {
+        const r = reqField(path, f, 'name', 'query name string', requireString);
+        if (!r.ok) return r;
+        // Phase 421 — optional `dependsOn` string array (the declared filter edge); absent → omitted.
+        const dependsOnField = fieldAliased(f, 'dependsOn', ['deps', 'dependencies']);
+        let dependsOn: readonly string[] | undefined;
+        if (dependsOnField !== undefined) {
+          const arr = requireArray(`${path}.dependsOn`, dependsOnField);
+          if (!arr.ok) return arr;
+          const strs = traverseIndexed(arr.value, (i, el) =>
+            requireString(`${path}.dependsOn[${i}]`, el),
+          );
+          if (!strs.ok) return strs;
+          dependsOn = strs.value;
         }
+        // Phase 421 identity-accessor fix: project the host's queryResults value straight through
+        // (`(raw) => raw`) instead of discarding it, so host-fed data flows through decoded trees.
+        return ok({
+          kind: 'Query',
+          name: r.value,
+          accessor: (raw: unknown) => raw,
+          ...(dependsOn !== undefined ? { dependsOn } : {}),
+        });
       }
-      const b: Binding<unknown> = {
-        kind: 'Filter',
-        name: r.value,
-        ...(hasDefault ? { defaultValue } : {}),
-      };
-      return ok(b);
-    }
-    case 'Selection': {
-      const r = reqField(path, f, 'nodeId', 'selection NodeId string', requireString);
-      if (!r.ok) return r;
-      // 0.2.9 (Phase 629) — optional `defaultValue`, the `Filter.defaultValue`
-      // convention: yielded until the user first selects a row on `nodeId`.
-      const dv = tryField(f, 'defaultValue');
-      let defaultValue: unknown;
-      let hasDefault = false;
-      if (dv !== undefined) {
-        const parsed = parseStatic(`${path}.defaultValue`, dv);
-        if (parsed.ok) {
-          defaultValue = parsed.value;
-          hasDefault = true;
+      case 'Filter': {
+        const r = reqField(path, f, 'name', 'filter name string', requireString);
+        if (!r.ok) return r;
+        // 0.2.0 — optional `defaultValue`: the value the resolver yields (and
+        // the renderer seeds the store with) before the filter is first
+        // written. Decoded through the slot's typed static parser, mirroring
+        // `State.defaultValue`; an absent / unparseable default stays omitted.
+        const dv = tryField(f, 'defaultValue');
+        let defaultValue: unknown;
+        let hasDefault = false;
+        if (dv !== undefined) {
+          const parsed = quietly(() => parseStatic(`${path}.defaultValue`, dv));
+          if (parsed.ok) {
+            defaultValue = parsed.value;
+            hasDefault = true;
+          }
         }
-      }
-      // Phase 427 identity-accessor fix (the 421 `Query` fix replayed): a
-      // decoded `Selection` projects the stored row straight through instead
-      // of a value-discarding placeholder, so a written selection flows to
-      // decoded readers.
-      //
-      // 0.2.10 (Phase 632) — optional `field`: the declarative row-field
-      // projection. Present ⇒ the accessor projects that field off the
-      // clicked row (the grid writes the FULL row), so the binding stays
-      // scalar after a real click; absent ⇒ the 427 identity, pre-632
-      // behaviour byte-for-byte. A missing field / non-row value throws in
-      // the accessor — the resolver's loud path, never silent.
-      const fv = tryField(f, 'field');
-      let field: string | undefined;
-      if (fv !== undefined) {
-        const s = requireString(`${path}.field`, fv);
-        if (s.ok) field = s.value;
-      }
-      const accessor: (raw: unknown) => unknown =
-        field !== undefined ? projectSelectionField(field) : (raw: unknown) => raw;
-      const b: Binding<unknown> = {
-        kind: 'Selection',
-        nodeId: r.value as NodeId,
-        accessor,
-        ...(hasDefault ? { defaultValue } : {}),
-        ...(field !== undefined ? { field } : {}),
-      };
-      return ok(b);
-    }
-    case 'State': {
-      const key = reqField(path, f, 'key', 'state key string', requireString);
-      if (!key.ok) return key;
-      // §5's absent-`State.defaultValue` posture (Phase 1656): absence OMITS,
-      // and ABSENCE HAS THREE SPELLINGS — the member missing, the member
-      // present as JSON `null`, and either lenient alias present as `null`.
-      // All three yield no default at all, so the encoder writes no member and
-      // a bare `{"$type":"State","key":k}` re-encodes as itself at every slot.
-      //
-      // The null arm has to be decided HERE and cannot be delegated to
-      // `parseStatic`, which is what this arm did until 1656 and what made it
-      // wrong on two counts. §5's read-compat rule maps a `null` Static payload
-      // to the slot's TYPED EMPTY, so at every collection slot
-      // (`parseStaticSelectOptions` / `StringList` / `FloatSeq` / `Rows` /
-      // `MarkerSeq`, each `ok([])` on `JNull`) an ABSENT default came back as
-      // `[]` and re-encoded as `"defaultValue":[]` — respelling "I read this
-      // key and carry nothing of my own" as a declaration that the collection
-      // is empty, which the seeding lattice reads as a different claim. And an
-      // explicitly-written `null` came back as the slot's PLACEHOLDER (`0` at a
-      // numeric slot), which is sharper still: a member the document wrote as
-      // nothing re-encoded as a number. That read-compat belongs to
-      // `Static.value` and stays there, pinned by `lenient-null-static-options`;
-      // this position is pinned by `lenient-1656-state-default-null`.
-      //
-      // The RESOLVED value is untouched, and that separation is the whole point
-      // of `defaultDeclared`. `defaultValue` stays what an unwritten key
-      // resolves to (§3.3) — the slot's typed default, which the read-compat
-      // mapping is the right way to obtain — and the new field carries the wire
-      // fact the encoder needs. Collapsing the two into one field is what made
-      // this arm wrong: with only the value, "the author declared the empty
-      // collection" and "the author declared nothing, and the empty collection
-      // is what an unwritten key yields" are the same state, and the encoder
-      // has to guess. The reference host expresses the pair as a `'T option`
-      // plus its generic `defaultof<'T>`; the sibling Rust host carries it as
-      // this explicit second field, which is where the shape is borrowed from.
-      //
-      // The typed placeholder also survives as the fallback for a default the
-      // document CARRIED and this slot's parser could not read — a different
-      // fact again, and one §5 deliberately leaves unsettled across the hosts:
-      // it keeps a usable value where the document said something unreadable,
-      // where synthesising one where the document said NOTHING re-emits a
-      // member nobody wrote. That case stays DECLARED, so its bytes do not
-      // move. Corpus: `nodes/state-absent-default` (the five typed slots),
-      // `lenient-1656-state-default-null` (both null spellings),
-      // `reject-state-default-without-key` (the optionality, the right way
-      // round — the DEFAULT may be omitted, the KEY may not).
-      const dvRaw = fieldAliased(f, 'defaultValue', ['initialValue', 'default']);
-      const declared = dvRaw !== undefined && dvRaw.kind !== 'JNull';
-      const dv = dvRaw ?? ({ kind: 'JNull' } as const);
-      let defaultValue: unknown = dvRaw === undefined ? undefined : placeholder;
-      const parsed = parseStatic(`${path}.defaultValue`, dv);
-      if (parsed.ok) defaultValue = parsed.value;
-      // The field is set only for the NEGATIVE, so a declared default's decoded
-      // shape is byte-for-byte what it was: `defaultDeclared` says "this
-      // document declared nothing", and a binding that carries no such claim is
-      // read by the encoder exactly as it always was.
-      return ok(
-        declared
-          ? { kind: 'State', key: key.value, defaultValue }
-          : { kind: 'State', key: key.value, defaultValue, defaultDeclared: false },
-      );
-    }
-    case 'Computed':
-      // The encoder writes the fn as `<closure>`, and there is nothing else in
-      // the case — so a decoded `Computed` cannot compute.
-      //
-      // It used to decode to `() => undefined`, which the resolver reported as
-      // `Resolved undefined` and the slot rendered as its empty state: a wrong
-      // answer indistinguishable at the slot from a right one. The stand-in now
-      // THROWS, the resolver catches it into an `Errored` naming the cases that
-      // do cross the wire, and the reader sees the slot's error surface. The
-      // decode itself still succeeds — the document is well-formed, and refusing
-      // the whole tree for a binding nothing may ever read would be a larger
-      // claim than the evidence supports.
-      return ok({
-        kind: 'Computed',
-        compute: () => {
-          throw new WireSurvivabilityError(DECODED_COMPUTED_MESSAGE);
-        },
-      });
-    // The projection decodes to the IDENTITY (the Phase 427 Selection fix
-    // replayed): the host-furnished instant is already the wire-shaped string,
-    // so a decoded reader receives it as-is. A value-discarding placeholder
-    // here would make every decoded `Now` resolve to nothing even when the
-    // host furnishes the instant.
-    case 'Now': {
-      // Phase 1533 — `grain` is the ONE wire field, optional, absent meaning
-      // `Second`. Absence is the default; PRESENT and unreadable is a refusal,
-      // never a silent fallback, because a document that names a grain the host
-      // cannot honour would otherwise render at a resolution it did not ask for
-      // and say nothing about it.
-      const g = tryField(f, 'grain');
-      if (g === undefined) return ok({ kind: 'Now', project: (iso) => iso });
-      const r = decodeTimeGrain(`${path}.grain`, g);
-      return r.ok ? ok({ kind: 'Now', project: (iso) => iso, grain: r.value }) : r;
-    }
-    case 'I18n': {
-      const key = reqField(path, f, 'key', 'i18n key string', requireString);
-      if (!key.ok) return key;
-      const argsJ = tryField(f, 'args');
-      if (argsJ === undefined) {
-        const b: Binding<unknown> = { kind: 'I18n', key: key.value };
+        const b: Binding<unknown> = {
+          kind: 'Filter',
+          name: r.value,
+          ...(hasDefault ? { defaultValue } : {}),
+        };
         return ok(b);
       }
-      const argsR = decodeBindingArgs(`${path}.args`, argsJ);
-      if (!argsR.ok) return argsR;
-      const b: Binding<unknown> = { kind: 'I18n', key: key.value, args: argsR.value };
-      return ok(b);
-    }
-    case 'Local': {
-      // The three closure slots stop being holes here (WIRE_FORMAT.md Section
-      // 3.3.3). Before: `format` decoded to nothing, `parse` to a function that
-      // ALWAYS returned an error, and `onCommit` to a no-op — so a wire-authored
-      // debounced input rendered empty and could never commit a keystroke. The
-      // fixture said so verbatim, in three sentinels.
-      //
-      //  1. `format` / `parse` restore to the IDENTITY, `parse` reading the
-      //     reader's text back through `parseStatic` — the slot's OWN decoder,
-      //     which this function already carries — so a text slot takes the
-      //     string verbatim and a numeric slot takes the number the text
-      //     denotes, with no host-side type dispatch to diverge on.
-      //  2. `codec`, when declared, REPLACES both.
-      //  3. `commitTo` is the State-key alternative to the `onCommit` closure.
-      //     Declaring both is refused rather than resolved by a precedence rule:
-      //     the wire cannot carry the closure, so a host honouring `onCommit`
-      //     and a host honouring `commitTo` would write to different places from
-      //     identical bytes.
-      const codecJ = tryField(f, 'codec');
-      let codec: Format | undefined;
-      if (codecJ !== undefined) {
-        const c = decodeFormat(`${path}.codec`, codecJ);
-        if (!c.ok) return c;
-        // The admitted set is the `Format` cases with a TOTAL,
-        // LOCALE-INDEPENDENT inverse, and today that is `Number` alone.
-        // `Currency` prepends a locale-chosen symbol; `Date`'s four styles are
-        // all locale renditions; `RelativeTime` / `Since` / `Duration` render a
-        // phrase. `Percent` is refused for a narrower reason worth stating: its
-        // inverse needs a x100 scale whose IEEE round-trip is not exact.
-        if (c.value.kind !== 'Number') {
-          return makeError(
-            'WRONG_TYPE',
-            `${path}.codec`,
-            "Binding.Local 'codec' must be a Format case with a total, locale-independent inverse — only 'Number' has one",
-            'use {"$type":"Number","decimals":2}, or drop the codec and let the buffer use the identity; a locale-rendered format (Currency / Date / RelativeTime / Since / Duration) cannot be parsed back from what the reader typed',
-          );
-        }
-        codec = c.value;
-      }
-
-      const onCommitPresent = tryField(f, 'onCommit') !== undefined;
-      const commitToJ = tryField(f, 'commitTo');
-      let commitTo: string | undefined;
-      if (commitToJ !== undefined) {
-        if (onCommitPresent) {
-          return makeError(
-            'WRONG_TYPE',
-            `${path}.commitTo`,
-            "Binding.Local carries both 'onCommit' and 'commitTo' — exactly one commit destination is allowed",
-            'either onCommit (a host closure, which crosses the wire only as the closure sentinel) or commitTo (the State key the flush writes); a decoding host can honour only the second, so keeping both makes the same document commit to two different places depending on who read it',
-          );
-        }
-        const ct = requireString(`${path}.commitTo`, commitToJ);
-        if (!ct.ok) return ct;
-        commitTo = ct.value;
-      }
-
-      // `initialFrom` recurses with the same typed pair (mirror of the F#
-      // `bindingGeneric` recursion).
-      const initial = reqField(path, f, 'initialFrom', 'Local InitialFrom Binding', (p, v) =>
-        decodeBinding(p, v, parseStatic, placeholder),
-      );
-      if (!initial.ok) return initial;
-      const flushJ = tryField(f, 'flushOn');
-      const flush =
-        flushJ === undefined
-          ? ok<LocalFlushTrigger>({ kind: 'OnBlur' })
-          : decodeLocalFlushTrigger(`${path}.flushOn`, flushJ);
-      if (!flush.ok) return flush;
-
-      const refusalOf = (raw: string): string =>
-        `Binding.Local: '${raw}' is not a value this field accepts`;
-
-      const identityParse = (raw: string): Result<unknown, string> => {
-        const asText = parseStatic(`${path}.parse`, { kind: 'JString', value: raw } as JsonAst);
-        if (asText.ok) return { ok: true, value: asText.value };
-        const scalar = scalarOfText(raw);
-        if (scalar === undefined) return { ok: false, error: refusalOf(raw) };
-        const asScalar = parseStatic(
-          `${path}.parse`,
-          typeof scalar === 'number'
-            ? ({ kind: 'JNumber', value: scalar } as JsonAst)
-            : ({ kind: 'JBool', value: scalar } as JsonAst),
-        );
-        return asScalar.ok
-          ? { ok: true, value: asScalar.value }
-          : { ok: false, error: refusalOf(raw) };
-      };
-
-      const decimals = codec !== undefined && codec.kind === 'Number' ? codec.decimals : undefined;
-
-      const codecParse = (raw: string): Result<unknown, string> => {
-        const n = tryNumberText(raw);
-        if (n === undefined) return { ok: false, error: refusalOf(raw) };
-        const parsed = parseStatic(`${path}.parse`, { kind: 'JNumber', value: n } as JsonAst);
-        return parsed.ok ? { ok: true, value: parsed.value } : { ok: false, error: refusalOf(raw) };
-      };
-
-      const local: LocalBinding<unknown> = {
-        initialFrom: initial.value,
-        flushOn: flush.value,
-        format:
-          codec !== undefined
-            ? (v: unknown) => numberText(decimals, v)
-            : (v: unknown) => identityFormat(v),
-        parse: codec !== undefined ? codecParse : identityParse,
-        ...(onCommitPresent ? { onCommit: () => undefined } : {}),
-        ...(codec !== undefined ? { codec } : {}),
-        ...(commitTo !== undefined ? { commitTo } : {}),
-      };
-      const b: Binding<unknown> = { kind: 'Local', local };
-      return ok(b);
-    }
-    case 'Format': {
-      // Phase 102: source is always a numeric Binding; format / locale are
-      // bounded DUs. The case is structurally independent of the slot type.
-      const source = reqField(path, f, 'source', 'Binding<number> source object', decodeBinding);
-      if (!source.ok) return source;
-      const fmtJ = requireField(path, f, 'format', 'Format DU object');
-      if (!fmtJ.ok) return fmtJ;
-      const fmt = decodeFormat(`${path}.format`, fmtJ.value);
-      if (!fmt.ok) return fmt;
-      const locJ = requireField(path, f, 'locale', 'LocaleSource DU object');
-      if (!locJ.ok) return locJ;
-      const loc = decodeLocaleSource(`${path}.locale`, locJ.value);
-      if (!loc.ok) return loc;
-      const b: Binding<unknown> = {
-        kind: 'Format',
-        source: source.value as Binding<number>,
-        format: fmt.value,
-        locale: loc.value,
-      };
-      return ok(b);
-    }
-    case 'Transform': {
-      // Phase 282 — the Compute layer. `source` (a DataSource) and `pipeline` (a
-      // Transform list) decode through the Core-style structural decoders; a Core
-      // decode failure wraps to WRONG_TYPE at `.source` / `.pipeline`, byte-
-      // identical to the F# UI host's `coreError` wrapping.
-      // Phase 818 — a binding-shaped source (State / Selection / Query `$type`)
-      // is PRESERVED as `TransformSource.Live`: the decoded binding re-encodes
-      // verbatim (one wire dialect) and the runtime re-evaluates the pipeline
-      // against it, with the decode-time `initial` snapshot derived from the
-      // binding's carried default data through the same 815 normalisation.
-      // Phase 1085 — a State wrapper carrying NO data is a live source over the
-      // EMPTY initial snapshot, exactly as a Selection / Query source already
-      // was. It used to error through the columnar codec (the 815 posture,
-      // correct when nothing could fill the slot); under the 1075 seeding rule
-      // a sibling reader's declaration fills it, so the bare
-      // `{"$type":"State","key":k}` is the direct spelling of "I read this key
-      // and carry no data of my own" — and the one FUARAN106's remedy text
-      // tells an author to write.
-      const srcJ = requireField(path, f, 'source', 'Transform DataSource object');
-      if (!srcJ.ok) return srcJ;
-      const pipeJ = requireField(path, f, 'pipeline', 'Transform pipeline array');
-      if (!pipeJ.ok) return pipeJ;
-      const liveTagAst = srcJ.value.kind === 'JObject' ? srcJ.value.fields.get('$type') : undefined;
-      const liveTag =
-        liveTagAst !== undefined &&
-        liveTagAst.kind === 'JString' &&
-        (liveTagAst.value === 'State' ||
-          liveTagAst.value === 'Selection' ||
-          liveTagAst.value === 'Query')
-          ? liveTagAst.value
-          : undefined;
-      let source: TransformSource;
-      if (liveTag === undefined) {
-        // The pre-818 path: canonical columnar / `ref` and the 815 leniencies
-        // (Static/Bound wrapper unwrap; row-major transpose).
-        const src = decodeDataSource(normaliseTransformSource(srcJ.value));
-        if (!src.ok) return makeError('WRONG_TYPE', `${path}.source`, src.error);
-        source = { kind: 'Data', source: src.value };
-      } else {
-        // The carried default decodes FAITHFULLY (the structured decodeJVal),
-        // so the preserved binding round-trips byte-for-byte.
-        const b = decodeBinding(`${path}.source`, srcJ.value, decodeJVal, undefined);
-        if (!b.ok) return b;
-        // Phase 1085 — an ABSENT `defaultValue` must stay ABSENT on the decoded
-        // binding, or the SEEDING pass reads a source that DECLARES NOTHING as
-        // a declaration of the slot's typed placeholder (here the `"<opaque>"`
-        // sentinel): seeding the slot with a sentinel on this tier and with
-        // nothing on the other, from one document. Measured, not reasoned — the
-        // first run of that pin returned `{"members":"<opaque>"}`.
-        //
-        // Phase 1656 — it reads the DECODER'S OWN wire fact now instead of
-        // re-inspecting the raw member, so the two places stop being two
-        // decisions over one thing. That duplication is how they came to
-        // disagree about the `null` spelling: this one asked whether the member
-        // was PRESENT, where the arm above asks whether anything was DECLARED,
-        // and an explicit `null` is present without declaring anything.
-        //
-        // The clearing is still needed and is not the encoder's business: the
-        // encoder reads `defaultDeclared` and omits either way. What this
-        // clears is the value the SEEDING walk reads, which at this slot must
-        // be nothing rather than the sentinel.
-        const liveBinding = (() => {
-          const raw = b.value as Binding<JsonValue>;
-          return raw.kind === 'State' && raw.defaultDeclared === false
-            ? ({ ...raw, defaultValue: undefined } as unknown as Binding<JsonValue>)
-            : raw;
-        })();
-        if (liveTag === 'State') {
-          // An EMPTY array default is the empty table, exactly as a
-          // Selection / Query live source starts. An initially-empty live
-          // collection ("count the requests in an empty log") is a correct,
-          // complete intent with zero rows and no columns to infer, and the
-          // columnar codec's "expected object, got array" didactic was
-          // refusing a shape with nothing wrong in it.
-          //
-          // The F# reference host has read it this way since 0.23.1; this tier
-          // never did, and nothing in the corpus or the specification said so,
-          // so one document decoded on one host and was refused on the other.
-          // Found by Phase 1075 — `"defaultValue":[]` is how a Transform's
-          // source slot spells "I read this key and carry no data of my own",
-          // which is precisely the shape the seeding rule exists to make work.
-          // `WIRE_FORMAT.md` §16 now carries the rule and the corpus pins it.
-          //
-          // Phase 1085 — an ABSENT `defaultValue` takes the same arm. The two
-          // spellings say one thing; the empty array stays the answer for a
-          // genuinely empty live collection rather than a workaround for a
-          // wrapper the decoder would not accept bare.
-          //
-          // Phase 1656 — the `null` spelling of absence takes it too, which it
-          // did not before: a raw `JNull` is neither undefined nor an empty
-          // array, so it fell to the snapshot branch and was decoded as carried
-          // data. The reference host never had the bug because it reads the
-          // DECODED binding's default, where every spelling of absence is
-          // already one value; this reads the raw member, so it must name them.
-          const carriedJ =
-            srcJ.value.kind === 'JObject' ? srcJ.value.fields.get('defaultValue') : undefined;
-          const carriesNoData =
-            carriedJ === undefined ||
-            carriedJ.kind === 'JNull' ||
-            (carriedJ.kind === 'JArray' && carriedJ.items.length === 0);
-
-          if (carriesNoData) {
-            source = {
-              kind: 'Live',
-              binding: liveBinding,
-              initial: { kind: 'Embedded', table: { schema: [], columns: [] } },
-            };
-          } else {
-            // The carried data IS the initial snapshot; a decode failure
-            // (ragged / mixed-type rows) surfaces the same didactic the 815
-            // snapshot decode raised.
-            const snap = decodeDataSource(normaliseTransformSource(srcJ.value));
-            if (!snap.ok) return makeError('WRONG_TYPE', `${path}.source`, snap.error);
-            source = {
-              kind: 'Live',
-              binding: liveBinding,
-              initial: snap.value,
-            };
+      case 'Selection': {
+        const r = reqField(path, f, 'nodeId', 'selection NodeId string', requireString);
+        if (!r.ok) return r;
+        // 0.2.9 (Phase 629) — optional `defaultValue`, the `Filter.defaultValue`
+        // convention: yielded until the user first selects a row on `nodeId`.
+        const dv = tryField(f, 'defaultValue');
+        let defaultValue: unknown;
+        let hasDefault = false;
+        if (dv !== undefined) {
+          const parsed = quietly(() => parseStatic(`${path}.defaultValue`, dv));
+          if (parsed.ok) {
+            defaultValue = parsed.value;
+            hasDefault = true;
           }
-        } else {
-          // Selection / Query — a tabular carried default seeds the initial
-          // snapshot; anything else starts from the empty table (runtime
-          // evaluation stays loud on a non-tabular live value, never here).
-          const dv =
-            srcJ.value.kind === 'JObject' ? srcJ.value.fields.get('defaultValue') : undefined;
-          const snap =
-            dv !== undefined ? decodeDataSource(normaliseTransformSource(dv)) : undefined;
-          source = {
-            kind: 'Live',
-            binding: liveBinding,
-            initial:
-              snap !== undefined && snap.ok
-                ? snap.value
-                : { kind: 'Embedded', table: { schema: [], columns: [] } },
-          };
         }
+        // Phase 427 identity-accessor fix (the 421 `Query` fix replayed): a
+        // decoded `Selection` projects the stored row straight through instead
+        // of a value-discarding placeholder, so a written selection flows to
+        // decoded readers.
+        //
+        // 0.2.10 (Phase 632) — optional `field`: the declarative row-field
+        // projection. Present ⇒ the accessor projects that field off the
+        // clicked row (the grid writes the FULL row), so the binding stays
+        // scalar after a real click; absent ⇒ the 427 identity, pre-632
+        // behaviour byte-for-byte. A missing field / non-row value throws in
+        // the accessor — the resolver's loud path, never silent.
+        const fv = tryField(f, 'field');
+        let field: string | undefined;
+        if (fv !== undefined) {
+          const s = quietly(() => requireString(`${path}.field`, fv));
+          if (s.ok) field = s.value;
+        }
+        const accessor: (raw: unknown) => unknown =
+          field !== undefined ? projectSelectionField(field) : (raw: unknown) => raw;
+        const b: Binding<unknown> = {
+          kind: 'Selection',
+          nodeId: r.value as NodeId,
+          accessor,
+          ...(hasDefault ? { defaultValue } : {}),
+          ...(field !== undefined ? { field } : {}),
+        };
+        return ok(b);
       }
-      const pipe = decodePipelineCore(pipeJ.value);
-      if (!pipe.ok) return makeError('WRONG_TYPE', `${path}.pipeline`, pipe.error);
-      // Phase 1662 — §21.8's expression-node bound over the pipeline's own
-      // embedded expressions, at DECODE and not at validation: a document that
-      // decodes must not be able to name an unbounded evaluation.
-      const breach = pipelineExprBreach(path, pipe.value);
-      if (breach !== undefined) {
-        return makeError(
-          'LIMIT_EXCEEDED',
-          breach.path,
-          `expression exceeds the maximum of ${MAX_EXPR_NODES} expression nodes (WIRE_FORMAT 21.8)`,
-          `at most ${MAX_EXPR_NODES} ColExpr nodes in one pipeline expression`,
+      case 'State': {
+        const key = reqField(path, f, 'key', 'state key string', requireString);
+        if (!key.ok) return key;
+        // §5's absent-`State.defaultValue` posture (Phase 1656): absence OMITS,
+        // and ABSENCE HAS THREE SPELLINGS — the member missing, the member
+        // present as JSON `null`, and either lenient alias present as `null`.
+        // All three yield no default at all, so the encoder writes no member and
+        // a bare `{"$type":"State","key":k}` re-encodes as itself at every slot.
+        //
+        // The null arm has to be decided HERE and cannot be delegated to
+        // `parseStatic`, which is what this arm did until 1656 and what made it
+        // wrong on two counts. §5's read-compat rule maps a `null` Static payload
+        // to the slot's TYPED EMPTY, so at every collection slot
+        // (`parseStaticSelectOptions` / `StringList` / `FloatSeq` / `Rows` /
+        // `MarkerSeq`, each `ok([])` on `JNull`) an ABSENT default came back as
+        // `[]` and re-encoded as `"defaultValue":[]` — respelling "I read this
+        // key and carry nothing of my own" as a declaration that the collection
+        // is empty, which the seeding lattice reads as a different claim. And an
+        // explicitly-written `null` came back as the slot's PLACEHOLDER (`0` at a
+        // numeric slot), which is sharper still: a member the document wrote as
+        // nothing re-encoded as a number. That read-compat belongs to
+        // `Static.value` and stays there, pinned by `lenient-null-static-options`;
+        // this position is pinned by `lenient-1656-state-default-null`.
+        //
+        // The RESOLVED value is untouched, and that separation is the whole point
+        // of `defaultDeclared`. `defaultValue` stays what an unwritten key
+        // resolves to (§3.3) — the slot's typed default, which the read-compat
+        // mapping is the right way to obtain — and the new field carries the wire
+        // fact the encoder needs. Collapsing the two into one field is what made
+        // this arm wrong: with only the value, "the author declared the empty
+        // collection" and "the author declared nothing, and the empty collection
+        // is what an unwritten key yields" are the same state, and the encoder
+        // has to guess. The reference host expresses the pair as a `'T option`
+        // plus its generic `defaultof<'T>`; the sibling Rust host carries it as
+        // this explicit second field, which is where the shape is borrowed from.
+        //
+        // The typed placeholder also survives as the fallback for a default the
+        // document CARRIED and this slot's parser could not read — a different
+        // fact again, and one §5 deliberately leaves unsettled across the hosts:
+        // it keeps a usable value where the document said something unreadable,
+        // where synthesising one where the document said NOTHING re-emits a
+        // member nobody wrote. That case stays DECLARED, so its bytes do not
+        // move. Corpus: `nodes/state-absent-default` (the five typed slots),
+        // `lenient-1656-state-default-null` (both null spellings),
+        // `reject-state-default-without-key` (the optionality, the right way
+        // round — the DEFAULT may be omitted, the KEY may not).
+        const dvRaw = fieldAliased(f, 'defaultValue', ['initialValue', 'default']);
+        const declared = dvRaw !== undefined && dvRaw.kind !== 'JNull';
+        const dv = dvRaw ?? ({ kind: 'JNull' } as const);
+        let defaultValue: unknown = dvRaw === undefined ? undefined : placeholder;
+        const parsed = quietly(() => parseStatic(`${path}.defaultValue`, dv));
+        if (parsed.ok) defaultValue = parsed.value;
+        // The field is set only for the NEGATIVE, so a declared default's decoded
+        // shape is byte-for-byte what it was: `defaultDeclared` says "this
+        // document declared nothing", and a binding that carries no such claim is
+        // read by the encoder exactly as it always was.
+        return ok(
+          declared
+            ? { kind: 'State', key: key.value, defaultValue }
+            : { kind: 'State', key: key.value, defaultValue, defaultDeclared: false },
         );
       }
-      // Phase 424 — the optional `params` slot, shared with `Binding.Expr` since
-      // Phase 1534 (see `decodeExprParams`).
-      const paramsR = decodeExprParams(path, f);
-      if (!paramsR.ok) return paramsR;
-      const params = paramsR.value;
-      const b: Binding<unknown> = {
-        kind: 'Transform',
-        source,
-        pipeline: pipe.value,
-        ...(params !== undefined ? { params } : {}),
-      };
-      return ok(b);
-    }
-    case 'Expr': {
-      // Phase 1534 — the scalar expression binding (WIRE_FORMAT §3.3.2). `expr`
-      // is one `ColExpr` in Core's own encoding; `params` is the same
-      // name->binding list `Transform` carries, decoded by the same helper.
-      //
-      // Three refusals, all here because each wants a $-rooted path and a code:
-      // a `col` reference (an Expr has no row, so `col` names nothing — the
-      // remedy is a different BINDING, and the message says so), a `param` this
-      // binding's own `params` does not bind (decidable statically here where
-      // it is NOT for `Transform`, whose unbound filter params are pruned under
-      // the deliberate unset-chip leniency), and an expression over
-      // MAX_EXPR_NODES.
-      const exprJ = requireField(path, f, 'expr', 'ColExpr object');
-      if (!exprJ.ok) return exprJ;
-      const expr = decodeColExprCore(exprJ.value);
-      if (!expr.ok) return makeError('WRONG_TYPE', `${path}.expr`, expr.error);
-      const verdict = exprAdmissible(expr.value);
-      if (verdict === 'col') {
-        return makeError(
-          'WRONG_TYPE',
-          `${path}.expr`,
-          'a `col` reference is not admitted inside an Expr binding — an Expr evaluates against its params alone and has no row for a column name to read. Use `Binding.Transform`, whose source supplies the frame, and put the column expression in a `derive` step',
-          'a ColExpr over `param` / `lit` / operators only (no `col`)',
-        );
+      case 'Computed':
+        // The encoder writes the fn as `<closure>`, and there is nothing else in
+        // the case — so a decoded `Computed` cannot compute.
+        //
+        // It used to decode to `() => undefined`, which the resolver reported as
+        // `Resolved undefined` and the slot rendered as its empty state: a wrong
+        // answer indistinguishable at the slot from a right one. The stand-in now
+        // THROWS, the resolver catches it into an `Errored` naming the cases that
+        // do cross the wire, and the reader sees the slot's error surface. The
+        // decode itself still succeeds — the document is well-formed, and refusing
+        // the whole tree for a binding nothing may ever read would be a larger
+        // claim than the evidence supports.
+        return ok({
+          kind: 'Computed',
+          compute: () => {
+            throw new WireSurvivabilityError(DECODED_COMPUTED_MESSAGE);
+          },
+        });
+      // The projection decodes to the IDENTITY (the Phase 427 Selection fix
+      // replayed): the host-furnished instant is already the wire-shaped string,
+      // so a decoded reader receives it as-is. A value-discarding placeholder
+      // here would make every decoded `Now` resolve to nothing even when the
+      // host furnishes the instant.
+      case 'Now': {
+        // Phase 1533 — `grain` is the ONE wire field, optional, absent meaning
+        // `Second`. Absence is the default; PRESENT and unreadable is a refusal,
+        // never a silent fallback, because a document that names a grain the host
+        // cannot honour would otherwise render at a resolution it did not ask for
+        // and say nothing about it.
+        const g = tryField(f, 'grain');
+        if (g === undefined) return ok({ kind: 'Now', project: (iso) => iso });
+        const r = decodeTimeGrain(`${path}.grain`, g);
+        return r.ok ? ok({ kind: 'Now', project: (iso) => iso, grain: r.value }) : r;
       }
-      if (verdict === 'limit') {
-        return makeError(
-          'LIMIT_EXCEEDED',
-          `${path}.expr`,
-          `expression exceeds the maximum of ${MAX_EXPR_NODES} expression nodes (WIRE_FORMAT 21)`,
-          `at most ${MAX_EXPR_NODES} ColExpr nodes in one Expr binding`,
-        );
+      case 'I18n': {
+        const key = reqField(path, f, 'key', 'i18n key string', requireString);
+        if (!key.ok) return key;
+        const argsJ = tryField(f, 'args');
+        if (argsJ === undefined) {
+          const b: Binding<unknown> = { kind: 'I18n', key: key.value };
+          return ok(b);
+        }
+        const argsR = decodeBindingArgs(`${path}.args`, argsJ);
+        if (!argsR.ok) return argsR;
+        const b: Binding<unknown> = { kind: 'I18n', key: key.value, args: argsR.value };
+        return ok(b);
       }
-      const exprParams = decodeExprParams(path, f);
-      if (!exprParams.ok) return exprParams;
-      const bound = new Set((exprParams.value ?? []).map((p) => p.name));
-      const missing = colExprParamNames(expr.value).filter((n) => !bound.has(n));
-      if (missing.length > 0) {
-        return makeError(
-          'WRONG_TYPE',
-          `${path}.expr`,
-          `the expression reads param(s) ${missing.map((n) => `'${n}'`).join(', ')} that this binding's \`params\` does not bind — an Expr has no rows and no filter to prune, so an unbound param has no value to take; add a params entry naming each, or drop the reference`,
-          '{"$type":"Expr","expr":{…},"params":[{"name":"<name>","from":<Binding>}]}',
+      case 'Local': {
+        // The three closure slots stop being holes here (WIRE_FORMAT.md Section
+        // 3.3.3). Before: `format` decoded to nothing, `parse` to a function that
+        // ALWAYS returned an error, and `onCommit` to a no-op — so a wire-authored
+        // debounced input rendered empty and could never commit a keystroke. The
+        // fixture said so verbatim, in three sentinels.
+        //
+        //  1. `format` / `parse` restore to the IDENTITY, `parse` reading the
+        //     reader's text back through `parseStatic` — the slot's OWN decoder,
+        //     which this function already carries — so a text slot takes the
+        //     string verbatim and a numeric slot takes the number the text
+        //     denotes, with no host-side type dispatch to diverge on.
+        //  2. `codec`, when declared, REPLACES both.
+        //  3. `commitTo` is the State-key alternative to the `onCommit` closure.
+        //     Declaring both is refused rather than resolved by a precedence rule:
+        //     the wire cannot carry the closure, so a host honouring `onCommit`
+        //     and a host honouring `commitTo` would write to different places from
+        //     identical bytes.
+        const codecJ = tryField(f, 'codec');
+        // `codec`, `commitTo`, `initialFrom` and `flushOn` are sibling members,
+        // each decoded in its own frame (§29.1).
+        const codecR = inFrame((): R<Format | undefined> => {
+          if (codecJ === undefined) return ok(undefined);
+          const c = decodeFormat(`${path}.codec`, codecJ);
+          if (!c.ok) return c;
+          // The admitted set is the `Format` cases with a TOTAL,
+          // LOCALE-INDEPENDENT inverse, and today that is `Number` alone.
+          // `Currency` prepends a locale-chosen symbol; `Date`'s four styles are
+          // all locale renditions; `RelativeTime` / `Since` / `Duration` render a
+          // phrase. `Percent` is refused for a narrower reason worth stating: its
+          // inverse needs a x100 scale whose IEEE round-trip is not exact.
+          if (c.value.kind !== 'Number') {
+            return makeError(
+              'WRONG_TYPE',
+              `${path}.codec`,
+              "Binding.Local 'codec' must be a Format case with a total, locale-independent inverse — only 'Number' has one",
+              'use {"$type":"Number","decimals":2}, or drop the codec and let the buffer use the identity; a locale-rendered format (Currency / Date / RelativeTime / Since / Duration) cannot be parsed back from what the reader typed',
+            );
+          }
+          return ok(c.value);
+        });
+        if (!codecR.ok) return codecR;
+        const codec = codecR.value;
+
+        const onCommitPresent = tryField(f, 'onCommit') !== undefined;
+        const commitToJ = tryField(f, 'commitTo');
+        const commitToR = inFrame((): R<string | undefined> => {
+          if (commitToJ === undefined) return ok(undefined);
+          if (onCommitPresent) {
+            return makeError(
+              'WRONG_TYPE',
+              `${path}.commitTo`,
+              "Binding.Local carries both 'onCommit' and 'commitTo' — exactly one commit destination is allowed",
+              'either onCommit (a host closure, which crosses the wire only as the closure sentinel) or commitTo (the State key the flush writes); a decoding host can honour only the second, so keeping both makes the same document commit to two different places depending on who read it',
+            );
+          }
+          return requireString(`${path}.commitTo`, commitToJ);
+        });
+        if (!commitToR.ok) return commitToR;
+        const commitTo = commitToR.value;
+
+        // `initialFrom` recurses with the same typed pair (mirror of the F#
+        // `bindingGeneric` recursion).
+        const initial = reqField(path, f, 'initialFrom', 'Local InitialFrom Binding', (p, v) =>
+          decodeBinding(p, v, parseStatic, placeholder),
         );
+        if (!initial.ok) return initial;
+        const flushJ = tryField(f, 'flushOn');
+        const flush =
+          flushJ === undefined
+            ? ok<LocalFlushTrigger>({ kind: 'OnBlur' })
+            : decodeLocalFlushTrigger(`${path}.flushOn`, flushJ);
+        if (!flush.ok) return flush;
+
+        const refusalOf = (raw: string): string =>
+          `Binding.Local: '${raw}' is not a value this field accepts`;
+
+        const identityParse = (raw: string): Result<unknown, string> => {
+          const asText = quietly(() =>
+            parseStatic(`${path}.parse`, { kind: 'JString', value: raw } as JsonAst),
+          );
+          if (asText.ok) return { ok: true, value: asText.value };
+          const scalar = scalarOfText(raw);
+          if (scalar === undefined) return { ok: false, error: refusalOf(raw) };
+          const asScalar = quietly(() =>
+            parseStatic(
+              `${path}.parse`,
+              typeof scalar === 'number'
+                ? ({ kind: 'JNumber', value: scalar } as JsonAst)
+                : ({ kind: 'JBool', value: scalar } as JsonAst),
+            ),
+          );
+          return asScalar.ok
+            ? { ok: true, value: asScalar.value }
+            : { ok: false, error: refusalOf(raw) };
+        };
+
+        const decimals =
+          codec !== undefined && codec.kind === 'Number' ? codec.decimals : undefined;
+
+        const codecParse = (raw: string): Result<unknown, string> => {
+          const n = tryNumberText(raw);
+          if (n === undefined) return { ok: false, error: refusalOf(raw) };
+          const parsed = quietly(() =>
+            parseStatic(`${path}.parse`, { kind: 'JNumber', value: n } as JsonAst),
+          );
+          return parsed.ok
+            ? { ok: true, value: parsed.value }
+            : { ok: false, error: refusalOf(raw) };
+        };
+
+        const local: LocalBinding<unknown> = {
+          initialFrom: initial.value,
+          flushOn: flush.value,
+          format:
+            codec !== undefined
+              ? (v: unknown) => numberText(decimals, v)
+              : (v: unknown) => identityFormat(v),
+          parse: codec !== undefined ? codecParse : identityParse,
+          ...(onCommitPresent ? { onCommit: () => undefined } : {}),
+          ...(codec !== undefined ? { codec } : {}),
+          ...(commitTo !== undefined ? { commitTo } : {}),
+        };
+        const b: Binding<unknown> = { kind: 'Local', local };
+        return ok(b);
       }
-      const b: Binding<unknown> = {
-        kind: 'Expr',
-        expr: expr.value,
-        ...(exprParams.value !== undefined ? { params: exprParams.value } : {}),
-      };
-      return ok(b);
+      case 'Format': {
+        // Phase 102: source is always a numeric Binding; format / locale are
+        // bounded DUs. The case is structurally independent of the slot type.
+        const source = reqField(path, f, 'source', 'Binding<number> source object', decodeBinding);
+        if (!source.ok) return source;
+        const fmtJ = requireField(path, f, 'format', 'Format DU object');
+        if (!fmtJ.ok) return fmtJ;
+        const fmt = decodeFormat(`${path}.format`, fmtJ.value);
+        if (!fmt.ok) return fmt;
+        const locJ = requireField(path, f, 'locale', 'LocaleSource DU object');
+        if (!locJ.ok) return locJ;
+        const loc = decodeLocaleSource(`${path}.locale`, locJ.value);
+        if (!loc.ok) return loc;
+        const b: Binding<unknown> = {
+          kind: 'Format',
+          source: source.value as Binding<number>,
+          format: fmt.value,
+          locale: loc.value,
+        };
+        return ok(b);
+      }
+      case 'Transform': {
+        // Phase 282 — the Compute layer. `source` (a DataSource) and `pipeline` (a
+        // Transform list) decode through the Core-style structural decoders; a Core
+        // decode failure wraps to WRONG_TYPE at `.source` / `.pipeline`, byte-
+        // identical to the F# UI host's `coreError` wrapping.
+        // Phase 818 — a binding-shaped source (State / Selection / Query `$type`)
+        // is PRESERVED as `TransformSource.Live`: the decoded binding re-encodes
+        // verbatim (one wire dialect) and the runtime re-evaluates the pipeline
+        // against it, with the decode-time `initial` snapshot derived from the
+        // binding's carried default data through the same 815 normalisation.
+        // Phase 1085 — a State wrapper carrying NO data is a live source over the
+        // EMPTY initial snapshot, exactly as a Selection / Query source already
+        // was. It used to error through the columnar codec (the 815 posture,
+        // correct when nothing could fill the slot); under the 1075 seeding rule
+        // a sibling reader's declaration fills it, so the bare
+        // `{"$type":"State","key":k}` is the direct spelling of "I read this key
+        // and carry no data of my own" — and the one FUARAN106's remedy text
+        // tells an author to write.
+        const srcJ = requireField(path, f, 'source', 'Transform DataSource object');
+        if (!srcJ.ok) return srcJ;
+        const pipeJ = requireField(path, f, 'pipeline', 'Transform pipeline array');
+        if (!pipeJ.ok) return pipeJ;
+        const liveTagAst =
+          srcJ.value.kind === 'JObject' ? srcJ.value.fields.get('$type') : undefined;
+        const liveTag =
+          liveTagAst !== undefined &&
+          liveTagAst.kind === 'JString' &&
+          (liveTagAst.value === 'State' ||
+            liveTagAst.value === 'Selection' ||
+            liveTagAst.value === 'Query')
+            ? liveTagAst.value
+            : undefined;
+        // `source`, `pipeline` and `params` are sibling members: each is decoded in
+        // its own frame, so a defect in one does not hide the others (§29.1).
+        const sourceR = inFrame((): R<TransformSource> => {
+          let source: TransformSource;
+          if (liveTag === undefined) {
+            // The pre-818 path: canonical columnar / `ref` and the 815 leniencies
+            // (Static/Bound wrapper unwrap; row-major transpose).
+            const src = decodeDataSource(normaliseTransformSource(srcJ.value));
+            if (!src.ok) return makeError('WRONG_TYPE', `${path}.source`, src.error);
+            source = { kind: 'Data', source: src.value };
+          } else {
+            // The carried default decodes FAITHFULLY (the structured decodeJVal),
+            // so the preserved binding round-trips byte-for-byte.
+            const b = decodeBinding(`${path}.source`, srcJ.value, decodeJVal, undefined);
+            if (!b.ok) return b as R<never>;
+            // Phase 1085 — an ABSENT `defaultValue` must stay ABSENT on the decoded
+            // binding, or the SEEDING pass reads a source that DECLARES NOTHING as
+            // a declaration of the slot's typed placeholder (here the `"<opaque>"`
+            // sentinel): seeding the slot with a sentinel on this tier and with
+            // nothing on the other, from one document. Measured, not reasoned — the
+            // first run of that pin returned `{"members":"<opaque>"}`.
+            //
+            // Phase 1656 — it reads the DECODER'S OWN wire fact now instead of
+            // re-inspecting the raw member, so the two places stop being two
+            // decisions over one thing. That duplication is how they came to
+            // disagree about the `null` spelling: this one asked whether the member
+            // was PRESENT, where the arm above asks whether anything was DECLARED,
+            // and an explicit `null` is present without declaring anything.
+            //
+            // The clearing is still needed and is not the encoder's business: the
+            // encoder reads `defaultDeclared` and omits either way. What this
+            // clears is the value the SEEDING walk reads, which at this slot must
+            // be nothing rather than the sentinel.
+            const liveBinding = (() => {
+              const raw = b.value as Binding<JsonValue>;
+              return raw.kind === 'State' && raw.defaultDeclared === false
+                ? ({ ...raw, defaultValue: undefined } as unknown as Binding<JsonValue>)
+                : raw;
+            })();
+            if (liveTag === 'State') {
+              // An EMPTY array default is the empty table, exactly as a
+              // Selection / Query live source starts. An initially-empty live
+              // collection ("count the requests in an empty log") is a correct,
+              // complete intent with zero rows and no columns to infer, and the
+              // columnar codec's "expected object, got array" didactic was
+              // refusing a shape with nothing wrong in it.
+              //
+              // The F# reference host has read it this way since 0.23.1; this tier
+              // never did, and nothing in the corpus or the specification said so,
+              // so one document decoded on one host and was refused on the other.
+              // Found by Phase 1075 — `"defaultValue":[]` is how a Transform's
+              // source slot spells "I read this key and carry no data of my own",
+              // which is precisely the shape the seeding rule exists to make work.
+              // `WIRE_FORMAT.md` §16 now carries the rule and the corpus pins it.
+              //
+              // Phase 1085 — an ABSENT `defaultValue` takes the same arm. The two
+              // spellings say one thing; the empty array stays the answer for a
+              // genuinely empty live collection rather than a workaround for a
+              // wrapper the decoder would not accept bare.
+              //
+              // Phase 1656 — the `null` spelling of absence takes it too, which it
+              // did not before: a raw `JNull` is neither undefined nor an empty
+              // array, so it fell to the snapshot branch and was decoded as carried
+              // data. The reference host never had the bug because it reads the
+              // DECODED binding's default, where every spelling of absence is
+              // already one value; this reads the raw member, so it must name them.
+              const carriedJ =
+                srcJ.value.kind === 'JObject' ? srcJ.value.fields.get('defaultValue') : undefined;
+              const carriesNoData =
+                carriedJ === undefined ||
+                carriedJ.kind === 'JNull' ||
+                (carriedJ.kind === 'JArray' && carriedJ.items.length === 0);
+
+              if (carriesNoData) {
+                source = {
+                  kind: 'Live',
+                  binding: liveBinding,
+                  initial: { kind: 'Embedded', table: { schema: [], columns: [] } },
+                };
+              } else {
+                // The carried data IS the initial snapshot; a decode failure
+                // (ragged / mixed-type rows) surfaces the same didactic the 815
+                // snapshot decode raised.
+                const snap = decodeDataSource(normaliseTransformSource(srcJ.value));
+                if (!snap.ok) return makeError('WRONG_TYPE', `${path}.source`, snap.error);
+                source = {
+                  kind: 'Live',
+                  binding: liveBinding,
+                  initial: snap.value,
+                };
+              }
+            } else {
+              // Selection / Query — a tabular carried default seeds the initial
+              // snapshot; anything else starts from the empty table (runtime
+              // evaluation stays loud on a non-tabular live value, never here).
+              const dv =
+                srcJ.value.kind === 'JObject' ? srcJ.value.fields.get('defaultValue') : undefined;
+              const snap =
+                dv !== undefined ? decodeDataSource(normaliseTransformSource(dv)) : undefined;
+              source = {
+                kind: 'Live',
+                binding: liveBinding,
+                initial:
+                  snap !== undefined && snap.ok
+                    ? snap.value
+                    : { kind: 'Embedded', table: { schema: [], columns: [] } },
+              };
+            }
+          }
+          return ok(source);
+        });
+        if (!sourceR.ok) return sourceR;
+        const source = sourceR.value;
+        const pipe = inFrame((): R<Transform[]> => {
+          const decoded = decodePipelineCore(pipeJ.value);
+          return decoded.ok
+            ? ok(decoded.value)
+            : makeError('WRONG_TYPE', `${path}.pipeline`, decoded.error);
+        });
+        if (!pipe.ok) return pipe;
+        // Phase 1662 — §21.8's expression-node bound over the pipeline's own
+        // embedded expressions, at DECODE and not at validation: a document that
+        // decodes must not be able to name an unbounded evaluation.
+        const breach = pipelineExprBreach(path, pipe.value);
+        if (breach !== undefined) {
+          return makeError(
+            'LIMIT_EXCEEDED',
+            breach.path,
+            `expression exceeds the maximum of ${MAX_EXPR_NODES} expression nodes (WIRE_FORMAT 21.8)`,
+            `at most ${MAX_EXPR_NODES} ColExpr nodes in one pipeline expression`,
+          );
+        }
+        // Phase 424 — the optional `params` slot, shared with `Binding.Expr` since
+        // Phase 1534 (see `decodeExprParams`).
+        const paramsR = inFrame(() => decodeExprParams(path, f));
+        if (!paramsR.ok) return paramsR;
+        const params = paramsR.value;
+        const b: Binding<unknown> = {
+          kind: 'Transform',
+          source,
+          pipeline: pipe.value,
+          ...(params !== undefined ? { params } : {}),
+        };
+        return ok(b);
+      }
+      case 'Expr': {
+        // Phase 1534 — the scalar expression binding (WIRE_FORMAT §3.3.2). `expr`
+        // is one `ColExpr` in Core's own encoding; `params` is the same
+        // name->binding list `Transform` carries, decoded by the same helper.
+        //
+        // Three refusals, all here because each wants a $-rooted path and a code:
+        // a `col` reference (an Expr has no row, so `col` names nothing — the
+        // remedy is a different BINDING, and the message says so), a `param` this
+        // binding's own `params` does not bind (decidable statically here where
+        // it is NOT for `Transform`, whose unbound filter params are pruned under
+        // the deliberate unset-chip leniency), and an expression over
+        // MAX_EXPR_NODES.
+        // `expr` (with its own admissibility) and `params` are sibling members,
+        // each in its own frame; the unbound-param rule relates the two and runs
+        // in this frame, so it is dropped when either is defective (§29.1).
+        const exprJ = requireField(path, f, 'expr', 'ColExpr object');
+        if (!exprJ.ok) return exprJ;
+        const expr = inFrame((): R<ColExpr> => {
+          if (exprJ.value === HOLE) return ok(HOLE as ColExpr);
+          const decoded = decodeColExprCore(exprJ.value);
+          if (!decoded.ok) return makeError('WRONG_TYPE', `${path}.expr`, decoded.error);
+          const verdict = exprAdmissible(decoded.value);
+          if (verdict === 'col') {
+            return makeError(
+              'WRONG_TYPE',
+              `${path}.expr`,
+              'a `col` reference is not admitted inside an Expr binding — an Expr evaluates against its params alone and has no row for a column name to read. Use `Binding.Transform`, whose source supplies the frame, and put the column expression in a `derive` step',
+              'a ColExpr over `param` / `lit` / operators only (no `col`)',
+            );
+          }
+          if (verdict === 'limit') {
+            return makeError(
+              'LIMIT_EXCEEDED',
+              `${path}.expr`,
+              `expression exceeds the maximum of ${MAX_EXPR_NODES} expression nodes (WIRE_FORMAT 21)`,
+              `at most ${MAX_EXPR_NODES} ColExpr nodes in one Expr binding`,
+            );
+          }
+          return ok(decoded.value);
+        });
+        if (!expr.ok) return expr;
+        const exprParams = inFrame(() => decodeExprParams(path, f));
+        if (!exprParams.ok) return exprParams;
+        const bound = new Set((exprParams.value ?? []).map((p) => p.name));
+        const missing = colExprParamNames(expr.value).filter((n) => !bound.has(n));
+        if (missing.length > 0) {
+          return makeError(
+            'WRONG_TYPE',
+            `${path}.expr`,
+            `the expression reads param(s) ${missing.map((n) => `'${n}'`).join(', ')} that this binding's \`params\` does not bind — an Expr has no rows and no filter to prune, so an unbound param has no value to take; add a params entry naming each, or drop the reference`,
+            '{"$type":"Expr","expr":{…},"params":[{"name":"<name>","from":<Binding>}]}',
+          );
+        }
+        const b: Binding<unknown> = {
+          kind: 'Expr',
+          expr: expr.value,
+          ...(exprParams.value !== undefined ? { params: exprParams.value } : {}),
+        };
+        return ok(b);
+      }
+      case 'Invoke': {
+        // Phase 283 — host-registered capability dispatched for a value.
+        const cid = reqField(path, f, 'capabilityId', 'capability id string', requireString);
+        if (!cid.ok) return cid;
+        const argsJ = requireField(path, f, 'args', 'invoke args array');
+        if (!argsJ.ok) return argsJ;
+        const args = decodeInvokeArgs(`${path}.args`, argsJ.value);
+        if (!args.ok) return args;
+        const b: Binding<unknown> = { kind: 'Invoke', capabilityId: cid.value, args: args.value };
+        return ok(b);
+      }
+      // 0.2.12 (Phase 633) — the `TextSource.Bound` wrapper convention
+      // transferred to a bare-Binding slot: models emit
+      // {"$type":"Bound","binding":X} in Metric.value / LabelValueRow etc.
+      // `Bound` carries exactly one payload field, so the unwrap is one-to-one:
+      // decode the inner binding in place. Decode-only — the canonical encoder
+      // never wraps bare-Binding slots.
+      case 'Bound': {
+        const inner = requireField(path, f, 'binding', 'the wrapped Binding object');
+        if (!inner.ok) return inner;
+        return decodeBinding(`${path}.binding`, inner.value, parseStatic, placeholder);
+      }
+      default:
+        return unknownDuCase(
+          path,
+          d.value,
+          'Static | Query | Filter | Selection | State | Computed | I18n | Local | Format | Transform | Invoke',
+        );
     }
-    case 'Invoke': {
-      // Phase 283 — host-registered capability dispatched for a value.
-      const cid = reqField(path, f, 'capabilityId', 'capability id string', requireString);
-      if (!cid.ok) return cid;
-      const argsJ = requireField(path, f, 'args', 'invoke args array');
-      if (!argsJ.ok) return argsJ;
-      const args = decodeInvokeArgs(`${path}.args`, argsJ.value);
-      if (!args.ok) return args;
-      const b: Binding<unknown> = { kind: 'Invoke', capabilityId: cid.value, args: args.value };
-      return ok(b);
-    }
-    // 0.2.12 (Phase 633) — the `TextSource.Bound` wrapper convention
-    // transferred to a bare-Binding slot: models emit
-    // {"$type":"Bound","binding":X} in Metric.value / LabelValueRow etc.
-    // `Bound` carries exactly one payload field, so the unwrap is one-to-one:
-    // decode the inner binding in place. Decode-only — the canonical encoder
-    // never wraps bare-Binding slots.
-    case 'Bound': {
-      const inner = requireField(path, f, 'binding', 'the wrapped Binding object');
-      if (!inner.ok) return inner;
-      return decodeBinding(`${path}.binding`, inner.value, parseStatic, placeholder);
-    }
-    default:
-      return unknownDuCase(
-        path,
-        d.value,
-        'Static | Query | Filter | Selection | State | Computed | I18n | Local | Format | Transform | Invoke',
-      );
-  }
-};
+  },
+);
 
 // Phase 815 — organic-demand leniencies for the Transform `source` slot, both
 // observed cross-family (claude, gemini, kimi — the Tier-D pilot, 2026-08-13):
@@ -3220,17 +3672,19 @@ export const liveValueToTable = (
   return { ok: true, value: src.value.table };
 };
 
-const decodeBindingArgs = (path: string, j: JsonAst): R<Record<string, Binding<JsonValue>>> => {
-  const fo = requireObject(path, j);
-  if (!fo.ok) return fo;
-  const out: Record<string, Binding<JsonValue>> = {};
-  for (const [k, v] of fo.value) {
-    const r = decodeBinding(`${path}.${k}`, v);
-    if (!r.ok) return r;
-    out[k] = r.value as Binding<JsonValue>;
-  }
-  return ok(out);
-};
+const decodeBindingArgs = framed(
+  (path: string, j: JsonAst): R<Record<string, Binding<JsonValue>>> => {
+    const fo = requireObject(path, j);
+    if (!fo.ok) return fo;
+    const out: Record<string, Binding<JsonValue>> = {};
+    for (const [k, v] of fo.value) {
+      const r = decodeBinding(`${path}.${k}`, v);
+      if (!r.ok) return r;
+      out[k] = r.value as Binding<JsonValue>;
+    }
+    return ok(out);
+  },
+);
 
 /**
  * Phase 1661 — a `TextSource.I18n` argument bag, discriminated BY INSPECTION
@@ -3251,36 +3705,38 @@ const decodeBindingArgs = (path: string, j: JsonAst): R<Record<string, Binding<J
  * spellings cannot have two null postures, and the permissive path would map a
  * nested null to a value where the bare path refuses it.
  */
-const decodeI18nArgMap = (path: string, j: JsonAst): R<Record<string, Binding<JsonValue>>> => {
-  const fo = requireObject(path, j);
-  if (!fo.ok) return fo;
-  const out: Record<string, Binding<JsonValue>> = {};
-  for (const [k, v] of fo.value) {
-    const argPath = `${path}.${k}`;
-    if (v.kind === 'JObject' && v.fields.has('$type')) {
-      const tag = v.fields.get('$type');
-      const raw = v.fields.get('value');
-      if (tag !== undefined && tag.kind === 'JString' && tag.value === 'Static') {
-        if (raw === undefined || raw.kind === 'JNull') {
-          out[k] = { kind: 'Static', value: null };
+const decodeI18nArgMap = framed(
+  (path: string, j: JsonAst): R<Record<string, Binding<JsonValue>>> => {
+    const fo = requireObject(path, j);
+    if (!fo.ok) return fo;
+    const out: Record<string, Binding<JsonValue>> = {};
+    for (const [k, v] of fo.value) {
+      const argPath = `${path}.${k}`;
+      if (v.kind === 'JObject' && v.fields.has('$type')) {
+        const tag = v.fields.get('$type');
+        const raw = v.fields.get('value');
+        if (tag !== undefined && tag.kind === 'JString' && tag.value === 'Static') {
+          if (raw === undefined || raw.kind === 'JNull') {
+            out[k] = { kind: 'Static', value: null };
+            continue;
+          }
+          const lit = decodeJVal(`${argPath}.value`, raw);
+          if (!lit.ok) return lit;
+          out[k] = { kind: 'Static', value: lit.value };
           continue;
         }
-        const lit = decodeJVal(`${argPath}.value`, raw);
-        if (!lit.ok) return lit;
-        out[k] = { kind: 'Static', value: lit.value };
+        const r = decodeBinding(argPath, v);
+        if (!r.ok) return r;
+        out[k] = r.value as Binding<JsonValue>;
         continue;
       }
-      const r = decodeBinding(argPath, v);
-      if (!r.ok) return r;
-      out[k] = r.value as Binding<JsonValue>;
-      continue;
+      const lit = decodeJVal(argPath, v);
+      if (!lit.ok) return lit;
+      out[k] = { kind: 'Static', value: lit.value };
     }
-    const lit = decodeJVal(argPath, v);
-    if (!lit.ok) return lit;
-    out[k] = { kind: 'Static', value: lit.value };
-  }
-  return ok(out);
-};
+    return ok(out);
+  },
+);
 
 // The typed SCALAR Static payloads. These two were CASTS over the untyped
 // `decodeBinding` — they named a type and checked none, so `{"hidden": "yes"}`
@@ -3292,10 +3748,14 @@ const decodeI18nArgMap = (path: string, j: JsonAst): R<Record<string, Binding<Js
 // refused `reject-a11y-hidden-nonbool`; the placeholders match its typed
 // fallbacks for an absent / unparseable `State.defaultValue`, so the two hosts
 // agree byte-for-byte on that arm too.
-const decodeBindingString = (p: string, j: JsonAst): R<Binding<string>> =>
-  decodeBinding(p, j, requireString, '') as R<Binding<string>>;
-const decodeBindingBool = (p: string, j: JsonAst): R<Binding<boolean>> =>
-  decodeBinding(p, j, requireBool, false) as R<Binding<boolean>>;
+const decodeBindingString = framed(
+  (p: string, j: JsonAst): R<Binding<string>> =>
+    decodeBinding(p, j, requireString, '') as R<Binding<string>>,
+);
+const decodeBindingBool = framed(
+  (p: string, j: JsonAst): R<Binding<boolean>> =>
+    decodeBinding(p, j, requireBool, false) as R<Binding<boolean>>,
+);
 
 // The typed NUMERIC scalar Static payloads (Phase 1064) — the other half of the
 // defect the two above fixed. These slots had no typed decoder at all: every
@@ -3314,10 +3774,14 @@ const decodeBindingBool = (p: string, j: JsonAst): R<Binding<boolean>> =>
 // sentinel at an integer slot. The placeholders mirror the reference host's
 // typed fallbacks for an absent or unparseable `State.defaultValue` (`0.0` /
 // `0`), so the two hosts agree byte-for-byte on that arm too.
-const decodeBindingFloat = (p: string, j: JsonAst): R<Binding<number>> =>
-  decodeBinding(p, j, requireFloat, 0) as R<Binding<number>>;
-const decodeBindingInt = (p: string, j: JsonAst): R<Binding<number>> =>
-  decodeBinding(p, j, requireInt, 0) as R<Binding<number>>;
+const decodeBindingFloat = framed(
+  (p: string, j: JsonAst): R<Binding<number>> =>
+    decodeBinding(p, j, requireFloat, 0) as R<Binding<number>>,
+);
+const decodeBindingInt = framed(
+  (p: string, j: JsonAst): R<Binding<number>> =>
+    decodeBinding(p, j, requireInt, 0) as R<Binding<number>>,
+);
 
 // ─── Typed Static payload decoders (Phase 429) ───────────────────────────────
 //
@@ -3332,7 +3796,7 @@ const OPTIONS_PLACEHOLDER: readonly SelectOption[] = [
   { value: OPAQUE, label: { kind: 'Literal', value: OPAQUE } },
 ];
 
-const decodeSelectOption = (path: string, j: JsonAst): R<SelectOption> => {
+const decodeSelectOption = framed((path: string, j: JsonAst): R<SelectOption> => {
   // Lenient AI-ingest shape coercion (WIRE_FORMAT.md §3.6): a bare string
   // element coerces to `{value: s, label: Literal s}` — the HTML `<select>`
   // prior. The value→label map form (`{"A":"A"}`) is deliberately NOT
@@ -3348,31 +3812,35 @@ const decodeSelectOption = (path: string, j: JsonAst): R<SelectOption> => {
   const label = reqField(path, fo.value, 'label', 'option label TextSource', decodeTextSource);
   if (!label.ok) return label;
   return ok<SelectOption>({ value: value.value, label: label.value });
-};
+});
 
-const parseStaticSelectOptions = (p: string, v: JsonAst): R<unknown> => {
+const parseStaticSelectOptions = framed((p: string, v: JsonAst): R<unknown> => {
   if (v.kind === 'JNull') return ok([]); // pre-429 read-compat: empty list boxed to `null`
   if (v.kind === 'JString' && v.value === OPAQUE) return ok(OPTIONS_PLACEHOLDER);
   const arr = requireArray(p, v);
   if (!arr.ok) return arr;
   return traverseIndexed(arr.value, (i, el) => decodeSelectOption(`${p}[${i}]`, el));
-};
+});
 
-const decodeBindingSelectOptions = (p: string, j: JsonAst): R<Binding<readonly SelectOption[]>> =>
-  decodeBinding(p, j, parseStaticSelectOptions, OPTIONS_PLACEHOLDER) as R<
-    Binding<readonly SelectOption[]>
-  >;
+const decodeBindingSelectOptions = framed(
+  (p: string, j: JsonAst): R<Binding<readonly SelectOption[]>> =>
+    decodeBinding(p, j, parseStaticSelectOptions, OPTIONS_PLACEHOLDER) as R<
+      Binding<readonly SelectOption[]>
+    >,
+);
 
-const parseStaticStringOpt = (p: string, v: JsonAst): R<unknown> => {
+const parseStaticStringOpt = framed((p: string, v: JsonAst): R<unknown> => {
   if (v.kind === 'JNull') return ok(undefined);
   if (v.kind === 'JString') return ok(v.value); // includes the opaque sentinel (read-compat)
   return wrongType(p, 'JSON string or null (string option)');
-};
+});
 
-const decodeBindingStringOpt = (p: string, j: JsonAst): R<Binding<string | undefined>> =>
-  decodeBinding(p, j, parseStaticStringOpt, OPAQUE) as R<Binding<string | undefined>>;
+const decodeBindingStringOpt = framed(
+  (p: string, j: JsonAst): R<Binding<string | undefined>> =>
+    decodeBinding(p, j, parseStaticStringOpt, OPAQUE) as R<Binding<string | undefined>>,
+);
 
-const parseStaticFloatPair = (p: string, v: JsonAst): R<unknown> => {
+const parseStaticFloatPair = framed((p: string, v: JsonAst): R<unknown> => {
   // 0.2.0 — the dual-thumb Range control's [min, max] pair. Static forms:
   // the object `{min, max}` (canonical) or a two-element array (lenient).
   if (v.kind === 'JObject') {
@@ -3395,29 +3863,31 @@ const parseStaticFloatPair = (p: string, v: JsonAst): R<unknown> => {
     return ok([a.value, b.value] as const);
   }
   return wrongType(p, 'range pair ({min, max} object or [min, max] array)');
-};
+});
 
-const decodeBindingFloatPair = (p: string, j: JsonAst): R<Binding<readonly [number, number]>> => {
-  // The canonical Static pair rides as the BARE `{min, max}` object (the
-  // Phase-423 range shape, no envelope) — accept it before the generic
-  // binding dispatch, which would otherwise demand a `$type`.
-  if (
-    j.kind === 'JObject' &&
-    j.fields.get('$type') === undefined &&
-    j.fields.get('min') !== undefined &&
-    j.fields.get('max') !== undefined
-  ) {
-    const parsed = parseStaticFloatPair(p, j);
-    return parsed.ok
-      ? ok({ kind: 'Static', value: parsed.value as readonly [number, number] })
-      : parsed;
-  }
-  return decodeBinding(p, j, parseStaticFloatPair, [0, 0] as const) as R<
-    Binding<readonly [number, number]>
-  >;
-};
+const decodeBindingFloatPair = framed(
+  (p: string, j: JsonAst): R<Binding<readonly [number, number]>> => {
+    // The canonical Static pair rides as the BARE `{min, max}` object (the
+    // Phase-423 range shape, no envelope) — accept it before the generic
+    // binding dispatch, which would otherwise demand a `$type`.
+    if (
+      j.kind === 'JObject' &&
+      j.fields.get('$type') === undefined &&
+      j.fields.get('min') !== undefined &&
+      j.fields.get('max') !== undefined
+    ) {
+      const parsed = parseStaticFloatPair(p, j);
+      return parsed.ok
+        ? ok({ kind: 'Static', value: parsed.value as readonly [number, number] })
+        : parsed;
+    }
+    return decodeBinding(p, j, parseStaticFloatPair, [0, 0] as const) as R<
+      Binding<readonly [number, number]>
+    >;
+  },
+);
 
-const parseStaticStringPair = (p: string, v: JsonAst): R<unknown> => {
+const parseStaticStringPair = framed((p: string, v: JsonAst): R<unknown> => {
   // Phase 725 — the DateTimeRange control's (from, to) ISO-8601 pair. Mirrors
   // `parseStaticFloatPair`: the bare `{from, to}` object is canonical, a
   // two-element `[from, to]` array is the §3.6 lenient coercion.
@@ -3455,56 +3925,62 @@ const parseStaticStringPair = (p: string, v: JsonAst): R<unknown> => {
     return ordered(a.value, b.value);
   }
   return wrongType(p, 'date-range pair ({from, to} object or [from, to] array)');
-};
+});
 
-const decodeBindingStringPair = (p: string, j: JsonAst): R<Binding<readonly [string, string]>> => {
-  // The canonical Static pair rides as the BARE `{from, to}` object (the
-  // `Range` posture, no envelope) — accept it before the generic binding
-  // dispatch, which would otherwise demand a `$type`.
-  if (
-    j.kind === 'JObject' &&
-    j.fields.get('$type') === undefined &&
-    j.fields.get('from') !== undefined &&
-    j.fields.get('to') !== undefined
-  ) {
-    const parsed = parseStaticStringPair(p, j);
-    return parsed.ok
-      ? ok({ kind: 'Static', value: parsed.value as readonly [string, string] })
-      : parsed;
-  }
-  return decodeBinding(p, j, parseStaticStringPair, ['', ''] as const) as R<
-    Binding<readonly [string, string]>
-  >;
-};
+const decodeBindingStringPair = framed(
+  (p: string, j: JsonAst): R<Binding<readonly [string, string]>> => {
+    // The canonical Static pair rides as the BARE `{from, to}` object (the
+    // `Range` posture, no envelope) — accept it before the generic binding
+    // dispatch, which would otherwise demand a `$type`.
+    if (
+      j.kind === 'JObject' &&
+      j.fields.get('$type') === undefined &&
+      j.fields.get('from') !== undefined &&
+      j.fields.get('to') !== undefined
+    ) {
+      const parsed = parseStaticStringPair(p, j);
+      return parsed.ok
+        ? ok({ kind: 'Static', value: parsed.value as readonly [string, string] })
+        : parsed;
+    }
+    return decodeBinding(p, j, parseStaticStringPair, ['', ''] as const) as R<
+      Binding<readonly [string, string]>
+    >;
+  },
+);
 
-const parseStaticStringList = (p: string, v: JsonAst): R<unknown> => {
+const parseStaticStringList = framed((p: string, v: JsonAst): R<unknown> => {
   if (v.kind === 'JNull') return ok([]);
   if (v.kind === 'JString' && v.value === OPAQUE) return ok([OPAQUE]);
   const arr = requireArray(p, v);
   if (!arr.ok) return arr;
   return traverseIndexed(arr.value, (i, el) => requireString(`${p}[${i}]`, el));
-};
+});
 
-const decodeBindingStringList = (p: string, j: JsonAst): R<Binding<readonly string[]>> =>
-  decodeBinding(p, j, parseStaticStringList, [OPAQUE]) as R<Binding<readonly string[]>>;
+const decodeBindingStringList = framed(
+  (p: string, j: JsonAst): R<Binding<readonly string[]>> =>
+    decodeBinding(p, j, parseStaticStringList, [OPAQUE]) as R<Binding<readonly string[]>>,
+);
 
-const parseStaticFloatSeq = (p: string, v: JsonAst): R<unknown> => {
+const parseStaticFloatSeq = framed((p: string, v: JsonAst): R<unknown> => {
   if (v.kind === 'JNull') return ok([]); // pre-429 read-compat: empty list-backed seq boxed to `null`
   if (v.kind === 'JString' && v.value === OPAQUE) return ok([]);
   const arr = requireArray(p, v);
   if (!arr.ok) return arr;
   return traverseIndexed(arr.value, (i, el) => requireFloat(`${p}[${i}]`, el));
-};
+});
 
-const decodeBindingFloatSeq = (p: string, j: JsonAst): R<Binding<readonly number[]>> =>
-  decodeBinding(p, j, parseStaticFloatSeq, []) as R<Binding<readonly number[]>>;
+const decodeBindingFloatSeq = framed(
+  (p: string, j: JsonAst): R<Binding<readonly number[]>> =>
+    decodeBinding(p, j, parseStaticFloatSeq, []) as R<Binding<readonly number[]>>,
+);
 
 // fuaran#665 — the typed rows decoder: a grid/chart rows payload is an array
 // of row objects (faithful record cells via `decodeAstValue`, the F# `decodeObj`
 // mirror), with the legacy `"<opaque>"` sentinel accepted indefinitely
 // (read-compat → the empty feed, exactly the pre-typed behaviour). A non-object
 // row element is a named decode error. Mirror of F# `decodeRowSeq`.
-const parseStaticRows = (p: string, v: JsonAst): R<unknown> => {
+const parseStaticRows = framed((p: string, v: JsonAst): R<unknown> => {
   if (v.kind === 'JNull') return ok([]); // lenient shorthand for absence (rule 4 decode-accept)
   if (v.kind === 'JString' && v.value === OPAQUE) return ok([]);
   const arr = requireArray(p, v);
@@ -3512,12 +3988,14 @@ const parseStaticRows = (p: string, v: JsonAst): R<unknown> => {
   return traverseIndexed(arr.value, (i, el) =>
     el.kind === 'JObject' ? ok(decodeAstValue(el)) : wrongType(`${p}[${i}]`, 'row object'),
   );
-};
+});
 
-const decodeBindingRows = (p: string, j: JsonAst): R<Binding<readonly unknown[]>> =>
-  decodeBinding(p, j, parseStaticRows, []) as R<Binding<readonly unknown[]>>;
+const decodeBindingRows = framed(
+  (p: string, j: JsonAst): R<Binding<readonly unknown[]>> =>
+    decodeBinding(p, j, parseStaticRows, []) as R<Binding<readonly unknown[]>>,
+);
 
-const decodeMapMarker = (path: string, j: JsonAst): R<MapMarker> => {
+const decodeMapMarker = framed((path: string, j: JsonAst): R<MapMarker> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const label = reqField(path, fo.value, 'label', 'marker label TextSource', decodeTextSource);
@@ -3531,22 +4009,24 @@ const decodeMapMarker = (path: string, j: JsonAst): R<MapMarker> => {
     latitude: latitude.value,
     longitude: longitude.value,
   });
-};
+});
 
-const parseStaticMarkerSeq = (p: string, v: JsonAst): R<unknown> => {
+const parseStaticMarkerSeq = framed((p: string, v: JsonAst): R<unknown> => {
   if (v.kind === 'JNull') return ok([]); // pre-429 read-compat: empty list-backed seq boxed to `null`
   if (v.kind === 'JString' && v.value === OPAQUE) return ok([]);
   const arr = requireArray(p, v);
   if (!arr.ok) return arr;
   return traverseIndexed(arr.value, (i, el) => decodeMapMarker(`${p}[${i}]`, el));
-};
+});
 
-const decodeBindingMarkerSeq = (p: string, j: JsonAst): R<Binding<readonly MapMarker[]>> =>
-  decodeBinding(p, j, parseStaticMarkerSeq, []) as R<Binding<readonly MapMarker[]>>;
+const decodeBindingMarkerSeq = framed(
+  (p: string, j: JsonAst): R<Binding<readonly MapMarker[]>> =>
+    decodeBinding(p, j, parseStaticMarkerSeq, []) as R<Binding<readonly MapMarker[]>>,
+);
 
 // ─── TextSource / SelectOption ───────────────────────────────────────────────
 
-const decodeTextSource = (path: string, j: JsonAst): R<TextSource> => {
+const decodeTextSource = framed((path: string, j: JsonAst): R<TextSource> => {
   // 0.2.0 — the bare JSON string IS the canonical Literal form (the encoder
   // emits it); the `{"$type":"Literal"}` envelope stays decode-accepted, so
   // pre-0.2.0 trees keep parsing. Byte-for-byte with the F# decoder.
@@ -3583,11 +4063,11 @@ const decodeTextSource = (path: string, j: JsonAst): R<TextSource> => {
     default:
       return unknownDuCase(path, d.value, 'Literal | Bound | I18n');
   }
-};
+});
 
 // ─── Action ──────────────────────────────────────────────────────────────────
 
-const decodeAction = (path: string, j: JsonAst): R<Action<unknown>> => {
+const decodeAction = framed((path: string, j: JsonAst): R<Action<unknown>> => {
   // 0.2.2 DIDACTIC — a bare string in an Action slot (the "<closure>"
   // sentinel written as the value). Never coerced (a sentinel action would
   // be a dead control passing the gate); the error names the fix.
@@ -3612,8 +4092,9 @@ const decodeAction = (path: string, j: JsonAst): R<Action<unknown>> => {
       // Phase 428: a present `"<closure>"` onResult → the inert placeholder;
       // absent → omitted. `into` is the optional declarative result target.
       const intoJ = tryField(f, 'into');
-      let into: CallResultTarget | undefined;
-      if (intoJ !== undefined) {
+      // `into` is a sibling of `endpoint`: decoded in its own frame (§29.1).
+      const intoR = inFrame((): R<CallResultTarget | undefined> => {
+        if (intoJ === undefined) return ok(undefined);
         const io = requireObject(`${path}.into`, intoJ);
         if (!io.ok) return io;
         const id = requireDiscriminator(`${path}.into`, io.value);
@@ -3621,7 +4102,7 @@ const decodeAction = (path: string, j: JsonAst): R<Action<unknown>> => {
         if (id.value === 'State') {
           const key = reqField(`${path}.into`, io.value, 'key', 'state key string', requireString);
           if (!key.ok) return key;
-          into = { kind: 'State', key: key.value };
+          return ok({ kind: 'State', key: key.value });
         } else if (id.value === 'Query') {
           const name = reqField(
             `${path}.into`,
@@ -3631,11 +4112,12 @@ const decodeAction = (path: string, j: JsonAst): R<Action<unknown>> => {
             requireString,
           );
           if (!name.ok) return name;
-          into = { kind: 'Query', name: name.value };
-        } else {
-          return unknownDuCase(`${path}.into`, id.value, 'State | Query');
+          return ok({ kind: 'Query', name: name.value });
         }
-      }
+        return unknownDuCase(`${path}.into`, id.value, 'State | Query');
+      });
+      if (!intoR.ok) return intoR;
+      const into = intoR.value;
       return ok({
         kind: 'Call',
         endpoint: r.value as import('@fuaran-ui/schema').ApiEndpoint,
@@ -3687,31 +4169,34 @@ const decodeAction = (path: string, j: JsonAst): R<Action<unknown>> => {
       if (!key.ok) return key;
       const valueJ = tryField(f, 'value');
       const fromJ = tryField(f, 'valueFrom');
-      if (valueJ !== undefined && fromJ !== undefined) {
-        return makeError(
-          'WRONG_TYPE',
-          `${path}.valueFrom`,
-          "SetState carries both 'value' and 'valueFrom' — exactly one is allowed: 'value' is a literal JSON value written verbatim; 'valueFrom' derives the written value from a Binding at dispatch time; remove one",
-        );
-      }
-      if (valueJ === undefined && fromJ === undefined) {
-        return makeError(
-          'MISSING_FIELD',
-          `${path}.value`,
-          "missing required field 'value' — provide 'value' (a literal JSON value) or 'valueFrom' (a Binding evaluated at dispatch time)",
-        );
-      }
-      if (fromJ !== undefined) {
-        const from = decodeBinding(`${path}.valueFrom`, fromJ, decodeJVal, undefined);
-        if (!from.ok) return from;
-        return ok({
-          kind: 'SetState',
-          key: key.value,
-          valueFrom: from.value as Binding<JsonValue>,
-        });
-      }
-      const value = decodeJVal(`${path}.value`, valueJ as JsonAst);
-      return value.ok ? ok({ kind: 'SetState', key: key.value, value: value.value }) : value;
+      // The written value is a sibling of `key`: decoded in its own frame (§29.1).
+      const written = inFrame(
+        (): R<{ readonly valueFrom: Binding<JsonValue> } | { readonly value: JsonValue }> => {
+          if (valueJ !== undefined && fromJ !== undefined) {
+            return makeError(
+              'WRONG_TYPE',
+              `${path}.valueFrom`,
+              "SetState carries both 'value' and 'valueFrom' — exactly one is allowed: 'value' is a literal JSON value written verbatim; 'valueFrom' derives the written value from a Binding at dispatch time; remove one",
+            );
+          }
+          if (valueJ === undefined && fromJ === undefined) {
+            return makeError(
+              'MISSING_FIELD',
+              `${path}.value`,
+              "missing required field 'value' — provide 'value' (a literal JSON value) or 'valueFrom' (a Binding evaluated at dispatch time)",
+            );
+          }
+          if (fromJ !== undefined) {
+            const from = decodeBinding(`${path}.valueFrom`, fromJ, decodeJVal, undefined);
+            if (!from.ok) return from;
+            return ok({ valueFrom: from.value as Binding<JsonValue> });
+          }
+          const value = decodeJVal(`${path}.value`, valueJ as JsonAst);
+          return value.ok ? ok({ value: value.value }) : value;
+        },
+      );
+      if (!written.ok) return written;
+      return ok({ kind: 'SetState', key: key.value, ...written.value });
     }
     case 'AiTool': {
       const name = reqField(path, f, 'toolName', 'AI tool name string', requireString);
@@ -3757,7 +4242,8 @@ const decodeAction = (path: string, j: JsonAst): R<Action<unknown>> => {
       // `{"$type":"Print","pageRange":"1-3"}` would leave the emitter believing
       // it had constrained a printing it had not, with no error anywhere saying
       // otherwise. The refusal names the offending member's own path.
-      for (const key of f.keys()) {
+      // One refusal, at the Ordinal-first extra member, as on the reference host.
+      for (const key of [...f.keys()].sort()) {
         if (key !== '$type')
           return wrongType(
             `${path}.${key}`,
@@ -3796,28 +4282,32 @@ const decodeAction = (path: string, j: JsonAst): R<Action<unknown>> => {
       const prompt = reqField(path, f, 'prompt', 'confirm prompt TextSource', decodeTextSource);
       if (!prompt.ok) return prompt;
 
+      // `prompt`, `onConfirm` and `onCancel` are sibling members; each
+      // continuation, with its own no-nested-Confirm check, is decoded in its
+      // own frame (§29.1).
       const confirmJ = requireField(path, f, 'onConfirm', 'Action to dispatch on acceptance');
       if (!confirmJ.ok) return confirmJ;
-      const onConfirm = decodeAction(`${path}.onConfirm`, confirmJ.value);
+      const continuation = (at: string, aj: JsonAst): R<Action<unknown>> =>
+        inFrame(() => {
+          if (aj === HOLE) return ok(HOLE as Action<unknown>);
+          const a = decodeAction(at, aj);
+          if (!a.ok) return a;
+          const nested = nestedConfirmPath(at, a.value);
+          if (nested !== undefined)
+            return wrongType(
+              nested,
+              'any action but Confirm — confirmation is bounded at one question (WIRE_FORMAT.md §3.6.22)',
+            );
+          return a;
+        });
+      const onConfirm = continuation(`${path}.onConfirm`, confirmJ.value);
       if (!onConfirm.ok) return onConfirm;
-      const nestedInConfirm = nestedConfirmPath(`${path}.onConfirm`, onConfirm.value);
-      if (nestedInConfirm !== undefined)
-        return wrongType(
-          nestedInConfirm,
-          'any action but Confirm — confirmation is bounded at one question (WIRE_FORMAT.md §3.6.22)',
-        );
 
       const cancelJ = f.get('onCancel');
       if (cancelJ === undefined)
         return ok({ kind: 'Confirm', prompt: prompt.value, onConfirm: onConfirm.value });
-      const onCancel = decodeAction(`${path}.onCancel`, cancelJ);
+      const onCancel = continuation(`${path}.onCancel`, cancelJ);
       if (!onCancel.ok) return onCancel;
-      const nestedInCancel = nestedConfirmPath(`${path}.onCancel`, onCancel.value);
-      if (nestedInCancel !== undefined)
-        return wrongType(
-          nestedInCancel,
-          'any action but Confirm — confirmation is bounded at one question (WIRE_FORMAT.md §3.6.22)',
-        );
 
       return ok({
         kind: 'Confirm',
@@ -3866,14 +4356,14 @@ const decodeAction = (path: string, j: JsonAst): R<Action<unknown>> => {
         'Dispatch | Call | Notify | Navigate | SetState | AiTool | Chain | CommitLocal | WriteToClipboard | Print | ReadFileBody | Invoke',
       );
   }
-};
+});
 
 // ─── Display specs ───────────────────────────────────────────────────────────
 
 const placeholderAction: Action<unknown> = { kind: 'Chain', actions: [] };
 const onChangePlaceholder = (): Action<unknown> => placeholderAction;
 
-const decodeMetricSpec = (path: string, j: JsonAst): R<MetricSpec> => {
+const decodeMetricSpec = framed((path: string, j: JsonAst): R<MetricSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -3881,31 +4371,24 @@ const decodeMetricSpec = (path: string, j: JsonAst): R<MetricSpec> => {
   if (!label.ok) return label;
   // 0.2.0 rename law: the scalar displayed value is `value` (clean break —
   // the old `source` name is NOT an accepted alias; `data` is the web prior).
-  const source = reqFieldAliased(
-    path,
-    f,
-    'value',
-    ['data'],
-    'Metric value binding',
-    decodeBindingFloat,
-  );
-  if (!source.ok) {
-    // DIDACTIC ERROR (2026-07-17): a text value here is the top observed
-    // emission error — name the right kind so the structured repair channel
-    // self-corrects. Mirror of F#.
-    if (source.error.message.includes('expected JSON number')) {
-      return {
-        ok: false,
-        error: {
-          ...source.error,
+  // DIDACTIC ERROR (2026-07-17): a text value here is the top observed
+  // emission error — name the right kind so the structured repair channel
+  // self-corrects. Mirror of F#. `amending` carries the rewrite into a defect
+  // walk (§29), where the member's failure is collected rather than returned.
+  const metricDidactic = (e: DecodeError): DecodeError =>
+    e.message.includes('expected JSON number')
+      ? {
+          ...e,
           message:
-            source.error.message +
+            e.message +
             ' — Metric is numeric-only (trendable KPI); a labeled TEXT fact belongs in Fact: {"$type":"Fact","label":\u2026,"value":\u2026}',
-        },
-      };
-    }
-    return source;
-  }
+        }
+      : e;
+  const source = amending(
+    () => reqFieldAliased(path, f, 'value', ['data'], 'Metric value binding', decodeBindingFloat),
+    metricDidactic,
+  );
+  if (!source.ok) return { ok: false, error: metricDidactic(source.error) };
   // Phase 460 — stylistic fields omitted-when-default; restore the identity
   // default on absence (mirrors the Phase 147 role/voice decode).
   const format = optField(path, f, 'format', decodeCellFormat);
@@ -3939,9 +4422,9 @@ const decodeMetricSpec = (path: string, j: JsonAst): R<MetricSpec> => {
     ...(icon.value !== undefined ? { icon: icon.value } : {}),
     ...(subtext.value !== undefined ? { subtext: subtext.value } : {}),
   });
-};
+});
 
-const decodeHeadingSpec = (path: string, j: JsonAst): R<HeadingSpec> => {
+const decodeHeadingSpec = framed((path: string, j: JsonAst): R<HeadingSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -3952,9 +4435,9 @@ const decodeHeadingSpec = (path: string, j: JsonAst): R<HeadingSpec> => {
   const variant = reqField(path, f, 'variant', 'HeadingVariant', decodeHeadingVariant);
   if (!variant.ok) return variant;
   return ok({ level: level.value, text: text.value, variant: variant.value });
-};
+});
 
-const decodeLabelValueRowSpec = (path: string, j: JsonAst): R<LabelValueRowSpec> => {
+const decodeLabelValueRowSpec = framed((path: string, j: JsonAst): R<LabelValueRowSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -3995,9 +4478,9 @@ const decodeLabelValueRowSpec = (path: string, j: JsonAst): R<LabelValueRowSpec>
     emphasis: emphasisVal,
     ...(help.value !== undefined ? { help: help.value } : {}),
   });
-};
+});
 
-const decodeFactSpec = (path: string, j: JsonAst): R<FactSpec> => {
+const decodeFactSpec = framed((path: string, j: JsonAst): R<FactSpec> => {
   // New kind (2026-07-17): minimal wire — only label + value required;
   // tone/emphasis omitted-when-default on both boundaries. Mirror of F#.
   const fo = requireObject(path, j);
@@ -4024,16 +4507,16 @@ const decodeFactSpec = (path: string, j: JsonAst): R<FactSpec> => {
     ...(help.value !== undefined ? { help: help.value } : {}),
     ...(icon.value !== undefined ? { icon: icon.value } : {}),
   });
-};
+});
 
-const decodeMarkdownSpec = (path: string, j: JsonAst): R<MarkdownSpec> => {
+const decodeMarkdownSpec = framed((path: string, j: JsonAst): R<MarkdownSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const text = reqField(path, fo.value, 'text', 'markdown TextSource', decodeTextSource);
   return text.ok ? ok({ text: text.value }) : text;
-};
+});
 
-const decodeBadgeSpec = (path: string, j: JsonAst): R<BadgeSpec> => {
+const decodeBadgeSpec = framed((path: string, j: JsonAst): R<BadgeSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4042,9 +4525,9 @@ const decodeBadgeSpec = (path: string, j: JsonAst): R<BadgeSpec> => {
   const variant = reqField(path, f, 'variant', 'BadgeVariant', decodeBadgeVariant);
   if (!variant.ok) return variant;
   return ok({ label: label.value, variant: variant.value });
-};
+});
 
-const decodeLinkSpec = (path: string, j: JsonAst): R<LinkSpec> => {
+const decodeLinkSpec = framed((path: string, j: JsonAst): R<LinkSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4070,10 +4553,12 @@ const decodeLinkSpec = (path: string, j: JsonAst): R<LinkSpec> => {
     ...(target.value !== undefined ? { target: target.value } : {}),
     ...(protection.value !== undefined ? { protection: protection.value } : {}),
   });
-};
+});
 
-const decodeLinkProtection = (p: string, j: JsonAst): R<LinkProtection> =>
-  bareEnum(p, j, ['email'] as const, 'LinkProtection');
+const decodeLinkProtection = framed(
+  (p: string, j: JsonAst): R<LinkProtection> =>
+    bareEnum(p, j, ['email'] as const, 'LinkProtection'),
+);
 
 // Phase 1080 — one `srcSet` candidate. `width` is the intrinsic pixel width of
 // this rendition and MUST be a positive integer; zero and negative values are a
@@ -4082,7 +4567,7 @@ const decodeLinkProtection = (p: string, j: JsonAst): R<LinkProtection> =>
 // refused as firmly as a negative and that is the interesting half: a `0w`
 // descriptor is not a small image, it is a candidate a client can never select,
 // so admitting it would let the wire carry a rendition no host can use.
-const decodeSrcSetEntry = (path: string, j: JsonAst): R<SrcSetEntry> => {
+const decodeSrcSetEntry = framed((path: string, j: JsonAst): R<SrcSetEntry> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const src = reqField(
@@ -4094,13 +4579,18 @@ const decodeSrcSetEntry = (path: string, j: JsonAst): R<SrcSetEntry> => {
   );
   if (!src.ok) return src;
   const widthJ = tryField(fo.value, 'width');
-  if (widthJ === undefined) return missingField(path, 'width', 'positive intrinsic pixel width');
-  if (widthJ.kind !== 'JNumber' || widthJ.value <= 0 || !Number.isInteger(widthJ.value))
-    return wrongType(`${path}.width`, 'JSON number (positive integer pixel width)');
-  return ok<SrcSetEntry>({ src: src.value, width: widthJ.value });
-};
+  // `width` is a sibling of `src`, checked in its own frame (§29.1).
+  const width = inFrame((): R<number> => {
+    if (widthJ === undefined) return missingField(path, 'width', 'positive intrinsic pixel width');
+    if (widthJ.kind !== 'JNumber' || widthJ.value <= 0 || !Number.isInteger(widthJ.value))
+      return wrongType(`${path}.width`, 'JSON number (positive integer pixel width)');
+    return ok(widthJ.value);
+  });
+  if (!width.ok) return width;
+  return ok<SrcSetEntry>({ src: src.value, width: width.value });
+});
 
-const decodeImageSpec = (path: string, j: JsonAst): R<ImageSpec> => {
+const decodeImageSpec = framed((path: string, j: JsonAst): R<ImageSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4175,7 +4665,7 @@ const decodeImageSpec = (path: string, j: JsonAst): R<ImageSpec> => {
     expandable: expandable.value,
     ...(caption.value !== undefined ? { caption: caption.value } : {}),
   });
-};
+});
 
 // Phase 1076 — which media surface this is. A `$type`-DISCRIMINATED union, so
 // an unknown case reports at `<path>.$type` (the `Binding` / `TextSource`
@@ -4186,7 +4676,7 @@ const decodeImageSpec = (path: string, j: JsonAst): R<ImageSpec> => {
 // is no autoplay slot to read: `{"$type":"Audio","autoplay":true}` decodes to
 // an audio surface that does not autoplay, because the value has nowhere to
 // land.
-const decodeMediaKind = (path: string, j: JsonAst): R<MediaKind> => {
+const decodeMediaKind = framed((path: string, j: JsonAst): R<MediaKind> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4214,13 +4704,13 @@ const decodeMediaKind = (path: string, j: JsonAst): R<MediaKind> => {
     default:
       return unknownDuCase(path, d.value, 'Video | Audio');
   }
-};
+});
 
 // Phase 1076 — the media spec. `label` is REQUIRED, which is the a11y floor
 // expressed where a decoder can enforce it; `controls` is the second
 // omit-at-TRUE slot in the vocabulary, so an absent key is the ACCESSIBLE value
 // and the document only spends a key to take the transport away.
-const decodeMediaSpec = (path: string, j: JsonAst): R<MediaSpec> => {
+const decodeMediaSpec = framed((path: string, j: JsonAst): R<MediaSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4265,13 +4755,13 @@ const decodeMediaSpec = (path: string, j: JsonAst): R<MediaSpec> => {
     tracks: tracks.value,
     ...(transcript.value !== undefined ? { transcript: transcript.value } : {}),
   });
-};
+});
 
 // Phase 1110 — one `<track>`. FOUR of the five members are required, which makes
 // it the strictest record on the wire; `default` is the one omitted-at-`false`
 // slot and a present member of any other type is WRONG_TYPE at the element's own
 // indexed path, so a document with four tracks names the one at fault.
-const decodeTrackEntry = (path: string, j: JsonAst): R<TrackEntry> => {
+const decodeTrackEntry = framed((path: string, j: JsonAst): R<TrackEntry> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4298,11 +4788,11 @@ const decodeTrackEntry = (path: string, j: JsonAst): R<TrackEntry> => {
     label: label.value,
     default: dflt.value,
   });
-};
+});
 
 // Phase 1120 — the tree spec. The two State-slot names are ordinary optional
 // strings; the hierarchy is the self-referential part.
-const decodeTreeSpec = (path: string, j: JsonAst): R<TreeSpec<unknown>> => {
+const decodeTreeSpec = framed((path: string, j: JsonAst): R<TreeSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4325,7 +4815,7 @@ const decodeTreeSpec = (path: string, j: JsonAst): R<TreeSpec<unknown>> => {
     // Emitted only when present (rule 4); the value is the closure sentinel.
     ...(tryField(f, 'onSelect') !== undefined ? { onSelect: () => placeholderAction } : {}),
   });
-};
+});
 
 // Phase 1120 — one row. `id` and `label` are required; `children` omits at the
 // EMPTY LIST (so a leaf carries two keys and nothing else, which is most of a
@@ -4334,7 +4824,7 @@ const decodeTreeSpec = (path: string, j: JsonAst): R<TreeSpec<unknown>> => {
 // The nested walker is the SAME function, deliberately: the corpus's third
 // reject vector sits one level DOWN precisely because a host whose child walker
 // is looser than its root walker passes the other two.
-const decodeTreeItem = (path: string, j: JsonAst): R<TreeItem> => {
+const decodeTreeItem = framed((path: string, j: JsonAst): R<TreeItem> => {
   // §21.2 rule 4 — refused on the way DOWN, before the recursion that would
   // breach it, so the reported path names the row at fault.
   if (itemDepth >= MAX_NODE_DEPTH) {
@@ -4345,12 +4835,15 @@ const decodeTreeItem = (path: string, j: JsonAst): R<TreeItem> => {
     );
   }
   itemDepth += 1;
-  const r = decodeTreeItemInner(path, j);
-  itemDepth -= 1;
-  return r;
-};
+  // `finally`: a defect walk (§29) may unwind through here on a consequence.
+  try {
+    return decodeTreeItemInner(path, j);
+  } finally {
+    itemDepth -= 1;
+  }
+});
 
-const decodeTreeItemInner = (path: string, j: JsonAst): R<TreeItem> => {
+const decodeTreeItemInner = framed((path: string, j: JsonAst): R<TreeItem> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4378,7 +4871,7 @@ const decodeTreeItemInner = (path: string, j: JsonAst): R<TreeItem> => {
     children: children.value,
     ...(icon.value !== undefined ? { icon: icon.value } : {}),
   });
-};
+});
 
 // Phase 1111 — the embed spec. `title` is REQUIRED, the frame a11y floor
 // expressed where a decoder can enforce it; `permissions` takes the
@@ -4388,7 +4881,7 @@ const decodeTreeItemInner = (path: string, j: JsonAst): R<TreeItem> => {
 //
 // Nothing here inspects the `src` STRING: the `embed` egress class is a
 // RENDER-time obligation, as every §19-class rule is.
-const decodeEmbedSpec = (path: string, j: JsonAst): R<EmbedSpec> => {
+const decodeEmbedSpec = framed((path: string, j: JsonAst): R<EmbedSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4420,9 +4913,9 @@ const decodeEmbedSpec = (path: string, j: JsonAst): R<EmbedSpec> => {
     aspectRatio: aspectRatio.value,
     permissions: permissions.value,
   });
-};
+});
 
-const decodeListSpec = (path: string, j: JsonAst): R<ListSpec> => {
+const decodeListSpec = framed((path: string, j: JsonAst): R<ListSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4437,9 +4930,9 @@ const decodeListSpec = (path: string, j: JsonAst): R<ListSpec> => {
   const ordered = reqField(path, f, 'ordered', 'ordered bool', requireBool);
   if (!ordered.ok) return ordered;
   return ok({ items: items.value, ordered: ordered.value });
-};
+});
 
-const decodeToastSpec = (path: string, j: JsonAst): R<ToastSpec> => {
+const decodeToastSpec = framed((path: string, j: JsonAst): R<ToastSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4459,9 +4952,9 @@ const decodeToastSpec = (path: string, j: JsonAst): R<ToastSpec> => {
     open: open.value as Binding<boolean>,
     dismissable: dismissable.value ?? true,
   });
-};
+});
 
-const decodeCodeBlockSpec = (path: string, j: JsonAst): R<CodeBlockSpec> => {
+const decodeCodeBlockSpec = framed((path: string, j: JsonAst): R<CodeBlockSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4488,9 +4981,9 @@ const decodeCodeBlockSpec = (path: string, j: JsonAst): R<CodeBlockSpec> => {
     highlightLines: highlightLines.value,
     copyable: copyable.value,
   });
-};
+});
 
-const decodeMathSpec = (path: string, j: JsonAst): R<MathSpec> => {
+const decodeMathSpec = framed((path: string, j: JsonAst): R<MathSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4499,9 +4992,9 @@ const decodeMathSpec = (path: string, j: JsonAst): R<MathSpec> => {
   const display = reqField(path, f, 'display', 'MathDisplay', decodeMathDisplay);
   if (!display.ok) return display;
   return ok({ source: source.value, display: display.value });
-};
+});
 
-const decodeSparklineSpec = (path: string, j: JsonAst): R<SparklineSpec> => {
+const decodeSparklineSpec = framed((path: string, j: JsonAst): R<SparklineSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const source = reqFieldAliased(
@@ -4513,7 +5006,7 @@ const decodeSparklineSpec = (path: string, j: JsonAst): R<SparklineSpec> => {
     decodeBindingFloatSeq,
   );
   return source.ok ? ok({ source: source.value }) : source;
-};
+});
 
 // Phase 1666 — `Skeleton.rows` is bounded by WIRE_FORMAT §21.9.
 //
@@ -4526,7 +5019,7 @@ const decodeSparklineSpec = (path: string, j: JsonAst): R<SparklineSpec> => {
 //
 // Upper bound only, deliberately: a negative count is an authoring defect
 // (FUARAN152 in the pre-emit family), not a resource breach.
-const decodeSkeletonSpec = (path: string, j: JsonAst): R<SkeletonSpec> => {
+const decodeSkeletonSpec = framed((path: string, j: JsonAst): R<SkeletonSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const rows = reqField(path, fo.value, 'rows', 'skeleton row count integer', requireInt);
@@ -4540,13 +5033,15 @@ const decodeSkeletonSpec = (path: string, j: JsonAst): R<SkeletonSpec> => {
     );
   }
   return ok({ rows: rows.value });
-};
+});
 
 // Phase 821 — the standalone icon-only display kind.
-const decodeIconSize = (p: string, j: JsonAst): R<IconSize> =>
-  bareEnum(p, j, ['Small', 'Medium', 'Large'] as const, 'IconSize');
+const decodeIconSize = framed(
+  (p: string, j: JsonAst): R<IconSize> =>
+    bareEnum(p, j, ['Small', 'Medium', 'Large'] as const, 'IconSize'),
+);
 
-const decodeIconSpec = (path: string, j: JsonAst): R<IconSpec> => {
+const decodeIconSpec = framed((path: string, j: JsonAst): R<IconSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4568,9 +5063,9 @@ const decodeIconSpec = (path: string, j: JsonAst): R<IconSpec> => {
     tone: tone.value,
     ...(label.value !== undefined ? { label: label.value } : {}),
   });
-};
+});
 
-const decodeCalloutSpec = (path: string, j: JsonAst): R<CalloutSpec> => {
+const decodeCalloutSpec = framed((path: string, j: JsonAst): R<CalloutSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4593,9 +5088,9 @@ const decodeCalloutSpec = (path: string, j: JsonAst): R<CalloutSpec> => {
     ...(heading.value !== undefined ? { heading: heading.value } : {}),
     ...(icon.value !== undefined ? { icon: icon.value } : {}),
   });
-};
+});
 
-const decodeProgressSpec = (path: string, j: JsonAst): R<ProgressSpec> => {
+const decodeProgressSpec = framed((path: string, j: JsonAst): R<ProgressSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4620,13 +5115,13 @@ const decodeProgressSpec = (path: string, j: JsonAst): R<ProgressSpec> => {
     ...(label.value !== undefined ? { label: label.value } : {}),
     ...(caveat.value !== undefined ? { caveat: caveat.value } : {}),
   });
-};
+});
 
 // ─── Drawing (Phase 524) ─────────────────────────────────────────────────────
 
 const emptyDrawStyle: DrawStyle = {};
 
-const decodeDrawPoint = (path: string, j: JsonAst): R<DrawPoint> => {
+const decodeDrawPoint = framed((path: string, j: JsonAst): R<DrawPoint> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const x = reqField(path, fo.value, 'x', 'DrawPoint x float', requireFloat);
@@ -4634,9 +5129,9 @@ const decodeDrawPoint = (path: string, j: JsonAst): R<DrawPoint> => {
   const y = reqField(path, fo.value, 'y', 'DrawPoint y float', requireFloat);
   if (!y.ok) return y;
   return ok({ x: x.value, y: y.value });
-};
+});
 
-const decodeViewBox = (path: string, j: JsonAst): R<ViewBox> => {
+const decodeViewBox = framed((path: string, j: JsonAst): R<ViewBox> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4649,9 +5144,9 @@ const decodeViewBox = (path: string, j: JsonAst): R<ViewBox> => {
   const height = reqField(path, f, 'height', 'ViewBox height float', requireFloat);
   if (!height.ok) return height;
   return ok({ minX: minX.value, minY: minY.value, width: width.value, height: height.value });
-};
+});
 
-const decodeDrawStyle = (path: string, j: JsonAst): R<DrawStyle> => {
+const decodeDrawStyle = framed((path: string, j: JsonAst): R<DrawStyle> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4697,9 +5192,9 @@ const decodeDrawStyle = (path: string, j: JsonAst): R<DrawStyle> => {
     ...(rotation.value !== undefined ? { rotation: rotation.value } : {}),
     ...(tip.value !== undefined ? { tip: tip.value } : {}),
   });
-};
+});
 
-const decodeCurveCommand = (path: string, j: JsonAst): R<CurveCommand> => {
+const decodeCurveCommand = framed((path: string, j: JsonAst): R<CurveCommand> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4738,9 +5233,9 @@ const decodeCurveCommand = (path: string, j: JsonAst): R<CurveCommand> => {
       // Default-deny (WIRE_FORMAT §11 / Phase 524): an unknown command is a typed defect.
       return unknownDuCase(path, d.value, 'MoveTo | LineTo | CubicTo | QuadraticTo | Close');
   }
-};
+});
 
-const decodeShape = (path: string, j: JsonAst): R<Shape> => {
+const decodeShape = framed((path: string, j: JsonAst): R<Shape> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4871,9 +5366,9 @@ const decodeShape = (path: string, j: JsonAst): R<Shape> => {
         'Group | Rectangle | Line | Polyline | Polygon | Curve | Circle | Ellipse | Label',
       );
   }
-};
+});
 
-const decodeDrawingSpec = (path: string, j: JsonAst): R<DrawingSpec> => {
+const decodeDrawingSpec = framed((path: string, j: JsonAst): R<DrawingSpec> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4896,9 +5391,9 @@ const decodeDrawingSpec = (path: string, j: JsonAst): R<DrawingSpec> => {
     ...(title.value !== undefined ? { title: title.value } : {}),
     ...(description.value !== undefined ? { description: description.value } : {}),
   });
-};
+});
 
-const decodeDisplayKind = (path: string, j: JsonAst): R<DisplayKind> => {
+const decodeDisplayKind = framed((path: string, j: JsonAst): R<DisplayKind> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -4999,7 +5494,7 @@ const decodeDisplayKind = (path: string, j: JsonAst): R<DisplayKind> => {
         'Heading | Markdown | Metric | Badge | Link | Image | Media | Embed | Tree | List | Toast | CodeBlock | Math | Drawing | Sparkline | Callout | Progress | Skeleton | LabelValueRow | Fact',
       );
   }
-};
+});
 
 // ─── Input specs ─────────────────────────────────────────────────────────────
 
@@ -5414,11 +5909,13 @@ const decodeFormFieldKind = (
 const TEXT_FORMATS = ['email', 'url', 'tel'] as const;
 const COMPARE_OPS = ['eq', 'neq', 'lt', 'lte', 'gt', 'gte'] as const;
 
-const decodeTextFormat = (path: string, j: JsonAst): R<TextFormat> =>
-  bareEnum(path, j, TEXT_FORMATS, 'TextFormat');
+const decodeTextFormat = framed(
+  (path: string, j: JsonAst): R<TextFormat> => bareEnum(path, j, TEXT_FORMATS, 'TextFormat'),
+);
 
-const decodeCompareOp = (path: string, j: JsonAst): R<CompareOp> =>
-  bareEnum(path, j, COMPARE_OPS, 'CompareOp');
+const decodeCompareOp = framed(
+  (path: string, j: JsonAst): R<CompareOp> => bareEnum(path, j, COMPARE_OPS, 'CompareOp'),
+);
 
 /**
  * The cross-field operand. `against` is a `Binding` — that is the entire
@@ -5427,7 +5924,7 @@ const decodeCompareOp = (path: string, j: JsonAst): R<CompareOp> =>
  * in State under the field's own id, so `{"$type":"State","key":"<sibling id>"}`
  * reads the sibling with no coordination vocabulary at all.
  */
-const decodeCompareRule = (path: string, j: JsonAst): R<CompareRule> => {
+const decodeCompareRule = framed((path: string, j: JsonAst): R<CompareRule> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -5436,7 +5933,7 @@ const decodeCompareRule = (path: string, j: JsonAst): R<CompareRule> => {
   const against = reqField(path, f, 'against', 'Binding', (p, v) => decodeBinding(p, v));
   if (!against.ok) return against;
   return ok({ op: op.value, against: against.value });
-};
+});
 
 /**
  * A field's declared constraint. Every slot is optional structurally, and two
@@ -5456,7 +5953,7 @@ const decodeCompareRule = (path: string, j: JsonAst): R<CompareRule> => {
  * Neither is a shape — both are relations BETWEEN slots — which is why they
  * live here beside the `from <= to` check rather than in the structural layer.
  */
-const decodeFieldRule = (path: string, j: JsonAst): R<FieldRule> => {
+const decodeFieldRule = framed((path: string, j: JsonAst): R<FieldRule> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -5507,7 +6004,7 @@ const decodeFieldRule = (path: string, j: JsonAst): R<FieldRule> => {
     ...(compare.value !== undefined ? { compare: compare.value } : {}),
     ...(message.value !== undefined ? { message: message.value } : {}),
   });
-};
+});
 
 // The `FormField` near-miss set (Phase 863's discipline applied to the rule
 // slot). Small and enumerated for the same reason the grid's is: rule 2's
@@ -5523,20 +6020,24 @@ const FORM_FIELD_NEAR_MISSES = [
   ['validate', 'rule'],
 ] as const;
 
-const checkFormFieldNearMisses = (path: string, f: Fields): R<void> => {
+const checkFormFieldNearMisses = framedFields((path: string, f: Fields): R<void> => {
+  // Every near miss present is its own defect (WIRE_FORMAT §29.1).
+  let first: R<void> | undefined;
   for (const [name, canonical] of FORM_FIELD_NEAR_MISSES) {
-    if (tryField(f, name) !== undefined)
-      return makeError(
+    if (tryField(f, name) !== undefined) {
+      const r = makeError(
         'WRONG_TYPE',
         `${path}.${name}`,
         `'${name}' is not part of the form vocabulary — it would be ignored, not honoured, and the field would accept anything`,
         canonical,
       );
+      first ??= r;
+    }
   }
-  return ok(undefined);
-};
+  return first ?? ok(undefined);
+});
 
-const decodeFormField = (path: string, j: JsonAst): R<FormField<unknown>> => {
+const decodeFormField = framed((path: string, j: JsonAst): R<FormField<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -5545,10 +6046,18 @@ const decodeFormField = (path: string, j: JsonAst): R<FormField<unknown>> => {
   // Phase 596 — id decodes first so the form context's auto-bind can use it
   // (the chip-name-first precedent from the filters unification). `id` is
   // re-read below by the original ordering; a malformed id surfaces there.
-  const idFirst = reqFieldAliased(path, f, 'id', ['name'], 'form-field id string', requireString);
-  const kind = reqField(path, f, 'kind', 'FormFieldKind', (p, v) =>
-    decodeFormFieldKind(idFirst.ok ? { kind: 'form', id: idFirst.value } : undefined, p, v),
+  const idFirst = quietly(() =>
+    reqFieldAliased(path, f, 'id', ['name'], 'form-field id string', requireString),
   );
+  // The kind is decoded IN THE CONTEXT of the id (its auto-bind reads it), so in
+  // a defect walk it is decoded only under a good id, as on the reference host;
+  // its presence is checked whatever the id holds (WIRE_FORMAT §29.1).
+  const kind: R<FormFieldKind<unknown>> =
+    collecting !== null && (!id.ok || id.value === HOLE)
+      ? presentOnly(path, f, 'kind', 'FormFieldKind')
+      : reqField(path, f, 'kind', 'FormFieldKind', (p, v) =>
+          decodeFormFieldKind(idFirst.ok ? { kind: 'form', id: idFirst.value } : undefined, p, v),
+        );
   if (!kind.ok) return kind;
   const label = reqField(path, f, 'label', 'field label TextSource', decodeTextSource);
   if (!label.ok) return label;
@@ -5571,9 +6080,9 @@ const decodeFormField = (path: string, j: JsonAst): R<FormField<unknown>> => {
     ...(help.value !== undefined ? { help: help.value } : {}),
     ...(rule.value !== undefined ? { rule: rule.value } : {}),
   });
-};
+});
 
-const decodeFormSpec = (path: string, j: JsonAst): R<FormSpec<unknown>> => {
+const decodeFormSpec = framed((path: string, j: JsonAst): R<FormSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -5598,9 +6107,9 @@ const decodeFormSpec = (path: string, j: JsonAst): R<FormSpec<unknown>> => {
     submitLabel: submitLabel.value,
     ...(disabled.value !== undefined ? { disabled: disabled.value } : {}),
   });
-};
+});
 
-const decodeFilterSpec = (path: string, j: JsonAst): R<FilterSpec<unknown>> => {
+const decodeFilterSpec = framed((path: string, j: JsonAst): R<FilterSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -5611,14 +6120,19 @@ const decodeFilterSpec = (path: string, j: JsonAst): R<FilterSpec<unknown>> => {
   if (!name.ok) return name;
   const label = reqField(path, f, 'label', 'filter label TextSource', decodeTextSource);
   if (!label.ok) return label;
-  const kind = reqField(path, f, 'kind', 'FormFieldKind control', (p, v) =>
-    decodeFormFieldKind({ kind: 'filter', name: name.value }, p, v),
-  );
+  // Decoded in the context of the name (the auto-bind reads it): in a defect
+  // walk, only under a good name; its presence is checked regardless (§29.1).
+  const kind: R<FormFieldKind<unknown>> =
+    name.value === HOLE
+      ? presentOnly(path, f, 'kind', 'FormFieldKind control')
+      : reqField(path, f, 'kind', 'FormFieldKind control', (p, v) =>
+          decodeFormFieldKind({ kind: 'filter', name: name.value }, p, v),
+        );
   if (!kind.ok) return kind;
   return ok({ name: name.value, label: label.value, field: kind.value });
-};
+});
 
-const decodeButtonSpec = (path: string, j: JsonAst): R<ButtonSpec<unknown>> => {
+const decodeButtonSpec = framed((path: string, j: JsonAst): R<ButtonSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -5640,9 +6154,9 @@ const decodeButtonSpec = (path: string, j: JsonAst): R<ButtonSpec<unknown>> => {
     ...(icon.value !== undefined ? { icon: icon.value } : {}),
     ...(disabled.value !== undefined ? { disabled: disabled.value } : {}),
   });
-};
+});
 
-const decodeSelectSpec = (path: string, j: JsonAst): R<SelectSpec<unknown>> => {
+const decodeSelectSpec = framed((path: string, j: JsonAst): R<SelectSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -5686,9 +6200,9 @@ const decodeSelectSpec = (path: string, j: JsonAst): R<SelectSpec<unknown>> => {
     ...(values.value !== undefined ? { values: values.value } : {}),
     ...(tryField(f, 'onChangeMulti') !== undefined ? { onChangeMulti: onChangePlaceholder } : {}),
   });
-};
+});
 
-const decodeFileUploadSpec = (path: string, j: JsonAst): R<FileUploadSpec<unknown>> => {
+const decodeFileUploadSpec = framed((path: string, j: JsonAst): R<FileUploadSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -5780,9 +6294,9 @@ const decodeFileUploadSpec = (path: string, j: JsonAst): R<FileUploadSpec<unknow
     ...(maxBytes.value !== undefined ? { maxBytes: maxBytes.value } : {}),
     ...(maxFiles.value !== undefined ? { maxFiles: maxFiles.value } : {}),
   });
-};
+});
 
-const decodeInputKind = (path: string, j: JsonAst): R<InputKind<unknown>> => {
+const decodeInputKind = framed((path: string, j: JsonAst): R<InputKind<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -5818,7 +6332,7 @@ const decodeInputKind = (path: string, j: JsonAst): R<InputKind<unknown>> => {
     default:
       return unknownDuCase(path, d.value, 'Form | Filters | Button | FileUpload | Select');
   }
-};
+});
 
 // ─── Visualisation specs ─────────────────────────────────────────────────────
 
@@ -5830,16 +6344,27 @@ const decodeInputKind = (path: string, j: JsonAst): R<InputKind<unknown>> => {
  * and a map value is neither, so the raw error names a path the document does not
  * contain. Parity-locked with the F# `decodeToneMap`.
  */
-const decodeToneMap = (path: string, j: JsonAst): R<Record<string, ToneVariant>> => {
+const decodeToneMap = framed((path: string, j: JsonAst): R<Record<string, ToneVariant>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const out: Record<string, ToneVariant> = {};
   for (const [k, v] of fo.value) {
     const entryPath = `${path}.${k}`;
-    const t = decodeTone(entryPath, v);
+    const got = v.kind === 'JString' ? v.value : '';
+    const t = amending(
+      () => decodeTone(entryPath, v),
+      (e) =>
+        e.code === 'UNKNOWN_DU_CASE' && e.path === entryPath
+          ? {
+              code: 'UNKNOWN_DU_CASE',
+              path: entryPath,
+              message: `tone-map value '${got}' for '${k}' is not a ToneVariant`,
+              expectedShape: TONE_NAMES.join(' | '),
+            }
+          : e,
+    );
     if (!t.ok) {
       if (t.error.code !== 'UNKNOWN_DU_CASE') return t;
-      const got = v.kind === 'JString' ? v.value : '';
       return makeError(
         'UNKNOWN_DU_CASE',
         entryPath,
@@ -5850,7 +6375,7 @@ const decodeToneMap = (path: string, j: JsonAst): R<Record<string, ToneVariant>>
     out[k] = t.value;
   }
   return ok(out);
-};
+});
 
 /** The tone-map field names a `TonedPill` cell accepts (canonical first). */
 const TONE_MAP_KEYS = ['map', 'toneMap', 'tones'] as const;
@@ -5859,7 +6384,7 @@ const TONE_MAP_KEYS = ['map', 'toneMap', 'tones'] as const;
  * The shared body of the canonical `TonedPill` case and the `Pill`-tagged §16 shorthand
  * — one reader, so the two spellings cannot drift apart in what they accept.
  */
-const decodeTonedPill = (path: string, f: Fields): R<CellKindErased<unknown>> => {
+const decodeTonedPill = framedFields((path: string, f: Fields): R<CellKindErased<unknown>> => {
   const field = reqField(
     path,
     f,
@@ -5889,122 +6414,120 @@ const decodeTonedPill = (path: string, f: Fields): R<CellKindErased<unknown>> =>
     defaultTone: defaultTone.value ?? 'Default',
   };
   return ok(k);
-};
+});
 
-const decodeCellKindErased = (
-  path: string,
-  j: JsonAst,
-  columnField?: string,
-): R<CellKindErased<unknown>> => {
-  const fo = requireObject(path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const d = requireDiscriminator(path, f);
-  if (!d.ok) return d;
-  switch (d.value) {
-    case 'Text':
-      return ok({ kind: 'Text' });
-    case 'Numeric':
-      return ok({ kind: 'Numeric' });
-    case 'Date':
-      return ok({ kind: 'Date' });
-    case 'Editable':
-      return ok({ kind: 'Editable', onEdit: () => placeholderAction });
-    case 'Checkbox':
-      return ok({ kind: 'Checkbox', get: () => false, onToggle: () => placeholderAction });
-    case 'Button': {
-      const label = reqField(path, f, 'label', 'cell button label TextSource', decodeTextSource);
-      return label.ok
-        ? ok({ kind: 'Button', label: label.value, onClick: () => placeholderAction })
-        : label;
-    }
-    case 'ButtonGroup': {
-      const buttonsJ = requireField(path, f, 'buttons', 'button group list');
-      if (!buttonsJ.ok) return buttonsJ;
-      const arr = requireArray(`${path}.buttons`, buttonsJ.value);
-      if (!arr.ok) return arr;
-      type Btn = readonly [TextSource, (row: unknown) => Action<unknown>];
-      const buttons = traverseIndexed<Btn>(arr.value, (i, item) => {
-        const bo = requireObject(`${path}.buttons[${i}]`, item);
-        if (!bo.ok) return bo;
-        const label = reqField(
-          `${path}.buttons[${i}]`,
-          bo.value,
-          'label',
-          'button label TextSource',
-          decodeTextSource,
-        );
-        if (!label.ok) return label;
-        return ok<Btn>([label.value, () => placeholderAction]);
-      });
-      if (!buttons.ok) return buttons;
-      const k: CellKindErased<unknown> = { kind: 'ButtonGroup', buttons: buttons.value };
-      return ok(k);
-    }
-    case 'Link': {
-      const k: CellKindErased<unknown> = {
-        kind: 'Link',
-        href: () => CLOSURE,
-        label: () => ({ kind: 'Literal', value: CLOSURE }),
-      };
-      return ok(k);
-    }
-    case 'Pill': {
-      // Lenient-ingest (WIRE_FORMAT.md §16, Phase 750): `Pill` is the WORD for the
-      // thing, so a declarative tone rule arrives tagged `Pill` more often than tagged
-      // `TonedPill`. Before this phase those keys were accepted and DISCARDED — the
-      // author's whole intent gone, silently, with no error to notice. Presence of a
-      // tone map is the unambiguous tell (a closure `Pill` has no such key).
-      if (TONE_MAP_KEYS.some((key) => tryField(f, key) !== undefined))
+const decodeCellKindErased = framed(
+  (path: string, j: JsonAst, columnField?: string): R<CellKindErased<unknown>> => {
+    const fo = requireObject(path, j);
+    if (!fo.ok) return fo;
+    const f = fo.value;
+    const d = requireDiscriminator(path, f);
+    if (!d.ok) return d;
+    switch (d.value) {
+      case 'Text':
+        return ok({ kind: 'Text' });
+      case 'Numeric':
+        return ok({ kind: 'Numeric' });
+      case 'Date':
+        return ok({ kind: 'Date' });
+      case 'Editable':
+        return ok({ kind: 'Editable', onEdit: () => placeholderAction });
+      case 'Checkbox':
+        return ok({ kind: 'Checkbox', get: () => false, onToggle: () => placeholderAction });
+      case 'Button': {
+        const label = reqField(path, f, 'label', 'cell button label TextSource', decodeTextSource);
+        return label.ok
+          ? ok({ kind: 'Button', label: label.value, onClick: () => placeholderAction })
+          : label;
+      }
+      case 'ButtonGroup': {
+        const buttonsJ = requireField(path, f, 'buttons', 'button group list');
+        if (!buttonsJ.ok) return buttonsJ;
+        const arr = requireArray(`${path}.buttons`, buttonsJ.value);
+        if (!arr.ok) return arr;
+        type Btn = readonly [TextSource, (row: unknown) => Action<unknown>];
+        const buttons = traverseIndexed<Btn>(arr.value, (i, item) => {
+          const bo = requireObject(`${path}.buttons[${i}]`, item);
+          if (!bo.ok) return bo;
+          const label = reqField(
+            `${path}.buttons[${i}]`,
+            bo.value,
+            'label',
+            'button label TextSource',
+            decodeTextSource,
+          );
+          if (!label.ok) return label;
+          return ok<Btn>([label.value, () => placeholderAction]);
+        });
+        if (!buttons.ok) return buttons;
+        const k: CellKindErased<unknown> = { kind: 'ButtonGroup', buttons: buttons.value };
+        return ok(k);
+      }
+      case 'Link': {
+        const k: CellKindErased<unknown> = {
+          kind: 'Link',
+          href: () => CLOSURE,
+          label: () => ({ kind: 'Literal', value: CLOSURE }),
+        };
+        return ok(k);
+      }
+      case 'Pill': {
+        // Lenient-ingest (WIRE_FORMAT.md §16, Phase 750): `Pill` is the WORD for the
+        // thing, so a declarative tone rule arrives tagged `Pill` more often than tagged
+        // `TonedPill`. Before this phase those keys were accepted and DISCARDED — the
+        // author's whole intent gone, silently, with no error to notice. Presence of a
+        // tone map is the unambiguous tell (a closure `Pill` has no such key).
+        if (TONE_MAP_KEYS.some((key) => tryField(f, key) !== undefined))
+          return decodeTonedPill(path, f);
+        const k: CellKindErased<unknown> = {
+          kind: 'Pill',
+          label: () => ({ kind: 'Literal', value: CLOSURE }),
+          tone: () => 'Default',
+        };
+        return ok(k);
+      }
+      case 'TonedPill':
         return decodeTonedPill(path, f);
-      const k: CellKindErased<unknown> = {
-        kind: 'Pill',
-        label: () => ({ kind: 'Literal', value: CLOSURE }),
-        tone: () => 'Default',
-      };
-      return ok(k);
+      case 'Progress': {
+        // Phase 425 / cat:Fuaran.UI.ProgressFieldCell (2026-08-10) — the field-driven
+        // fraction, parity with the .NET decoder. A decoded `Progress` cell in a
+        // `field`-carrying column derives its per-row fill from that row property
+        // (clamped to 0..1; missing / non-numeric → 0, never a throw), ending the
+        // silent zero-fill class. No new wire key — the driver is the column-level
+        // `field`; a columnless or fieldless `Progress` keeps the inert placeholder.
+        const field = columnField;
+        const k: CellKindErased<unknown> = {
+          kind: 'Progress',
+          fraction:
+            field === undefined
+              ? () => 0
+              : (row) => {
+                  const v =
+                    row !== null && typeof row === 'object'
+                      ? (row as Record<string, unknown>)[field]
+                      : undefined;
+                  const n = typeof v === 'number' && Number.isFinite(v) ? v : 0;
+                  return Math.max(0, Math.min(1, n));
+                },
+        };
+        return ok(k);
+      }
+      case 'Custom': {
+        const k: CellKindErased<unknown> = {
+          kind: 'Custom',
+          render: () => placeholderClosureNode,
+        };
+        return ok(k);
+      }
+      default:
+        return unknownDuCase(
+          path,
+          d.value,
+          'Text | Numeric | Date | Editable | Checkbox | Button | ButtonGroup | Link | Pill | TonedPill | Progress | Custom',
+        );
     }
-    case 'TonedPill':
-      return decodeTonedPill(path, f);
-    case 'Progress': {
-      // Phase 425 / cat:Fuaran.UI.ProgressFieldCell (2026-08-10) — the field-driven
-      // fraction, parity with the .NET decoder. A decoded `Progress` cell in a
-      // `field`-carrying column derives its per-row fill from that row property
-      // (clamped to 0..1; missing / non-numeric → 0, never a throw), ending the
-      // silent zero-fill class. No new wire key — the driver is the column-level
-      // `field`; a columnless or fieldless `Progress` keeps the inert placeholder.
-      const field = columnField;
-      const k: CellKindErased<unknown> = {
-        kind: 'Progress',
-        fraction:
-          field === undefined
-            ? () => 0
-            : (row) => {
-                const v =
-                  row !== null && typeof row === 'object'
-                    ? (row as Record<string, unknown>)[field]
-                    : undefined;
-                const n = typeof v === 'number' && Number.isFinite(v) ? v : 0;
-                return Math.max(0, Math.min(1, n));
-              },
-      };
-      return ok(k);
-    }
-    case 'Custom': {
-      const k: CellKindErased<unknown> = {
-        kind: 'Custom',
-        render: () => placeholderClosureNode,
-      };
-      return ok(k);
-    }
-    default:
-      return unknownDuCase(
-        path,
-        d.value,
-        'Text | Numeric | Date | Editable | Checkbox | Button | ButtonGroup | Link | Pill | TonedPill | Progress | Custom',
-      );
-  }
-};
+  },
+);
 
 // Phase 863 — decode-time didactics for the grid-behaviour family's NEAR
 // MISSES (Phase 860's charter, its rejected-spellings deliverable).
@@ -6024,16 +6547,21 @@ const nearMiss = (path: string, found: string, canonical: string): R<never> =>
     canonical,
   );
 
-const checkNearMisses = (
-  path: string,
-  f: Fields,
-  candidates: readonly (readonly [string, string])[],
-): R<void> => {
-  for (const [name, canonical] of candidates) {
-    if (tryField(f, name) !== undefined) return nearMiss(path, name, canonical);
-  }
-  return ok(undefined);
-};
+const checkNearMisses = framedFields(
+  (path: string, f: Fields, candidates: readonly (readonly [string, string])[]): R<void> => {
+    // Every near miss present is its own defect (WIRE_FORMAT §29.1: each stray
+    // member is a sibling of the others), so each is constructed; the first is
+    // returned.
+    let first: R<void> | undefined;
+    for (const [name, canonical] of candidates) {
+      if (tryField(f, name) !== undefined) {
+        const r = nearMiss(path, name, canonical);
+        first ??= r;
+      }
+    }
+    return first ?? ok(undefined);
+  },
+);
 
 const COLUMN_NEAR_MISSES = [
   // Named by the census row itself. Deliberately NOT aliased to
@@ -6076,7 +6604,7 @@ const GRID_NEAR_MISSES = [
   ],
 ] as const;
 
-const decodeColumnErased = (path: string, j: JsonAst): R<ColumnErased<unknown>> => {
+const decodeColumnErased = framed((path: string, j: JsonAst): R<ColumnErased<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6141,7 +6669,7 @@ const decodeColumnErased = (path: string, j: JsonAst): R<ColumnErased<unknown>> 
     ...(sortable !== undefined ? { sortable } : {}),
     ...(colEditable !== undefined ? { editable: colEditable } : {}),
   });
-};
+});
 
 // Phase 393 — decode the `{ headers, rows }` static-rows object of a read-only grid
 // (also the shape the legacy `Table` decode-upgrade reads). Cells are `TextSource`.
@@ -6155,30 +6683,38 @@ type StaticRows = {
 // Phase 801 — `"asc"` / `"desc"`, closed. Anything else is UNKNOWN_DU_CASE naming both
 // legal values, never a silent fallback to ascending: an unrecognised direction is an
 // emitter defect the author can fix, and quietly picking one hides it.
-const decodeSortDirection = (p: string, j: JsonAst): R<SortDirection> =>
-  bareEnum(p, j, ['asc', 'desc'] as const, 'SortDirection');
+const decodeSortDirection = framed(
+  (p: string, j: JsonAst): R<SortDirection> =>
+    bareEnum(p, j, ['asc', 'desc'] as const, 'SortDirection'),
+);
 
 // Phase 801 — the `{ column, direction }` initial-order declaration. `column` is a
 // NON-NEGATIVE integer index into `headers`; a negative (or non-integral) value is a
 // WRONG_TYPE, which is also what schema.json's `minimum: 0` says. An index PAST the end
 // of `headers` is deliberately accepted — a relation between sibling values is not
 // something a per-object codec judges.
-const decodeDefaultSort = (path: string, j: JsonAst): R<DefaultSort> => {
+const decodeDefaultSort = framed((path: string, j: JsonAst): R<DefaultSort> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
   const columnJ = requireField(path, f, 'column', 'non-negative header index');
   if (!columnJ.ok) return columnJ;
   const cv = columnJ.value;
-  if (cv.kind !== 'JNumber' || cv.value < 0 || !Number.isInteger(cv.value))
-    return wrongType(`${path}.column`, 'JSON number (non-negative integer header index)');
+  // `column` and `direction` are sibling members (§29.1).
+  const column = inFrame(
+    (): R<number> =>
+      cv.kind !== 'JNumber' || cv.value < 0 || !Number.isInteger(cv.value)
+        ? wrongType(`${path}.column`, 'JSON number (non-negative integer header index)')
+        : ok(cv.value),
+  );
+  if (!column.ok) return column;
   const directionJ = requireField(path, f, 'direction', 'asc | desc');
   if (!directionJ.ok) return directionJ;
   const direction = decodeSortDirection(`${path}.direction`, directionJ.value);
   if (!direction.ok) return direction;
-  return ok({ column: cv.value, direction: direction.value });
-};
-const decodeStaticRows = (path: string, j: JsonAst): R<StaticRows> => {
+  return ok({ column: column.value, direction: direction.value });
+});
+const decodeStaticRows = framed((path: string, j: JsonAst): R<StaticRows> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6212,9 +6748,9 @@ const decodeStaticRows = (path: string, j: JsonAst): R<StaticRows> => {
     ...(sortable.value !== undefined ? { sortable: sortable.value } : {}),
     ...(defaultSort.value !== undefined ? { defaultSort: defaultSort.value } : {}),
   });
-};
+});
 
-const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
+const decodeGridSpec = framed((path: string, j: JsonAst): R<GridSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6268,12 +6804,14 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
   // which is also what schema.json's `minimum: 1` says. The pager that writes
   // the key is renderer-owned, so nothing here decodes a control.
   const pageSizeJ = tryField(f, 'pageSize');
-  let pageSize: number | undefined;
-  if (pageSizeJ !== undefined) {
+  const pageSizeR = inFrame((): R<number | undefined> => {
+    if (pageSizeJ === undefined) return ok(undefined);
     if (pageSizeJ.kind !== 'JNumber' || pageSizeJ.value < 1 || !Number.isInteger(pageSizeJ.value))
       return wrongType(`${path}.pageSize`, 'JSON number (integer page size of 1 or more)');
-    pageSize = pageSizeJ.value;
-  }
+    return ok(pageSizeJ.value);
+  });
+  if (!pageSizeR.ok) return pageSizeR;
+  const pageSize = pageSizeR.value;
   // Phase 861 — the bound path's declared initial order, decoded by the SAME
   // function the staticRows spelling uses: same record, same bound, same
   // message at a different path.
@@ -6356,9 +6894,9 @@ const decodeGridSpec = (path: string, j: JsonAst): R<GridSpec<unknown>> => {
     repeatHeader: repeatHeader.value ?? false,
     ...(staticRows !== undefined ? { staticRows } : {}),
   });
-};
+});
 
-const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
+const decodeChartSpec = framed((path: string, j: JsonAst): R<ChartSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6458,47 +6996,52 @@ const decodeChartSpec = (path: string, j: JsonAst): R<ChartSpec<unknown>> => {
     ...(annotations !== undefined ? { annotations } : {}),
     ...(hasPointClick ? { onPointClick: () => placeholderAction } : {}),
   });
-};
+});
 
-const decodeMapSpec = (
-  path: string,
-  j: JsonAst,
-): R<import('@fuaran-ui/schema').MapSpec<unknown>> => {
-  const fo = requireObject(path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const centreLatitude = reqField(path, f, 'centreLatitude', 'centre latitude float', requireFloat);
-  if (!centreLatitude.ok) return centreLatitude;
-  const centreLongitude = reqField(
-    path,
-    f,
-    'centreLongitude',
-    'centre longitude float',
-    requireFloat,
-  );
-  if (!centreLongitude.ok) return centreLongitude;
-  const source = reqFieldAliased(
-    path,
-    f,
-    'source',
-    ['data', 'markers'],
-    'Map source binding',
-    decodeBindingMarkerSeq,
-  );
-  if (!source.ok) return source;
-  const zoom = reqField(path, f, 'zoom', 'zoom integer', requireInt);
-  if (!zoom.ok) return zoom;
-  const hasMarkerClick = tryField(f, 'onMarkerClick') !== undefined;
-  return ok({
-    centreLatitude: centreLatitude.value,
-    centreLongitude: centreLongitude.value,
-    source: source.value,
-    zoom: zoom.value,
-    ...(hasMarkerClick ? { onMarkerClick: () => placeholderAction } : {}),
-  });
-};
+const decodeMapSpec = framed(
+  (path: string, j: JsonAst): R<import('@fuaran-ui/schema').MapSpec<unknown>> => {
+    const fo = requireObject(path, j);
+    if (!fo.ok) return fo;
+    const f = fo.value;
+    const centreLatitude = reqField(
+      path,
+      f,
+      'centreLatitude',
+      'centre latitude float',
+      requireFloat,
+    );
+    if (!centreLatitude.ok) return centreLatitude;
+    const centreLongitude = reqField(
+      path,
+      f,
+      'centreLongitude',
+      'centre longitude float',
+      requireFloat,
+    );
+    if (!centreLongitude.ok) return centreLongitude;
+    const source = reqFieldAliased(
+      path,
+      f,
+      'source',
+      ['data', 'markers'],
+      'Map source binding',
+      decodeBindingMarkerSeq,
+    );
+    if (!source.ok) return source;
+    const zoom = reqField(path, f, 'zoom', 'zoom integer', requireInt);
+    if (!zoom.ok) return zoom;
+    const hasMarkerClick = tryField(f, 'onMarkerClick') !== undefined;
+    return ok({
+      centreLatitude: centreLatitude.value,
+      centreLongitude: centreLongitude.value,
+      source: source.value,
+      zoom: zoom.value,
+      ...(hasMarkerClick ? { onMarkerClick: () => placeholderAction } : {}),
+    });
+  },
+);
 
-const decodeVisKind = (path: string, j: JsonAst): R<VisKind<unknown>> => {
+const decodeVisKind = framed((path: string, j: JsonAst): R<VisKind<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6521,21 +7064,21 @@ const decodeVisKind = (path: string, j: JsonAst): R<VisKind<unknown>> => {
     default:
       return unknownDuCase(path, d.value, 'DataGrid | Chart | Table | Map');
   }
-};
+});
 
 // ─── Layout specs ────────────────────────────────────────────────────────────
 
-const decodeChildren = (path: string, fields: Fields): R<readonly Node<unknown>[]> => {
+const decodeChildren = framedFields((path: string, fields: Fields): R<readonly Node<unknown>[]> => {
   const childrenJ = requireField(path, fields, 'children', 'children Node list');
   if (!childrenJ.ok) return childrenJ;
   const arr = requireArray(`${path}.children`, childrenJ.value);
   if (!arr.ok) return arr;
   return traverseIndexed(arr.value, (i, item) => decodeNodeAst(`${path}.children[${i}]`, item));
-};
+});
 
 // ─── Box — the unified container (Phase 390) ─────────────────────────────────
 
-const decodeBoxLayout = (path: string, j: JsonAst): R<BoxLayout> => {
+const decodeBoxLayout = framed((path: string, j: JsonAst): R<BoxLayout> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6597,14 +7140,19 @@ const decodeBoxLayout = (path: string, j: JsonAst): R<BoxLayout> => {
       // `Auto` is a ROW-fill mode — rewriting a masonry into it would discard
       // the author's intent rather than recover it. Mirror of F#.
       const colsJ = tryField(f, 'cols') ?? tryField(f, 'columns');
-      if (colsJ === undefined) return missingField(path, 'cols', 'positive integer column count');
-      if (colsJ.kind !== 'JNumber' || colsJ.value <= 0 || !Number.isInteger(colsJ.value))
-        return wrongType(`${path}.cols`, 'JSON number (positive integer column count)');
+      // `cols` and `gap` are sibling members (§29.1).
+      const masonryCols = inFrame((): R<number> => {
+        if (colsJ === undefined) return missingField(path, 'cols', 'positive integer column count');
+        if (colsJ.kind !== 'JNumber' || colsJ.value <= 0 || !Number.isInteger(colsJ.value))
+          return wrongType(`${path}.cols`, 'JSON number (positive integer column count)');
+        return ok(colsJ.value);
+      });
+      if (!masonryCols.ok) return masonryCols;
       const masonryGap = optField(path, f, 'gap', requireInt);
       if (!masonryGap.ok) return masonryGap;
       return ok({
         kind: 'Masonry',
-        cols: colsJ.value,
+        cols: masonryCols.value,
         ...(masonryGap.value !== undefined ? { gap: masonryGap.value } : {}),
       });
     }
@@ -6613,9 +7161,9 @@ const decodeBoxLayout = (path: string, j: JsonAst): R<BoxLayout> => {
     default:
       return unknownDuCase(path, d.value, 'Flex | Grid | Masonry | Auto');
   }
-};
+});
 
-const decodeBoxRole = (path: string, j: JsonAst): R<BoxRole> => {
+const decodeBoxRole = framed((path: string, j: JsonAst): R<BoxRole> => {
   const s = requireString(path, j);
   if (!s.ok) return s;
   switch (s.value) {
@@ -6627,9 +7175,9 @@ const decodeBoxRole = (path: string, j: JsonAst): R<BoxRole> => {
     default:
       return unknownEnumCase(path, s.value, 'Group | Card | Dashboard | Separator');
   }
-};
+});
 
-const decodeBox = (path: string, j: JsonAst): R<BoxSpec<unknown>> => {
+const decodeBox = framed((path: string, j: JsonAst): R<BoxSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6659,9 +7207,9 @@ const decodeBox = (path: string, j: JsonAst): R<BoxSpec<unknown>> => {
     keepTogether: keepTogether.value ?? false,
     breakBefore: breakBefore.value ?? false,
   });
-};
+});
 
-const decodeSplitPanelSpec = (path: string, j: JsonAst): R<SplitPanelSpec<unknown>> => {
+const decodeSplitPanelSpec = framed((path: string, j: JsonAst): R<SplitPanelSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6670,9 +7218,9 @@ const decodeSplitPanelSpec = (path: string, j: JsonAst): R<SplitPanelSpec<unknow
   const weight = reqField(path, f, 'weight', 'weight float', requireFloat);
   if (!weight.ok) return weight;
   return ok({ children: children.value, weight: weight.value });
-};
+});
 
-const decodeTabHeader = (path: string, j: JsonAst): R<TabHeader> => {
+const decodeTabHeader = framed((path: string, j: JsonAst): R<TabHeader> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6687,9 +7235,9 @@ const decodeTabHeader = (path: string, j: JsonAst): R<TabHeader> => {
     ...(icon.value !== undefined ? { icon: icon.value } : {}),
     ...(disabled.value !== undefined ? { disabled: disabled.value } : {}),
   });
-};
+});
 
-const decodeTabsSpec = (path: string, j: JsonAst): R<TabsSpec<unknown>> => {
+const decodeTabsSpec = framed((path: string, j: JsonAst): R<TabsSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6744,9 +7292,9 @@ const decodeTabsSpec = (path: string, j: JsonAst): R<TabsSpec<unknown>> => {
     ...(activeTag.value !== undefined ? { activeTag: activeTag.value } : {}),
     ...(tryField(f, 'onSelectTag') !== undefined ? { onSelectTag: () => placeholderAction } : {}),
   });
-};
+});
 
-const decodeStepperSpec = (path: string, j: JsonAst): R<StepperSpec<unknown>> => {
+const decodeStepperSpec = framed((path: string, j: JsonAst): R<StepperSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6761,9 +7309,9 @@ const decodeStepperSpec = (path: string, j: JsonAst): R<StepperSpec<unknown>> =>
     children: children.value,
     onSelect: () => placeholderAction,
   });
-};
+});
 
-const decodeSummaryListSpec = (path: string, j: JsonAst): R<SummaryListSpec<unknown>> => {
+const decodeSummaryListSpec = framed((path: string, j: JsonAst): R<SummaryListSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6775,9 +7323,9 @@ const decodeSummaryListSpec = (path: string, j: JsonAst): R<SummaryListSpec<unkn
     children: children.value,
     ...(heading.value !== undefined ? { heading: heading.value } : {}),
   });
-};
+});
 
-const decodeDisclosureSpec = (path: string, j: JsonAst): R<DisclosureSpec<unknown>> => {
+const decodeDisclosureSpec = framed((path: string, j: JsonAst): R<DisclosureSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6805,9 +7353,9 @@ const decodeDisclosureSpec = (path: string, j: JsonAst): R<DisclosureSpec<unknow
     // absent key → omitted, arming the `open` write-back default.
     ...(tryField(f, 'onToggle') !== undefined ? { onToggle: () => placeholderAction } : {}),
   });
-};
+});
 
-const decodeModalSpec = (path: string, j: JsonAst): R<ModalSpec<unknown>> => {
+const decodeModalSpec = framed((path: string, j: JsonAst): R<ModalSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6844,9 +7392,9 @@ const decodeModalSpec = (path: string, j: JsonAst): R<ModalSpec<unknown>> => {
     modality: modality.value,
     ...(anchor.value !== undefined ? { anchor: anchor.value } : {}),
   });
-};
+});
 
-const decodeScrollAreaSpec = (path: string, j: JsonAst): R<ScrollAreaSpec<unknown>> => {
+const decodeScrollAreaSpec = framed((path: string, j: JsonAst): R<ScrollAreaSpec<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6870,9 +7418,9 @@ const decodeScrollAreaSpec = (path: string, j: JsonAst): R<ScrollAreaSpec<unknow
     ...(maxHeight.value !== undefined ? { maxHeight: maxHeight.value } : {}),
     ...(maxWidth.value !== undefined ? { maxWidth: maxWidth.value } : {}),
   });
-};
+});
 
-const decodeLayoutKind = (path: string, j: JsonAst): R<LayoutKind<unknown>> => {
+const decodeLayoutKind = framed((path: string, j: JsonAst): R<LayoutKind<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6921,11 +7469,11 @@ const decodeLayoutKind = (path: string, j: JsonAst): R<LayoutKind<unknown>> => {
         'Box | SplitPanel | Tabs | Stepper | SummaryList | Disclosure | Modal | ScrollArea',
       );
   }
-};
+});
 
 // ─── NodeKind ────────────────────────────────────────────────────────────────
 
-const decodeContentHash = (path: string, j: JsonAst): R<ContentHash> => {
+const decodeContentHash = framed((path: string, j: JsonAst): R<ContentHash> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -6941,16 +7489,20 @@ const decodeContentHash = (path: string, j: JsonAst): R<ContentHash> => {
     requireString,
   );
   if (!strictnessR.ok) return strictnessR;
-  const s = strictnessR.value;
-  if (s !== 'StrictReplay' && s !== 'AdvisoryWarning' && s !== 'Enforced') {
-    return unknownEnumCase(`${path}.strictness`, s, 'StrictReplay | AdvisoryWarning | Enforced');
-  }
-  return ok({ algorithm: algorithm.value, hash: hash.value, strictness: s as HashStrictness });
-};
+  const strictness = inFrame((): R<HashStrictness> => {
+    const s = strictnessR.value;
+    if (s !== 'StrictReplay' && s !== 'AdvisoryWarning' && s !== 'Enforced') {
+      return unknownEnumCase(`${path}.strictness`, s, 'StrictReplay | AdvisoryWarning | Enforced');
+    }
+    return ok(s as HashStrictness);
+  });
+  if (!strictness.ok) return strictness;
+  return ok({ algorithm: algorithm.value, hash: hash.value, strictness: strictness.value });
+});
 
 // ─── Parameterised-fragment hole / effect / scalar decoders (Phase 180) ──────
 
-const decodeHoleValueSpace = (path: string, j: JsonAst): R<HoleValueSpace> => {
+const decodeHoleValueSpace = framed((path: string, j: JsonAst): R<HoleValueSpace> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const disc = requireDiscriminator(path, fo.value);
@@ -6995,9 +7547,25 @@ const decodeHoleValueSpace = (path: string, j: JsonAst): R<HoleValueSpace> => {
         'IntRange | FloatRange | StringLen | Enum | AnyString',
       );
   }
-};
+});
 
-const decodeFragmentScalar = (path: string, j: JsonAst): R<FragmentScalar> => {
+/** One `FragmentRef` argument / `Mount` input: a `SlotArg` tree or a scalar. */
+const decodeFragmentArg = framed((argPath: string, valueJ: JsonAst): R<FragmentArg<unknown>> => {
+  const fo = requireObject(argPath, valueJ);
+  if (!fo.ok) return fo;
+  const disc = requireDiscriminator(argPath, fo.value);
+  if (!disc.ok) return disc;
+  if (disc.value === 'SlotArg') {
+    const tree = reqField(argPath, fo.value, 'tree', 'SlotArg tree Node', decodeNodeAst);
+    if (!tree.ok) return tree;
+    return ok({ kind: 'slot', tree: tree.value });
+  }
+  const scalar = decodeFragmentScalar(argPath, valueJ);
+  if (!scalar.ok) return scalar;
+  return ok({ kind: 'value', value: scalar.value });
+});
+
+const decodeFragmentScalar = framed((path: string, j: JsonAst): R<FragmentScalar> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const disc = requireDiscriminator(path, fo.value);
@@ -7022,9 +7590,9 @@ const decodeFragmentScalar = (path: string, j: JsonAst): R<FragmentScalar> => {
     default:
       return unknownDuCase(path, disc.value, 'Int | Float | Bool | Str');
   }
-};
+});
 
-const decodeHoleDecl = (path: string, j: JsonAst): R<HoleDecl> => {
+const decodeHoleDecl = framed((path: string, j: JsonAst): R<HoleDecl> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const disc = requireDiscriminator(path, fo.value);
@@ -7071,30 +7639,36 @@ const decodeHoleDecl = (path: string, j: JsonAst): R<HoleDecl> => {
     default:
       return unknownDuCase(path, disc.value, 'Value | Slot | Repeat');
   }
-};
+});
 
-const decodeEffectClass = (path: string, j: JsonAst): R<EffectClass> => {
+const decodeEffectClass = framed((path: string, j: JsonAst): R<EffectClass> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const host = reqField(path, fo.value, 'hostEffect', 'EffectClass hostEffect', requireString);
   if (!host.ok) return host;
-  if (host.value !== 'Pure' && host.value !== 'ReadsHost' && host.value !== 'WritesHost')
-    return unknownEnumCase(`${path}.hostEffect`, host.value, 'Pure | ReadsHost | WritesHost');
+  const hostOk = inFrame(() =>
+    host.value !== 'Pure' && host.value !== 'ReadsHost' && host.value !== 'WritesHost'
+      ? unknownEnumCase(`${path}.hostEffect`, host.value, 'Pure | ReadsHost | WritesHost')
+      : ok(host.value),
+  );
+  if (!hostOk.ok) return hostOk;
   const det = reqField(path, fo.value, 'determinism', 'EffectClass determinism', requireString);
   if (!det.ok) return det;
-  if (
+  const detOk = inFrame(() =>
     det.value !== 'Deterministic' &&
     det.value !== 'Clock' &&
     det.value !== 'Random' &&
     det.value !== 'Network'
-  )
-    return unknownEnumCase(
-      `${path}.determinism`,
-      det.value,
-      'Deterministic | Clock | Random | Network',
-    );
+      ? unknownEnumCase(
+          `${path}.determinism`,
+          det.value,
+          'Deterministic | Clock | Random | Network',
+        )
+      : ok(det.value),
+  );
+  if (!detOk.ok) return detOk;
   return ok({ hostEffect: host.value as HostEffect, determinism: det.value as DeterminismSource });
-};
+});
 
 /**
  * The `expectedShape` hint carried by every `WRONG_NODE_KIND` error, PROJECTED
@@ -7122,7 +7696,7 @@ export const WRONG_NODE_KIND_HINT: string = (() => {
   return `${primitives}, or ${structural.join(' | ')}`;
 })();
 
-const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
+const decodeNodeKind = framed((path: string, j: JsonAst): R<NodeKind<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -7286,27 +7860,33 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
         if (!co.ok) return co;
         const mJ = tryField(co.value, 'match');
         const wJ = tryField(co.value, 'when');
-        if (mJ !== undefined && wJ !== undefined)
-          return wrongType(
-            `${cp}.when`,
-            "either 'match' (a literal string compared against the switch's `on` selector) or 'when' (a Binding<bool> predicate evaluated at render time, needing no selector); remove one",
-          );
-        if (mJ === undefined && wJ === undefined)
-          return missingField(
-            cp,
-            'match',
-            "a literal string under 'match' (compared against the switch's `on` selector), or a Binding<bool> under 'when' (a predicate evaluated at render time)",
-          );
+        // The selector and `child` are sibling members: the selector is decoded
+        // in its own frame, so a defect there does not hide the child's (§29.1).
+        const sel = inFrame(
+          (): R<{ readonly match: string } | { readonly when: Binding<boolean> }> => {
+            if (mJ !== undefined && wJ !== undefined)
+              return wrongType(
+                `${cp}.when`,
+                "either 'match' (a literal string compared against the switch's `on` selector) or 'when' (a Binding<bool> predicate evaluated at render time, needing no selector); remove one",
+              );
+            if (mJ === undefined && wJ === undefined)
+              return missingField(
+                cp,
+                'match',
+                "a literal string under 'match' (compared against the switch's `on` selector), or a Binding<bool> under 'when' (a predicate evaluated at render time)",
+              );
+            if (mJ !== undefined) {
+              const m = requireString(`${cp}.match`, mJ);
+              return m.ok ? ok({ match: m.value }) : m;
+            }
+            const w = decodeBindingBool(`${cp}.when`, wJ as JsonAst);
+            return w.ok ? ok({ when: w.value }) : w;
+          },
+        );
+        if (!sel.ok) return sel;
         const c = reqField(cp, co.value, 'child', 'Switch case child Node', decodeNodeAst);
         if (!c.ok) return c;
-        if (mJ !== undefined) {
-          const m = requireString(`${cp}.match`, mJ);
-          if (!m.ok) return m;
-          return ok<SwitchCase<unknown>>({ match: m.value, child: c.value });
-        }
-        const w = decodeBindingBool(`${cp}.when`, wJ as JsonAst);
-        if (!w.ok) return w;
-        return ok<SwitchCase<unknown>>({ when: w.value, child: c.value });
+        return ok<SwitchCase<unknown>>({ ...sel.value, child: c.value });
       });
       if (!cases.ok) return cases;
       const def = reqField(path, f, 'default', 'Switch default Node', decodeNodeAst);
@@ -7321,19 +7901,23 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
       // stating: a decoder truncating where another rounded would leave two
       // hosts disagreeing about a document neither refused.
       const autoAdvanceMsJ = tryField(f, 'autoAdvanceMs');
-      let autoAdvanceMs: number | undefined;
-      if (autoAdvanceMsJ !== undefined) {
-        if (
-          autoAdvanceMsJ.kind !== 'JNumber' ||
-          autoAdvanceMsJ.value < 1 ||
-          !Number.isInteger(autoAdvanceMsJ.value)
-        )
-          return wrongType(
-            `${path}.autoAdvanceMs`,
-            'JSON number (a positive whole number of milliseconds)',
-          );
-        autoAdvanceMs = autoAdvanceMsJ.value;
-      }
+      const autoAdvanceMsR = inFrame((): R<number | undefined> => {
+        if (autoAdvanceMsJ !== undefined) {
+          if (
+            autoAdvanceMsJ.kind !== 'JNumber' ||
+            autoAdvanceMsJ.value < 1 ||
+            !Number.isInteger(autoAdvanceMsJ.value)
+          )
+            return wrongType(
+              `${path}.autoAdvanceMs`,
+              'JSON number (a positive whole number of milliseconds)',
+            );
+          return ok(autoAdvanceMsJ.value);
+        }
+        return ok(undefined);
+      });
+      if (!autoAdvanceMsR.ok) return autoAdvanceMsR;
+      const autoAdvanceMs = autoAdvanceMsR.value;
       return ok({
         kind: 'Switch',
         spec: {
@@ -7383,21 +7967,11 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
         const argsObj = requireObject(`${path}.args`, argsJ);
         if (!argsObj.ok) return argsObj;
         for (const [key, valueJ] of argsObj.value) {
-          const argPath = `${path}.args.${key}`;
-          const fo = requireObject(argPath, valueJ);
-          if (!fo.ok) return fo;
-          const disc = requireDiscriminator(argPath, fo.value);
-          if (!disc.ok) return disc;
-          if (disc.value === 'SlotArg') {
-            const tree = reqField(argPath, fo.value, 'tree', 'SlotArg tree Node', decodeNodeAst);
-            if (!tree.ok) return tree;
-            args[key] = { kind: 'slot', tree: tree.value };
-          } else {
-            // Int | Float | Bool | Str — a value argument.
-            const scalar = decodeFragmentScalar(argPath, valueJ);
-            if (!scalar.ok) return scalar;
-            args[key] = { kind: 'value', value: scalar.value };
-          }
+          // Each entry is its own frame: one bad entry does not hide another's
+          // defects (WIRE_FORMAT §29.1).
+          const arg = decodeFragmentArg(`${path}.args.${key}`, valueJ);
+          if (!arg.ok) return arg;
+          args[key] = arg.value;
         }
       }
       return ok({ kind: 'FragmentRef', spec: { name: name.value as FragmentId, args } });
@@ -7421,13 +7995,17 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
         requireString,
       );
       if (!direction.ok) return direction;
-      if (direction.value !== 'OutOnly' && direction.value !== 'TwoWay')
-        return makeError(
-          'UNKNOWN_DU_CASE',
-          `${path}.channel.direction`,
-          `unknown ChannelDirection '${direction.value}'`,
-          'OutOnly | TwoWay',
-        );
+      const directionOk = inFrame(() =>
+        direction.value !== 'OutOnly' && direction.value !== 'TwoWay'
+          ? makeError(
+              'UNKNOWN_DU_CASE',
+              `${path}.channel.direction`,
+              `unknown ChannelDirection '${direction.value}'`,
+              'OutOnly | TwoWay',
+            )
+          : ok(direction.value),
+      );
+      if (!directionOk.ok) return directionOk;
       const dir = direction.value as 'OutOnly' | 'TwoWay';
       let messageShape: string | undefined;
       const msgShapeJ = tryField(channelObj.value, 'messageShape');
@@ -7454,20 +8032,11 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
         const inputsObj = requireObject(`${path}.inputs`, inputsJ);
         if (!inputsObj.ok) return inputsObj;
         for (const [key, valueJ] of inputsObj.value) {
-          const argPath = `${path}.inputs.${key}`;
-          const fo = requireObject(argPath, valueJ);
-          if (!fo.ok) return fo;
-          const disc = requireDiscriminator(argPath, fo.value);
-          if (!disc.ok) return disc;
-          if (disc.value === 'SlotArg') {
-            const tree = reqField(argPath, fo.value, 'tree', 'SlotArg tree Node', decodeNodeAst);
-            if (!tree.ok) return tree;
-            inputs[key] = { kind: 'slot', tree: tree.value };
-          } else {
-            const scalar = decodeFragmentScalar(argPath, valueJ);
-            if (!scalar.ok) return scalar;
-            inputs[key] = { kind: 'value', value: scalar.value };
-          }
+          // Each entry is its own frame: one bad entry does not hide another's
+          // defects (WIRE_FORMAT §29.1).
+          const arg = decodeFragmentArg(`${path}.inputs.${key}`, valueJ);
+          if (!arg.ok) return arg;
+          inputs[key] = arg.value;
         }
       }
 
@@ -7494,11 +8063,11 @@ const decodeNodeKind = (path: string, j: JsonAst): R<NodeKind<unknown>> => {
         WRONG_NODE_KIND_HINT,
       );
   }
-};
+});
 
 // ─── StateBehaviour / SemanticStyle / Accessibility / Node ───────────────────
 
-const decodeStateBehaviour = (path: string, j: JsonAst): R<StateBehaviour<unknown>> => {
+const decodeStateBehaviour = framed((path: string, j: JsonAst): R<StateBehaviour<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -7512,9 +8081,9 @@ const decodeStateBehaviour = (path: string, j: JsonAst): R<StateBehaviour<unknow
     ...(onEmpty.value !== undefined ? { onEmpty: onEmpty.value } : {}),
     ...(hasOnError ? { onError: (_p: ErrorPayload): Node<unknown> => placeholderClosureNode } : {}),
   });
-};
+});
 
-const decodeSemanticStyle = (path: string, j: JsonAst): R<SemanticStyle> => {
+const decodeSemanticStyle = framed((path: string, j: JsonAst): R<SemanticStyle> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -7546,7 +8115,7 @@ const decodeSemanticStyle = (path: string, j: JsonAst): R<SemanticStyle> => {
     voice: voice.value ?? 'Default',
     direction: direction.value ?? 'auto',
   });
-};
+});
 
 // Phase 959 — the `Accessibility` trait's near-miss set (the Phase 863
 // discipline applied to the §3.1 trait). Parity-locked with F#
@@ -7602,20 +8171,24 @@ const A11Y_NEAR_MISSES = [
   ['ariaHidden', 'hidden — a Binding<bool> (a bare bool is the §3.6 shorthand)'],
 ] as const;
 
-const checkA11yNearMisses = (path: string, f: Fields): R<void> => {
+const checkA11yNearMisses = framedFields((path: string, f: Fields): R<void> => {
+  // Every near miss present is its own defect (WIRE_FORMAT §29.1).
+  let first: R<void> | undefined;
   for (const [name, canonical] of A11Y_NEAR_MISSES) {
-    if (tryField(f, name) !== undefined)
-      return makeError(
+    if (tryField(f, name) !== undefined) {
+      const r = makeError(
         'WRONG_TYPE',
         `${path}.${name}`,
         `'${name}' is not part of the accessibility vocabulary — it would be ignored, not honoured, and the intent would reach assistive technology as nothing at all`,
         canonical,
       );
+      first ??= r;
+    }
   }
-  return ok(undefined);
-};
+  return first ?? ok(undefined);
+});
 
-const decodeAccessibility = (path: string, j: JsonAst): R<Accessibility> => {
+const decodeAccessibility = framed((path: string, j: JsonAst): R<Accessibility> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -7650,7 +8223,7 @@ const decodeAccessibility = (path: string, j: JsonAst): R<Accessibility> => {
     ...(hidden.value !== undefined ? { hidden: hidden.value } : {}),
     ...(speak.value !== undefined ? { speak: speak.value } : {}),
   });
-};
+});
 
 /** All-empty StateBehaviour the decoder restores when `state` is absent (§3.1). */
 const emptyStateBehaviour: StateBehaviour<unknown> = {};
@@ -7725,7 +8298,7 @@ const resetWalk = (policy: DecodePolicy = admitAll): void => {
 const limitError = (path: string, message: string, expected: string): R<never> =>
   makeError('LIMIT_EXCEEDED', path, message, expected);
 
-const decodeNodeAst = (path: string, j: JsonAst): R<Node<unknown>> => {
+const decodeNodeAst = framed((path: string, j: JsonAst): R<Node<unknown>> => {
   // §21.2 rule 4 — on the way DOWN, before the recursion that would breach it.
   if (walkDepth >= MAX_NODE_DEPTH) {
     return limitError(
@@ -7743,22 +8316,31 @@ const decodeNodeAst = (path: string, j: JsonAst): R<Node<unknown>> => {
     );
   }
   walkDepth += 1;
-  const r = decodeNodeAstInner(path, j);
-  walkDepth -= 1;
-  return r;
-};
+  // `finally`: a defect walk (§29) may unwind through here on a consequence.
+  try {
+    return decodeNodeAstInner(path, j);
+  } finally {
+    walkDepth -= 1;
+  }
+});
 
-const decodeNodeAstInner = (path: string, j: JsonAst): R<Node<unknown>> => {
+const decodeNodeAstInner = framed((path: string, j: JsonAst): R<Node<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
   const idJ = requireField(path, f, 'id', 'Node id string');
   if (!idJ.ok) return idJ;
-  const idStr = requireString(`${path}.id`, idJ.value);
+  // `id` and `kind` are sibling members: the id, with its non-empty check, is
+  // decoded in its own frame (§29.1).
+  const idStr = inFrame((): R<string> => {
+    const r = requireString(`${path}.id`, idJ.value);
+    if (!r.ok) return r;
+    if (r.value === '') {
+      return makeError('EMPTY_NODE_ID', `${path}.id`, 'Node id is empty', 'non-empty string');
+    }
+    return r;
+  });
   if (!idStr.ok) return idStr;
-  if (idStr.value === '') {
-    return makeError('EMPTY_NODE_ID', `${path}.id`, 'Node id is empty', 'non-empty string');
-  }
   const kind = reqField(path, f, 'kind', 'NodeKind discriminator object', decodeNodeKind);
   if (!kind.ok) return kind;
   // `state` / `style` are omitted on the wire when empty / all-default
@@ -7806,11 +8388,11 @@ const decodeNodeAstInner = (path: string, j: JsonAst): R<Node<unknown>> => {
     ...(visible.value !== undefined ? { visible: visible.value } : {}),
     ...(fallback.value !== undefined ? { fallback: fallback.value } : {}),
   });
-};
+});
 
 // ─── TreeOp ──────────────────────────────────────────────────────────────────
 
-const decodeTreeOpAst = (path: string, j: JsonAst): R<TreeOp<unknown>> => {
+const decodeTreeOpAst = framed((path: string, j: JsonAst): R<TreeOp<unknown>> => {
   // The op axis, counted separately from the node axis and held to the same
   // ceiling. `Batch` makes this function self-recursive, and §21.5's note for
   // implementers is explicit that the syntactic bound is NOT adequate cover for
@@ -7824,10 +8406,13 @@ const decodeTreeOpAst = (path: string, j: JsonAst): R<TreeOp<unknown>> => {
     );
   }
   opDepth += 1;
-  const r = decodeTreeOpAstInner(path, j);
-  opDepth -= 1;
-  return r;
-};
+  // `finally`: a defect walk (§29) may unwind through here on a consequence.
+  try {
+    return decodeTreeOpAstInner(path, j);
+  } finally {
+    opDepth -= 1;
+  }
+});
 
 // The RETIRED positional slot on `InsertChild` / `MoveNode` (Phase 687, closing
 // the window Phase 681 opened).
@@ -7857,7 +8442,7 @@ const retiredPositionalField = (path: string, f: Fields, name: string, opKind: s
       )
     : ok(undefined);
 
-const decodeTreeOpAstInner = (path: string, j: JsonAst): R<TreeOp<unknown>> => {
+const decodeTreeOpAstInner = framed((path: string, j: JsonAst): R<TreeOp<unknown>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
   const f = fo.value;
@@ -7989,7 +8574,7 @@ const decodeTreeOpAstInner = (path: string, j: JsonAst): R<TreeOp<unknown>> => {
         'EditNode | UpdateProp | ReplaceBinding | UpdateStyle | UpdateState | InsertChild | RemoveNode | MoveNode | ReorderChildren | ReplaceRoot | Batch',
       );
   }
-};
+});
 
 // ─── Coercion bridge (apply-engine UpdateProp) ───────────────────────────────
 //
@@ -8097,10 +8682,31 @@ const parseFailure = (e: { readonly message: string; readonly limit?: boolean })
  * arity — the `decode-policy/` corpus family is where that is asserted.
  */
 export const decodeNode = (json: string, policy?: DecodePolicy): R<Node<unknown>> => {
+  const r = decodeNodeWithDefects(json, policy);
+  return r.ok ? r : { ok: false, error: r.error[0]! };
+};
+
+/**
+ * `decodeNode`, reporting EVERY independent defect (WIRE_FORMAT.md §29; Phase
+ * 1935). A refusal carries the defect list in the §29.3 canonical order: never
+ * empty, and its head is exactly the error `decodeNode` returns for the same
+ * inputs. `INVALID_JSON` and a §21 breach are one-entry lists, the walk stopping
+ * there. An accepted document decodes exactly as through `decodeNode`: this entry
+ * point shows more of a refusal and decides nothing differently. The reference
+ * host's twin is `JsonDecode.decodeNodeWithDefects`, and the two agree
+ * byte-for-byte on every list (the `reject/` corpus family's `expectedDefects`).
+ */
+export const decodeNodeWithDefects = (
+  json: string,
+  policy?: DecodePolicy,
+): Result<Node<unknown>, readonly DecodeError[]> => {
   const parsed = parse(json);
-  if (!parsed.ok) return parseFailure(parsed.error);
+  if (!parsed.ok) {
+    const failure = parseFailure(parsed.error);
+    return failure.ok ? failure : { ok: false, error: [failure.error] };
+  }
   resetWalk(policy);
-  return decodeNodeAst('$', parsed.value);
+  return collectDefects(() => decodeNodeAst('$', parsed.value));
 };
 
 /**
