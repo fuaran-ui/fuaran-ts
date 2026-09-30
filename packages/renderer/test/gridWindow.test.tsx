@@ -30,7 +30,12 @@ import {
   windowOfValue,
   type FuaranRuntime,
 } from '../src/index.js';
-import { sliceRowsToPage, sortRowsByDescriptor } from '../src/render/Visualisation.js';
+import {
+  sliceRowsToPage,
+  sortRowsByDescriptor,
+  stepWindowWriter,
+  type RowWindow,
+} from '../src/render/Visualisation.js';
 
 // React 19 wants this flag set before act(...) drives a real root in jsdom.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -102,6 +107,77 @@ describe.skipIf(!corpusPresent)('grid-window vectors (the corpus family)', () =>
       expect(presented.offset).toBe(v.expected.offset);
       expect(presented.rows.map((r) => (r as { id: string }).id)).toEqual(v.expected.rowIds);
       expect(presented.total ?? null).toBe(v.expected.total);
+    });
+  }
+});
+
+// ─── The corpus's writer vectors (Phase 1922) ──────────────────────────────
+//
+// The `grid-window-writer/` family: a scripted sequence of viewport
+// measurements, run through this renderer's own pure writer (the one
+// `GridWindowViewport` calls) and its own descriptor reader, with each write
+// reflected into the held window as SetState does. The F# client runs the same
+// file through `BindingResolver.stepWindowWriter`.
+
+const writerVectorsFile = join(corpusRoot, 'grid-window-writer', 'grid-window-writer-vectors.json');
+
+interface WriterVector {
+  readonly id: string;
+  readonly input: {
+    readonly windowStateKey?: string;
+    readonly held?: unknown;
+    readonly steps: readonly {
+      readonly held?: unknown;
+      readonly measure: {
+        readonly scrollTop: number;
+        readonly headerHeight: number;
+        readonly rowHeight?: number;
+        readonly viewportHeight?: number;
+      };
+    }[];
+  };
+  readonly expected: { readonly writes: readonly (RowWindow | null)[] };
+}
+
+describe.skipIf(!corpusPresent)('grid-window-writer vectors (the corpus family)', () => {
+  it('the vector file is present in the corpus', () => {
+    // Fails rather than skips: a corpus that exists but lacks the family is a
+    // stale corpus, and a silent skip would read as a pass.
+    expect(existsSync(writerVectorsFile), writerVectorsFile).toBe(true);
+  });
+
+  const vectors: readonly WriterVector[] = existsSync(writerVectorsFile)
+    ? (JSON.parse(readFileSync(writerVectorsFile, 'utf8')) as { vectors: WriterVector[] }).vectors
+    : [];
+
+  it('carries vectors', () => {
+    expect(vectors.length).toBeGreaterThan(0);
+  });
+
+  for (const v of vectors) {
+    it(v.id, () => {
+      const { input } = v;
+      let held = 'held' in input ? windowOfValue(input.held) : undefined;
+      let lastWritten: RowWindow | undefined;
+      const writes: (RowWindow | null)[] = [];
+      for (const step of input.steps) {
+        if ('held' in step) held = windowOfValue(step.held);
+        const result = stepWindowWriter(input.windowStateKey, held, lastWritten, {
+          scrollTop: step.measure.scrollTop,
+          headerHeight: step.measure.headerHeight,
+          rowHeight: step.measure.rowHeight ?? 0,
+          viewportHeight: step.measure.viewportHeight ?? 0,
+        });
+        lastWritten = result.written;
+        if (result.write === undefined) {
+          writes.push(null);
+        } else {
+          // Reflect the write into State through the same reader the renderer uses.
+          held = windowOfValue({ offset: result.write.offset, count: result.write.count });
+          writes.push({ offset: result.write.offset, count: result.write.count });
+        }
+      }
+      expect(writes).toEqual(v.expected.writes);
     });
   }
 });

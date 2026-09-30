@@ -486,6 +486,7 @@ const renderGrid = <TMsg,>(
       gridTable()
     ) : (
       <GridWindowViewport
+        windowKey={windowKey}
         offset={presented.offset}
         presentedCount={presented.rows.length}
         total={presented.total}
@@ -534,7 +535,62 @@ const WINDOW_VIEWPORT_MAX_HEIGHT_PX = 480;
 const sameWindow = (a: RowWindow | undefined, b: RowWindow): boolean =>
   a !== undefined && a.offset === b.offset && a.count === b.count;
 
+/**
+ * What a grid's scroll viewport measured on one scroll, resize or render, in
+ * CSS pixels. A `rowHeight` or `viewportHeight` of 0 or less is "not
+ * measurable" and falls back to {@link DEFAULT_WINDOW_ROW_HEIGHT_PX} /
+ * {@link WINDOW_VIEWPORT_MAX_HEIGHT_PX}; `headerHeight` is the table head's
+ * height (0 where there is none) and `scrollTop` the container's scroll offset.
+ */
+export interface ViewportMeasure {
+  readonly scrollTop: number;
+  readonly headerHeight: number;
+  readonly rowHeight: number;
+  readonly viewportHeight: number;
+}
+
+/**
+ * Phase 1922 — the window a viewport shows: the first row whose top edge is at
+ * or above the scroll offset (below the header), and how many rows the
+ * viewport's height holds, rounded up so a partly visible last row is in the
+ * window. Pure, and parity-locked with F# `BindingResolver.measureWindow`; the
+ * corpus's `grid-window-writer/` vectors certify both.
+ */
+export const measureWindow = (m: ViewportMeasure): RowWindow => {
+  const rowHeight = m.rowHeight > 0 ? m.rowHeight : DEFAULT_WINDOW_ROW_HEIGHT_PX;
+  const viewport = m.viewportHeight > 0 ? m.viewportHeight : WINDOW_VIEWPORT_MAX_HEIGHT_PX;
+  return {
+    offset: Math.max(0, Math.floor((m.scrollTop - m.headerHeight) / rowHeight)),
+    count: Math.max(1, Math.ceil(viewport / rowHeight)),
+  };
+};
+
+/**
+ * Phase 1922 — one step of a grid's window writer, the pure half of
+ * {@link GridWindowViewport}. Given the grid's window key (`undefined` for a
+ * grid declaring no `windowStateKey`), the window State currently holds at it,
+ * the window this viewport last wrote, and a fresh measurement, returns the
+ * window the viewport has now written and the write it owes — none where the
+ * grid names no key, and none where the measured window equals the one last
+ * written or the one State already holds, so a write that re-renders the grid
+ * cannot loop. Parity-locked with F# `BindingResolver.stepWindowWriter`.
+ */
+export const stepWindowWriter = (
+  windowKey: string | undefined,
+  current: RowWindow | undefined,
+  lastWritten: RowWindow | undefined,
+  measure: ViewportMeasure,
+): { readonly written: RowWindow | undefined; readonly write: RowWindow | undefined } => {
+  if (windowKey === undefined) return { written: lastWritten, write: undefined };
+  const next = measureWindow(measure);
+  if (sameWindow(lastWritten, next) || sameWindow(current, next)) {
+    return { written: lastWritten, write: undefined };
+  }
+  return { written: next, write: next };
+};
+
 const GridWindowViewport = ({
+  windowKey,
   offset,
   presentedCount,
   total,
@@ -543,6 +599,7 @@ const GridWindowViewport = ({
   write,
   renderTable,
 }: {
+  readonly windowKey: string;
   readonly offset: number;
   readonly presentedCount: number;
   readonly total: number | undefined;
@@ -560,18 +617,17 @@ const GridWindowViewport = ({
     if (el === null) return;
     const row = el.querySelector('tbody > tr.fuaran-grid-row');
     const measured = row !== null ? row.getBoundingClientRect().height : 0;
-    const height = measured > 0 ? measured : rowHeight;
     if (measured > 0 && measured !== rowHeight) setRowHeight(measured);
     const head = el.querySelector('thead');
-    const headHeight = head !== null ? head.getBoundingClientRect().height : 0;
-    const viewport = el.clientHeight > 0 ? el.clientHeight : WINDOW_VIEWPORT_MAX_HEIGHT_PX;
-    const next: RowWindow = {
-      offset: Math.max(0, Math.floor((el.scrollTop - headHeight) / height)),
-      count: Math.max(1, Math.ceil(viewport / height)),
-    };
-    if (sameWindow(lastWritten.current, next) || sameWindow(current, next)) return;
-    lastWritten.current = next;
-    write(next);
+    const step = stepWindowWriter(windowKey, current, lastWritten.current, {
+      scrollTop: el.scrollTop,
+      headerHeight: head !== null ? head.getBoundingClientRect().height : 0,
+      // A row measured on an earlier render carries forward until one is measurable again.
+      rowHeight: measured > 0 ? measured : rowHeight,
+      viewportHeight: el.clientHeight,
+    });
+    lastWritten.current = step.written;
+    if (step.write !== undefined) write(step.write);
   };
   const measureRef = useRef(measure);
   measureRef.current = measure;
