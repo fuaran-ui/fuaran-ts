@@ -44,6 +44,18 @@ export {
   type DecodeErrorCode,
 } from './decode.js';
 export {
+  // Deliberate repair of malformed canonical JSON (WIRE_FORMAT.md §28). The
+  // decoder above is strict; `repair` is the separate, named act a caller invokes,
+  // and every repair it performs is named by a stable catalogue id.
+  repair,
+  REPAIR_CATALOGUE,
+  REPAIR_CATALOGUE_VERSION,
+  MAX_OVER_CLOSE_LENGTH,
+  type RepairId,
+  type RepairOutcome,
+  type RepairRefusal,
+} from './repair.js';
+export {
   // The canonical capability DECLARATION codec. `Placement` is re-exported as
   // `CapabilityPlacement` because this package already exports an unrelated
   // `Placement` — the tree-op placement target of `placeOp` / `moveOp` above.

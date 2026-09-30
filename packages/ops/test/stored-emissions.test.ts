@@ -9,11 +9,12 @@
 //  host certifies the same declaration from its own suite, so a change to either
 //  decoder that moves its answer on a real emission reddens that host's gate.
 //
-//  The verdict is the answer with decode-time recovery OFF. This host has no
-//  recovery, so it answers every fixture — including the ones carrying
-//  `referenceRecovery`, which name the open specification question the
-//  family's README describes. Those fixtures assert what this host does today;
-//  they are not a ruling on whether it should repair them.
+//  The verdict is the STRICT decoder's answer (WIRE_FORMAT.md §28.1), which
+//  is this host's only decoder. Each fixture also declares what `repair` (§28)
+//  returns for the emission, and the strict decode of the repaired text; this
+//  host implements the catalogue, so it asserts both, byte-for-byte with the
+//  reference host's `repair` (compared through the `repair/` family's pinned
+//  outputs and, here, through the applied ids and the resulting verdict).
 // ============================================================================
 
 import { readdirSync, readFileSync } from 'node:fs';
@@ -22,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { decodeNode } from '../src/index.js';
+import { decodeNode, repair, REPAIR_CATALOGUE } from '../src/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // packages/ops/test → workspace-root/wire-format-fixtures, unless a worktree
@@ -38,15 +39,16 @@ interface StoredEmission {
   readonly verdict: 'accept' | 'reject';
   readonly expectedErrorCode?: string;
   readonly expectedPath?: string;
-  readonly referenceRecovery?: string;
+  readonly repair: {
+    readonly outcome: 'repaired' | 'not-repairable';
+    readonly applied?: readonly string[];
+    readonly reason?: string;
+    readonly repairedVerdict?: 'accept' | { readonly code: string; readonly path: string };
+  };
 }
 
 interface StoredEmissionManifest {
   readonly kind: string;
-  readonly openQuestions: readonly {
-    readonly id: string;
-    readonly recoveries: readonly string[];
-  }[];
   readonly fixtures: readonly StoredEmission[];
 }
 
@@ -71,13 +73,12 @@ describe('stored-emission sample (Phase 1910)', () => {
     expect(onDisk).toEqual(declared);
   });
 
-  it('names only recoveries its open question lists', () => {
-    const known = new Set(manifest.openQuestions.flatMap((q) => q.recoveries));
-    const named = manifest.fixtures.flatMap((f) =>
-      f.referenceRecovery === undefined ? [] : [f.referenceRecovery],
-    );
-    expect(named.length).toBeGreaterThan(0);
-    for (const r of named) expect(known.has(r)).toBe(true);
+  it('samples the repair class, by both catalogue ids', () => {
+    for (const id of REPAIR_CATALOGUE) {
+      expect(
+        manifest.fixtures.some((f) => f.repair.applied?.length === 1 && f.repair.applied[0] === id),
+      ).toBe(true);
+    }
   });
 
   for (const fx of manifest.fixtures) {
@@ -92,6 +93,19 @@ describe('stored-emission sample (Phase 1910)', () => {
         expect(result.ok ? 'accepted' : `${result.error.code} at ${result.error.path}`).toBe(
           `${fx.expectedErrorCode} at ${fx.expectedPath}`,
         );
+      }
+      const r = repair(text);
+      if (fx.repair.outcome === 'repaired') {
+        expect(r.kind).toBe('Repaired');
+        if (r.kind !== 'Repaired') return;
+        expect([...r.applied]).toEqual([...(fx.repair.applied ?? [])]);
+        const after = decodeNode(r.text);
+        const v = fx.repair.repairedVerdict!;
+        expect(after.ok ? 'accept' : `${after.error.code} at ${after.error.path}`).toBe(
+          v === 'accept' ? 'accept' : `${v.code} at ${v.path}`,
+        );
+      } else {
+        expect(r).toEqual({ kind: 'NotRepairable', reason: fx.repair.reason });
       }
     });
   }
