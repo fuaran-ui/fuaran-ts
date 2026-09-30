@@ -131,7 +131,8 @@ pnpm test         # run the Vitest suites
 On Windows, `pwsh ./verify.ps1` runs that whole sequence — install with the lockfile,
 `format:check`, build, `typecheck`, test — and exits with the first failing stage's code. That is
 the invocation an automated gate should use. `./run.ps1` on its own serves the demo's dev server and
-never returns; `./run.ps1 -Verify` delegates to `verify.ps1`.
+never returns; `./run.ps1 -Verify` delegates to `verify.ps1`. A non-interactive `./run.ps1` (input
+or output redirected) runs the verify gate rather than hang on the dev server; `-Demo` overrides that.
 
 Build runs before test on purpose: the suites import their siblings' built `dist/`, so testing a
 half-built workspace fails every fixture at once and points at the wrong package.

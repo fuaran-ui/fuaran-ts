@@ -75,6 +75,10 @@ Now that `samples/demo` ships (Phase 78), the root `run.ps1` is a thin pass-thro
 .\run.ps1 -NoBrowser               # serve without opening a browser tab
 ```
 
+A NON-INTERACTIVE `run.ps1` (input or output redirected — an automated gate, CI) runs the verify
+gate (`verify.ps1`) instead of the demo, because the demo never returns and would hang its caller;
+`-Demo` forces the demo there.
+
 For the install / build / test pipeline without launching a UI, drive pnpm directly:
 
 ```powershell

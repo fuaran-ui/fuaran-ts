@@ -11,8 +11,10 @@
     For the install / build / test pipeline without launching a UI — an
     automated gate, or a check before pushing — use `-Verify`, which delegates
     to `verify.ps1` and EXITS with the first failing stage's code. The default
-    (no `-Verify`) serves a dev server and never returns, which is why an
-    automated gate must never invoke this script bare.
+    (no `-Verify`) serves a dev server and never returns — so when the session
+    is NON-INTERACTIVE (input or output redirected, as under an automated gate
+    or CI) the script runs the verify gate instead, and says so. `-Demo`
+    forces the demo in that case.
 
 .PARAMETER Verify
     Run the verify gate (`verify.ps1`) instead of launching the demo:
@@ -30,6 +32,10 @@
 
 .PARAMETER NoBrowser
     Serve the demo without opening a browser tab.
+
+.PARAMETER Demo
+    Launch the demo even in a non-interactive session, where the default
+    would otherwise switch to the verify gate.
 
 .EXAMPLE
     .\run.ps1
@@ -53,10 +59,22 @@ param(
 
     [switch] $SkipInstall,
     [switch] $SkipBuild,
-    [switch] $NoBrowser
+    [switch] $NoBrowser,
+    [switch] $Demo
 )
 
 $ErrorActionPreference = 'Stop'
+
+# A NON-INTERACTIVE invocation runs the verify gate. The demo serves a dev server and never
+# returns, so a caller that cannot see or stop it — an automated gate, a CI job, anything with its
+# input or output redirected — would otherwise hang until it is killed. `-Demo` launches the demo
+# regardless (e.g. under a process manager that redirects output on purpose).
+$nonInteractive = [Console]::IsOutputRedirected -or [Console]::IsInputRedirected -or
+    -not [Environment]::UserInteractive
+if (-not $Verify -and -not $Demo -and $nonInteractive) {
+    Write-Host 'run.ps1: non-interactive session - running the verify gate (pass -Demo to launch the demo instead)'
+    $Verify = $true
+}
 
 if ($Verify) {
     & "$PSScriptRoot\verify.ps1" -Lane $Lane -SkipInstall:$SkipInstall
