@@ -2244,7 +2244,12 @@ export interface ButtonSpec<TMsg> {
 export interface SelectSpec<TMsg> {
   readonly label: TextSource;
   readonly source: Binding<readonly SelectOption[]>;
-  readonly value: Binding<string | undefined>;
+  /**
+   * The single-select value binding. Optional since Phase 1962: a single-select
+   * carries it (required on the wire); a multi-select (`multiple: true`)
+   * carries `values` instead and omits `value`.
+   */
+  readonly value?: Binding<string | undefined>;
   /**
    * Optional since Phase 426 (the control write-back default): omitted, the
    * renderer writes the chosen option back to a writable `value` binding

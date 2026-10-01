@@ -915,6 +915,59 @@ UNDECLARED renderer hands the report, so they hold the two hosts' defaults to on
 the previous default both go red on the floor finding's state. Migration:
 [`docs/migrations/1856-custom-hash-floor-enforces.md`](docs/migrations/1856-custom-hash-floor-enforces.md).
 
+### Recorded breaking change — `@fuaran-ui/ops` 0.29.0, `@fuaran-ui/schema` 0.25.0, `@fuaran-ui/ui` 0.23.0: a multi-select `Select` carries `values` and no `value` (Phase 1962)
+
+**Unreleased** — every version named here is ahead of the newest tag (`v0.28.0`).
+
+**Breaking on the wire, in both directions, and on the model.** WIRE_FORMAT's "`Select` multi-select"
+paragraph now states the `value` rule literally: a `Select` with `"multiple":true` carries `values`
+and NO `value`; one without `multiple` carries `value` and no `values`. Until now every host's model
+required `value` on every `Select`, so a canonical multi-select carried a meaningless
+`"value":{"$type":"Static"}` placeholder beside its real `values` binding, and the `values`-only shape
+an author writes from the paragraph was refused as a missing field.
+
+- **Decoder (`@fuaran-ui/ops`).** `multiple` is decoded first. A single-select (`multiple` absent or
+  `false`) still requires `value` — `MISSING_FIELD` at `<select>.value`, as before. On a multi-select
+  an absent `value` is the clean form; the empty-`Static` placeholder (`{"$type":"Static"}` or
+  `{"$type":"Static","value":null}`) is a §16 lenient accept normalised to absent, so every document
+  written before this revision still reads; any other `value` is refused as `WRONG_TYPE` at
+  `<select>.value` — a second selection the control never reads, refused rather than silently
+  dropped. A malformed `multiple` is its own defect, and `value` is then decoded if present but not
+  demanded. Inside a §29 defect walk the new refusal is collected and the select's remaining members
+  are still decoded, as for every sibling refusal. **This narrows reading:** a multi-select carrying a
+  bound `value`, which 0.28.0 accepted, is refused.
+- **Encoder (`@fuaran-ui/ops`).** `value` is emitted only when present, so a multi-select decoded from
+  either form re-encodes WITHOUT `value`. Key order is unchanged. **This changes written bytes:** a
+  0.28.0 reader (or any host not yet on this revision) refuses a multi-select this encoder writes, as a
+  missing `value`. Upgrade readers before writers.
+- **Model (`@fuaran-ui/schema`).** `SelectSpec.value` is optional (`value?: Binding<string |
+undefined>`). A consumer reading `spec.value` must now handle `undefined` — a compile break under
+  `strict`, which is why this is the breaking class and not an additive one.
+- **Author surface (`@fuaran-ui/ui`).** `SelectOptions.value` is optional. `fuaran.select` omits
+  `value` on a multi-select (any `value` passed alongside `multiple: true` is ignored, since the wire
+  cannot carry it), and a single-select given none gets the empty `Static` ("no selection"). The
+  emitted bytes of an authored multi-select change accordingly — the author-direction class above.
+  `preEmitValidate`'s inert-control check treats a single-select with no `value` as inert.
+- **Riding along, no class of their own.** `@fuaran-ui/ai-tools` 0.13.2 (patch): introspection lists
+  the `Value` binding slot only when a select carries one. `@fuaran-ui/renderer` rides its 0.26.0
+  draft: the single-select branch tolerates an absent `value` (renders no selection, writes nothing
+  back). `@fuaran-ui/conformance` 0.26.0: the bundled corpus snapshot re-syncs to carry the revised
+  `nodes/multiselect-1`, `nodes/multiselect-chip-list-param`, `nodes/controls-closure` and
+  `lenient/lenient-opaque-static-values`, plus `lenient/lenient-1962-multiselect-placeholder-value`,
+  `reject/reject-1962-multiselect-bound-value` and `reject/reject-1962-select-missing-value` — a host
+  that certified against the previous snapshot no longer does.
+
+**Why these numbers.** `ops` 0.28.0, `schema` 0.24.0, `ui` 0.22.0, `conformance` 0.25.0 and `ai-tools`
+0.13.1 are all TAGGED (`v0.28.0`), so each advances; pre-1.0 a breaking change is a minor.
+The starter template's `schema` / `ui` pins move with them. The packages that only depend on these
+(`charts`, `client`, `mcp`, `op-stream`, `react`, `renderer-server`, `theme-manifest`) need their
+release-consistency bumps at the next release gesture, which `check-peer-ranges.mjs` reports then.
+
+**What certifies it.** The corpus families above, through `packages/ops/test/corpus.test.ts` and the
+conformance kit's self-certification and author-direction suites (bundled snapshot and authoritative
+corpus alike); the two conformance suites now honour `FUARAN_WIRE_FIXTURES`, as the ops suite
+already did, so a worktree certifies against the corpus change it carries.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:

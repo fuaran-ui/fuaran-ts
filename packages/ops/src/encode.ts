@@ -1729,8 +1729,10 @@ const selectSpec = (s: SelectSpec<unknown>): string => {
   const fields: Field[] = [
     ['label', textSource(s.label)],
     ['source', binding(s.source, staticSelectOptions)],
-    ['value', binding(s.value, staticStringOpt)],
   ];
+  // Phase 1962: `value` is emitted only when present — a multi-select carries
+  // `values` and no `value` (keys are sorted by `jObject`, so order is unchanged).
+  if (s.value !== undefined) fields.push(['value', binding(s.value, staticStringOpt)]);
   // Phase 426: `onChange` rides the wire only when present (byte-identical
   // sentinel); omitted, the renderer writes the chosen option back to a
   // writable `value` binding.

@@ -1482,7 +1482,12 @@ export interface SelectOptions<TMsg> {
   readonly id: NodeId | string;
   readonly label: TextInput;
   readonly source: Binding<readonly SelectOption[]>;
-  readonly value: Binding<string | undefined>;
+  /**
+   * The single-select value binding. Optional since Phase 1962: a multi-select
+   * carries `values` and no `value`, so it is ignored when `multiple` is set; a
+   * single-select without one gets the empty `Static` ("no selection").
+   */
+  readonly value?: Binding<string | undefined>;
   /** Phase 426 — optional; omitted arms the `value` write-back default. */
   readonly onChange?: (value: string | undefined) => Action<TMsg>;
   readonly placeholder?: TextInput;
@@ -2331,7 +2336,10 @@ export const fuaran = {
           spec: {
             label: text(o.label),
             source: o.source,
-            value: o.value,
+            // Phase 1962: a multi-select carries `values` and no `value`.
+            ...(o.multiple
+              ? {}
+              : { value: o.value ?? { kind: 'Static' as const, value: undefined } }),
             // Phase 426: omitted by default — the `value` write-back default.
             ...(o.onChange !== undefined ? { onChange: o.onChange } : {}),
             ...(o.placeholder !== undefined ? { placeholder: text(o.placeholder) } : {}),

@@ -333,7 +333,9 @@ export const extractBindingSlots = (kind: NodeKind<unknown>): BindingSlotInfo[] 
       case 'Button':
         return i.spec.disabled !== undefined ? [slot('Disabled', i.spec.disabled)] : [];
       case 'Select': {
-        const slots = [slot('Source', i.spec.source), slot('Value', i.spec.value)];
+        // Phase 1962: a multi-select carries no `value`.
+        const slots = [slot('Source', i.spec.source)];
+        if (i.spec.value !== undefined) slots.push(slot('Value', i.spec.value));
         if (i.spec.disabled !== undefined) slots.push(slot('Disabled', i.spec.disabled));
         return slots;
       }

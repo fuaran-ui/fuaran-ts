@@ -771,7 +771,10 @@ function runPreEmit<TMsg>(
             if (spec.onChangeMulti === undefined && !valuesLive) {
               defects.push({ code: 'INERT_CONTROL', nodeId: n.id, control: 'Select(multiple)' });
             }
-          } else if (spec.onChange === undefined && !isWriteBackTarget(spec.value)) {
+          } else if (
+            spec.onChange === undefined &&
+            (spec.value === undefined || !isWriteBackTarget(spec.value))
+          ) {
             defects.push({ code: 'INERT_CONTROL', nodeId: n.id, control: 'Select' });
           }
         }

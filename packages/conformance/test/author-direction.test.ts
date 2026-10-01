@@ -33,8 +33,11 @@ import { loadCorpus, type Corpus } from '../src/corpus.js';
 import { reauthorNode, type ReauthorTally } from './reauthor.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-// packages/conformance/test → workspace-root/wire-format-fixtures
-const workspaceCorpus = join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+// packages/conformance/test → workspace-root/wire-format-fixtures, unless
+// FUARAN_WIRE_FIXTURES names the corpus (a worktree gating against a corpus
+// change it carries) — the same resolution as the ops corpus suite.
+const workspaceCorpus =
+  process.env['FUARAN_WIRE_FIXTURES'] || join(here, '..', '..', '..', '..', 'wire-format-fixtures');
 
 /** Decode, re-author, re-encode. Throws with the fixture named on any leg. */
 const roundTripThroughAuthorSurface = (

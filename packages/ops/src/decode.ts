@@ -6171,25 +6171,56 @@ const decodeSelectSpec = framed((path: string, j: JsonAst): R<SelectSpec<unknown
     decodeBindingSelectOptions,
   );
   if (!source.ok) return source;
-  const value = reqField(path, f, 'value', 'Select value binding', decodeBindingStringOpt);
+  // Phase 291: multi-select. `multiple` absent ⇒ false (single-select); `values`
+  // absent ⇒ omitted. The multi onChange is a closure reconstructed by the
+  // existing `onChange` placeholder. `values` decodes through the typed
+  // string-list decoder (Phase 429 — typed form preferred, opaque read-compat).
+  // Decoded before `value`, because it decides whether `value` may appear.
+  const multiple = optField(path, f, 'multiple', requireBool);
+  if (!multiple.ok) return multiple;
+  // Phase 1962 — the `value` rule (WIRE_FORMAT, "`Select` multi-select"): a
+  // single-select REQUIRES `value`; a multi-select carries `values` and no
+  // `value`. On a multi-select the empty-`Static` placeholder every pre-1962
+  // document carried is a lenient accept normalised to absent; any other
+  // `value` would be a second selection the control never reads, so it is
+  // WRONG_TYPE rather than silently dropped. A malformed `multiple` is its own
+  // defect: `value` is then decoded if present but not demanded.
+  const multipleKnown = multiple.value !== HOLE;
+  const isMulti = multipleKnown && multiple.value === true;
+  const value: R<Binding<string | undefined> | undefined> =
+    multipleKnown && !isMulti
+      ? reqField(path, f, 'value', 'Select value binding', decodeBindingStringOpt)
+      : optField(path, f, 'value', decodeBindingStringOpt);
   if (!value.ok) return value;
+  let selectValue = value.value;
+  // Inside a defect walk the refusal is collected and returned only after the
+  // remaining members are decoded, so their independent defects are reported
+  // too (§29.1); outside one it is returned at once.
+  let boundValueRefusal: R<never> | undefined;
+  if (isMulti && selectValue !== undefined && selectValue !== HOLE) {
+    if (selectValue.kind !== 'Static' || selectValue.value !== undefined) {
+      boundValueRefusal = makeError(
+        'WRONG_TYPE',
+        `${path}.value`,
+        "a multi-select ('multiple': true) carries its selection in 'values' and no 'value' — a bound 'value' is a second selection the control never reads",
+        'absent (a multi-select carries values)',
+      );
+      if (collecting === null) return boundValueRefusal;
+    }
+    selectValue = undefined;
+  }
   const placeholder = optField(path, f, 'placeholder', decodeTextSource);
   if (!placeholder.ok) return placeholder;
   // Phase 130: optional bound disabled-state.
   const disabled = optField(path, f, 'disabled', decodeBindingBool);
   if (!disabled.ok) return disabled;
-  // Phase 291: multi-select. `multiple` absent ⇒ false (single-select); `values`
-  // absent ⇒ omitted. The multi onChange is a closure reconstructed by the
-  // existing `onChange` placeholder. `values` decodes through the typed
-  // string-list decoder (Phase 429 — typed form preferred, opaque read-compat).
-  const multiple = optField(path, f, 'multiple', requireBool);
-  if (!multiple.ok) return multiple;
   const values = optField(path, f, 'values', decodeBindingStringList);
   if (!values.ok) return values;
+  if (boundValueRefusal !== undefined) return boundValueRefusal;
   return ok({
     label: label.value,
     source: source.value,
-    value: value.value,
+    ...(selectValue !== undefined ? { value: selectValue } : {}),
     // Phase 426: a present `"<closure>"` sentinel → the inert placeholder; an
     // absent key → omitted, arming the renderer's write-back default against
     // `value` / `values`.
