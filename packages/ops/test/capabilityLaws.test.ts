@@ -43,9 +43,20 @@
 //
 //  The seed and vector count are read from the family manifest, never restated
 //  here: a count in prose drifts the first time the sample is regenerated.
+//
+//  THE CUT-TO-RAISE WINDOW. Core emits this file and stamps it with the Core
+//  version that emitted it (`kitVersion`); this host's twin declares the Core
+//  version it mirrors (`mirroredCoreVersion`, beside the twin in
+//  @fuaran-ui/core-twins). Core re-emits the corpus copy when it cuts, which is
+//  before any twin is raised to match. A copy stamped for another Core is
+//  therefore REPORTED — warned at collection and skipped by a name that carries
+//  the reason, so it reaches the run output — and never asserted, and never
+//  read as a pass; the window closes when the twin is raised. A corpus that
+//  carries no capability family, no vector file or no stamp is a FAILURE, never
+//  a skip: only a checkout with no corpus beside it at all skips.
 // ============================================================================
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -69,13 +80,17 @@ import {
   registryOf,
   validateArgs,
 } from '../../ui/dist/index.js';
+import { mirroredCoreVersion } from '@fuaran-ui/core-twins';
 import type { Capability, InvokeArg } from '@fuaran-ui/schema';
 
 import { decodeCapabilityDeclaration, encodeCapabilityDeclaration } from '../src/capabilityDecl.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-// packages/ops/test → workspace-root/wire-format-fixtures/laws
-const lawsRoot = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'laws');
+// packages/ops/test → workspace-root/wire-format-fixtures/laws, unless
+// FUARAN_WIRE_FIXTURES names the corpus (as the other corpus legs here honour).
+const corpusRoot =
+  process.env['FUARAN_WIRE_FIXTURES'] || join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+const lawsRoot = join(corpusRoot, 'laws');
 
 // ─── the family manifest ─────────────────────────────────────────────────────
 
@@ -130,9 +145,27 @@ const readJson = <T>(path: string): T | undefined => {
   }
 };
 
-const manifest = readJson<LawManifest>(join(lawsRoot, 'manifest.json'));
+const manifestPath = join(lawsRoot, 'manifest.json');
+const lawsPresent = existsSync(manifestPath);
+const manifest = lawsPresent ? readJson<LawManifest>(manifestPath) : undefined;
 const family = manifest?.families.find((f) => f.id === 'capabilityLaws');
 const lawFile = family ? readJson<CapabilityLawFile>(join(lawsRoot, family.file)) : undefined;
+
+// The stamp the copy carries, and whether this twin is the one it certifies.
+const stamp =
+  typeof lawFile?.kitVersion === 'string' && lawFile.kitVersion !== ''
+    ? lawFile.kitVersion
+    : undefined;
+const notCertified =
+  stamp !== undefined && stamp !== mirroredCoreVersion
+    ? `CAPABILITY VECTORS NOT CERTIFIED: the corpus copy is stamped for Core ${stamp} and this ` +
+      `twin mirrors Core ${mirroredCoreVersion} — raise the twin to certify against it`
+    : undefined;
+if (notCertified !== undefined) {
+  // Warned at collection so the reason reaches the run output even under a
+  // reporter that prints skipped test names tersely.
+  console.warn(`capabilityLaws: ${notCertified}`);
+}
 
 // ─── the refusal-class vocabulary the vectors speak ──────────────────────────
 
@@ -156,10 +189,23 @@ const RUN_CASES = ['validateArgs', 'invocationKey', 'declarationRoundTrip', 'reg
 describe('capabilityLaws vectors (shared corpus laws/ family)', () => {
   // The corpus is a sibling checkout, absent in a standalone clone. Every other
   // corpus leg in this repo tolerates that the same way.
-  if (!family || !lawFile) {
+  if (!lawsPresent) {
     it.skip('law-vector family not present in this corpus checkout', () => {});
     return;
   }
+
+  // Present corpus, so the family is required: a missing family, vector file or
+  // stamp fails here — it is never a skip.
+  it('the corpus carries the capabilityLaws family, its vector file and its stamp', () => {
+    expect(manifest, `${manifestPath} did not parse`).toBeDefined();
+    expect(family, 'laws/manifest.json enumerates no capabilityLaws family').toBeDefined();
+    expect(
+      lawFile,
+      `laws/${family?.file ?? 'capability-laws.json'} is missing or did not parse — it is Core's; re-emit it`,
+    ).toBeDefined();
+    expect(stamp, `laws/${family?.file} carries no kitVersion`).toBeDefined();
+  });
+  if (!family || !lawFile || stamp === undefined) return;
 
   const { seed, iterations, vectors } = lawFile;
 
@@ -170,6 +216,14 @@ describe('capabilityLaws vectors (shared corpus laws/ family)', () => {
     expect(iterations).toBe(family.iterations);
     expect(vectors.length).toBe(family.vectors);
   });
+
+  // The cut-to-raise window (see the file header): reported by name, loudly,
+  // and nothing below runs — a twin is certified only against the Core it
+  // mirrors.
+  if (notCertified !== undefined) {
+    it.skip(notCertified, () => {});
+    return;
+  }
 
   it('every case the family carries is one this host runs', () => {
     const carried = [...new Set(vectors.map((v) => v.case))].sort();

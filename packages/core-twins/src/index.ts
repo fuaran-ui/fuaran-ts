@@ -45,6 +45,7 @@ export {
   enumerate,
   fnv1a,
   invocationKey,
+  mirroredCoreVersion,
   register,
   registryOf,
   spaceValidate,

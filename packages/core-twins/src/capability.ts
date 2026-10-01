@@ -36,6 +36,20 @@ import type {
 import { err, ok } from './result.js';
 
 /**
+ * The Fuaran.Core version whose capability semantics this twin mirrors —
+ * declared once, here, beside the twin.
+ *
+ * The corpus's capability-law vectors (`laws/capability-laws.json`) are emitted
+ * by Core and stamped with the Core version that emitted them (`kitVersion`).
+ * This twin certifies against the vectors of the Core it mirrors; a copy
+ * stamped for any other Core is the cut-to-raise window, and the capability
+ * leg reports it by name rather than asserting it. Raised to the Core version
+ * the twin is brought up to: fuaran#1966 raises it to 0.33.0 when it moves
+ * determinism to the factor set (fuaran-core Phase 319).
+ */
+export const mirroredCoreVersion = '0.32.0';
+
+/**
  * The value space a capability signature entry ranges over: a `HoleValueSpace`,
  * or the tree space `SlotTree` (fuaran-core#229) — its argument is a wire
  * document whose `"kind"` satisfies `slotKind` (any kind when absent).
