@@ -42,6 +42,7 @@ interface RepairFamily {
   readonly catalogue: readonly string[];
   readonly refusals: readonly string[];
   readonly hostStatements: Readonly<Record<string, string>>;
+  readonly hostCatalogueVersions: Readonly<Record<string, number>>;
   readonly cases: readonly RepairCase[];
 }
 
@@ -71,6 +72,17 @@ describe('repair — WIRE_FORMAT.md §28 (Phase 1923)', () => {
     expect(family.catalogue).toEqual([...REPAIR_CATALOGUE]);
     expect(family.catalogueVersion).toBe(REPAIR_CATALOGUE_VERSION);
     expect(family.hostStatements['fuaran-ts']).toBe('implements');
+    expect(family.hostCatalogueVersions['fuaran-ts']).toBe(REPAIR_CATALOGUE_VERSION);
+  });
+
+  it('composes wrong-type-close with implied-node-close, in that order, and nothing else (§28.2.3)', () => {
+    const composed = ['wrong-type-close', 'implied-node-close'];
+    expect(family.cases.some((c) => JSON.stringify(c.applied) === JSON.stringify(composed))).toBe(
+      true,
+    );
+    for (const c of family.cases) {
+      if ((c.applied?.length ?? 0) > 1) expect(c.applied).toEqual(composed);
+    }
   });
 
   it('declares every file in repair/, and nothing else', () => {

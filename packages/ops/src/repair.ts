@@ -11,6 +11,9 @@
 //                         `cases[]` element (or the root) owes
 //    over-close-unique    delete one or two surplus closers, iff exactly one
 //                         deletion decodes clean
+//    wrong-type-close     (catalogue version 2) put right a `}` that met a
+//                         `children[]` / `cases[]` array, iff its two readings
+//                         yield exactly one distinct document
 //
 //  Repair touches STRUCTURE only: it inserts or deletes closing brackets and
 //  never invents or edits a key or a value. Its output is not trusted — decode
@@ -28,10 +31,14 @@ import { decodeNode } from './decode.js';
 import { parse, type JsonAst } from './parse.js';
 
 /** The catalogue version (WIRE_FORMAT.md §28.2). */
-export const REPAIR_CATALOGUE_VERSION = 1;
+export const REPAIR_CATALOGUE_VERSION = 2;
 
 /** The stable repair ids, in the order `repair` tries them (§28.2). */
-export const REPAIR_CATALOGUE = ['implied-node-close', 'over-close-unique'] as const;
+export const REPAIR_CATALOGUE = [
+  'implied-node-close',
+  'over-close-unique',
+  'wrong-type-close',
+] as const;
 
 /** A catalogue id. */
 export type RepairId = (typeof REPAIR_CATALOGUE)[number];
@@ -42,7 +49,9 @@ export type RepairRefusal =
   | 'not-in-catalogue'
   | 'over-close-ambiguous'
   | 'over-close-no-clean-candidate'
-  | 'over-close-bounds';
+  | 'over-close-bounds'
+  | 'wrong-type-close-ambiguous'
+  | 'wrong-type-close-no-candidate';
 
 /**
  * The result of `repair` (§28.3). A document that already parses is returned
@@ -432,6 +441,117 @@ const overCloseCandidates = (text: string, p: OverCloseProfile): Iterable<string
   })();
 };
 
+// ─── wrong-type-close (§28.2.3, catalogue version 2) ─────────────────────────
+//
+// A `}` read while the innermost open container is a node-list array. Two owed
+// readings — the array's `]` was dropped (insert it before the `}`), or the `}`
+// was written for the `]` (replace it) — each completed at most once by
+// `implied-node-close`; the entry repairs iff they yield exactly one distinct
+// document. The surplus reading is deliberately not one: a surplus closer has
+// as many homes as there are enclosing levels, which is `over-close-unique`'s
+// enumeration to make. Profile-gated to `children` / `cases` like
+// `implied-node-close`, and the `]`-meets-object mirror is that entry's class.
+
+/**
+ * String-aware scan to the FIRST structural mismatch: its offset when it is a
+ * `}` read while the innermost open container is an array that is the value of
+ * a member keyed `children` / `cases`; `undefined` for every other document.
+ */
+const wrongTypeCloseProfile = (text: string): number | undefined => {
+  const n = text.length;
+  // [isArray, the member key the array is the value of]
+  const opens: Array<readonly [boolean, string | undefined]> = [];
+  // The most recent string literal, while only whitespace and at most one `:`
+  // have followed it: what makes `"children": [` a keyed array.
+  let lastString: string | undefined;
+  let colon = false;
+  let i = 0;
+  while (i < n) {
+    const c = text[i]!;
+    if (c === '"') {
+      const start = i;
+      let closed = false;
+      i += 1;
+      while (!closed && i < n) {
+        const d = text[i]!;
+        if (d === '\\') i += 2;
+        else if (d === '"') {
+          closed = true;
+          i += 1;
+        } else i += 1;
+      }
+      if (!closed) return undefined; // cut inside a string
+      lastString = text.substring(start + 1, i - 1);
+      colon = false;
+      continue;
+    }
+    if (c === ':' && lastString !== undefined && !colon) {
+      colon = true;
+    } else if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+      // whitespace keeps the pending key
+    } else if (c === '[') {
+      opens.push([true, colon ? lastString : undefined]);
+      lastString = undefined;
+    } else if (c === '{') {
+      opens.push([false, undefined]);
+      lastString = undefined;
+    } else if (c === '}' || c === ']') {
+      const top = opens[opens.length - 1];
+      if (top === undefined) return undefined;
+      const [isArr, key] = top;
+      if (isArr === (c === ']')) {
+        opens.pop();
+      } else {
+        const keyed = key !== undefined && RECOVERY_ARRAY_KEYS.includes(key);
+        return c === '}' && isArr && keyed ? i : undefined;
+      }
+      lastString = undefined;
+    } else {
+      lastString = undefined;
+    }
+    i += 1;
+  }
+  return undefined;
+};
+
+/** The two owed readings of the `}` at `at`, in order: insert `]`, replace with `]`. */
+const wrongTypeCloseReadings = (text: string, at: number): readonly string[] => {
+  const before = text.substring(0, at);
+  const after = text.substring(at + 1);
+  return [before + ']}' + after, before + ']' + after];
+};
+
+const wrongTypeClose = (text: string, at: number): RepairOutcome => {
+  const distinct: Array<{ text: string; ast: JsonAst; applied: readonly RepairId[] }> = [];
+  for (const reading of wrongTypeCloseReadings(text, at)) {
+    let kept: { text: string; ast: JsonAst; applied: readonly RepairId[] } | undefined;
+    const v = parseVerdict(reading);
+    if (v.kind === 'Parsed') {
+      kept = { text: reading, ast: v.ast, applied: ['wrong-type-close'] };
+    } else {
+      const completed = tryImpliedNodeClose(reading);
+      if (completed !== undefined) {
+        const w = parseVerdict(completed);
+        if (w.kind === 'Parsed')
+          kept = {
+            text: completed,
+            ast: w.ast,
+            applied: ['wrong-type-close', 'implied-node-close'],
+          };
+      }
+    }
+    if (kept !== undefined && !distinct.some((d) => astEqual(d.ast, kept.ast))) distinct.push(kept);
+  }
+  if (distinct.length === 1) {
+    const only = distinct[0]!;
+    return { kind: 'Repaired', text: only.text, applied: only.applied };
+  }
+  return {
+    kind: 'NotRepairable',
+    reason: distinct.length === 0 ? 'wrong-type-close-no-candidate' : 'wrong-type-close-ambiguous',
+  };
+};
+
 /**
  * Repair a malformed canonical-JSON NODE document, deliberately (WIRE_FORMAT.md
  * §28). Pure: text in, text out.
@@ -441,7 +561,8 @@ const overCloseCandidates = (text: string, p: OverCloseProfile): Iterable<string
  * `implied-node-close` if its insert-only scan yields a text that parses;
  * `over-close-unique` if the text is in the over-close profile and exactly one
  * distinct candidate decodes clean (the output is the FIRST candidate text, in
- * enumeration order, that parses to it); otherwise `not-in-catalogue`.
+ * enumeration order, that parses to it); `wrong-type-close` if the text is in
+ * its profile (§28.2.3); otherwise `not-in-catalogue`.
  *
  * The uniqueness gate decodes candidates with no admission policy — repair is a
  * property of the text, and a §23 policy applies at the decode that follows.
@@ -457,7 +578,12 @@ export const repair = (text: string): RepairOutcome => {
   }
 
   const p = overCloseProfile(text);
-  if (p === undefined) return { kind: 'NotRepairable', reason: 'not-in-catalogue' };
+  if (p === undefined) {
+    const at = wrongTypeCloseProfile(text);
+    return at === undefined
+      ? { kind: 'NotRepairable', reason: 'not-in-catalogue' }
+      : wrongTypeClose(text, at);
+  }
   if (text.length > MAX_OVER_CLOSE_LENGTH)
     return { kind: 'NotRepairable', reason: 'over-close-bounds' };
   const cands = overCloseCandidates(text, p);
