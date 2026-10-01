@@ -956,6 +956,13 @@ undefined>`). A consumer reading `spec.value` must now handle `undefined` — a 
   `lenient/lenient-opaque-static-values`, plus `lenient/lenient-1962-multiselect-value-dropped` and
   `reject/reject-1962-select-missing-value` — a host
   that certified against the previous snapshot no longer does.
+- **Amendment — `multiple` is emitted as authored** (operator ruling 2026-10-01). The decoder now
+  keeps an explicit `"multiple":false` on the model (`SelectSpec.multiple === false`) instead of
+  normalising it to absent, and the encoder emits `multiple` whenever it is present, so
+  `"multiple":false` re-encodes as written and an absent one stays absent (WIRE_FORMAT §3.2: not
+  omit-at-default). `fuaran.select({ multiple: false })` likewise keeps it. Certified by the new
+  `nodes/select-multiple-false` fixture (the bundled snapshot carries it) and
+  `packages/ops/test/select-value-rule.test.ts`. Rides the versions above; no class of its own.
 
 **Why these numbers.** `ops` 0.28.0, `schema` 0.24.0, `ui` 0.22.0, `conformance` 0.25.0 and `ai-tools`
 0.13.1 are all TAGGED (`v0.28.0`), so each advances; pre-1.0 a breaking change is a minor.

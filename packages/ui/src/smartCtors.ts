@@ -2344,7 +2344,8 @@ export const fuaran = {
             ...(o.onChange !== undefined ? { onChange: o.onChange } : {}),
             ...(o.placeholder !== undefined ? { placeholder: text(o.placeholder) } : {}),
             ...(o.disabled !== undefined ? { disabled: o.disabled } : {}),
-            ...(o.multiple ? { multiple: true } : {}),
+            // Phase 1962: `multiple` is emitted as authored (an explicit `false` is kept).
+            ...(o.multiple !== undefined ? { multiple: o.multiple } : {}),
             ...(o.values !== undefined ? { values: stringArrayBinding(o.values) } : {}),
             ...(o.onChangeMulti !== undefined ? { onChangeMulti: o.onChangeMulti } : {}),
           },

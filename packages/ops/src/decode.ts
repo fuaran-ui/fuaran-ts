@@ -6212,7 +6212,9 @@ const decodeSelectSpec = framed((path: string, j: JsonAst): R<SelectSpec<unknown
     ...(tryField(f, 'onChange') !== undefined ? { onChange: onChangePlaceholder } : {}),
     ...(placeholder.value !== undefined ? { placeholder: placeholder.value } : {}),
     ...(disabled.value !== undefined ? { disabled: disabled.value } : {}),
-    ...(multiple.value === true ? { multiple: true } : {}),
+    // Phase 1962: kept as authored — an explicit `false` survives the round
+    // trip (`nodes/select-multiple-false.json`); absent stays absent.
+    ...(typeof multiple.value === 'boolean' ? { multiple: multiple.value } : {}),
     ...(values.value !== undefined ? { values: values.value } : {}),
     ...(tryField(f, 'onChangeMulti') !== undefined ? { onChangeMulti: onChangePlaceholder } : {}),
   });

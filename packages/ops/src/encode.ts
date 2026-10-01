@@ -1740,10 +1740,12 @@ const selectSpec = (s: SelectSpec<unknown>): string => {
   if (s.placeholder !== undefined) fields.push(['placeholder', textSource(s.placeholder)]);
   // Phase 130: optional bound disabled-state.
   if (s.disabled !== undefined) fields.push(['disabled', binding(s.disabled)]);
-  // Phase 291: multi-select. `multiple` emitted ONLY when true and `values` ONLY
-  // when present, so single-select wire stays byte-identical to pre-multi-select
-  // fixtures (the degenerate case).
-  if (s.multiple) fields.push(['multiple', bool(true)]);
+  // Phase 291: multi-select. `values` emitted ONLY when present, so
+  // single-select wire stays byte-identical to pre-multi-select fixtures (the
+  // degenerate case). Phase 1962: `multiple` is an ordinary optional field,
+  // emitted AS AUTHORED — absent stays absent, and an explicit `false` is kept
+  // (it is not omit-at-default; `nodes/select-multiple-false.json`).
+  if (s.multiple !== undefined) fields.push(['multiple', bool(s.multiple)]);
   if (s.values !== undefined) fields.push(['values', binding(s.values, staticStringList)]);
   // Phase 426: the multi-select handler carries its own sentinel key when
   // present (previously never encoded).

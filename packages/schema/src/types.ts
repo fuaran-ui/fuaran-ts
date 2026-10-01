@@ -2268,9 +2268,10 @@ export interface SelectSpec<TMsg> {
   readonly disabled?: Binding<boolean>;
   /**
    * Multi-select flag (Phase 291). `false`/absent (the default) is
-   * single-select — `value` / `onChange` carry the chosen option, and the field
-   * is omitted on the wire (the degenerate case stays byte-identical to
-   * pre-multi-select fixtures). When `true`, the renderer emits a
+   * single-select — `value` / `onChange` carry the chosen option. The field is
+   * emitted as authored (Phase 1962): absent stays absent on the wire (the
+   * degenerate case stays byte-identical to pre-multi-select fixtures) and an
+   * explicit `false` is kept — it is not omit-at-default. When `true`, the renderer emits a
    * `<select multiple>` and the selection is carried by `values` (a list).
    */
   readonly multiple?: boolean;
