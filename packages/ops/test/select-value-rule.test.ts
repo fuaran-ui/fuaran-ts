@@ -2,11 +2,11 @@
 //  Phase 1962 — a multi-select `Select` carries `values` and no `value`
 //  (WIRE_FORMAT.md, "`Select` multi-select").
 //
-//  The corpus certifies the three headline cases (the clean multi-select, the
-//  placeholder lenient accept, the two refusals); this file pins what a
-//  document corpus does not: a malformed `multiple` does not also demand
-//  `value`, and inside a §29 defect walk the bound-`value` refusal is reported
-//  beside the select's other independent defects.
+//  The corpus certifies the headline cases (the clean multi-select, the
+//  dropped-`value` lenient accept, the single-select refusal); this file pins
+//  what a document corpus does not: a malformed `multiple` does not also
+//  demand `value`, and a MALFORMED `value` on a multi-select still refuses
+//  like any malformed binding before the drop.
 // ============================================================================
 
 import { describe, expect, it } from 'vitest';
@@ -37,10 +37,23 @@ describe('Phase 1962 — the Select value rule', () => {
     if (d.ok) expect(encodeNode(d.value)).not.toContain('"value":{"$type":"Static"');
   });
 
-  it('a non-empty Static value on a multi-select is WRONG_TYPE at value', () => {
-    const d = decodeNode(sel(',"multiple":true,"value":{"$type":"Static","value":"red"}'));
+  it('a well-formed bound value on a multi-select is decoded, then dropped', () => {
+    for (const v of [
+      '{"$type":"Static","value":"red"}',
+      '{"$type":"State","defaultValue":"red","key":"tag"}',
+    ]) {
+      const d = decodeNode(
+        sel(`,"multiple":true,"value":${v},"values":{"$type":"State","key":"t"}`),
+      );
+      expect(d.ok).toBe(true);
+      if (d.ok) expect(encodeNode(d.value)).not.toContain('"value":{');
+    }
+  });
+
+  it('a malformed value on a multi-select still refuses', () => {
+    const d = decodeNode(sel(',"multiple":true,"value":{"$type":"Nope"}'));
     expect(d.ok).toBe(false);
-    if (!d.ok) expect([d.error.code, d.error.path]).toEqual(['WRONG_TYPE', '$.kind.value']);
+    if (!d.ok) expect(d.error.path.startsWith('$.kind.value')).toBe(true);
   });
 
   it('"multiple": false is a single-select and still requires value', () => {
@@ -56,15 +69,15 @@ describe('Phase 1962 — the Select value rule', () => {
       expect(r.error.map((e) => [e.code, e.path])).toEqual([['WRONG_TYPE', '$.kind.multiple']]);
   });
 
-  it('the bound-value refusal is reported beside the select’s other defects', () => {
+  it('a dropped multi-select value raises no defect beside the select’s real ones', () => {
     const r = decodeNodeWithDefects(
       sel(',"multiple":true,"value":{"$type":"State","key":"tag"},"values":7'),
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      const pairs = r.error.map((e) => [e.code, e.path]);
-      expect(pairs).toContainEqual(['WRONG_TYPE', '$.kind.value']);
-      expect(pairs.some(([, p]) => p === '$.kind.values')).toBe(true);
+      const paths = r.error.map((e) => e.path);
+      expect(paths).not.toContain('$.kind.value');
+      expect(paths.some((p) => p.startsWith('$.kind.values'))).toBe(true);
     }
   });
 });
