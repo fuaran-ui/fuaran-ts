@@ -53,8 +53,8 @@ jobs:
       # packages/spec-hash implements. Same layout convention as above — a sibling
       # of the repo root, the DIRECTORY name being the interface.
       #
-      # The specification repo went PUBLIC at Fuaran-Core/fuaran-model-execution-spec
-      # (re-homed + flipped 2026-08-29), so the checkout needs no token — the
+      # The specification repo is PUBLIC at Fuaran-Data/fuaran-model-execution-spec
+      # (flipped 2026-08-29; moved organisation 2026-10-03), so the checkout needs no token — the
       # SPEC_CORPUS_TOKEN secret and its provisioning assert are retired. The
       # corpus remains AUTHORITATIVE: the layout assert below still fails the job
       # loudly if the corpus does not arrive, because a conformance suite left
@@ -63,7 +63,7 @@ jobs:
       - name: Checkout the model-execution wire specification
         uses: actions/checkout@v4
         with:
-          repository: Fuaran-Core/fuaran-model-execution-spec
+          repository: Fuaran-Data/fuaran-model-execution-spec
           path: fuaran-model-execution-spec
 
       - name: Assert the specification corpus is where the tests resolve it

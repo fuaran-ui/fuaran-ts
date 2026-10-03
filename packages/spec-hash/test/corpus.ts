@@ -34,7 +34,7 @@ const missing = (what: string, path: string): never => {
   throw new Error(
     `the conformance corpus is not present: ${what} was expected at '${path}'. ` +
       "This suite certifies this tier against the specification's own fixtures, so it CANNOT pass " +
-      `without them. Check the specification repository (fuaran-ui/fuaran-model-execution-spec) out ` +
+      `without them. Check the specification repository (Fuaran-Data/fuaran-model-execution-spec) out ` +
       `beside this repository at '${CORPUS_RELATIVE_PATH}' — do not disable this suite, which would ` +
       'leave the implementation unpinned while the build stayed green.',
   );
