@@ -817,7 +817,7 @@ the registry and checked against their PUBLISHED ranges.
 
 ### `@fuaran-ui/style-observer` 0.11.2 — palette attribution follows the canonical token-path order (Phase 1840)
 
-**Unreleased** — 0.11.2 is ahead of the newest tag (`v0.28.0` published 0.11.1).
+**Released in `v0.29.0`** — `v0.28.0` published 0.11.1; this advanced it to 0.11.2.
 
 **What moved.** `verifyUsageBudgets` attributes a node's rendered fill to ONE palette token — the
 first colour token whose value matches — and it used to iterate the tokens in the order
@@ -914,6 +914,85 @@ The `devtools-relay` corpus's two `hatches` vectors are unchanged and now run ag
 UNDECLARED renderer hands the report, so they hold the two hosts' defaults to one document; against
 the previous default both go red on the floor finding's state. Migration:
 [`docs/migrations/1856-custom-hash-floor-enforces.md`](docs/migrations/1856-custom-hash-floor-enforces.md).
+
+### Recorded breaking change — `@fuaran-ui/schema` 0.25.0, `@fuaran-ui/ops` 0.29.0, `@fuaran-ui/ui` 0.23.0, the temporal vocabulary says what it is (fuaran#1811)
+
+**Breaking by both tests in the list above** — a renamed discriminant string ("renaming one is a
+wire-format breaking change") and a removed exported type and constructor. Phase 1810 made
+`Format.Date` render a time of day as well as a date, at which point `Date` no longer named what
+any of these members carry. They move together, in step with the reference host and the corpus:
+
+| Site                               | 0.28.0 set                                                                                  | 0.29.0 set                                                                                                  |
+| ---------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `FormFieldKind` (`$type` moves)    | `Date`, `DateRange`                                                                         | `DateTime`, `DateTimeRange`                                                                                 |
+| `Format` (`$type` moves)           | `Date`                                                                                      | `DateTime` (`dateStyle` / `timeStyle`, both optional)                                                       |
+| `CellFormat` (`$type` moves)       | `Date`                                                                                      | `DateTime`                                                                                                  |
+| the variant type (cases unchanged) | `DateVariant`                                                                               | `DateTimeVariant`                                                                                           |
+| `controlValueDefaults`             | `date`, `dateRange`                                                                         | `dateTime`, `dateTimeRange`                                                                                 |
+| `@fuaran-ui/ui` smart constructors | `formFieldKind.date` / `dateRange` / `*Declarative`, `filterField.dateRange`, `format.date` | `formFieldKind.dateTime` / `dateTimeRange` / `*Declarative`, `filterField.dateTimeRange`, `format.dateTime` |
+
+`localeFormat.date` / `dateTime` / `time` and `DateStyle` keep their names. **Deliberately not
+touched**, and pinned by fixtures that did not move: the `CellKind` and `CellValue` `Date` (a data
+cell), the `ChartAnnotationX` `Date` (an ISO address) and the dataframe `Date` dtype — different
+families that share a spelling.
+
+**What it costs a consumer.** An author constructing any of the renamed shapes, or importing
+`DateVariant`, edits those sites; the compiler names each one. On the wire, reading is widened and
+writing moves: the lenient ingest (`WIRE_FORMAT.md` §16) decodes the pre-rename `Date` /
+`DateRange` `$type`s and the `Format` / `CellFormat` `Date` to the new names and re-encodes them
+canonically, and decodes the invented `Time` / `TimeRange` spellings to `DateTime` /
+`DateTimeRange` with `variant` supplied as `Time` when absent — a disagreeing `variant` beside them
+is refused (`WRONG_TYPE` at `.variant`), never resolved. A decoder that predates the rename refuses
+what 0.29.0 emits, so upgrade the readers before the writers.
+
+**What certifies it.** The `lenient-1811-*` and `reject-1811-*` corpus fixtures, the cross-host
+oracle for both directions, carried by `@fuaran-ui/conformance` 0.26.0. `@fuaran-ui/renderer`
+0.26.0 and `@fuaran-ui/renderer-server` 0.24.0 read the renamed kinds and render them unchanged.
+
+### Recorded release-consistency bumps — 0.29.0 release set
+
+**The packages whose own surface moved since `v0.28.0`**, each class decided from what changed in
+it. Pre-1.0, per this document's caveat, a breaking change is a minor.
+
+| Package                      | From → to       | Class     | What moved                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------- | --------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@fuaran-ui/ops`             | 0.28.0 → 0.29.0 | **minor** | Breaking: the fuaran#1811 `$type` renames above change emitted bytes. Additive beside it: `repair` and its catalogue (fuaran#1923, catalogue version 2 in fuaran#1961), `decodeNodeWithDefects` / `orderDefects` (fuaran#1935), `liftFallback` / `behindView` (fuaran#1812), the grid `windowStateKey` / `rowTotal` (fuaran#1892), the explicit `SlotTree` capability space (fuaran#1860).                                |
+| `@fuaran-ui/schema`          | 0.24.0 → 0.25.0 | **minor** | Breaking: the fuaran#1811 discriminant renames, `DateVariant` removed, the `controlValueDefaults` keys renamed. Additive: `TimeStyle` (fuaran#1810), `Accessibility.speak` and `Node.fallback` (fuaran#1812), the grid window fields (fuaran#1892).                                                                                                                                                                       |
+| `@fuaran-ui/ui`              | 0.22.0 → 0.23.0 | **minor** | Breaking: the fuaran#1811 constructor renames, and `invocationKey` produces a different key for the same arguments (fuaran#1860 — the injective canonical-field pre-image). It also `export *`s `@fuaran-ui/schema`, so schema's renames are its renames. Additive: `deriveForm` (fuaran#1914), `node.withFallback`, four pre-emit binding checks and `bindingChecks` (fuaran#1889), `ACTION_COLUMN_FIELD` (fuaran#1909). |
+| `@fuaran-ui/renderer-server` | 0.23.0 → 0.24.0 | **minor** | Rendered output moves — the deterministic `CodeBlock` highlighting tier (fuaran#1854), the widened no-JS MathML subset (fuaran#1853), the grid row window (fuaran#1892) — and the surface grows: `renderBehindToHtml` (fuaran#1812).                                                                                                                                                                                      |
+| `@fuaran-ui/conformance`     | 0.25.0 → 0.26.0 | **minor** | The bundled corpus moves under every adapter: fixtures re-spelled by fuaran#1811 (an adapter that passed 0.25.0 without adopting it fails here), and new families — the binding checks, grid column kinds, the grid window, node defect lists, the repair catalogue.                                                                                                                                                      |
+| `@fuaran-ui/mcp`             | 0.13.1 → 0.14.0 | **minor** | The server presents a new tool, `fuaran_formFromSchema`, with `runFormFromSchema` / `FORM_FROM_SCHEMA_TOOL` exported (fuaran#1914); `@fuaran-ui/ui` becomes a runtime dependency.                                                                                                                                                                                                                                         |
+| `@fuaran-ui/op-stream`       | 0.11.2 → 0.11.3 | patch     | fuaran#1861 moved the actor and its canonical encoding behind a workspace-internal boundary that is bundled into `dist`; `Actor`, `actorId`, `humanActor` and `encodeActor` are re-exported under the same names and the hashed pre-image does not move. No exported name, signature or hashed byte changes.                                                                                                              |
+
+`@fuaran-ui/renderer` 0.26.0 and `@fuaran-ui/style-observer` 0.11.2 were already ahead of
+`v0.28.0` and ride their own sections above; fuaran#1811 and the later renderer phases ride
+renderer's minor rather than advancing it.
+
+**The consistency sweep.** The publish workflow SKIPS a package whose version has not moved, and a
+skipped package keeps the ranges it was published with. Six published packages declare ranges this
+set falls outside; each is bumped, and each is a **patch** because nothing in it changed since its
+current version was set — its tarball differs only in the regenerated `@fuaran-ui/*` ranges:
+
+| Package                     | From → to       | Range it would have kept, excluding this set              |
+| --------------------------- | --------------- | --------------------------------------------------------- |
+| `@fuaran-ui/ai-tools`       | 0.13.1 → 0.13.2 | `schema` `^0.24.0`                                        |
+| `@fuaran-ui/charts`         | 0.14.2 → 0.14.3 | `ops` `^0.28.0`, `schema` `^0.24.0`                       |
+| `@fuaran-ui/cli`            | 0.11.1 → 0.11.2 | `mcp` `^0.13.0`                                           |
+| `@fuaran-ui/client`         | 0.12.2 → 0.12.3 | `ops` `^0.28.0`, `schema` `^0.24.0`, `renderer` `^0.25.0` |
+| `@fuaran-ui/react`          | 0.12.2 → 0.12.3 | `schema` `^0.24.0`, `renderer` `^0.25.0`                  |
+| `@fuaran-ui/theme-manifest` | 0.12.0 → 0.12.1 | `ops` `^0.28.0`, `schema` `^0.24.0`                       |
+
+None of them re-exports a moved surface (`react` re-exports only the unchanged
+`TRUSTED_TYPES_POLICY_NAME` from `renderer`), so unlike `ui` in the 0.28.0 table, no author surface
+grows through them; the widened types reach a consumer through the consumer's own peer pin. The
+fuaran#1856 section's three named bumps — `client`, `react`, `renderer-server` — are cut here.
+`@fuaran-ui/mock`, `@fuaran-ui/layout-observer`, `@fuaran-ui/telemetry`, `@fuaran-ui/validator`
+and the two defensive placeholders declare no `@fuaran-ui/*` range and are unmoved. The starter
+template's pins follow `schema` 0.25.0 and `ui` 0.23.0.
+
+**Verified against the registry before the tag:** `node dev-scripts/check-peer-ranges.mjs` reports
+OK over 21 publishable packages, 6 of them already on the registry and checked against their
+PUBLISHED ranges.
 
 ## Unstable surfaces
 

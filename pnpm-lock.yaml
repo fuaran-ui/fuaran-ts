@@ -609,10 +609,10 @@ importers:
         specifier: ^0.26.0
         version: link:../../packages/renderer
       '@fuaran-ui/schema':
-        specifier: ^0.24.0
+        specifier: ^0.25.0
         version: link:../../packages/schema
       '@fuaran-ui/ui':
-        specifier: ^0.22.0
+        specifier: ^0.23.0
         version: link:../../packages/ui
       react:
         specifier: ^19.0.0
