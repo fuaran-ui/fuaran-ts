@@ -62,8 +62,8 @@ export interface GuestSeamContext {
   readonly capabilities: readonly CapabilityTag[];
   /**
    * The guest channel as the renderer will ACTUALLY honour it. Its `direction`
-   * is `OutOnly` unless the seam granted otherwise via `grantTwoWay` — never
-   * simply what the tree declared.
+   * is `OutOnly` unless the tree declared `TwoWay` AND the seam granted it via
+   * `grantTwoWay` — never simply what the tree declared.
    */
   readonly channel: GuestChannel;
   /**
@@ -87,7 +87,9 @@ export interface GuestSeamContext {
  *   the no-seam default must not be.
  * - `gateBubble ctx rawBubble` returns the function the guest's dispatches run
  *   through. A gate may drop, transform, or pass through.
- * - `grantTwoWay ctx` decides whether this mount gets a `TwoWay` channel.
+ * - `grantTwoWay ctx` decides whether a mount that DECLARED `TwoWay` gets it.
+ *   It is consulted only for such a mount: an `OutOnly` declaration is never
+ *   upgraded, whatever the seam would say.
  *   `() => false` is the safe policy and the one to write unless a specific
  *   mount genuinely needs host→guest push.
  *
@@ -182,8 +184,11 @@ export const deriveGuestPrivilege = (
 
   // The grant decision reads the CLAMPED context, so a policy sees what will
   // happen by default and what was asked for, and says yes or no to the
-  // difference.
-  const twoWayGranted = seam !== undefined && seam.grantTwoWay(clampedCtx);
+  // difference. There is a difference only when the tree ASKED for `TwoWay`:
+  // a mount declaring `OutOnly` is never upgraded past its own declaration, and
+  // the seam is not consulted for it.
+  const twoWayGranted =
+    declaredDirection === 'TwoWay' && seam !== undefined && seam.grantTwoWay(clampedCtx);
   const channel: GuestChannel = twoWayGranted
     ? { ...spec.channel, direction: 'TwoWay' }
     : clampedChannel;

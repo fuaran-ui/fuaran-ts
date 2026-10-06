@@ -21,7 +21,7 @@ import {
   replayStream,
   verifyChain,
 } from '../src/index.js';
-import type { PersistContext } from '../src/index.js';
+import type { IOpStreamSink, PersistContext } from '../src/index.js';
 
 const nid = (s: string): NodeId => s as NodeId;
 
@@ -162,6 +162,54 @@ describe('applyAndPersist', () => {
     await applyAndPersist(sink, ctx, ops[1]!, dashboard('root', [leaf('a'), leaf('b')]));
     const [record] = await sink.replay('s', 1, 1);
     expect(record!.promptId).toBe('p-42');
+  });
+
+  // Phase 2077: both calls read latestSequence 0 and appended sequence 1; the
+  // sink rejected the second as a duplicate, the best-effort persist swallowed
+  // it, and that apply's record was lost.
+  it('allocates distinct sequences to concurrent persists on one stream', async () => {
+    const sink = createInMemorySink<unknown>();
+    const sinkErrors: unknown[] = [];
+    const ctx: PersistContext = {
+      streamId: 's',
+      userId: 'u',
+      now: fixedClock(),
+      onSinkError: (e) => sinkErrors.push(e),
+    };
+    const tree = dashboard('root', [leaf('a'), leaf('b')]);
+    const results = await Promise.all([
+      applyAndPersist(sink, ctx, ops[0]!, tree),
+      applyAndPersist(sink, ctx, ops[2]!, tree),
+    ]);
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(sinkErrors).toEqual([]);
+    const persisted = await sink.replay('s', 1, 10);
+    expect(persisted.map((r) => r.sequence)).toEqual([1, 2]);
+    expect(verifyChain(persisted)).toBeUndefined();
+  });
+
+  // Phase 2077: before, a missing previous record chained the new one to the
+  // genesis hash and appended it.
+  it('treats a missing previous record as an error, not a genesis link', async () => {
+    const inner = createInMemorySink<unknown>();
+    const gapped: IOpStreamSink<unknown> = {
+      append: (r) => inner.append(r),
+      replay: () => Promise.resolve([]),
+      latestSequence: () => Promise.resolve(4),
+      streams: () => inner.streams(),
+    };
+    const sinkErrors: unknown[] = [];
+    const ctx: PersistContext = {
+      streamId: 's',
+      userId: 'u',
+      now: fixedClock(),
+      onSinkError: (e) => sinkErrors.push(e),
+    };
+    const r = await applyAndPersist(gapped, ctx, ops[1]!, dashboard('root', [leaf('a')]));
+    expect(r.ok).toBe(true);
+    expect(sinkErrors).toHaveLength(1);
+    expect(String(sinkErrors[0])).toMatch(/no record for it/);
+    expect(await inner.latestSequence('s')).toBe(0);
   });
 });
 

@@ -351,4 +351,34 @@ describe('FuaranGenerated — the render half', () => {
     expect(probe.html()).toContain('role="alert"');
     expect(probe.html()).toContain('Access denied');
   });
+
+  // Phase 2077: before, a held tree won over `error`, so once a first tree
+  // existed a failed turn rendered exactly as a successful one.
+  it('shows the error BESIDE a held tree when a later turn fails', async () => {
+    let deny = false;
+    const probe = await mount((url, init) =>
+      deny
+        ? Promise.resolve({
+            status: 401,
+            text: () => Promise.resolve(JSON.stringify({ Reason: 'token expired' })),
+          })
+        : mockFetch(url, init),
+    );
+
+    await act(async () => {
+      await probe.state().generate('a metric strip');
+    });
+    const treeOnly = probe.html();
+    expect(treeOnly).not.toContain('role="alert"');
+
+    deny = true;
+    await act(async () => {
+      await probe.state().generate('break it');
+    });
+
+    expect(probe.html()).toContain('role="alert"');
+    expect(probe.html()).toContain('Access denied: token expired');
+    // The held tree is still rendered after the alert.
+    expect(probe.html()).toContain(treeOnly);
+  });
 });

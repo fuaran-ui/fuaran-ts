@@ -224,7 +224,11 @@ export type Destination =
  */
 export const classifyDestination = (url: string): Destination => {
   const safe = sanitizeUrl(url);
-  if (safe === undefined) return { kind: 'rejected' };
+  return safe === undefined ? { kind: 'rejected' } : classifySanitized(safe);
+};
+
+/** The destination of a URL the scheme floor has ALREADY accepted. */
+const classifySanitized = (safe: string): Destination => {
   if (safe === '') return { kind: 'local' };
   const scheme = schemeOf(safe);
   // No scheme reaching here is same-origin: `sanitizeUrl` has already refused
@@ -269,21 +273,22 @@ export const checkDestination = (
   cls: EgressClass,
   url: string,
 ): EgressVerdict => {
-  const dest = classifyDestination(url);
+  // Sanitised ONCE: the URL an allowed verdict carries is the one classified.
+  const safe = sanitizeUrl(url);
+  if (safe === undefined) return { kind: 'unsafeUrl' };
+  const dest = classifySanitized(safe);
   switch (dest.kind) {
     case 'rejected':
       return { kind: 'unsafeUrl' };
     case 'local':
-      return policy.allowLocal
-        ? { kind: 'allowed', url: sanitizeUrl(url) ?? '' }
-        : { kind: 'localDenied', cls };
+      return policy.allowLocal ? { kind: 'allowed', url: safe } : { kind: 'localDenied', cls };
     case 'nonNetwork':
       return policy.allowNonNetwork
-        ? { kind: 'allowed', url: sanitizeUrl(url) ?? '' }
+        ? { kind: 'allowed', url: safe }
         : { kind: 'nonNetworkDenied', scheme: dest.scheme, cls };
     case 'remote':
       return isDeclaredOrigin(policy, cls, dest.host)
-        ? { kind: 'allowed', url: sanitizeUrl(url) ?? '' }
+        ? { kind: 'allowed', url: safe }
         : { kind: 'undeclaredOrigin', host: dest.host, cls };
   }
 };

@@ -13,6 +13,9 @@
 //  is the boundary, and a value of the branded type is proof the bound held.
 //  Callers who want a non-throwing path wrap the call in try/catch (or use the
 //  `try*` variants, which return `Result`).
+//
+//  Each throwing constructor is `unwrap(tryX(...))`: the `try*` variant is the
+//  ONE place a bound is checked, so the two paths cannot drift apart.
 // ============================================================================
 
 import type { Result } from './result.js';
@@ -26,6 +29,14 @@ export class BoundedConstructionError extends Error {
   }
 }
 
+/** The throwing half of every constructor: the `try*` result, or its error thrown. */
+const unwrap = <T>(result: Result<T, string>): T => {
+  if (!result.ok) {
+    throw new BoundedConstructionError(result.error);
+  }
+  return result.value;
+};
+
 // ─── NonEmptyString ──────────────────────────────────────────────────────────
 
 /** A string guaranteed to contain at least one non-whitespace character. */
@@ -33,10 +44,7 @@ export type NonEmptyString = string & { readonly __brand: 'NonEmptyString' };
 
 /** Parse a string into a `NonEmptyString`. Throws on empty / whitespace-only input. */
 export function nonEmptyString(value: string): NonEmptyString {
-  if (value.trim() === '') {
-    throw new BoundedConstructionError('value must be a non-empty string');
-  }
-  return value as NonEmptyString;
+  return unwrap(tryNonEmptyString(value));
 }
 
 /** Non-throwing `nonEmptyString`. */
@@ -53,15 +61,7 @@ export type BoundedString = string & { readonly __brand: 'BoundedString' };
 
 /** Parse a string into a `BoundedString`. Throws on an invalid bound or out-of-bound length. */
 export function boundedString(minLen: number, maxLen: number, value: string): BoundedString {
-  if (minLen > maxLen) {
-    throw new BoundedConstructionError(`invalid bound: minLen ${minLen} exceeds maxLen ${maxLen}`);
-  }
-  if (value.length < minLen || value.length > maxLen) {
-    throw new BoundedConstructionError(
-      `string length ${value.length} is outside [${minLen}, ${maxLen}]`,
-    );
-  }
-  return value as BoundedString;
+  return unwrap(tryBoundedString(minLen, maxLen, value));
 }
 
 /** Non-throwing `boundedString`. */
@@ -92,22 +92,23 @@ export type BoundedInt<Min extends number, Max extends number> = number & {
   readonly __max: Max;
 };
 
-/** Parse an integer into a `BoundedInt<min, max>`. Throws on an invalid bound or out-of-range value. */
+/**
+ * Parse an integer into a `BoundedInt<min, max>`. Throws on an invalid bound, a
+ * value that is not an integer (`NaN`, an infinity, `2.5`), or an out-of-range
+ * value.
+ */
 export function boundedInt<Min extends number, Max extends number>(
   min: Min,
   max: Max,
   value: number,
 ): BoundedInt<Min, Max> {
-  if (min > max) {
-    throw new BoundedConstructionError(`invalid bound: min ${min} exceeds max ${max}`);
-  }
-  if (value < min || value > max) {
-    throw new BoundedConstructionError(`value ${value} is outside [${min}, ${max}]`);
-  }
-  return value as BoundedInt<Min, Max>;
+  return unwrap(tryBoundedInt(min, max, value));
 }
 
-/** Non-throwing `boundedInt`. */
+/**
+ * Non-throwing `boundedInt`. `NaN` and fractional values are refused: both
+ * slip past a pair of range comparisons, and neither is an integer.
+ */
 export function tryBoundedInt<Min extends number, Max extends number>(
   min: Min,
   max: Max,
@@ -115,6 +116,9 @@ export function tryBoundedInt<Min extends number, Max extends number>(
 ): Result<BoundedInt<Min, Max>, string> {
   if (min > max) {
     return err(`invalid bound: min ${min} exceeds max ${max}`);
+  }
+  if (!Number.isInteger(value)) {
+    return err(`value ${value} is not an integer`);
   }
   if (value < min || value > max) {
     return err(`value ${value} is outside [${min}, ${max}]`);
@@ -132,13 +136,7 @@ export type Fraction = number & { readonly __brand: 'Fraction' };
 
 /** Parse a float into a `Fraction`. Throws on NaN, infinity, or any value outside `[0, 1]`. */
 export function fraction(value: number): Fraction {
-  if (Number.isNaN(value) || !Number.isFinite(value)) {
-    throw new BoundedConstructionError('fraction must be a finite number');
-  }
-  if (value < 0 || value > 1) {
-    throw new BoundedConstructionError(`fraction ${value} is outside [0, 1]`);
-  }
-  return value as Fraction;
+  return unwrap(tryFraction(value));
 }
 
 /** Non-throwing `fraction`. */

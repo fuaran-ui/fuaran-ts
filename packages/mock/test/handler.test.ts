@@ -119,6 +119,16 @@ describe('@fuaran-ui/mock — the contract-faithful handler', () => {
     }
   });
 
+  // Phase 2077: before, `{"prompt":5}` threw a TypeError (`prompt.includes`)
+  // out of the handler instead of answering 400.
+  it("a non-string prompt is the endpoint's own 400, not a thrown TypeError", () => {
+    for (const bodyText of ['{"prompt":5}', '{"prompt":{"a":1}}', '{"Prompt":true}']) {
+      const reply = handleTurnBody(bodyText);
+      expect(reply.status, bodyText).toBe(400);
+      expect((reply.body as ErrorBody).error.code, bodyText).toBe('BAD_REQUEST');
+    }
+  });
+
   it('every refusal the endpoint emits can be REQUESTED, so a client can test its error paths', () => {
     const cases: ReadonlyArray<readonly [string, number, string]> = [
       ['mock:access-denied', 401, 'ACCESS_DENIED'],

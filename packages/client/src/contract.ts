@@ -31,7 +31,9 @@ export const SURFACE_VERSION = '1.2.0';
  *  signals a breaking surface revision the client predates. */
 export function isSurfaceVersionCompatible(echoed: string): boolean {
   const major = (v: string): string => (v.split('.')[0] ?? '').trim();
-  return major(echoed) === major(SURFACE_VERSION) && major(echoed) !== '';
+  // `SURFACE_VERSION` has a non-empty major, so equality alone already refuses
+  // an echo whose major is empty.
+  return major(echoed) === major(SURFACE_VERSION);
 }
 
 /** Well-known `RecoverableError.code` values this CLIENT synthesises, as

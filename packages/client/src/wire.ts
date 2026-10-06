@@ -101,13 +101,34 @@ function parseAppliedOps(raw: unknown): AppliedOp[] {
   return ops;
 }
 
-const TURN_STAGES: readonly TurnStage[] = ['access-token', 'provider', 'parse', 'apply'];
+/** Each stage keyed by its spelling with case and separators removed, so the
+ *  canonical `access-token` and the retired PascalCase `AccessToken` (and
+ *  `Apply`, `Parse`, `Provider`) read as the same stage. */
+const TURN_STAGES_BY_FOLDED_LABEL: ReadonlyMap<string, TurnStage> = new Map<string, TurnStage>([
+  ['accesstoken', 'access-token'],
+  ['provider', 'provider'],
+  ['parse', 'parse'],
+  ['apply', 'apply'],
+]);
 
-function asStage(v: unknown): TurnStage {
+/** The stage a label names, in either spelling — or `undefined` when the label
+ *  is absent or names no stage this client knows. Unknown is NOT a stage: the
+ *  caller decides what an unknown label falls back to, so a spelling the header
+ *  promises to tolerate never lands on the terminal `provider` by accident. */
+function readStage(v: unknown): TurnStage | undefined {
   const s = asString(v);
-  return s !== undefined && (TURN_STAGES as readonly string[]).includes(s)
-    ? (s as TurnStage)
-    : 'provider';
+  return s === undefined
+    ? undefined
+    : TURN_STAGES_BY_FOLDED_LABEL.get(s.replace(/[-_\s]/g, '').toLowerCase());
+}
+
+/** The stage of a refusal envelope. A label this client does not know (or no
+ *  label at all) falls back to `provider` — the transport stage, terminal to
+ *  the repair loop — because a stage the client cannot read is one it cannot
+ *  claim a re-emission would fix. A KNOWN stage in either spelling is never
+ *  folded into that fallback. */
+function asStage(v: unknown): TurnStage {
+  return readStage(v) ?? 'provider';
 }
 
 /** Parse a JSON body into its root object, or `undefined` — so a 200 can be
@@ -136,14 +157,63 @@ export function malformedResponse(detail: string): TurnResult {
   return failed('provider', CLIENT_CODES.malformedResponse, detail);
 }
 
+/** The raw source text of the LAST top-level member named `key` in a JSON
+ *  object document (the member `JSON.parse` keeps), or `undefined`. `text` has
+ *  already parsed, so the scan only has to find boundaries: strings (with their
+ *  escapes) are skipped whole, and brackets are counted outside them. */
+function rawMemberText(text: string, key: string): string | undefined {
+  let i = text.indexOf('{') + 1;
+  let found: string | undefined;
+  const skipWs = (): void => {
+    while (i < text.length && /\s/.test(text[i]!)) i++;
+  };
+  const skipString = (): void => {
+    i++; // the opening quote
+    while (i < text.length && text[i] !== '"') i += text[i] === '\\' ? 2 : 1;
+    i++; // the closing quote
+  };
+  for (;;) {
+    skipWs();
+    if (i >= text.length || text[i] !== '"') return found;
+    const keyStart = i;
+    skipString();
+    const name: unknown = JSON.parse(text.slice(keyStart, i));
+    skipWs();
+    i++; // the colon
+    skipWs();
+    const valueStart = i;
+    let depth = 0;
+    while (i < text.length) {
+      const c = text[i]!;
+      if (c === '"') {
+        skipString();
+        continue;
+      }
+      if (c === '{' || c === '[') depth++;
+      else if (c === '}' || c === ']') {
+        if (depth === 0) break;
+        depth--;
+      } else if (c === ',' && depth === 0) break;
+      i++;
+    }
+    if (name === key) found = text.slice(valueStart, i).trimEnd();
+    if (text[i] === ',') i++;
+  }
+}
+
 /** The produced tree's canonical wire JSON, however the reply carried it. The
  *  deployed endpoint writes `tree` as an OBJECT; a proxy or mock may write it
- *  as a JSON string, and the retired shape called it `TreeJson`. */
-function readTree(body: Record<string, unknown>): string | undefined {
+ *  as a JSON string, and the retired shape called it `TreeJson`.
+ *
+ *  An object tree is returned as the BYTES the reply carried for it, not
+ *  re-serialised: `JSON.stringify` of the parsed value rewrites numbers (`1.0`
+ *  becomes `1`), escapes and whitespace, and the repair loop depends on the tree
+ *  crossing back unchanged (see {@link toWireBody}). */
+function readTree(body: Record<string, unknown>, bodyText: string): string | undefined {
+  const canonical = body['tree'] !== undefined && body['tree'] !== null;
   const raw = pick(body, 'tree', 'TreeJson');
-  const asObject = asRecord(raw);
-  if (asObject !== undefined) {
-    return JSON.stringify(asObject);
+  if (asRecord(raw) !== undefined) {
+    return rawMemberText(bodyText, canonical ? 'tree' : 'TreeJson');
   }
   const asText = asString(raw);
   return asText !== undefined && asText.trim() !== '' ? asText : undefined;
@@ -176,7 +246,7 @@ export function parseProducedDetail(status: number, bodyText: string): ProducedD
     return undefined;
   }
   const body = parseJson(bodyText);
-  if (body === undefined || readTree(body) === undefined) {
+  if (body === undefined || readTree(body, bodyText) === undefined) {
     return undefined;
   }
   const count = pick(body, 'opsApplied', 'OpsApplied');
@@ -206,7 +276,7 @@ export function parseTurnResponse(status: number, bodyText: string): TurnResult 
   const envelope = asRecord(pick(body, 'error', 'Error')) ?? body;
 
   if (status === 200) {
-    const treeJson = readTree(body);
+    const treeJson = readTree(body, bodyText);
     if (treeJson === undefined) {
       return malformedResponse('the endpoint replied 200 with no tree');
     }

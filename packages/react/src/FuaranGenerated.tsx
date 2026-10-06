@@ -50,26 +50,33 @@ export function FuaranGenerated<TMsg = unknown>(
 ): ReactElement | null {
   const { state, loading, empty, renderError, ...rendererProps } = props;
 
+  const errorSlot =
+    state.error === undefined ? undefined : renderError !== undefined ? (
+      renderError(state.error)
+    ) : (
+      <p role="alert">{describeTurnError(state.error)}</p>
+    );
+
   // A held tree keeps rendering while the next turn is in flight, so the UI does
   // not blank out mid-edit; the loading slot only shows when there is nothing yet.
+  // A failed turn does not replace the held tree (it is still the current
+  // state), but its error is shown BESIDE it, so the `renderError` slot is never
+  // silently swallowed once a first tree exists.
   if (state.tree !== undefined) {
-    return <FuaranRenderer<TMsg> {...rendererProps} tree={state.tree} />;
+    return (
+      <>
+        {errorSlot}
+        <FuaranRenderer<TMsg> {...rendererProps} tree={state.tree} />
+      </>
+    );
   }
 
   if (state.status === 'generating') {
     return <>{loading ?? <p role="status">Generating…</p>}</>;
   }
 
-  if (state.error !== undefined) {
-    return (
-      <>
-        {renderError !== undefined ? (
-          renderError(state.error)
-        ) : (
-          <p role="alert">{describeTurnError(state.error)}</p>
-        )}
-      </>
-    );
+  if (errorSlot !== undefined) {
+    return <>{errorSlot}</>;
   }
 
   return empty !== undefined ? <>{empty}</> : null;

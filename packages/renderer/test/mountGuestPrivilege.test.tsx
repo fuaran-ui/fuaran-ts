@@ -245,21 +245,21 @@ describe('Mount — the OutOnly clamp (Phase 1021)', () => {
 
   it('an OutOnly tree under a granting seam is NOT silently upgraded past its own declaration', () => {
     // `grantTwoWay` answers "may this mount have the upgrade it asked for". A
-    // tree that asked for nothing gets a grant it never requested only if the
-    // host's policy says yes — which is the host's call, and is recorded here so
-    // a future change to that reading is visible rather than incidental.
+    // tree that asked for nothing is never upgraded, even under a seam that
+    // grants unconditionally — two-way needs BOTH the declaration and the grant
+    // (Phase 2077; before it, `grantTwoWay: () => true` upgraded this mount).
+    const consulted = vi.fn(() => true);
     const granting: GuestSeam = {
       wrapRuntime: (_ctx, host) => host,
       gateBubble: (_ctx, raw) => raw,
-      grantTwoWay: (ctx) => ctx.declaredDirection === 'TwoWay',
+      grantTwoWay: consulted,
     };
-    const privilege = deriveGuestPrivilege(
-      declaration(outOnly),
-      { warn: vi.fn() },
-      () => {},
-      granting,
-    );
+    const warn = vi.fn();
+    const privilege = deriveGuestPrivilege(declaration(outOnly), { warn }, () => {}, granting);
     expect(privilege.channel.direction).toBe('OutOnly');
+    expect(privilege.twoWayGranted).toBe(false);
+    expect(consulted).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('a guest dispatch reaches the host only through the scope-tagged bubble', () => {

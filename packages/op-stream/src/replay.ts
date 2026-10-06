@@ -94,10 +94,47 @@ const previousHashFor = async <TMsg>(
   if (sequence === 1) return genesisPreviousHash;
   const prev = await sink.replay(streamId, sequence - 1, sequence - 1);
   const prior = prev[0];
-  // latestSequence reported >0 but the prior record is missing — sink invariant
-  // violation. Best-effort: use the genesis hash; a later verifyChain surfaces
-  // the gap as OutOfOrder / PreviousHashMismatch.
-  return prior === undefined ? genesisPreviousHash : prior.hash;
+  // latestSequence reported >0 but the prior record is missing — a sink
+  // invariant violation. It is an ERROR, not a reason to chain to the genesis
+  // hash: a record linked to genesis mid-stream is a forged-looking chain, not
+  // a durable one.
+  if (prior === undefined) {
+    throw new Error(
+      `op-stream: stream '${streamId}' reports sequence ${sequence - 1} but the sink returned no record for it; refusing to chain sequence ${sequence} to the genesis hash.`,
+    );
+  }
+  return prior.hash;
+};
+
+// Sequence allocation is read-then-write (`latestSequence`, then `append` at
+// latest + 1) with awaits between, so two concurrent persists on one stream
+// would read the same latest and the sink would reject the second as a
+// duplicate. Allocation is therefore serialised per (sink, stream): each
+// persist runs after the previous one on that stream has settled. Keyed weakly
+// on the sink so a discarded sink takes its queue with it.
+const streamTails = new WeakMap<object, Map<string, Promise<void>>>();
+
+const serialisedPerStream = <T>(
+  sink: object,
+  streamId: string,
+  work: () => Promise<T>,
+): Promise<T> => {
+  let tails = streamTails.get(sink);
+  if (tails === undefined) {
+    tails = new Map<string, Promise<void>>();
+    streamTails.set(sink, tails);
+  }
+  const queue = tails;
+  const run = (queue.get(streamId) ?? Promise.resolve()).then(work);
+  const tail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  queue.set(streamId, tail);
+  void tail.then(() => {
+    if (queue.get(streamId) === tail) queue.delete(streamId);
+  });
+  return run;
 };
 
 const appendRecordAt = async <TMsg>(
@@ -135,8 +172,22 @@ const appendRecordAt = async <TMsg>(
     resultEnvelope,
   };
 
+  await sink.append(record);
+};
+
+/**
+ * Persist `op` at the stream's next sequence. A missing previous record or an
+ * `append` rejection goes to `ctx.onSinkError`; nothing is appended with a
+ * guessed chain link.
+ */
+const persist = async <TMsg>(
+  sink: IOpStreamSink<TMsg>,
+  ctx: PersistContext,
+  op: TreeOp<TMsg>,
+): Promise<void> => {
+  const latest = await sink.latestSequence(ctx.streamId);
   try {
-    await sink.append(record);
+    await appendRecordAt(sink, ctx, latest + 1, op);
   } catch (error) {
     if (ctx.onSinkError !== undefined) {
       try {
@@ -151,8 +202,10 @@ const appendRecordAt = async <TMsg>(
 /**
  * Apply `op` against `tree`. On success, persist a hash-chained `OpRecord` to
  * `sink` and return the updated tree; on failure, return the apply error
- * unchanged (the sink is not touched). `sink.append` failures are surfaced via
- * `ctx.onSinkError` but do NOT propagate — durability is best-effort. Port of
+ * unchanged (the sink is not touched). `sink.append` failures — and a stream
+ * whose previous record is missing — are surfaced via `ctx.onSinkError` but do
+ * NOT propagate — durability is best-effort. Concurrent calls on one
+ * (sink, stream) are serialised, so each is allocated its own sequence. Port of
  * F# `ApplyPersist.applyAndPersist`.
  */
 export const applyAndPersist = async <TMsg>(
@@ -163,7 +216,6 @@ export const applyAndPersist = async <TMsg>(
 ): Promise<Result<Node<TMsg>, ApplyError>> => {
   const result = apply(tree, op);
   if (!result.ok) return { ok: false, error: result.error };
-  const latest = await sink.latestSequence(ctx.streamId);
-  await appendRecordAt(sink, ctx, latest + 1, op);
+  await serialisedPerStream(sink, ctx.streamId, () => persist(sink, ctx, op));
   return { ok: true, value: result.value.newTree };
 };

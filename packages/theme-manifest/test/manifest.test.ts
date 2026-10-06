@@ -105,6 +105,30 @@ describe('decode', () => {
   it('returns ok:false on malformed JSON', () => {
     expect(decodeManifest('{ not json').ok).toBe(false);
   });
+
+  // Phase 2077 asked for a missing required member to be refused. Measured, the
+  // premise does not hold for this host alone: the cross-host byte law
+  // (`encode.test.ts`, bytes copied from the Rust oracle) OMITS a member at its
+  // default, so each input below is the CANONICAL encoding of the value it
+  // decodes to. Refusing them is a wire decision for every host at once; this
+  // pin goes red if one host tightens alone.
+  it('decodes default-omitted members as the defaults the canonical encoder omitted', () => {
+    const r = decodeManifest(
+      '{"tokens":{},"roles":[{"token":"t"}],"invariants":[' +
+        '{"kind":"ContrastFloor","role":"x"},' +
+        '{"kind":"UsageBudget","token":"t"},' +
+        '{"kind":"MotionVoice"},' +
+        '{"kind":"NotAKind"}]}',
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.roles).toEqual([{ role: { kind: 'Named', name: '' }, tokenName: 't' }]);
+    expect(r.value.invariants.map((i) => i.kind)).toEqual([
+      { kind: 'ContrastFloor', role: 'x', minRatio: 0 },
+      { kind: 'UsageBudget', token: 't', targetPct: 0, tolerancePct: 0 },
+      { kind: 'MotionVoice', budget: { maxDurationMs: 0 } },
+    ]);
+  });
 });
 
 describe('projectors', () => {

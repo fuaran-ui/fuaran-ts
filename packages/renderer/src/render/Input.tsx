@@ -1128,7 +1128,7 @@ function LocalInput<TMsg>({
   return (
     <input
       className="fuaran-form-input"
-      type={numeric ? 'text' : 'text'}
+      type="text"
       inputMode={numeric ? 'numeric' : undefined}
       id={fieldId}
       required={required}

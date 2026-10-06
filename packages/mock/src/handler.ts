@@ -106,8 +106,16 @@ const REQUESTABLE_REFUSALS: ReadonlyArray<{
   },
 ];
 
+/** The prompt, or `''` when no member carries a STRING — a request body is
+ *  untrusted JSON, so `{"prompt":5}` reaches here despite the declared type, and
+ *  must be the endpoint's own 400 rather than a TypeError on `.includes`. */
 function readPrompt(req: MockTurnRequest): string {
-  return req.prompt ?? req.Prompt ?? '';
+  const members = req as Record<string, unknown>;
+  for (const name of ['prompt', 'Prompt']) {
+    const value = members[name];
+    if (typeof value === 'string') return value;
+  }
+  return '';
 }
 
 function readCurrentTree(req: MockTurnRequest): string | undefined {

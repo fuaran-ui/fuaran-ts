@@ -7,6 +7,15 @@
 //    2. A vanilla DTCG file — the token group tree at top level, no wrapper
 //       (decodes to a manifest with tokens populated, empty roles/invariants).
 //  Detection: presence of a top-level `tokens` key selects shape (1).
+//
+//  A missing invariant / role-binding member decodes to its default (`0`, `''`,
+//  `Named('')`) and an unknown invariant kind is dropped. That is NOT an
+//  oversight to tighten here alone (Phase 2077 measured it): the cross-host
+//  manifest byte law this package's encoder certifies against omits a member
+//  at its default, so `{"kind":"ContrastFloor","role":"x"}` IS the canonical
+//  encoding of a ratio-0 floor on three hosts. Refusing it is a wire decision
+//  for every host at once, and `test/manifest.test.ts` pins the tolerance so a
+//  one-host tightening goes red.
 // ============================================================================
 
 import {

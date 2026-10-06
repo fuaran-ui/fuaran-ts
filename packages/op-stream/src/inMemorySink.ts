@@ -10,7 +10,10 @@
 //  The F# sink guards its dictionaries with a per-instance lock for concurrent
 //  appends; JS is single-threaded and these methods never `await` between read
 //  and write, so the `(streamId, sequence)` uniqueness invariant holds without
-//  a lock.
+//  a lock. Sequence ALLOCATION (latestSequence, then append at latest + 1) is
+//  the caller's read-then-write and does await between the two; the sink
+//  rejects the loser of a race as a duplicate, and `applyAndPersist` serialises
+//  allocation per stream so it never loses one.
 // ============================================================================
 
 import type { Checkpoint, IOpStreamCheckpointSink, OpRecord } from './types.js';

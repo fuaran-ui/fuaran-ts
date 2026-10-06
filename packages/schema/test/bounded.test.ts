@@ -36,6 +36,26 @@ describe('boundedInt', () => {
     const bad = tryBoundedInt(0, 10, 99);
     expect(bad.ok).toBe(false);
   });
+  // Phase 2077: both were accepted before — the only checks were two range
+  // comparisons, and `NaN` fails both, `2.5` sits inside the bound.
+  it('rejects NaN and a fractional value, on both paths', () => {
+    expect(() => boundedInt(0, 10, Number.NaN)).toThrow(/not an integer/);
+    expect(() => boundedInt(0, 10, 2.5)).toThrow(BoundedConstructionError);
+    expect(tryBoundedInt(0, 10, Number.NaN)).toEqual({
+      ok: false,
+      error: 'value NaN is not an integer',
+    });
+    expect(tryBoundedInt(0, 10, 2.5)).toEqual({ ok: false, error: 'value 2.5 is not an integer' });
+    expect(tryBoundedInt(0, 10, Number.POSITIVE_INFINITY).ok).toBe(false);
+  });
+
+  it('throws exactly the error its try* variant returns', () => {
+    const r = tryBoundedInt(0, 10, 11);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(() => boundedInt(0, 10, 11)).toThrow(r.error);
+    }
+  });
 });
 
 describe('boundedString', () => {
