@@ -11,11 +11,10 @@ import type {
   FragmentId,
   HashStrictness,
   JsonValue,
-  LayoutKind,
   Node,
   NodeId,
-  NodeKind,
 } from '@fuaran-ui/schema';
+import { ChildReach, children, mapChildren } from '@fuaran-ui/ops';
 
 import { type BindingSources, renderText, resolve, tryResolveTextSource } from './bindings.js';
 import {
@@ -557,85 +556,25 @@ const readFileBlob = (
 
 // ─── Fragment collection + namespacing (Phase 61) ────────────────────────────
 
-const layoutChildren = <TMsg>(layout: LayoutKind<TMsg>): readonly Node<TMsg>[] =>
-  layout.spec.children;
+// Both walks fold over the shared child enumeration at `ChildReach.lookup`: the
+// kind-held positions plus `state.onLoading` / `state.onEmpty`, which render in
+// place of their node and so can declare, reference and render fragments too.
 
 /** One-shot pre-render walk collecting every reachable FragmentDecl body. */
 export const collectFragments = <TMsg>(
   acc: Map<string, Node<TMsg>>,
   node: Node<TMsg>,
 ): Map<string, Node<TMsg>> => {
-  const kind = node.kind;
-  switch (kind.kind) {
-    case 'FragmentDecl':
-      acc.set(kind.spec.name, kind.spec.body);
-      return collectFragments(acc, kind.spec.body);
-    case 'Layout':
-      for (const child of layoutChildren(kind.layout)) collectFragments(acc, child);
-      return acc;
-    case 'ErrorBoundary':
-      collectFragments(acc, kind.spec.child);
-      collectFragments(acc, kind.spec.fallback);
-      return acc;
-    case 'Switch':
-      for (const c of kind.spec.cases) collectFragments(acc, c.child);
-      collectFragments(acc, kind.spec.default);
-      return acc;
-    default:
-      return acc;
-  }
+  if (node.kind.kind === 'FragmentDecl') acc.set(node.kind.spec.name, node.kind.spec.body);
+  for (const child of children(node, ChildReach.lookup)) collectFragments(acc, child);
+  return acc;
 };
 
 /** Rewrite every interior NodeId of a fragment body by prepending `prefix`. */
 export const namespaceNode = <TMsg>(prefix: string, node: Node<TMsg>): Node<TMsg> => ({
-  ...node,
+  ...mapChildren(node, ChildReach.lookup, (c) => namespaceNode(prefix, c)),
   id: (prefix + node.id) as NodeId,
-  kind: namespaceKind(prefix, node.kind),
 });
-
-const namespaceKind = <TMsg>(prefix: string, kind: NodeKind<TMsg>): NodeKind<TMsg> => {
-  switch (kind.kind) {
-    case 'Layout': {
-      const layout = kind.layout;
-      const newSpec = {
-        ...layout.spec,
-        children: layout.spec.children.map((c) => namespaceNode(prefix, c)),
-      };
-      return { kind: 'Layout', layout: { ...layout, spec: newSpec } as LayoutKind<TMsg> };
-    }
-    case 'ErrorBoundary':
-      return {
-        kind: 'ErrorBoundary',
-        spec: {
-          child: namespaceNode(prefix, kind.spec.child),
-          fallback: namespaceNode(prefix, kind.spec.fallback),
-        },
-      };
-    case 'Switch':
-      return {
-        kind: 'Switch',
-        spec: {
-          ...kind.spec,
-          // Phase 1535 — the whole case is carried through and only the child
-          // is rewritten. Naming `match` explicitly would have silently dropped
-          // `when` the moment it was added, which is precisely what happened
-          // here on the first build.
-          cases: kind.spec.cases.map((c) => ({
-            ...c,
-            child: namespaceNode(prefix, c.child),
-          })),
-          default: namespaceNode(prefix, kind.spec.default),
-        },
-      };
-    case 'FragmentDecl':
-      return {
-        kind: 'FragmentDecl',
-        spec: { ...kind.spec, body: namespaceNode(prefix, kind.spec.body) },
-      };
-    default:
-      return kind;
-  }
-};
 
 /** The FragmentId-keyed string for a fragment name (the brand is structurally a string). */
 export const fragmentKey = (name: FragmentId): string => name;

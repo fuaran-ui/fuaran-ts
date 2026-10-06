@@ -27,13 +27,8 @@ import { describe, expect, it } from 'vitest';
 
 import type { Node, NodeId, Result } from '@fuaran-ui/schema';
 
-import {
-  allNodeIds,
-  childSlots,
-  findLayoutParent,
-  findNode,
-  layoutChildren,
-} from '../src/apply.js';
+import { allNodeIds, findLayoutParent, layoutChildren } from '../src/apply.js';
+import { children, findNode, Reach } from '../src/children.js';
 import {
   apply,
   canPlace,
@@ -99,7 +94,7 @@ const fixture = (): N =>
   ]);
 
 const childIdsIn = (root: N, parentId: string): string[] => {
-  const p = findNode(parentId, root);
+  const p = findNode(root, parentId);
   if (p === undefined) throw new Error(`parent '${parentId}' not found in tree`);
   return (layoutChildren(p) ?? []).map((c) => c.id as string);
 };
@@ -134,7 +129,7 @@ const allDistinct = (root: N): boolean => {
  */
 const kindShape = (n: N): string[] => [
   n.kind.kind,
-  ...childSlots(n).flatMap((s) => kindShape(s.child)),
+  ...children(n, Reach.lookup).flatMap((c) => kindShape(c)),
 ];
 
 const insertedChild = (op: TreeOp<unknown>): N => {
@@ -424,7 +419,7 @@ describe('Placement.duplicateOp / pasteOp', () => {
     const r = duplicateOp(t, nid('left'), at('right', last));
     expect(r.ok).toBe(true);
     if (r.ok) {
-      const source = findNode('left', t);
+      const source = findNode(t, 'left');
       expect(source).toBeDefined();
       expect(kindShape(insertedChild(r.value))).toEqual(kindShape(source!));
     }
@@ -542,7 +537,7 @@ const targetArb = (t: N): fc.Arbitrary<PlaceTarget> =>
     .map(([parentId, placement]) => ({ parentId, placement }));
 
 const childNodeIds = (root: N, parentId: NodeId): NodeId[] => {
-  const p = findNode(parentId as string, root);
+  const p = findNode(root, parentId as string);
   return p === undefined ? [] : (layoutChildren(p) ?? []).map((c) => c.id);
 };
 
@@ -677,7 +672,7 @@ const duplicateCorresponds = (t: N, source: NodeId, target: PlaceTarget): boolea
   if (r.ok) {
     const appliedR = apply(t, r.value);
     if (!appliedR.ok) return false;
-    const sourceNode = findNode(source as string, t);
+    const sourceNode = findNode(t, source as string);
     if (sourceNode === undefined) return false;
     const ids = rawIds(appliedR.value.newTree);
     if (ids.length !== new Set(ids).size) return false;
@@ -695,13 +690,13 @@ const duplicateCorresponds = (t: N, source: NodeId, target: PlaceTarget): boolea
   }
   switch (r.error.kind) {
     case 'NodeNotFound':
-      return r.error.nodeId === source && findNode(source as string, t) === undefined;
+      return r.error.nodeId === source && findNode(t, source as string) === undefined;
     case 'ParentNotFound':
       return (
-        r.error.parentId === target.parentId && findNode(target.parentId as string, t) === undefined
+        r.error.parentId === target.parentId && findNode(t, target.parentId as string) === undefined
       );
     case 'ChildlessKind': {
-      const p = findNode(r.error.parentId as string, t);
+      const p = findNode(t, r.error.parentId as string);
       return p !== undefined && layoutChildren(p) === undefined;
     }
     case 'UnknownAnchor':
@@ -716,7 +711,7 @@ const duplicateCorresponds = (t: N, source: NodeId, target: PlaceTarget): boolea
 };
 
 const pasteCorresponds = (tA: N, tB: N, source: NodeId, target: PlaceTarget): boolean => {
-  const lifted = findNode(source as string, tA);
+  const lifted = findNode(tA, source as string);
   // Only tree ids are generated; a ghost source is not the paste contract
   // under test.
   if (lifted === undefined) return true;
@@ -732,9 +727,9 @@ const pasteCorresponds = (tA: N, tB: N, source: NodeId, target: PlaceTarget): bo
   }
   switch (r.error.kind) {
     case 'ParentNotFound':
-      return findNode(r.error.parentId as string, tB) === undefined;
+      return findNode(tB, r.error.parentId as string) === undefined;
     case 'ChildlessKind': {
-      const p = findNode(r.error.parentId as string, tB);
+      const p = findNode(tB, r.error.parentId as string);
       return p !== undefined && layoutChildren(p) === undefined;
     }
     case 'UnknownAnchor':

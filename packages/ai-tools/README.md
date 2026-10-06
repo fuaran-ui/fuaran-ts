@@ -10,7 +10,7 @@ Walk a typed Fuaran tree and report each node's kind, its bound binding slots (w
 npm install @fuaran-ui/ai-tools
 ```
 
-`@fuaran-ui/schema` is a peer dependency; `react` is an **optional** peer (only the `FuaranIntrospectionProvider` / `useFuaranIntrospection` hook needs it — the introspection functions are React-free).
+`@fuaran-ui/schema` and `@fuaran-ui/ops` are peer dependencies (`findNode` and the child enumeration are the ops package's own); `react` is an **optional** peer (only the `FuaranIntrospectionProvider` / `useFuaranIntrospection` hook needs it — the introspection functions are React-free).
 
 ## Usage
 

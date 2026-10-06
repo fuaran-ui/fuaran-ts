@@ -994,6 +994,39 @@ template's pins follow `schema` 0.25.0 and `ui` 0.23.0.
 OK over 21 publishable packages, 6 of them already on the registry and checked against their
 PUBLISHED ranges.
 
+### `@fuaran-ui/ops` 0.30.0, `@fuaran-ui/ai-tools` 0.14.0, `@fuaran-ui/renderer` 0.27.0, `@fuaran-ui/renderer-server` 0.25.0 — one child enumeration (Phase 2046)
+
+**`@fuaran-ui/ops` gains the one answer to what a node's children are** (additive): `children(node,
+reach)`, `mapChildren(node, reach, f)`, `findNode(tree, id)`, the named reaches `ChildReach`
+(`structural`, `kindHeld`, `lookup`, `all`) and the position classes `ChildPosition` (`Ordered`,
+`Arm`, `StateArm`, `Fallback`, `Argument`). A reach is passed explicitly; there is no default. The
+apply engine, the merge, the placement helpers, the seeding pass, the introspection surface and both
+renderers' fragment walks now fold over it, and their private walks are deleted. Apply results, merge
+results and the wire are unchanged: each walker keeps the reach it already had, now named.
+
+**Recorded breaking change — `@fuaran-ui/renderer` 0.27.0 and `@fuaran-ui/renderer-server` 0.25.0,
+rendered output.** Fragment collection and namespacing descend through `state.onLoading` /
+`state.onEmpty` (`ChildReach.lookup`). A `FragmentDecl` held in a state alternative is now
+registered, so its references expand where they rendered the unresolved placeholder; and a fragment
+body's state alternatives are now namespaced, so two references to one fragment no longer emit
+duplicate node ids there. `collectFragments` and `namespaceNode` keep their signatures. The server
+renderer now uses the client renderer's two functions rather than a copy.
+
+**`@fuaran-ui/ai-tools` 0.14.0 — consumer-visible: `@fuaran-ui/ops` is a new PEER DEPENDENCY.**
+`findNode` IS the ops package's `findNode`, so an install of `@fuaran-ui/ai-tools` without
+`@fuaran-ui/ops` now warns (or fails under strict peers) where it used to be satisfied by
+`@fuaran-ui/schema` alone. The exported `findNode(tree, id)` keeps its argument order — the ops
+package's internal lookup, which took `(id, tree)`, moved to the public order, so there is one
+lookup and one order — and it now finds a node held under `state.onLoading` / `state.onEmpty`, as
+the apply engine always did. `childNodes`, `walkNodes`, `findNodes` and `inspectTree` keep the
+kind-held reach (`ChildReach.kindHeld`) and their output is unchanged.
+
+**One ordering change in the seeding pass, and only on a defective tree.** `collectStateSeeds` now
+walks a node's own payload before its descendants. First-declaration-wins therefore picks a
+different seed only when an ancestor and a descendant both declare one key — the duplicate
+declaration FUARAN106 already reports. The structural descent that keeps it a superset of the typed
+walk is unchanged.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:

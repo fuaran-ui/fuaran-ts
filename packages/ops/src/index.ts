@@ -83,6 +83,15 @@ export {
 } from './apply.js';
 export type { TreeOp } from './treeOp.js';
 export {
+  // The one child enumeration (Phase 2046): what a node's children are, with
+  // the reach a walker means stated explicitly.
+  children,
+  mapChildren,
+  findNode,
+  Reach as ChildReach,
+  type Position as ChildPosition,
+} from './children.js';
+export {
   // Placement helpers — placed insert / move / nudge + the clone verbs.
   // Every helper emits ops built from the existing TreeOp vocabulary
   // (InsertChild / MoveNode / ReorderChildren / Batch): no new op case, no

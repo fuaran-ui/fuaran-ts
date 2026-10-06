@@ -134,6 +134,50 @@ describe('server semantics', () => {
     const html = renderToHtml(tree);
     expect(html).toContain('data-fuaran-node-id="ref.inner"');
   });
+
+  it('resolves a FragmentRef whose declaration sits in a state.onLoading alternative (Phase 2046)', () => {
+    // The declaration is reachable only through a node's `state.onLoading`.
+    // Collection used to stop at the kind, so the ref rendered the unresolved
+    // placeholder although the tree declares the fragment.
+    const style = { tone: 'Default', weight: 'Standard', emphasis: 'Normal' } as const;
+    const md = (id: string, text: string) => ({
+      id,
+      kind: {
+        kind: 'Display',
+        display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: text } } },
+      },
+      state: {},
+      style,
+    });
+    const decl = {
+      id: 'decl',
+      kind: { kind: 'FragmentDecl', spec: { name: 'tpl', body: md('inner', 'hi') } },
+      state: {},
+      style,
+    };
+    const tree = {
+      id: 'root',
+      kind: {
+        kind: 'Layout',
+        layout: {
+          kind: 'Box',
+          spec: {
+            layout: { kind: 'Auto' },
+            role: 'Dashboard',
+            children: [
+              { ...md('host', 'body'), state: { onLoading: decl } },
+              { id: 'ref', kind: { kind: 'FragmentRef', spec: { name: 'tpl' } }, state: {}, style },
+            ],
+          },
+        },
+      },
+      state: {},
+      style,
+    } as unknown as Parameters<typeof renderToHtml>[0];
+    const html = renderToHtml(tree);
+    expect(html).not.toContain('fuaran-fragment-unresolved-placeholder');
+    expect(html).toContain('data-fuaran-node-id="ref.inner"');
+  });
 });
 
 describe('BehindView (Phase 1812)', () => {

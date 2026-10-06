@@ -17,6 +17,7 @@
 //  … expression forms) for the same fixture tree.
 // ============================================================================
 
+import { ChildReach, children, findNode } from '@fuaran-ui/ops';
 import type { Binding, Node, NodeKind, TextSource } from '@fuaran-ui/schema';
 
 /**
@@ -553,22 +554,14 @@ export const bindingForSlot = (
 
 // ─── Structural traversal ─────────────────────────────────────────────────────
 
-/** The structural children of a node — layout children, boundary arms, fragment body. */
-export const childNodes = <TMsg>(node: Node<TMsg>): readonly Node<TMsg>[] => {
-  const kind = node.kind;
-  switch (kind.kind) {
-    case 'Layout':
-      return kind.layout.spec.children;
-    case 'ErrorBoundary':
-      return [kind.spec.child, kind.spec.fallback];
-    case 'Switch':
-      return [...kind.spec.cases.map((c) => c.child), kind.spec.default];
-    case 'FragmentDecl':
-      return [kind.spec.body];
-    default:
-      return [];
-  }
-};
+/**
+ * The structural children of a node — layout children, boundary arms, switch
+ * cases, fragment body: the shared enumeration at `ChildReach.kindHeld`, the
+ * tree as its kinds shape it (the `state` alternatives render INSTEAD of a node
+ * and are not part of its introspected structure).
+ */
+export const childNodes = <TMsg>(node: Node<TMsg>): readonly Node<TMsg>[] =>
+  children(node, ChildReach.kindHeld);
 
 /** Depth-first walk of every node in the tree, root first. */
 export const walkNodes = <TMsg>(tree: Node<TMsg>): Node<TMsg>[] => {
@@ -581,9 +574,13 @@ export const walkNodes = <TMsg>(tree: Node<TMsg>): Node<TMsg>[] => {
   return acc;
 };
 
-/** Find the first node with `id` (depth-first), or `undefined`. */
-export const findNode = <TMsg>(tree: Node<TMsg>, id: string): Node<TMsg> | undefined =>
-  walkNodes(tree).find((n) => (n.id as string) === id);
+/**
+ * Find the first node with `id` (depth-first), or `undefined`. This IS the ops
+ * package's `findNode` — one lookup, one argument order (tree first) — so a
+ * node held under `state.onLoading` / `state.onEmpty` is found here exactly as
+ * the apply engine finds it.
+ */
+export { findNode };
 
 /** Every node matching `predicate`, depth-first. Port of F# `findNodes`. */
 export const findNodes = <TMsg>(

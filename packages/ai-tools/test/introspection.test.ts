@@ -9,13 +9,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
-import { decodeNode } from '@fuaran-ui/ops';
+import { decodeNode, findNode as opsFindNode } from '@fuaran-ui/ops';
 import type { Binding, Node, NodeId, SemanticStyle, StateBehaviour } from '@fuaran-ui/schema';
 
 import {
   bindingExpression,
   extractBindingSlots,
   slotDependencies,
+  findNode,
   findNodes,
   getNodeState,
   inspectTree,
@@ -318,5 +319,23 @@ describe('slotDependencies — the reactive inputs a slot reads', () => {
 
     for (const s of staticSlots) expect(s.dependsOn).toEqual([]);
     expect(staticSlots.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── Phase 2046 — one findNode, one argument order ───────────────────────────
+
+describe('findNode agrees with the apply engine on what is in the tree', () => {
+  const withEmpty: Node<unknown> = {
+    ...metric('m', stateBinding('k')),
+    state: { onEmpty: metric('nothing-yet', stateBinding('k2')) },
+  };
+
+  it('finds a node held under state.onEmpty', () => {
+    expect(findNode(withEmpty, 'nothing-yet')?.id).toBe('nothing-yet');
+    expect(getNodeState(withEmpty, 'nothing-yet')?.kind).toBe('Metric');
+  });
+
+  it('is the ops package lookup, tree first', () => {
+    expect(findNode).toBe(opsFindNode);
   });
 });

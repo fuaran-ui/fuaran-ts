@@ -29,6 +29,14 @@ import type {
   StateBehaviour,
 } from '@fuaran-ui/schema';
 
+import {
+  children,
+  findNode,
+  mapChildren,
+  orderedChildren,
+  Reach,
+  withOrderedChildren,
+} from './children.js';
 import { coerce } from './decode.js';
 import type { TreeOp } from './treeOp.js';
 
@@ -79,109 +87,31 @@ const idOf = (n: N): string => n.id as string;
 
 // ─── Tree walkers ────────────────────────────────────────────────────────────
 //
-// The walkers below are exported for intra-package reuse (the placement
+// The walkers below fold over the one child enumeration in children.ts, at
+// `Reach.lookup` (layout children, the kind-held arms and the two `state`
+// alternatives). They are exported for intra-package reuse (the placement
 // helpers in placement.ts pre-check against the SAME traversal the apply
 // engine runs, so helper verdicts and apply verdicts cannot drift). They are
 // deliberately not re-exported from the package index.
 
-export interface ChildSlot {
-  readonly child: N;
-  readonly rebuild: (c: N) => N;
-}
+const withLayoutChildren = (n: N, cs: readonly N[]): N =>
+  n.kind.kind === 'Layout' ? { ...n, kind: withOrderedChildren(n.kind, cs) } : n;
 
-const withLayoutChildren = (n: N, children: readonly N[]): N => {
-  const k = n.kind;
-  if (k.kind !== 'Layout') return n;
-  const layout = { ...k.layout, spec: { ...k.layout.spec, children } } as LayoutKind<unknown>;
-  return { ...n, kind: { kind: 'Layout', layout } };
-};
+/** The layout's ordered child list, or `undefined` for a kind that has none. */
+export const layoutChildren = (n: N): readonly N[] | undefined => orderedChildren(n);
 
-export const layoutChildren = (n: N): readonly N[] | undefined =>
-  n.kind.kind === 'Layout' ? n.kind.layout.spec.children : undefined;
-
-/** Every immediate sub-node position, each with a rebuild that swaps it. */
-export const childSlots = (n: N): ChildSlot[] => {
-  const slots: ChildSlot[] = [];
-  const k = n.kind;
-  if (k.kind === 'Layout') {
-    const children = k.layout.spec.children;
-    children.forEach((child, i) => {
-      slots.push({
-        child,
-        rebuild: (c) =>
-          withLayoutChildren(
-            n,
-            children.map((cc, j) => (j === i ? c : cc)),
-          ),
-      });
-    });
-  } else if (k.kind === 'ErrorBoundary') {
-    slots.push({
-      child: k.spec.child,
-      rebuild: (c) => ({ ...n, kind: { kind: 'ErrorBoundary', spec: { ...k.spec, child: c } } }),
-    });
-    slots.push({
-      child: k.spec.fallback,
-      rebuild: (c) => ({ ...n, kind: { kind: 'ErrorBoundary', spec: { ...k.spec, fallback: c } } }),
-    });
-  } else if (k.kind === 'Switch') {
-    // Phase 392: each case child + the default are editable slots (mirrors the
-    // ErrorBoundary handling above); the match values are preserved on rebuild.
-    k.spec.cases.forEach((cse, i) => {
-      slots.push({
-        child: cse.child,
-        rebuild: (c) => ({
-          ...n,
-          kind: {
-            kind: 'Switch',
-            spec: {
-              ...k.spec,
-              cases: k.spec.cases.map((cc, j) => (j === i ? { ...cc, child: c } : cc)),
-            },
-          },
-        }),
-      });
-    });
-    slots.push({
-      child: k.spec.default,
-      rebuild: (c) => ({ ...n, kind: { kind: 'Switch', spec: { ...k.spec, default: c } } }),
-    });
-  } else if (k.kind === 'FragmentDecl') {
-    slots.push({
-      child: k.spec.body,
-      rebuild: (c) => ({ ...n, kind: { kind: 'FragmentDecl', spec: { ...k.spec, body: c } } }),
-    });
-  }
-  if (n.state.onLoading !== undefined) {
-    const onLoading = n.state.onLoading;
-    slots.push({
-      child: onLoading,
-      rebuild: (c) => ({ ...n, state: { ...n.state, onLoading: c } }),
-    });
-  }
-  if (n.state.onEmpty !== undefined) {
-    const onEmpty = n.state.onEmpty;
-    slots.push({ child: onEmpty, rebuild: (c) => ({ ...n, state: { ...n.state, onEmpty: c } }) });
-  }
-  return slots;
-};
-
-export const findNode = (target: string, n: N): N | undefined => {
-  if (idOf(n) === target) return n;
-  for (const s of childSlots(n)) {
-    const r = findNode(target, s.child);
-    if (r !== undefined) return r;
-  }
-  return undefined;
-};
-
+/** Rebuild the one node `target` through `f`, or `undefined` when absent. */
 const mapNode = (target: string, f: (n: N) => N, n: N): N | undefined => {
   if (idOf(n) === target) return f(n);
-  for (const s of childSlots(n)) {
-    const r = mapNode(target, f, s.child);
-    if (r !== undefined) return s.rebuild(r);
-  }
-  return undefined;
+  let hit = false;
+  const rebuilt = mapChildren(n, Reach.lookup, (c) => {
+    if (hit) return c;
+    const r = mapNode(target, f, c);
+    if (r === undefined) return c;
+    hit = true;
+    return r;
+  });
+  return hit ? rebuilt : undefined;
 };
 
 /**
@@ -192,23 +122,22 @@ const mapNode = (target: string, f: (n: N) => N, n: N): N | undefined => {
  */
 export const allNodeIds = (n: N): string[] => [
   idOf(n),
-  ...childSlots(n).flatMap((s) => allNodeIds(s.child)),
+  ...children(n, Reach.lookup).flatMap((c) => allNodeIds(c)),
 ];
 
 export const findLayoutParent = (target: string, n: N): N | undefined => {
-  const children = layoutChildren(n);
-  if (children !== undefined && children.some((c) => idOf(c) === target)) return n;
-  for (const s of childSlots(n)) {
-    const r = findLayoutParent(target, s.child);
+  if (children(n, Reach.structural).some((c) => idOf(c) === target)) return n;
+  for (const c of children(n, Reach.lookup)) {
+    const r = findLayoutParent(target, c);
     if (r !== undefined) return r;
   }
   return undefined;
 };
 
 export const isAncestor = (ancestorId: string, descendantId: string, root: N): boolean => {
-  const a = findNode(ancestorId, root);
+  const a = findNode(root, ancestorId);
   if (a === undefined) return false;
-  return childSlots(a).some((s) => allNodeIds(s.child).includes(descendantId));
+  return children(a, Reach.lookup).some((c) => allNodeIds(c).includes(descendantId));
 };
 
 // ─── UpdateProp field dispatch ───────────────────────────────────────────────
@@ -1002,7 +931,7 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
       const parsed = parsePath(op.path);
       if (!parsed.ok)
         return fail('PathInvalid', `Path '${op.path}' is structurally invalid: ${parsed.error}.`);
-      const targetNode = findNode(op.target, root);
+      const targetNode = findNode(root, op.target);
       if (targetNode === undefined)
         return fail('NodeNotFound', `Node '${op.target}' not found in tree.`);
       const segs = parsed.value;
@@ -1070,7 +999,7 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
       break;
     }
     case 'ReplaceBinding': {
-      const targetNode = findNode(op.target, root);
+      const targetNode = findNode(root, op.target);
       if (targetNode === undefined)
         return fail('NodeNotFound', `Node '${op.target}' not found in tree.`);
       const newKind = replaceBinding(op.slot, op.binding, targetNode.kind);
@@ -1101,7 +1030,7 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
       return ok(newTree);
     }
     case 'InsertChild': {
-      const parent = findNode(op.parentId, root);
+      const parent = findNode(root, op.parentId);
       if (parent === undefined)
         return fail('ParentNotFound', `Parent node '${op.parentId}' not found in tree.`);
       const children = layoutChildren(parent);
@@ -1154,10 +1083,10 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
           'KindMismatch',
           'Cannot move a node into its own descendant (would create a cycle).',
         );
-      const moving = findNode(op.target, root);
+      const moving = findNode(root, op.target);
       if (moving === undefined)
         return fail('NodeNotFound', `Node '${op.target}' not found in tree.`);
-      const newParent = findNode(op.newParentId, root);
+      const newParent = findNode(root, op.newParentId);
       if (newParent === undefined)
         return fail('ParentNotFound', `Parent node '${op.newParentId}' not found in tree.`);
       if (layoutChildren(newParent) === undefined)
@@ -1177,7 +1106,7 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
       return ok(inserted.value);
     }
     case 'ReorderChildren': {
-      const parent = findNode(op.parentId, root);
+      const parent = findNode(root, op.parentId);
       if (parent === undefined)
         return fail('ParentNotFound', `Parent node '${op.parentId}' not found in tree.`);
       const children = layoutChildren(parent);

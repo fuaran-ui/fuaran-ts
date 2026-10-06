@@ -113,11 +113,16 @@ import {
   CODE_HIGHLIGHT_TIER,
   chartLowerSpecOf,
   codeHighlight,
+  // Phase 2046 — fragment collection and namespacing are the client renderer's
+  // own, over the shared child enumeration, so the two tiers resolve and
+  // rename fragments over the same positions (this tier used to carry a copy).
+  collectFragments,
   drawingSvg,
   gridHostWindows,
   gridPage,
   gridWindow,
   mathMl,
+  namespaceNode,
   windowRowCount,
   windowRowIndex,
 } from '@fuaran-ui/renderer';
@@ -245,81 +250,6 @@ const cspStyle = (
     return { classSuffix: ` ${className}`, styleAttrs: [] };
   }
   return { classSuffix: '', styleAttrs: [['style', permissive]] };
-};
-
-// ─── Fragment collection + namespacing (port of @fuaran-ui/renderer/context) ──
-
-const collectFragments = (
-  acc: Map<string, Node<unknown>>,
-  node: Node<unknown>,
-): Map<string, Node<unknown>> => {
-  const kind = node.kind;
-  switch (kind.kind) {
-    case 'FragmentDecl':
-      acc.set(kind.spec.name, kind.spec.body);
-      return collectFragments(acc, kind.spec.body);
-    case 'Layout':
-      for (const child of kind.layout.spec.children) collectFragments(acc, child);
-      return acc;
-    case 'ErrorBoundary':
-      collectFragments(acc, kind.spec.child);
-      collectFragments(acc, kind.spec.fallback);
-      return acc;
-    case 'Switch':
-      for (const c of kind.spec.cases) collectFragments(acc, c.child);
-      collectFragments(acc, kind.spec.default);
-      return acc;
-    default:
-      return acc;
-  }
-};
-
-const namespaceNode = (prefix: string, node: Node<unknown>): Node<unknown> => ({
-  ...node,
-  id: (prefix + node.id) as Node<unknown>['id'],
-  kind: namespaceKind(prefix, node.kind),
-});
-
-const namespaceKind = (prefix: string, kind: Node<unknown>['kind']): Node<unknown>['kind'] => {
-  switch (kind.kind) {
-    case 'Layout': {
-      const layout = kind.layout;
-      const newSpec = {
-        ...layout.spec,
-        children: layout.spec.children.map((c) => namespaceNode(prefix, c)),
-      };
-      return { kind: 'Layout', layout: { ...layout, spec: newSpec } as LayoutKind<unknown> };
-    }
-    case 'ErrorBoundary':
-      return {
-        kind: 'ErrorBoundary',
-        spec: {
-          child: namespaceNode(prefix, kind.spec.child),
-          fallback: namespaceNode(prefix, kind.spec.fallback),
-        },
-      };
-    case 'Switch':
-      return {
-        kind: 'Switch',
-        spec: {
-          ...kind.spec,
-          // Phase 1535 — the whole case is carried through and only the child
-          // is rewritten; naming `match` explicitly would silently drop `when`.
-          cases: kind.spec.cases.map((c) => ({
-            ...c,
-            child: namespaceNode(prefix, c.child),
-          })),
-          default: namespaceNode(prefix, kind.spec.default),
-        },
-      };
-    case 'FragmentDecl':
-      return {
-        kind: 'FragmentDecl',
-        spec: { ...kind.spec, body: namespaceNode(prefix, kind.spec.body) },
-      };
-    default:
-      return kind;
-  }
 };
 
 // ─── Unwired-action detection (UX hint only — port of context.ts) ─────────────

@@ -68,7 +68,6 @@
 import {
   defaults,
   type Accessibility,
-  type LayoutKind,
   type Node,
   type NodeKind,
   type SemanticStyle,
@@ -76,6 +75,7 @@ import {
   type TextSource,
 } from '@fuaran-ui/schema';
 
+import { children, Reach, withOrderedChildren } from './children.js';
 import { encodeNode } from './encode.js';
 
 type N = Node<unknown>;
@@ -187,23 +187,18 @@ export type MergeResult =
 const rawId = (n: N): string => n.id as unknown as string;
 
 // ─── child traversal (Layout children only — the structural facet) ───────────
+//
+// The merge's structural facet is the ordered child list (`Reach.structural`);
+// every other position a node holds a child in is part of the KIND's bytes and
+// merges with the kind facet.
 
-const childrenOf = (n: N): readonly N[] =>
-  n.kind.kind === 'Layout' ? n.kind.layout.spec.children : [];
+const childrenOf = (n: N): readonly N[] => children(n, Reach.structural);
 
-/** The kind with its (layout) children replaced — for the childless-kind probe
- * and for rebuilding after the children facet merges. Non-layout kinds carry no
- * structural children, so they are returned unchanged. */
-const withKindChildren = (k: NodeKind<unknown>, children: readonly N[]): NodeKind<unknown> =>
-  k.kind === 'Layout'
-    ? {
-        kind: 'Layout',
-        // The per-layout spec is a discriminated union; the children-bearing
-        // shape is uniform across members, so the cast is sound (mirrors
-        // apply.ts `withLayoutChildren`).
-        layout: { ...k.layout, spec: { ...k.layout.spec, children } } as LayoutKind<unknown>,
-      }
-    : k;
+/** The kind with its ordered children replaced — for the childless-kind probe
+ * and for rebuilding after the children facet merges. Kinds without an ordered
+ * list are returned unchanged. */
+const withKindChildren = (k: NodeKind<unknown>, cs: readonly N[]): NodeKind<unknown> =>
+  withOrderedChildren(k, cs);
 
 const childlessKind = (k: NodeKind<unknown>): NodeKind<unknown> => withKindChildren(k, []);
 

@@ -29,10 +29,19 @@
 //  any slot, including one added tomorrow. It is a superset of the typed walk,
 //  never a subset, so the two hosts cannot disagree by the TS side missing a
 //  slot.
+//
+//  It moves from node to node through the package's one child enumeration
+//  (`children` at `Reach.all`, Phase 2046) and walks each node's OWN payload
+//  structurally, skipping the positions that enumeration hands it. So a node
+//  is walked before its descendants, and a node position the enumeration does
+//  not know is still reached by the structural descent — the superset
+//  property above survives the shared enumeration.
 // ============================================================================
 
 import type { Node } from '@fuaran-ui/schema';
 import { controlValueDefaults } from '@fuaran-ui/schema';
+
+import { children, Reach } from './children.js';
 
 /**
  * Keys under this prefix are HOST-OWNED: a tree-originated write naming one is
@@ -129,8 +138,14 @@ export const collectStateSeeds = <TMsg>(tree: Node<TMsg>): Readonly<Record<strin
   const seeds: Record<string, unknown> = {};
   const seen = new Set<unknown>();
 
-  const visit = (value: unknown, autoBindFieldId: string | undefined): void => {
+  const visit = (
+    value: unknown,
+    autoBindFieldId: string | undefined,
+    childNodes: ReadonlySet<unknown>,
+  ): void => {
     if (value === null || typeof value !== 'object') return;
+    // A child node is walked as a node of its own, after this one.
+    if (childNodes.has(value)) return;
     // A tree is a value, but a host may hand us one with shared sub-objects;
     // the guard keeps the walk linear and makes a cyclic host structure
     // terminate rather than hang.
@@ -138,7 +153,7 @@ export const collectStateSeeds = <TMsg>(tree: Node<TMsg>): Readonly<Record<strin
     seen.add(value);
 
     if (Array.isArray(value)) {
-      for (const item of value) visit(item, autoBindFieldId);
+      for (const item of value) visit(item, autoBindFieldId, childNodes);
       return;
     }
 
@@ -173,11 +188,18 @@ export const collectStateSeeds = <TMsg>(tree: Node<TMsg>): Readonly<Record<strin
       // binding sits (`kind.value`), and is otherwise inherited unchanged so it
       // reaches through the `FormFieldKind` wrapper to the value slot.
       const established = k === 'kind' && fieldId !== undefined ? fieldId : undefined;
-      visit(v, established ?? autoBindFieldId);
+      visit(v, established ?? autoBindFieldId, childNodes);
     }
   };
 
-  visit(tree, undefined);
+  const visitNode = (node: Node<TMsg>): void => {
+    if (seen.has(node)) return;
+    const kids = children(node, Reach.all);
+    visit(node, undefined, new Set<unknown>(kids));
+    for (const c of kids) visitNode(c);
+  };
+
+  visitNode(tree);
   return seeds;
 };
 

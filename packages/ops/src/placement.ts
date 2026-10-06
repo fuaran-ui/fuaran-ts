@@ -28,22 +28,16 @@
 //
 //  The clone verbs rewrite a copied subtree's ids to a fresh, collision-free
 //  set before `InsertChild`. The remap runs over the WHOLE traversal surface —
-//  the apply engine's own `childSlots` walker, not just the structural child
-//  lists — because the id-uniqueness contract is tree-wide, and a clone that
+//  the apply engine's own reach (`Reach.lookup` in children.ts), not just the
+//  structural child lists — because the id-uniqueness contract is tree-wide, and a clone that
 //  kept an old id inside a Switch case or an ErrorBoundary slot would smuggle
 //  a duplicate past it.
 // ============================================================================
 
 import type { Node, NodeId, Result } from '@fuaran-ui/schema';
 
-import {
-  allNodeIds,
-  childSlots,
-  findLayoutParent,
-  findNode,
-  isAncestor,
-  layoutChildren,
-} from './apply.js';
+import { allNodeIds, findLayoutParent, isAncestor, layoutChildren } from './apply.js';
+import { findNode, mapChildren, Reach } from './children.js';
 import type { TreeOp } from './treeOp.js';
 
 // ─── Placement vocabulary ────────────────────────────────────────────────────
@@ -164,7 +158,7 @@ const sameOrder = (a: readonly NodeId[], b: readonly NodeId[]): boolean =>
  * (absent parent / childless kind).
  */
 const containerChildren = (root: N, parentId: NodeId): Result<readonly NodeId[], PlaceError> => {
-  const parent = findNode(parentId as string, root);
+  const parent = findNode(root, parentId as string);
   if (parent === undefined) return err({ kind: 'ParentNotFound', parentId });
   const children = layoutChildren(parent);
   if (children === undefined) return err({ kind: 'ChildlessKind', parentId });
@@ -336,22 +330,6 @@ export const nudgeOp = <TMsg>(
 // ─── Clone verbs ─────────────────────────────────────────────────────────────
 
 /**
- * Rebuild every immediate sub-node position of `n` (the whole traversal
- * surface — layout children AND the non-structural slots) through `f`. Slots
- * are re-read after each rebuild so successive replacements compose.
- */
-const mapImmediate = (n: N, f: (c: N) => N): N => {
-  let cur = n;
-  const count = childSlots(n).length;
-  for (let i = 0; i < count; i += 1) {
-    const slot = childSlots(cur)[i]!;
-    const mapped = f(slot.child);
-    if (mapped !== slot.child) cur = slot.rebuild(mapped);
-  }
-  return cur;
-};
-
-/**
  * Rewrite every id in `incoming` that collides with an id in `targetRoot` to a
  * fresh, collision-free one. Ids with no collision are preserved — a pasted
  * subtree keeps its identity where it can; a subtree duplicated within its own
@@ -373,7 +351,7 @@ const remapForInsert = (freshIds: FreshIds, targetRoot: N, incoming: N): N => {
   }
   if (rename.size === 0) return incoming;
   const rewrite = (node: N): N => {
-    const withChildren = mapImmediate(node, rewrite);
+    const withChildren = mapChildren(node, Reach.lookup, rewrite);
     const fresh = rename.get(withChildren.id as string);
     return fresh === undefined ? withChildren : { ...withChildren, id: fresh as NodeId };
   };
@@ -393,7 +371,7 @@ export const duplicateOpWith = <TMsg>(
   target: PlaceTarget,
 ): Result<TreeOp<TMsg>, PlaceError> => {
   const r = root as N;
-  const sub = findNode(source as string, r);
+  const sub = findNode(r, source as string);
   if (sub === undefined) return err({ kind: 'NodeNotFound', nodeId: source });
   return placeOp(root, remapForInsert(freshIds, r, sub) as Node<TMsg>, target);
 };
