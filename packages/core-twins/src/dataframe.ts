@@ -31,6 +31,7 @@ import type {
 import type { Result } from '@fuaran-ui/schema';
 
 import { num } from './canonFloat.js';
+import { daysFromCivil } from './civil.js';
 
 type DR<T> = Result<T, EvalError>;
 const dok = <T>(value: T): DR<T> => ({ ok: true, value });
@@ -475,7 +476,8 @@ const stringPred = (op: string, a: Cell, b: Cell): DR<Cell> => {
 
 /**
  * Days since 1970-01-01 for the first 10 chars (`YYYY-MM-DD`) of a date-like cell —
- * days-from-civil as pure integer math (fuaran-core#90, `dateDiffDays`). No host date library.
+ * days-from-civil as pure integer math (fuaran-core#90, `dateDiffDays`; the arithmetic is
+ * `./civil.ts`). No host date library.
  */
 const civilDays = (c: Cell): DR<number> => {
   if (c.kind === 'Date' || c.kind === 'Timestamp' || c.kind === 'Str') {
@@ -487,13 +489,7 @@ const civilDays = (c: Cell): DR<number> => {
     const m0 = tryParseInt(s.substring(5, 7));
     const d0 = tryParseInt(s.substring(8, 10));
     if (y0 === undefined || m0 === undefined || d0 === undefined) return bad();
-    const y = m0 <= 2 ? y0 - 1 : y0;
-    const era = Math.trunc((y >= 0 ? y : y - 399) / 400);
-    const yoe = y - era * 400;
-    const mp = (m0 + 9) % 12;
-    const doy = Math.trunc((153 * mp + 2) / 5) + d0 - 1;
-    const doe = yoe * 365 + Math.trunc(yoe / 4) - Math.trunc(yoe / 100) + doy;
-    return dok(era * 146097 + doe - 719468);
+    return dok(daysFromCivil(y0, m0, d0));
   }
   return derr(typeError('dateDiffDays expects date/timestamp/string operands'));
 };

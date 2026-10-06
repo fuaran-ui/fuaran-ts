@@ -3,6 +3,11 @@
 //
 //  Ports Fuaran.UI.LayoutObserver.{InMemoryLayoutObserver,BrowserLayoutObserver}.
 //
+//  The registry, subscribers, change detection, discovery and frame flush are
+//  the shared observer scaffolding (`@fuaran-ui/observer-core`, workspace-
+//  internal and bundled into this package); what is layout's own is below —
+//  the geometry snapshot, the derivation, and ResizeObserver discovery.
+//
 //   - InMemoryLayoutObserver: fixture-driven, substrate-free. Drives tests +
 //     non-browser hosts; walks a parent-pointer graph for ObserveTree.
 //   - BrowserLayoutObserver: ResizeObserver-backed self-discovery via
@@ -13,6 +18,14 @@
 //     ResizeObserver + a stubbed geometry snapshot (the TS analogue of the F#
 //     tier's Emit-wrapped browser surface).
 // ============================================================================
+
+import {
+  browserSurface,
+  createInMemoryObserver,
+  createObserver,
+  type BrowserObserver,
+  type InMemoryObserver,
+} from '@fuaran-ui/observer-core';
 
 import {
   deriveFlags,
@@ -45,127 +58,69 @@ export interface ILayoutObserver {
   unregister(nodeId: string): void;
 }
 
-const observationOf = (
-  nodeId: string,
-  options: LayoutObserverOptions,
-  input: LayoutInput,
-): LayoutObservation => ({
-  nodeId,
-  width: input.width,
-  height: input.height,
-  viewportX: input.elementRect[0],
-  viewportY: input.elementRect[1],
-  flags: deriveFlags(options, input),
+/** The layout half of the shared scaffolding: geometry in, layout flags out. */
+const layoutDerivation = (options: LayoutObserverOptions) => ({
+  policy: options,
+  flagsEqual,
+  derive: (nodeId: string, input: LayoutInput): LayoutObservation => ({
+    nodeId,
+    width: input.width,
+    height: input.height,
+    viewportX: input.elementRect[0],
+    viewportY: input.elementRect[1],
+    flags: deriveFlags(options, input),
+  }),
 });
 
-const emitTo = (
-  subscribers: readonly LayoutSubscriber[],
-  nodeId: string,
-  obs: LayoutObservation,
-): void => {
-  for (const subscriber of subscribers) {
-    try {
-      subscriber(nodeId, obs);
-    } catch {
-      // A subscriber throwing must not poison sibling subscribers.
-    }
-  }
-};
-
 // ─── InMemoryLayoutObserver ──────────────────────────────────────────────────
-
-interface LayoutFixture {
-  readonly input: LayoutInput;
-  readonly parent?: string;
-}
 
 /**
  * Fixture-driven observer — port of F# `InMemoryLayoutObserver`. Register a
  * `LayoutInput` fixture, assert the derived flags or the subscriber emission
  * pattern. `observeTree` walks a parent-pointer graph (the browser observer's
- * DOM walk is the production path).
+ * DOM walk is the production path). A bare `register` records an empty 0×0
+ * baseline so a renderer mount hook does not crash on it.
  */
 export class InMemoryLayoutObserver implements ILayoutObserver {
-  readonly #options: LayoutObserverOptions;
-  readonly #registry = new Map<string, LayoutFixture>();
-  readonly #lastFlags = new Map<string, readonly LayoutFlag[]>();
-  readonly #subscribers: LayoutSubscriber[] = [];
+  readonly #core: InMemoryObserver<LayoutInput, LayoutObservation>;
 
   constructor(options: LayoutObserverOptions = defaultLayoutObserverOptions) {
-    this.#options = options;
+    this.#core = createInMemoryObserver<LayoutInput, LayoutObservation, LayoutFlag>({
+      ...layoutDerivation(options),
+      baseline: () => ({ width: 0, height: 0, elementRect: [0, 0, 0, 0] }),
+    });
   }
 
   /** Register or replace a fixture; fires an initial emission unconditionally. */
   registerFixture(nodeId: string, input: LayoutInput, parent?: string): void {
-    const fixture: LayoutFixture = parent !== undefined ? { input, parent } : { input };
-    this.#registry.set(nodeId, fixture);
-    const obs = observationOf(nodeId, this.#options, input);
-    this.#lastFlags.set(nodeId, obs.flags);
-    emitTo(this.#subscribers, nodeId, obs);
+    this.#core.registerFixture(nodeId, input, parent);
   }
 
   /** Replace a registered node's input; honours `emitOnFlagChangeOnly`. No-op if absent. */
   update(nodeId: string, input: LayoutInput): void {
-    const existing = this.#registry.get(nodeId);
-    if (existing === undefined) return;
-    const next: LayoutFixture =
-      existing.parent !== undefined ? { input, parent: existing.parent } : { input };
-    this.#registry.set(nodeId, next);
-    const obs = observationOf(nodeId, this.#options, input);
-    const previous = this.#lastFlags.get(nodeId) ?? [];
-    this.#lastFlags.set(nodeId, obs.flags);
-    const shouldEmit = this.#options.emitOnFlagChangeOnly ? !flagsEqual(obs.flags, previous) : true;
-    if (shouldEmit) emitTo(this.#subscribers, nodeId, obs);
+    this.#core.update(nodeId, input);
   }
 
   observe(nodeId: string): LayoutObservation | undefined {
-    const fixture = this.#registry.get(nodeId);
-    return fixture === undefined ? undefined : observationOf(nodeId, this.#options, fixture.input);
+    return this.#core.observe(nodeId);
   }
 
   observeTree(rootNodeId: string): LayoutObservation[] {
-    if (!this.#registry.has(rootNodeId)) return [];
-    const children = new Map<string, string[]>();
-    for (const [nodeId, fixture] of this.#registry) {
-      if (fixture.parent !== undefined) {
-        const bucket = children.get(fixture.parent) ?? [];
-        bucket.push(nodeId);
-        children.set(fixture.parent, bucket);
-      }
-    }
-    // BFS so the result is deterministic by tree level then insertion order.
-    const acc: LayoutObservation[] = [];
-    const queue: string[] = [rootNodeId];
-    while (queue.length > 0) {
-      const nodeId = queue.shift()!;
-      const fixture = this.#registry.get(nodeId);
-      if (fixture !== undefined) acc.push(observationOf(nodeId, this.#options, fixture.input));
-      queue.push(...(children.get(nodeId) ?? []));
-    }
-    return acc;
+    return this.#core.observeTree(rootNodeId);
   }
 
   subscribe(handler: LayoutSubscriber): () => void {
-    this.#subscribers.push(handler);
-    return () => {
-      const i = this.#subscribers.indexOf(handler);
-      if (i >= 0) this.#subscribers.splice(i, 1);
-    };
+    return this.#core.subscribe(handler);
   }
 
-  register(nodeId: string, _element?: unknown): void {
-    // Bare register with no fixture creates an empty 0×0 baseline so calls from
-    // a renderer mount hook don't crash on the in-memory observer.
-    if (!this.#registry.has(nodeId)) this.registerFixture(nodeId, emptyBaseline());
+  register(nodeId: string, element?: unknown): void {
+    this.#core.register(nodeId, element);
   }
 
   unregister(nodeId: string): void {
-    this.#registry.delete(nodeId);
-    this.#lastFlags.delete(nodeId);
+    this.#core.unregister(nodeId);
   }
 }
-
-const emptyBaseline = (): LayoutInput => ({ width: 0, height: 0, elementRect: [0, 0, 0, 0] });
 
 // ─── BrowserLayoutObserver ───────────────────────────────────────────────────
 
@@ -209,179 +164,60 @@ export interface BrowserObserverDeps {
  * ResizeObserver-backed observer — port of F# `BrowserLayoutObserver`. Discovers
  * addressable elements via `[data-fuaran-node-id]` (the attribute the renderer
  * emits), reads geometry on the rAF tick, derives flags, and emits per the
- * debounce + change-detection policy. Construct, `subscribe`, and `dispose`.
+ * debounce + change-detection policy. A ResizeObserver on each registered
+ * element re-reads it when its geometry changes; a MutationObserver on the root
+ * discovers nodes as they mount and unmount. Construct, `subscribe`, and
+ * `dispose`.
  */
 export class BrowserLayoutObserver implements ILayoutObserver {
-  readonly #options: LayoutObserverOptions;
-  readonly #root: Element;
-  readonly #snapshot: (element: Element) => LayoutInput;
-  readonly #now: () => number;
-  readonly #requestFrame: (cb: () => void) => number;
-  readonly #cancelFrame: (handle: number) => void;
-
-  readonly #registry = new Map<string, Element>();
-  readonly #lastFlags = new Map<string, readonly LayoutFlag[]>();
-  readonly #lastEmitAt = new Map<string, number>();
-  readonly #lastObservation = new Map<string, LayoutObservation>();
-  readonly #subscribers: LayoutSubscriber[] = [];
-  readonly #pending = new Set<string>();
-  #rafHandle: number | undefined = undefined;
-  #disposed = false;
-
-  readonly #resizeObserver: ResizeObserverLike;
-  readonly #mutationObserver: MutationObserverLike;
+  readonly #core: BrowserObserver<LayoutObservation>;
 
   constructor(
     options: LayoutObserverOptions = defaultLayoutObserverOptions,
     deps: BrowserObserverDeps = {},
   ) {
-    this.#options = options;
-    this.#root = deps.root ?? (globalThis as { document?: { body: Element } }).document!.body;
-    this.#snapshot = deps.snapshot ?? domSnapshot;
-    this.#now = deps.now ?? (() => performance.now());
-    this.#requestFrame = deps.requestFrame ?? ((cb) => requestAnimationFrame(cb));
-    this.#cancelFrame = deps.cancelFrame ?? ((h) => cancelAnimationFrame(h));
-
     const RO =
       deps.ResizeObserverCtor ??
       (globalThis as { ResizeObserver?: BrowserObserverDeps['ResizeObserverCtor'] })
         .ResizeObserver!;
-    const MO =
-      deps.MutationObserverCtor ??
-      (globalThis as { MutationObserver?: BrowserObserverDeps['MutationObserverCtor'] })
-        .MutationObserver!;
-
-    this.#resizeObserver = new RO((entries) => {
-      for (const entry of entries) {
-        for (const [nodeId, element] of this.#registry) {
-          if (element === entry.target) {
-            this.#scheduleFlush(nodeId);
-            break;
-          }
-        }
-      }
+    this.#core = createObserver({
+      ...layoutDerivation(options),
+      surface: browserSurface(deps),
+      snapshot: deps.snapshot ?? domSnapshot,
+      discover: {
+        mutationInit: { childList: true, subtree: true },
+        rescheduleOnMutation: false,
+        watch: (schedule) =>
+          new RO((entries) => {
+            for (const entry of entries) schedule(entry.target);
+          }),
+      },
     });
-    this.#mutationObserver = new MO(() => this.#rescan());
-
-    this.#scanInitial();
-    this.#mutationObserver.observe(this.#root, { childList: true, subtree: true });
-  }
-
-  #buildObservation(nodeId: string, element: Element): LayoutObservation {
-    return observationOf(nodeId, this.#options, this.#snapshot(element));
-  }
-
-  #flush = (): void => {
-    this.#rafHandle = undefined;
-    const nowMs = this.#now();
-    const pending = [...this.#pending];
-    this.#pending.clear();
-
-    for (const nodeId of pending) {
-      const element = this.#registry.get(nodeId);
-      if (element === undefined) continue;
-      const obs = this.#buildObservation(nodeId, element);
-      const previousFlags = this.#lastFlags.get(nodeId) ?? [];
-      const previousEmitAt = this.#lastEmitAt.get(nodeId) ?? -1;
-      const initial = previousEmitAt < 0;
-      const respectsDebounce = initial || nowMs - previousEmitAt >= this.#options.debounceMs;
-      const flagsChanged = !flagsEqual(obs.flags, previousFlags);
-      const shouldEmit =
-        respectsDebounce && (initial || (this.#options.emitOnFlagChangeOnly ? flagsChanged : true));
-
-      this.#lastObservation.set(nodeId, obs);
-      if (shouldEmit) {
-        this.#lastFlags.set(nodeId, obs.flags);
-        this.#lastEmitAt.set(nodeId, nowMs);
-        emitTo(this.#subscribers, nodeId, obs);
-      }
-    }
-  };
-
-  #scheduleFlush(nodeId: string): void {
-    this.#pending.add(nodeId);
-    if (this.#rafHandle === undefined) this.#rafHandle = this.#requestFrame(this.#flush);
-  }
-
-  #registerElement(nodeId: string, element: Element): void {
-    if (!this.#registry.has(nodeId)) {
-      this.#registry.set(nodeId, element);
-      this.#resizeObserver.observe(element);
-      this.#scheduleFlush(nodeId);
-    }
-  }
-
-  #unregisterElement(nodeId: string): void {
-    const element = this.#registry.get(nodeId);
-    if (element === undefined) return;
-    this.#resizeObserver.unobserve(element);
-    this.#registry.delete(nodeId);
-    this.#lastFlags.delete(nodeId);
-    this.#lastEmitAt.delete(nodeId);
-    this.#lastObservation.delete(nodeId);
-  }
-
-  #scanInitial(): void {
-    for (const element of this.#root.querySelectorAll('[data-fuaran-node-id]')) {
-      const nodeId = element.getAttribute('data-fuaran-node-id');
-      if (nodeId) this.#registerElement(nodeId, element);
-    }
-  }
-
-  #rescan(): void {
-    const seen = new Set<string>();
-    for (const element of this.#root.querySelectorAll('[data-fuaran-node-id]')) {
-      const nodeId = element.getAttribute('data-fuaran-node-id');
-      if (nodeId) {
-        seen.add(nodeId);
-        this.#registerElement(nodeId, element);
-      }
-    }
-    for (const nodeId of [...this.#registry.keys()]) {
-      if (!seen.has(nodeId)) this.#unregisterElement(nodeId);
-    }
   }
 
   observe(nodeId: string): LayoutObservation | undefined {
-    const element = this.#registry.get(nodeId);
-    if (element !== undefined) return this.#buildObservation(nodeId, element);
-    return this.#lastObservation.get(nodeId);
+    return this.#core.observe(nodeId);
   }
 
   observeTree(rootNodeId: string): LayoutObservation[] {
-    const rootEl = this.#registry.get(rootNodeId);
-    if (rootEl === undefined) return [];
-    const result = [this.#buildObservation(rootNodeId, rootEl)];
-    for (const element of rootEl.querySelectorAll('[data-fuaran-node-id]')) {
-      const nodeId = element.getAttribute('data-fuaran-node-id');
-      if (nodeId) result.push(this.#buildObservation(nodeId, element));
-    }
-    return result;
+    return this.#core.observeTree(rootNodeId);
   }
 
   subscribe(handler: LayoutSubscriber): () => void {
-    this.#subscribers.push(handler);
-    return () => {
-      const i = this.#subscribers.indexOf(handler);
-      if (i >= 0) this.#subscribers.splice(i, 1);
-    };
+    return this.#core.subscribe(handler);
   }
 
   register(nodeId: string, element?: unknown): void {
-    if (element instanceof Element) this.#registerElement(nodeId, element);
+    this.#core.register(nodeId, element);
   }
 
   unregister(nodeId: string): void {
-    this.#unregisterElement(nodeId);
+    this.#core.unregister(nodeId);
   }
 
   /** Disconnect both observers + cancel any pending frame. */
   dispose(): void {
-    if (this.#disposed) return;
-    this.#disposed = true;
-    this.#resizeObserver.disconnect();
-    this.#mutationObserver.disconnect();
-    if (this.#rafHandle !== undefined) this.#cancelFrame(this.#rafHandle);
+    this.#core.dispose();
   }
 }
 

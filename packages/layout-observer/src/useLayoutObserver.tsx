@@ -17,8 +17,9 @@
 //    return <div ref={ref}><FuaranRenderer tree={tree} /></div>;
 // ============================================================================
 
-import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
+
+import { useObserver } from '@fuaran-ui/observer-core';
 
 import {
   defaultLayoutObserverOptions,
@@ -41,48 +42,33 @@ export interface UseLayoutObserverArgs {
   readonly enabled?: boolean;
 }
 
+/** Observation needs a ResizeObserver — the global, or one the caller injected
+ * via `deps` (the test / non-DOM-host path). */
+const canObserve = (args: UseLayoutObserverArgs): boolean =>
+  typeof (globalThis as { ResizeObserver?: unknown }).ResizeObserver !== 'undefined' ||
+  args.deps?.ResizeObserverCtor !== undefined;
+
+const create = (root: Element, args: UseLayoutObserverArgs): BrowserLayoutObserver =>
+  new BrowserLayoutObserver(args.options ?? defaultLayoutObserverOptions, {
+    root,
+    ...args.deps,
+  });
+
 /**
  * Attach a `BrowserLayoutObserver` to the rendered subtree under the returned
  * ref. Set the ref on a container that wraps `<FuaranRenderer>`; the observer
  * self-discovers the rendered nodes via `[data-fuaran-node-id]` and reports
- * layout flags through `onFlag` / `onObservation`. No-op (returns the ref
- * unwired) when `ResizeObserver` is unavailable — e.g. under SSR.
+ * layout flags through `onFlag` / `onObservation`. Created once on mount (the
+ * callbacks are read through a ref, so re-rendering does not thrash the
+ * ResizeObserver). No-op (returns the ref unwired) when `ResizeObserver` is
+ * unavailable — e.g. under SSR.
  */
 export function useFuaranLayoutObserver<T extends Element = HTMLDivElement>(
   args: UseLayoutObserverArgs = {},
 ): RefObject<T | null> {
-  const ref = useRef<T | null>(null);
-  // Hold the latest callbacks in a ref so the observer is created once on mount
-  // (tearing it down on every render would thrash ResizeObserver).
-  const latest = useRef(args);
-  latest.current = args;
-
-  const enabled = args.enabled !== false;
-
-  useEffect(() => {
-    if (!enabled) return;
-    const root = ref.current;
-    if (root === null) return;
-    // No-op when there's no ResizeObserver to drive observation — unless the
-    // caller injected one via `deps` (the test / non-DOM-host path).
-    const hasResizeObserver =
-      typeof (globalThis as { ResizeObserver?: unknown }).ResizeObserver !== 'undefined' ||
-      latest.current.deps?.ResizeObserverCtor !== undefined;
-    if (!hasResizeObserver) return;
-
-    const options = latest.current.options ?? defaultLayoutObserverOptions;
-    const observer = new BrowserLayoutObserver(options, { root, ...latest.current.deps });
-    const unsubscribe = observer.subscribe((nodeId, observation) => {
-      latest.current.onObservation?.(nodeId, observation);
-      const onFlag = latest.current.onFlag;
-      if (onFlag) for (const flag of observation.flags) onFlag(nodeId, flag);
-    });
-
-    return () => {
-      unsubscribe();
-      observer.dispose();
-    };
-  }, [enabled]);
-
-  return ref;
+  return useObserver<T, LayoutFlag, LayoutObservation, UseLayoutObserverArgs>(
+    args,
+    canObserve,
+    create,
+  );
 }

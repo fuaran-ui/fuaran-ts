@@ -53,6 +53,14 @@ export const truncateToGrain = (grain: TimeGrain, instant: string): string => {
  * Days since 1970-01-01 for a proleptic-Gregorian civil date — Howard Hinnant's
  * `days_from_civil`, transcribed with explicit integer truncation so it matches
  * the reference host's integer arithmetic exactly.
+ *
+ * The host's calendar arithmetic otherwise lives in ONE module, the private
+ * core-twins package's `civil.ts`, which the DataFrame twin, the chart lowering
+ * and the decoders import. This package cannot: core-twins already depends on
+ * these schema types, so importing it back would close a build cycle. This copy
+ * is therefore pinned instead — core-twins' `test/civil.test.ts` checks
+ * `epochSecondsOfInstant` against `civil.ts` across the edge years, so the two
+ * cannot drift apart without a red suite.
  */
 const daysFromCivil = (year: number, m: number, d: number): number => {
   const y = m <= 2 ? year - 1 : year;

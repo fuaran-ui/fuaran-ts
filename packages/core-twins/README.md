@@ -5,13 +5,18 @@
 This host's twins of the `Fuaran.Core` reference
 subsystems, gathered behind one internal boundary:
 
-| Twin                                                                           | Reference                      | Re-exported by         |
-| ------------------------------------------------------------------------------ | ------------------------------ | ---------------------- |
-| DataFrame / `Transform` evaluator, list-parameter substitution                 | `Fuaran.Core.DataFrame`        | `@fuaran-ui/ops`       |
-| Canonical float layout (`num`, `formatFiniteDouble`)                           | the wire canonical number rule | `@fuaran-ui/ops`       |
-| Capability runtime (`invocationKey`, `validateArgs`, registry, `toJsonSchema`) | `Fuaran.Core.Function`         | `@fuaran-ui/ui`        |
-| Function registry (`findBySignature`, `compose`)                               | `Fuaran.Core.FunctionRegistry` | `@fuaran-ui/ui`        |
-| Op-stream actor and its canonical encoding                                     | `Fuaran.Core.OpStream.Actor`   | `@fuaran-ui/op-stream` |
+| Twin                                                                           | Reference                                | Re-exported by                                                        |
+| ------------------------------------------------------------------------------ | ---------------------------------------- | --------------------------------------------------------------------- |
+| DataFrame / `Transform` evaluator, list-parameter substitution                 | `Fuaran.Core.DataFrame`                  | `@fuaran-ui/ops`                                                      |
+| Canonical float layout (`num`, `formatFiniteDouble`)                           | the wire canonical number rule           | `@fuaran-ui/ops`                                                      |
+| Capability runtime (`invocationKey`, `validateArgs`, registry, `toJsonSchema`) | `Fuaran.Core.Function`                   | `@fuaran-ui/ui`                                                       |
+| Function registry (`findBySignature`, `compose`)                               | `Fuaran.Core.FunctionRegistry`           | `@fuaran-ui/ui`                                                       |
+| Op-stream actor and its canonical encoding                                     | `Fuaran.Core.OpStream.Actor`             | `@fuaran-ui/op-stream`                                                |
+| Calendar arithmetic (`daysFromCivil`, `civilFromDays`, `parseIsoDay`)          | `Fuaran.Core.DataFrame` (`dateDiffDays`) | used inside `@fuaran-ui/ops` and `@fuaran-ui/charts`; not re-exported |
+
+The calendar module is the host's one copy of the proleptic-Gregorian arithmetic. `@fuaran-ui/schema`
+keeps its own `daysFromCivil` for `epochSecondsOfInstant`, because this package depends on schema's
+types and an import back would be a build cycle; `test/civil.test.ts` pins that copy against this one.
 
 The published packages re-export every name from the module they always exported it from, and
 bundle the implementation into their own `dist` (`noExternal` + `dts.resolve` in their

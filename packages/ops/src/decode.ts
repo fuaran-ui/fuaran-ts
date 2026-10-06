@@ -194,6 +194,8 @@ import type {
   TrendPolarity,
 } from '@fuaran-ui/schema';
 
+import { civilFromDays, parseIsoDay } from '@fuaran-ui/core-twins';
+
 import {
   DECODED_COMPUTED_MESSAGE,
   WireSurvivabilityError,
@@ -1230,18 +1232,6 @@ const decodeChartXScale = framed(
 
 // ─── Chart annotations (Phase 1490/1491/1492 — §4l) ──────────────────────────
 
-const annotationIsLeapYear = (y: number): boolean =>
-  (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
-
-const annotationDaysInMonth = (y: number, m: number): number =>
-  m === 2
-    ? annotationIsLeapYear(y)
-      ? 29
-      : 28
-    : m === 4 || m === 6 || m === 9 || m === 11
-      ? 30
-      : 31;
-
 /**
  * `true` when `text` is a canonical ISO-8601 date the temporal axis can place —
  * `YYYY-MM-DD`, optionally followed by `T…` whose time-of-day is discarded.
@@ -1249,27 +1239,11 @@ const annotationDaysInMonth = (y: number, m: number): number =>
  * STRICT by shape AND by calendar: four digits, two, two, both hyphens, a month
  * in 1–12 and a day the month actually has. A locale spelling (`15/01/2026`)
  * and a bare year are both refused — admitting either would be the
- * string-sniffing the temporal axis exists to avoid.
+ * string-sniffing the temporal axis exists to avoid. The gate is the host's one
+ * calendar module (`parseIsoDay`), the same one the chart lowering parses with,
+ * so the decoder cannot admit a day the axis would misplace.
  */
-const isCanonicalIsoDay = (text: string): boolean => {
-  if (text.length < 10) return false;
-  if (text[4] !== '-' || text[7] !== '-') return false;
-  if (text.length > 10 && text[10] !== 'T') return false;
-  const digits = (start: number, len: number): number | undefined => {
-    let acc = 0;
-    for (let k = start; k < start + len; k += 1) {
-      const c = text.charCodeAt(k);
-      if (c < 48 || c > 57) return undefined;
-      acc = acc * 10 + (c - 48);
-    }
-    return acc;
-  };
-  const y = digits(0, 4);
-  const m = digits(5, 2);
-  const d = digits(8, 2);
-  if (y === undefined || m === undefined || d === undefined) return false;
-  return m >= 1 && m <= 12 && d >= 1 && d <= annotationDaysInMonth(y, m);
-};
+const isCanonicalIsoDay = (text: string): boolean => parseIsoDay(text) !== undefined;
 
 /**
  * An annotation's X ADDRESS (Phase 1491, §4l "The three addressing forms").
@@ -1907,24 +1881,15 @@ const decodeCellLit = (j: JsonAst): CR<Cell> => {
 /**
  * fuaran-core#94 (lenient-ingest) — render an epoch-seconds instant as the
  * canonical ISO-8601 UTC timestamp string. Pure integer arithmetic
- * (civil-from-days), clock-free; negative epochs (pre-1970) are handled.
+ * (`civilFromDays`, the host's one calendar module), clock-free; negative
+ * epochs (pre-1970) are handled.
  * Every division mirrors the F# int64 truncating division.
  */
 const isoOfEpochSeconds = (secs: number): string => {
   let days = Math.trunc(secs / 86400);
   if (secs % 86400 < 0) days -= 1;
   const sod = secs - days * 86400;
-  const z = days + 719468;
-  const era = Math.trunc((z >= 0 ? z : z - 146096) / 146097);
-  const doe = z - era * 146097;
-  const yoe = Math.trunc(
-    (doe - Math.trunc(doe / 1460) + Math.trunc(doe / 36524) - Math.trunc(doe / 146096)) / 365,
-  );
-  const doy = doe - (365 * yoe + Math.trunc(yoe / 4) - Math.trunc(yoe / 100));
-  const mp = Math.trunc((5 * doy + 2) / 153);
-  const day = doy - Math.trunc((153 * mp + 2) / 5) + 1;
-  const month = mp < 10 ? mp + 3 : mp - 9;
-  const year = yoe + era * 400 + (month <= 2 ? 1 : 0);
+  const { year, month, day } = civilFromDays(days);
   const p2 = (n: number): string => String(n).padStart(2, '0');
   const p4 = (n: number): string => String(n).padStart(4, '0');
   return `${p4(year)}-${p2(month)}-${p2(day)}T${p2(Math.trunc(sod / 3600))}:${p2(Math.trunc((sod % 3600) / 60))}:${p2(sod % 60)}Z`;

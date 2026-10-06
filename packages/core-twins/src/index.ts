@@ -21,6 +21,15 @@
 export { formatFiniteDouble, num } from './canonFloat.js';
 
 export {
+  civilFromDays,
+  daysFromCivil,
+  daysInMonth,
+  isLeapYear,
+  parseIsoDay,
+  type CivilDate,
+} from './civil.js';
+
+export {
   cellString,
   evalErrorString,
   evalPipeline,

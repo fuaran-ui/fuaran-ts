@@ -17,9 +17,9 @@
 //    return <div ref={ref}><FuaranRenderer tree={tree} /></div>;
 // ============================================================================
 
-import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 
+import { useObserver } from '@fuaran-ui/observer-core';
 import type { ThemeManifest } from '@fuaran-ui/theme-manifest';
 
 import {
@@ -49,6 +49,19 @@ export interface UseStyleObserverArgs {
   readonly enabled?: boolean;
 }
 
+/** Observation needs a MutationObserver to drive discovery — the global, or one
+ * the caller injected via `deps` (the test / non-DOM-host path). */
+const canObserve = (args: UseStyleObserverArgs): boolean =>
+  typeof (globalThis as { MutationObserver?: unknown }).MutationObserver !== 'undefined' ||
+  args.deps?.MutationObserverCtor !== undefined;
+
+const create = (root: Element, args: UseStyleObserverArgs): BrowserStyleObserver =>
+  new BrowserStyleObserver(
+    args.options ?? defaultStyleObserverOptions,
+    { root, ...args.deps },
+    args.manifest,
+  );
+
 /**
  * Attach a `BrowserStyleObserver` to the rendered subtree under the returned ref.
  * Set the ref on a container that wraps `<FuaranRenderer>`; the observer
@@ -59,42 +72,9 @@ export interface UseStyleObserverArgs {
 export function useFuaranStyleObserver<T extends Element = HTMLDivElement>(
   args: UseStyleObserverArgs = {},
 ): RefObject<T | null> {
-  const ref = useRef<T | null>(null);
-  // Hold the latest callbacks in a ref so the observer is created once on mount
-  // (tearing it down on every render would thrash the MutationObserver).
-  const latest = useRef(args);
-  latest.current = args;
-
-  const enabled = args.enabled !== false;
-
-  useEffect(() => {
-    if (!enabled) return;
-    const root = ref.current;
-    if (root === null) return;
-    // No-op when there's no MutationObserver to drive discovery — unless the
-    // caller injected one via `deps` (the test / non-DOM-host path).
-    const hasMutationObserver =
-      typeof (globalThis as { MutationObserver?: unknown }).MutationObserver !== 'undefined' ||
-      latest.current.deps?.MutationObserverCtor !== undefined;
-    if (!hasMutationObserver) return;
-
-    const options = latest.current.options ?? defaultStyleObserverOptions;
-    const observer = new BrowserStyleObserver(
-      options,
-      { root, ...latest.current.deps },
-      latest.current.manifest,
-    );
-    const unsubscribe = observer.subscribe((nodeId, observation) => {
-      latest.current.onObservation?.(nodeId, observation);
-      const onFlag = latest.current.onFlag;
-      if (onFlag) for (const flag of observation.flags) onFlag(nodeId, flag);
-    });
-
-    return () => {
-      unsubscribe();
-      observer.dispose();
-    };
-  }, [enabled]);
-
-  return ref;
+  return useObserver<T, StyleFlag, StyleObservation, UseStyleObserverArgs>(
+    args,
+    canObserve,
+    create,
+  );
 }

@@ -48,6 +48,7 @@
     }
   },
   "devDependencies": {
+    "@fuaran-ui/observer-core": "workspace:*",
     "@fuaran-ui/ops": "workspace:*",
     "@fuaran-ui/renderer": "workspace:*",
     "@fuaran-ui/schema": "workspace:*",

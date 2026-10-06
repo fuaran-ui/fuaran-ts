@@ -1,0 +1,40 @@
+{
+  "name": "@fuaran-ui/observer-core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Workspace-internal observer scaffolding shared by the layout and style observers: the node registry, isolated subscribers, flag change detection, data-fuaran-node-id self-discovery, the MutationObserver rescan, the animation-frame flush with its debounce, and the React hook body. Deliberately not published: each observer package bundles it at build time and keeps its public classes and hook as thin wrappers, so no public import path depends on this package.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/fuaran-ui/fuaran-ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fuaran-ui/fuaran-ts.git",
+    "directory": "packages/observer-core"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "typescript": "^5.6.3"
+  }
+}

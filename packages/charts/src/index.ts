@@ -28,6 +28,7 @@
 //  `docs/CHARTS-DRAWING-PRIMITIVE-DESIGN.md` (S4, D8).
 // ============================================================================
 
+import { civilFromDays, daysFromCivil, parseIsoDay } from '@fuaran-ui/core-twins';
 import type {
   Binding,
   ChartAnnotation,
@@ -678,8 +679,9 @@ const resolveDisplayUnit = (
 //   1. THE UNIT IS THE DAY, and a date is an INTEGER: days since 1970-01-01 in
 //      the PROLEPTIC GREGORIAN calendar. Nothing here reads a host date type, a
 //      locale, a time zone, or a clock — no `Date`, no `Intl`, no library. The
-//      conversions are the fixed integer algorithms below (Howard Hinnant's
-//      `days_from_civil` / `civil_from_days`, public domain), exact for every
+//      conversions are fixed integer algorithms (Howard Hinnant's
+//      `days_from_civil` / `civil_from_days`, public domain, held in the host's
+//      one calendar module and imported here), exact for every
 //      date they admit and needing no leap-year table. A timestamp cell's
 //      TIME-OF-DAY IS DISCARDED: the value is its UTC date. That is the whole
 //      of the axis's time-zone policy, stated rather than inherited, because
@@ -766,45 +768,9 @@ interface TemporalStep {
   readonly count: number;
 }
 
-/** Integer division TRUNCATED TOWARD ZERO (rule 1) — the one division
- * convention both conversions below rely on. */
+/** Integer division TRUNCATED TOWARD ZERO (rule 1) — the convention the
+ * calendar conversions use, and the one the tick arithmetic below shares. */
 const idiv = (a: number, b: number): number => Math.trunc(a / b);
-
-/** Gregorian leap year (proleptic — the rule applies to every year the parser
- * admits, with no historical exception). */
-const isLeapYear = (y: number): boolean => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
-
-/** Days in a month — the one place the calendar's irregularity is written down,
- * used by the PARSER only (the conversions need no table). */
-const daysInMonth = (y: number, m: number): number =>
-  m === 2 ? (isLeapYear(y) ? 29 : 28) : m === 4 || m === 6 || m === 9 || m === 11 ? 30 : 31;
-
-/** `(y, m, d)` → days since 1970-01-01. Hinnant's `days_from_civil`: exact for
- * every proleptic-Gregorian date, no leap table, integer-only. */
-const daysFromCivil = (year: number, month: number, day: number): number => {
-  const y = month <= 2 ? year - 1 : year;
-  const era = idiv(y >= 0 ? y : y - 399, 400);
-  const yoe = y - era * 400; // [0, 399]
-  const mp = month > 2 ? month - 3 : month + 9; // March-based month
-  const doy = idiv(153 * mp + 2, 5) + day - 1; // [0, 365]
-  const doe = yoe * 365 + idiv(yoe, 4) - idiv(yoe, 100) + doy; // [0, 146096]
-  return era * 146097 + doe - 719468;
-};
-
-/** Days since 1970-01-01 → `(y, m, d)`. Hinnant's `civil_from_days`, the exact
- * inverse of {@link daysFromCivil}. */
-const civilFromDays = (days: number): { year: number; month: number; day: number } => {
-  const z = days + 719468;
-  const era = idiv(z >= 0 ? z : z - 146096, 146097);
-  const doe = z - era * 146097; // [0, 146096]
-  const yoe = idiv(doe - idiv(doe, 1460) + idiv(doe, 36524) - idiv(doe, 146096), 365); // [0, 399]
-  const y = yoe + era * 400;
-  const doy = doe - (365 * yoe + idiv(yoe, 4) - idiv(yoe, 100)); // [0, 365]
-  const mp = idiv(5 * doy + 2, 153); // [0, 11], March-based
-  const d = doy - idiv(153 * mp + 2, 5) + 1; // [1, 31]
-  const m = mp < 10 ? mp + 3 : mp - 9; // [1, 12]
-  return { year: m <= 2 ? y + 1 : y, month: m, day: d };
-};
 
 /**
  * Parse a canonical ISO-8601 date to days since epoch — `YYYY-MM-DD`,
@@ -812,28 +778,13 @@ const civilFromDays = (days: number): { year: number; month: number; day: number
  * by shape and by calendar: four digits, two, two, both hyphens, a month in
  * 1–12 and a day the month actually has. `undefined` for everything else,
  * including a locale spelling (`15/01/2026`) and a bare year — admitting either
- * would be the string-sniffing this axis exists to avoid.
+ * would be the string-sniffing this axis exists to avoid. The gate and the
+ * conversions are the host's one calendar module (`parseIsoDay`,
+ * `daysFromCivil`, `civilFromDays`), which the annotation decoder shares.
  */
 const tryParseDay = (text: string): number | undefined => {
-  const digits = (start: number, len: number): number | undefined => {
-    if (start + len > text.length) return undefined;
-    let acc = 0;
-    for (let k = start; k < start + len; k++) {
-      const c = text.charCodeAt(k);
-      if (c < 48 || c > 57) return undefined;
-      acc = acc * 10 + (c - 48);
-    }
-    return acc;
-  };
-  if (text.length < 10) return undefined;
-  if (text[4] !== '-' || text[7] !== '-') return undefined;
-  if (text.length > 10 && text[10] !== 'T') return undefined;
-  const y = digits(0, 4);
-  const m = digits(5, 2);
-  const d = digits(8, 2);
-  if (y === undefined || m === undefined || d === undefined) return undefined;
-  if (m < 1 || m > 12 || d < 1 || d > daysInMonth(y, m)) return undefined;
-  return daysFromCivil(y, m, d);
+  const parts = parseIsoDay(text);
+  return parts === undefined ? undefined : daysFromCivil(parts.year, parts.month, parts.day);
 };
 
 /** The day number a row's x cell carries, with an UNPARSEABLE cell reading as

@@ -125,8 +125,14 @@ describe('no published artefact references the private package', () => {
     }))
     .filter(({ pkg }) => pkg.private !== true);
 
-  /** The packages that re-export a twin, so must bundle it. */
-  const consumers = ['@fuaran-ui/ops', '@fuaran-ui/ui', '@fuaran-ui/op-stream'];
+  /** The packages that import a twin (re-exporting it, or — charts — using the
+   * calendar module internally), so must bundle it. */
+  const consumers = [
+    '@fuaran-ui/ops',
+    '@fuaran-ui/ui',
+    '@fuaran-ui/op-stream',
+    '@fuaran-ui/charts',
+  ];
 
   it('no published package lists it as an installed dependency', () => {
     const offenders = published
