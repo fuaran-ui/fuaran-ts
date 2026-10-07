@@ -28,6 +28,7 @@ import type {
   SemanticStyle,
   StateBehaviour,
 } from '@fuaran-ui/schema';
+import { MAX_NODES, MAX_NODE_DEPTH } from '@fuaran-ui/schema';
 
 import {
   children,
@@ -54,7 +55,13 @@ export type ApplyErrorCode =
   | 'PathInvalid'
   | 'PathNotSupportedYet'
   | 'OrderingMismatch'
-  | 'BatchAborted';
+  | 'BatchAborted'
+  /**
+   * The op's RESULT would breach a WIRE_FORMAT §21 tree limit (`MAX_NODE_DEPTH`
+   * or `MAX_NODES`): a tree no host could decode, this one included. The same
+   * token every op-applying host emits.
+   */
+  | 'LimitExceeded';
 
 export interface ApplyError {
   readonly code: ApplyErrorCode;
@@ -1163,16 +1170,128 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
   return fail('KindMismatch', 'unreachable apply branch');
 };
 
+// ─── Apply-time §21 limits ───────────────────────────────────────────────────
+//
+// The decoder bounds what ARRIVES; nothing bounded what an apply PRODUCES. A
+// tree assembled op by op (a progressive stream of small frames, a replay, an
+// in-page debug `apply`) can grow past `MAX_NODE_DEPTH` or `MAX_NODES` without
+// any single op looking unusual, and the result is a tree this host holds
+// happily and no host can decode, this one included on the next round trip.
+// Checking here makes the refusal attributable: it names the op that crossed
+// the line, at the moment it crossed it, as an ordinary `ApplyError`.
+//
+// The rule is the one every op-applying host enforces (Phase 2141), with the
+// decoder's own limits: depth counts the root as 1 and a tree may be exactly
+// `MAX_NODE_DEPTH` deep; a tree may hold exactly `MAX_NODES` nodes.
+
+/**
+ * The subtree roots `op` puts INTO the tree, in the order it names them: an
+ * inserted child, a replacement root, the nodes a new kind holds (an
+ * `EditNode`), a new `state` block's `onLoading` / `onEmpty` alternatives (an
+ * `UpdateState`), and a `Batch`'s members' insertions.
+ *
+ * NODES, not ids: a payload whose ids repeat has fewer ids than nodes, so an id
+ * set cannot say whether the op adds to the tree.
+ */
+const insertedNodes = (op: TreeOp<unknown>): readonly N[] => {
+  switch (op.kind) {
+    case 'InsertChild':
+      return [op.child];
+    case 'ReplaceRoot':
+      return [op.node];
+    case 'EditNode':
+      // Every node the new kind holds, through every position a kind can hold
+      // one in. The carrier has no `state` or `fallback`: those are not the
+      // op's to put in, the edited node keeps its own.
+      return children({ id: op.target, kind: op.newKind, state: {} } as N, Reach.all);
+    case 'UpdateState':
+      return [op.state.onLoading, op.state.onEmpty].filter((n): n is N => n !== undefined);
+    case 'Batch':
+      return op.ops.flatMap(insertedNodes);
+    case 'UpdateProp':
+    case 'ReplaceBinding':
+    case 'UpdateStyle':
+    case 'RemoveNode':
+    case 'MoveNode':
+    case 'ReorderChildren':
+      return [];
+  }
+};
+
+/**
+ * True when `op` can increase the tree's depth or node count, and therefore
+ * when its result is checked.
+ *
+ * DERIVED FROM WHAT THE OP PUTS IN (`insertedNodes`), not from a hand list:
+ * `InsertChild`, `ReplaceRoot`, an `EditNode` whose new kind holds nodes and an
+ * `UpdateState` attaching `onLoading` / `onEmpty` all carry subtrees in.
+ *
+ * `MoveNode` puts nothing in, so the count cannot change, but it IS checked,
+ * for depth: relocating a subtree under a deep leaf stacks two depths that each
+ * passed. A root over two branches each half the limit deep is legal, and
+ * moving one branch under the other's leaf nests past `MAX_NODE_DEPTH`.
+ *
+ * Everything else cannot grow the tree: `UpdateProp`, `ReplaceBinding` and
+ * `UpdateStyle` carry no node (`UpdateProp` refuses every node-valued field),
+ * `RemoveNode` shrinks, and `ReorderChildren` permutes children in place.
+ */
+const opCanGrow = (op: TreeOp<unknown>): boolean => {
+  switch (op.kind) {
+    case 'MoveNode':
+      return true;
+    case 'Batch':
+      return op.ops.some(opCanGrow);
+    default:
+      return insertedNodes(op).length > 0;
+  }
+};
+
+/**
+ * The first §21 tree limit `tree` breaches, or `undefined` when it is within
+ * both.
+ *
+ * Walks EVERY position a node holds another in (`Reach.all`): a node in a
+ * `Switch` case, an `ErrorBoundary` arm, a `state` alternative, an envelope
+ * `fallback` or a slot argument is a node the decoder counts, so this bound
+ * counts it too. Iterative, so a hand-built tree of any depth cannot overflow
+ * the call stack, and it stops at the first breach, so a hostile tree costs no
+ * more than the limit to refuse.
+ */
+const treeLimitBreach = (tree: N): string | undefined => {
+  const stack: [N, number][] = [[tree, 1]];
+  let count = 0;
+  while (stack.length > 0) {
+    const [node, depth] = stack.pop()!;
+    if (depth > MAX_NODE_DEPTH)
+      return `Applying this op would nest nodes more than ${MAX_NODE_DEPTH} levels deep, past the wire limit MAX_NODE_DEPTH = ${MAX_NODE_DEPTH} (WIRE_FORMAT §21). Flatten the nesting, or split the emission across trees.`;
+    count += 1;
+    if (count > MAX_NODES)
+      return `Applying this op would produce a tree of more than ${MAX_NODES} nodes, past the wire limit MAX_NODES = ${MAX_NODES} (WIRE_FORMAT §21). Split the emission across trees.`;
+    for (const c of children(node, Reach.all)) stack.push([c, depth + 1]);
+  }
+  return undefined;
+};
+
 // ─── Public entry ────────────────────────────────────────────────────────────
 
 /**
  * Apply a single tree-op against `tree`, returning either the updated tree plus
  * emitted telemetry, or a structured `ApplyError`. Fold this across an op list
  * to apply many; wrap in `TreeOp.Batch` for atomic all-or-nothing application.
+ *
+ * An op that can grow the tree is checked on its RESULT against the §21 tree
+ * limits and refused with `LimitExceeded` past either; the input tree is
+ * returned untouched, as on every other refusal. A `Batch` is checked once, on
+ * the result of the whole batch.
  */
 export const apply = <TMsg>(tree: Node<TMsg>, op: TreeOp<TMsg>): ApplyResult<TMsg> => {
   const telem: OpApplyTelemetryRecord[] = [];
   const r = applyOne(op as TreeOp<unknown>, tree as N, telem);
   if (!r.ok) return r;
+  if (opCanGrow(op as TreeOp<unknown>)) {
+    const breach = treeLimitBreach(r.value);
+    if (breach !== undefined)
+      return { ok: false, error: { code: 'LimitExceeded', message: breach } };
+  }
   return { ok: true, value: { newTree: r.value as Node<TMsg>, emittedTelemetry: telem } };
 };

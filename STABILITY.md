@@ -1027,6 +1027,51 @@ different seed only when an ancestor and a descendant both declare one key — t
 declaration FUARAN106 already reports. The structural descent that keeps it a superset of the typed
 walk is unchanged.
 
+### Recorded breaking change — `@fuaran-ui/ops` 0.30.0, `apply` enforces the tree limits (Phase 2161)
+
+**Unreleased: rides the untagged 0.30.0 draft** (the newest tag is `v0.29.0`). Pre-1.0 a minor bump
+is already the breaking class, so this change advances no number; it changes what 0.30.0 costs to
+adopt, and this entry is where that is said. The draft's earlier entry (Phase 2046) was additive for
+this package.
+
+**What changed.** `apply` now checks the RESULT of every op that can grow the tree against the
+WIRE_FORMAT §21 tree limits the decoder already enforces, `MAX_NODE_DEPTH` (24, the root is level 1)
+and `MAX_NODES` (100 000), and refuses past either with the new `ApplyErrorCode` case
+`'LimitExceeded'`. A tree exactly at a limit applies. The input tree is returned untouched, as on
+every other refusal, and a `Batch` is checked once, on the result of the whole batch.
+
+**Why.** The decoder bounds what ARRIVES; nothing bounded what an apply PRODUCES. A stream of
+individually small ops (an `EditNode` giving a deep node a kind that holds children, an
+`UpdateState` attaching an `onLoading` / `onEmpty` subtree, a `MoveNode` stacking two legal
+depths) could build a tree no conformant host can decode, this one included on the next round
+trip. The other op-applying hosts already refuse it with the same token; this host enforced no
+apply-time limit at all, so a tree bounded on one host was not bounded here, the browser renderer's
+in-page `apply` path included.
+
+**Which ops are checked** is derived from what the op puts INTO the tree, not a hand list: any op
+carrying nodes in (`InsertChild`, `ReplaceRoot`, an `EditNode` whose new kind holds nodes, an
+`UpdateState` with a state alternative), plus `MoveNode`, which adds no node but can add depth.
+`UpdateProp`, `ReplaceBinding`, `UpdateStyle`, `RemoveNode` and `ReorderChildren` cannot grow the
+tree and are not measured, so a tree already past a limit stays editable by them. The measurement
+walks every position a node can hold another in (`ChildReach.all`: ordered children, kind arms,
+state alternatives, the envelope `fallback`, slot arguments), the same positions the decoder counts.
+
+**What it costs a consumer.** (1) An exhaustive `switch` over `ApplyErrorCode` under a
+`default: never` pattern gains a case to handle. (2) An op stream that grew a tree past a limit,
+which applied before, is now refused at the op that crosses it. A tree within the limits is
+unaffected.
+
+**`@fuaran-ui/renderer` 0.27.0 (unreleased draft) carries it too**, because its standalone bundle
+inlines this package's apply engine; the draft already records a breaking change, so no number
+moves.
+
+**What certifies it.** The shared corpus family `apply/limits-apply.json` (`limitsApply`: the
+EditNode, UpdateState and MoveNode refusals, their at-the-limit twins, and the repeated-id shape an
+id-set derivation would miss), run by `packages/ops/test/limits-apply-corpus.test.ts`; and this
+host's own cases in `packages/ops/test/apply-limits.test.ts`: InsertChild and ReplaceRoot at depth,
+`MAX_NODES` at and past the limit, a `Batch`, the state-alternative and `fallback` positions, and
+the exempt ops. Both failed on the previous apply engine before the change.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:
