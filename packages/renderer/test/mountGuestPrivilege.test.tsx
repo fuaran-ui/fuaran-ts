@@ -243,6 +243,7 @@ describe('Mount — the OutOnly clamp (Phase 1021)', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  // SANITIZATION.md (fuaran-dotnet), "The `Mount` boundary": "A guest channel is `TwoWay` only when the mount declared `TwoWay` AND the host's `GuestSeam.GrantTwoWay` granted it; either alone yields `OutOnly`."
   it('an OutOnly tree under a granting seam is NOT silently upgraded past its own declaration', () => {
     // `grantTwoWay` answers "may this mount have the upgrade it asked for". A
     // tree that asked for nothing is never upgraded, even under a seam that
