@@ -1072,6 +1072,37 @@ host's own cases in `packages/ops/test/apply-limits.test.ts`: InsertChild and Re
 `MAX_NODES` at and past the limit, a `Batch`, the state-alternative and `fallback` positions, and
 the exempt ops. Both failed on the previous apply engine before the change.
 
+### Recorded breaking change — `@fuaran-ui/ops` 0.30.0, `apply` refuses an installed duplicate id (Phase 2172)
+
+**Unreleased: rides the untagged 0.30.0 draft**, which the entry above already makes breaking, and the
+`@fuaran-ui/renderer` 0.27.0 draft, whose standalone bundle inlines the apply engine. No number moves.
+
+**What changed.** `apply` now checks the RESULT of every op that puts nodes in (`InsertChild`,
+`ReplaceRoot`, an `EditNode` whose new kind holds nodes, an `UpdateState` with a state alternative)
+and refuses with the existing `ApplyErrorCode` case `'DuplicateNodeId'` when an id the op installed is
+held by more than one node. A `ReplaceRoot` whose payload repeats an id, an `EditNode` or
+`UpdateState` whose new nodes collide with the rest of the tree, and an `InsertChild` whose subtree
+repeats an id within itself were each accepted before. The input tree is returned untouched.
+
+**What it does not refuse.** An op that restates a node it replaces (an `EditNode` re-listing the
+children it swaps out, an `UpdateState` replacing an alternative with one of the same id) applies: the
+old node leaves as the new one arrives. A duplicate already present before the op is not charged to
+it — the decoder admits such a tree, and refusing every later edit to it would strand a document the
+op did not break, the posture the limits guard takes toward a tree already over a limit. An op that
+also breaches a tree limit reports `'LimitExceeded'`, which is checked first, and a `Batch` is
+checked once, on the result of the whole batch.
+
+**Why.** Every op addresses its target by id alone (WIRE_FORMAT §8.1), so a tree that repeats one
+makes every later id-addressed op ambiguous. The other op-applying hosts refuse the same inputs with
+the same token.
+
+**What it costs a consumer.** An op that built a duplicate, which applied before, is now refused. No
+type changes: `'DuplicateNodeId'` was already a case.
+
+**What certifies it.** The shared corpus family `apply/duplicate-ids-apply.json`
+(`duplicateIdsApply`), run by `packages/ops/test/duplicate-ids-apply-corpus.test.ts`, and this host's
+own cases in `packages/ops/test/apply-duplicate-ids.test.ts`. Both failed on the previous engine.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:

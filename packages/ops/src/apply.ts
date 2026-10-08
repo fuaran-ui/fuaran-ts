@@ -1272,6 +1272,42 @@ const treeLimitBreach = (tree: N): string | undefined => {
   return undefined;
 };
 
+// ─── Apply-time id uniqueness (WIRE_FORMAT §8.1) ─────────────────────────────
+//
+// Every op addresses its target by id alone, so a tree that holds one id twice
+// makes every later id-addressed op ambiguous. The decoder accepts a repeated
+// id, and an apply could BUILD one from parts that each decoded cleanly: a
+// `ReplaceRoot` whose payload repeats an id, an `EditNode` or `UpdateState`
+// whose new nodes collide with the rest of the tree, an `InsertChild` whose
+// subtree repeats one (Phase 2172).
+//
+// The check reads the RESULT and charges the op only for the ids it installed
+// (`insertedNodes`), over the same `Reach.lookup` surface every other id check
+// here walks. That is what lets an `EditNode` restate the children it replaces
+// and an `UpdateState` replace an alternative with one of the same id: the old
+// node leaves as the new one arrives. A duplicate already present before the
+// op is not the op's to refuse - the decoder admits such a tree, and refusing
+// every later edit to it would strand a document the op did not break, the
+// posture the limits guard takes toward a tree already over a limit.
+//
+// Cost: one walk of the result to count ids and one of the installed subtrees,
+// paid only by an op that installs nodes. This host keeps no id index, so the
+// rest of the tree must be walked to know what an installed id could collide
+// with.
+
+/** The first id `op` installed that `tree` holds more than once, or `undefined`. */
+const installedDuplicate = (op: TreeOp<unknown>, tree: N): string | undefined => {
+  const installed = insertedNodes(op);
+  if (installed.length === 0) return undefined;
+  const counts = new Map<string, number>();
+  for (const id of allNodeIds(tree)) counts.set(id, (counts.get(id) ?? 0) + 1);
+  for (const n of installed) {
+    const repeated = allNodeIds(n).find((id) => (counts.get(id) ?? 0) > 1);
+    if (repeated !== undefined) return repeated;
+  }
+  return undefined;
+};
+
 // ─── Public entry ────────────────────────────────────────────────────────────
 
 /**
@@ -1281,8 +1317,10 @@ const treeLimitBreach = (tree: N): string | undefined => {
  *
  * An op that can grow the tree is checked on its RESULT against the §21 tree
  * limits and refused with `LimitExceeded` past either; the input tree is
- * returned untouched, as on every other refusal. A `Batch` is checked once, on
- * the result of the whole batch.
+ * returned untouched, as on every other refusal. An op that installs nodes is
+ * then checked on its RESULT for an installed id held twice and refused with
+ * `DuplicateNodeId` (WIRE_FORMAT §8.1). A `Batch` is checked once, on the
+ * result of the whole batch.
  */
 export const apply = <TMsg>(tree: Node<TMsg>, op: TreeOp<TMsg>): ApplyResult<TMsg> => {
   const telem: OpApplyTelemetryRecord[] = [];
@@ -1293,5 +1331,16 @@ export const apply = <TMsg>(tree: Node<TMsg>, op: TreeOp<TMsg>): ApplyResult<TMs
     if (breach !== undefined)
       return { ok: false, error: { code: 'LimitExceeded', message: breach } };
   }
+  // After the limits: an op breaching both reports `LimitExceeded` (the
+  // limitsApply corpus pins that order).
+  const duplicate = installedDuplicate(op as TreeOp<unknown>, r.value);
+  if (duplicate !== undefined)
+    return {
+      ok: false,
+      error: {
+        code: 'DuplicateNodeId',
+        message: `NodeId '${duplicate}' is already present in the tree; ids must be unique.`,
+      },
+    };
   return { ok: true, value: { newTree: r.value as Node<TMsg>, emittedTelemetry: telem } };
 };
