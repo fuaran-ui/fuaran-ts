@@ -7,11 +7,13 @@
 //  only on a true comparison. Three more sites in the CHART lowering carried the
 //  same spread, each confirmed against the reference line by line:
 //
-//    packages/charts/src/index.ts     Fuaran.UI.Charts/Charts.fs
+//    packages/charts/src/             Fuaran.UI.Charts/Charts.fs
 //    ---------------------------      -------------------------
 //    temporalDomain's `days`          `Array.min days` / `Array.max days`
+//      (temporalAxis.ts)
 //    the value domain's `values`      `List.min allValues` / `List.max allValues`
-//    Scatter's `xValues`              `niceDomain … (Array.min xValues)`
+//      (lower.ts)
+//    Scatter's `xValues` (lower.ts)   `niceDomain … (Array.min xValues)`
 //
 //  THE VECTORS BELOW ARE THE DISCRIMINATING ONES, and which defect they
 //  discriminate is the finding this phase turned up. The bundle that filed this
