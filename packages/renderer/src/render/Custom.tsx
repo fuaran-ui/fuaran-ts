@@ -73,6 +73,11 @@ function CustomNodeView<TMsg>({
   const outcome = classifyCustomHashUnder(customHashFloorOf(ctx), contentHash, entry?.contentHash);
 
   // Post-paint exposed-NodeIds verification (browser only; no-op under SSR / .NET parity).
+  // Phase 2074 — it runs when what it checks can have changed: the node's
+  // declared ids, its wrapper id, the registered renderer that emits them, or
+  // the runtime whose warn port it reports to. It used to run after EVERY render, a timeout
+  // and a subtree query per Custom node per state change.
+  const runtime = ctx.runtime;
   useEffect(() => {
     if (exposedNodeIds.length === 0 || typeof document === 'undefined') return;
     const id = window.setTimeout(() => {
@@ -84,15 +89,15 @@ function CustomNodeView<TMsg>({
           .filter((s): s is string => s !== null && s !== parentNodeId),
       );
       for (const expected of exposedNodeIds) {
-        if (!present.has(expected) && ctx.runtime.warn) {
-          ctx.runtime.warn(
+        if (!present.has(expected) && runtime.warn) {
+          runtime.warn(
             `Phase 70 exposed-NodeIds verification: Custom '${parentNodeId}' declared exposed-id '${expected}' but no matching data-fuaran-node-id was emitted.`,
           );
         }
       }
     }, 0);
     return () => window.clearTimeout(id);
-  });
+  }, [exposedNodeIds, parentNodeId, entry, runtime]);
 
   const placeholder = (): ReactElement => {
     const propKeys = Object.keys(props).join(', ');

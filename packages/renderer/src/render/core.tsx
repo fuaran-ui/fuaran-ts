@@ -12,7 +12,7 @@
 //  see classNames.ts.
 // ============================================================================
 
-import { Fragment } from 'react';
+import { createContext, useContext, useEffect, useRef } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
 import type { Node, NodeKind, StateBehaviour } from '@fuaran-ui/schema';
@@ -187,6 +187,8 @@ export const renderKind = <TMsg,>(
         // host act, available through `GuestSeam.wrapRuntime`.
         egressPolicy: ctx.egressPolicy,
         ...(ctx.customHashFloor !== undefined ? { customHashFloor: ctx.customHashFloor } : {}),
+        // Phase 2074 — the guest is inside this renderer, so it shares its drag cell.
+        ...(ctx.gridDrag !== undefined ? { gridDrag: ctx.gridDrag } : {}),
       };
 
       return (
@@ -198,12 +200,24 @@ export const renderKind = <TMsg,>(
   }
 };
 
-/** Render a Fuaran `Node<TMsg>` to a React element against an explicit context. */
+/**
+ * Render a Fuaran `Node<TMsg>` to a React element against an explicit context.
+ *
+ * Phase 2074 — every node renders through `NodeView`, a component that is
+ * skipped outright when its node, its context and every state key its subtree
+ * READ are unchanged (see "The memo boundary" below). The element returned here
+ * is cheap: no binding resolves until React renders it.
+ */
 export const renderNode = <TMsg,>(
   ctx: RenderContext<TMsg>,
   node: Node<TMsg>,
   key?: string,
-): ReactElement => {
+): ReactElement => (
+  <NodeView key={key} ctx={ctx as RenderContext<unknown>} node={node as Node<unknown>} />
+);
+
+/** The body of one node: its wrapper, its kind's body and its tooltip hint. */
+const renderNodeBody = <TMsg,>(ctx: RenderContext<TMsg>, node: Node<TMsg>): ReactElement | null => {
   const id = node.id;
 
   // Phase 1535 — CONDITIONAL PRESENCE, before anything else is computed. A
@@ -216,7 +230,7 @@ export const renderNode = <TMsg,>(
   // The rule is `isNodeVisible`, shared with the server renderer, and the guard
   // sits on this one function rather than at every call site that produces a
   // child, so a kind added tomorrow inherits it without anyone remembering to.
-  if (!isNodeVisible(ctx.sources, node)) return <Fragment key={key} />;
+  if (!isNodeVisible(ctx.sources, node)) return null;
 
   let className = nodeClassName(node.kind, node.style);
   if (node.motion !== undefined) className += ` fuaran-motion-${motionVar(node.motion)}`;
@@ -298,7 +312,7 @@ export const renderNode = <TMsg,>(
   // leaves the wrapper, so the `:hover` that revealed it still holds (WCAG
   // 1.4.13). Placed after the body so the reading order is thing-then-description.
   return (
-    <div key={key} id={id} data-fuaran-node-id={id} className={className} {...attrs}>
+    <div id={id} data-fuaran-node-id={id} className={className} {...attrs}>
       {kindBody}
       {tooltipText !== undefined && (
         <span id={tooltipHintId(id)} className="fuaran-tooltip" role="tooltip">
@@ -308,6 +322,226 @@ export const renderNode = <TMsg,>(
     </div>
   );
 };
+
+// --- The memo boundary (Phase 2074) -------------------------------------------
+//
+// A node re-renders when, and only when, one of three things moved:
+//
+//   1. the node itself — `apply` rebuilds only the spine above an edit, so an
+//      unchanged subtree keeps its identity and identity is a sound test;
+//   2. the context, compared field by field (a derived context such as
+//      `{ ...ctx, inErrorBoundary: true }` is a new object each render but the
+//      same context), with every BindingSources member except `state` compared
+//      by identity;
+//   3. a `state` key the node's SUBTREE read on an earlier render.
+//
+// What a subtree reads is not declared anywhere, so it is RECORDED: the node
+// renders against a `state` view that notes every key looked up through it,
+// and the note propagates to every ancestor node, because an ancestor that
+// skips also skips its descendants. Enumerating the bag (`Object.keys`, a
+// spread, `JSON.stringify`) marks the reader as depending on ALL of it, so a
+// reader nobody anticipated degrades to "re-render on any state change" —
+// the pre-2074 behaviour — never to a stale render. The record only grows: a
+// key read once keeps re-rendering its readers, which can cost a render and
+// can never lose one.
+//
+// Handlers and effects outlive the render that created them, and a skipped
+// node keeps its old ones. They read state through the same view, which is
+// RETARGETED to the newest bag whenever the node is skipped (and passes that
+// to every descendant that shares the bag), so a handler acting at dispatch
+// time sees the state of the latest render, exactly as before memoisation.
+
+type StateBag = Readonly<Record<string, unknown>>;
+
+class StateReads {
+  /** The bag this node last rendered with, or was carried forward to. */
+  raw: StateBag | undefined;
+  /** Every key this node's subtree has read. */
+  readonly keys = new Set<string>();
+  /** True once the subtree has enumerated the bag. */
+  all = false;
+  /** The descendants that render against this node's bag unchanged. */
+  readonly sharers = new Set<StateReads>();
+
+  constructor(readonly parent: StateReads | undefined) {}
+
+  note(key: string): void {
+    // Every ancestor already holds a key its descendant holds, so the walk can
+    // stop at the first one that has it.
+    for (let r: StateReads | undefined = this; r !== undefined && !r.keys.has(key); r = r.parent) {
+      r.keys.add(key);
+    }
+  }
+
+  noteAll(): void {
+    for (let r: StateReads | undefined = this; r !== undefined && !r.all; r = r.parent) {
+      r.all = true;
+    }
+  }
+
+  retarget(raw: StateBag | undefined): void {
+    if (this.raw === raw) return;
+    this.raw = raw;
+    for (const s of this.sharers) s.retarget(raw);
+  }
+
+  /** Would this subtree read the same values from `next` as from its current bag? */
+  unchangedIn(next: StateBag | undefined): boolean {
+    const prev = this.raw;
+    if (prev === next) return true;
+    if (prev === undefined || next === undefined || this.all) return false;
+    for (const key of this.keys) {
+      const had = Object.prototype.hasOwnProperty.call(prev, key);
+      if (had !== Object.prototype.hasOwnProperty.call(next, key)) return false;
+      if (had && !Object.is(prev[key], next[key])) return false;
+    }
+    return true;
+  }
+}
+
+/** The recording views handed out, and whose reads each one notes. */
+const viewOwners = new WeakMap<object, StateReads>();
+
+const recordingView = (reads: StateReads): StateBag => {
+  const view = new Proxy({} as Record<string, unknown>, {
+    get: (_t, key) => {
+      if (typeof key !== 'string') return undefined;
+      reads.note(key);
+      return reads.raw?.[key];
+    },
+    has: (_t, key) => {
+      if (typeof key !== 'string') return false;
+      reads.note(key);
+      return reads.raw !== undefined && key in reads.raw;
+    },
+    getOwnPropertyDescriptor: (_t, key) => {
+      if (typeof key !== 'string') return undefined;
+      reads.note(key);
+      const raw = reads.raw;
+      if (raw === undefined || !Object.prototype.hasOwnProperty.call(raw, key)) return undefined;
+      return { value: raw[key], writable: false, enumerable: true, configurable: true };
+    },
+    ownKeys: () => {
+      reads.noteAll();
+      return reads.raw === undefined ? [] : Reflect.ownKeys(reads.raw);
+    },
+    set: () => false,
+    defineProperty: () => false,
+    deleteProperty: () => false,
+  });
+  viewOwners.set(view, reads);
+  return view;
+};
+
+/** The nearest enclosing node's record — where a node's reads propagate to. */
+const ReadsContext = createContext<StateReads | undefined>(undefined);
+
+const sameMembers = (a: object, b: object, skip: string): boolean => {
+  if (a === b) return true;
+  const ak = Object.keys(a).filter((k) => k !== skip);
+  const bk = Object.keys(b).filter((k) => k !== skip);
+  if (ak.length !== bk.length) return false;
+  for (const k of ak) {
+    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
+    if (!Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
+      return false;
+  }
+  return true;
+};
+
+const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean => {
+  if (a === b) return true;
+  if (a.size !== b.size) return false;
+  for (const x of a) if (!b.has(x)) return false;
+  return true;
+};
+
+/** The context unchanged in everything but `sources.state`, which is judged per key. */
+const sameContextBesideState = (a: RenderContext<unknown>, b: RenderContext<unknown>): boolean =>
+  a === b ||
+  (sameMembers(a, b, 'sources') &&
+    // `expandingFragments` is a fresh Set per expansion; its CONTENT is the fact.
+    sameSet(a.expandingFragments, b.expandingFragments) &&
+    sameMembers(a.sources, b.sources, 'state'));
+
+/** The raw bag behind a (possibly recording) `state`, and the record that owns it. */
+const unwrapState = (
+  state: StateBag | undefined,
+): { readonly raw: StateBag | undefined; readonly owner: StateReads | undefined } => {
+  if (state === undefined) return { raw: undefined, owner: undefined };
+  const owner = viewOwners.get(state);
+  return owner === undefined ? { raw: state, owner: undefined } : { raw: owner.raw, owner };
+};
+
+interface NodeViewMemo {
+  readonly reads: StateReads;
+  owner: StateReads | undefined;
+  node: Node<unknown> | undefined;
+  ctx: RenderContext<unknown> | undefined;
+  element: ReactElement | null;
+}
+
+function NodeView({
+  ctx,
+  node,
+}: {
+  readonly ctx: RenderContext<unknown>;
+  readonly node: Node<unknown>;
+}): ReactElement | null {
+  const parent = useContext(ReadsContext);
+  const memoRef = useRef<NodeViewMemo | undefined>(undefined);
+  if (memoRef.current === undefined) {
+    memoRef.current = {
+      reads: new StateReads(parent),
+      owner: undefined,
+      node: undefined,
+      ctx: undefined,
+      element: null,
+    };
+  }
+  const memo = memoRef.current;
+  const { reads } = memo;
+  const { raw, owner } = unwrapState(ctx.sources.state);
+
+  // A descendant rendering against this node's bag unchanged is retargeted
+  // with it, so its handlers see the newest bag even while it is skipped.
+  if (owner !== memo.owner) {
+    memo.owner?.sharers.delete(reads);
+    owner?.sharers.add(reads);
+    memo.owner = owner;
+  }
+  useEffect(
+    () => () => {
+      memo.owner?.sharers.delete(reads);
+    },
+    [memo, reads],
+  );
+
+  if (
+    memo.node === node &&
+    memo.ctx !== undefined &&
+    sameContextBesideState(memo.ctx, ctx) &&
+    reads.unchangedIn(raw)
+  ) {
+    reads.retarget(raw);
+    memo.ctx = ctx;
+    // The same element: React skips this subtree without rendering it.
+    return memo.element;
+  }
+
+  // Rendering: only THIS record moves to the new bag. Its sharers are compared
+  // (and moved) as React reaches them; moving them here would make every
+  // descendant look unchanged against the very bag it is about to be judged on.
+  reads.raw = raw;
+  const tracked: RenderContext<unknown> =
+    raw === undefined ? ctx : { ...ctx, sources: { ...ctx.sources, state: recordingView(reads) } };
+  const body = renderNodeBody(tracked, node);
+  const element = <ReadsContext.Provider value={reads}>{body}</ReadsContext.Provider>;
+  memo.node = node;
+  memo.ctx = ctx;
+  memo.element = element;
+  return element;
+}
 
 // --- The tooltip dismissal listener (Phase 1112) ------------------------------
 //

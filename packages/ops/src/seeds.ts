@@ -36,6 +36,17 @@
 //  is walked before its descendants, and a node position the enumeration does
 //  not know is still reached by the structural descent — the superset
 //  property above survives the shared enumeration.
+//
+//  It does NOT descend into DATA (Phase 2074): the value a `Static` binding
+//  carries, the `defaultValue` of a `State` / `Filter` / `Selection` binding,
+//  the `table` of an embedded `DataSource`, and the `value` an `Action.SetState`
+//  writes. Each is a JSON value by the schema — no binding can sit inside one,
+//  and the F# typed walk never looks there — so skipping them changes no seed
+//  a document declares, and stops the walk visiting every cell of every
+//  embedded table. The walk stays structural over everything else, so a
+//  binding slot added tomorrow is still found. The result is also cached per
+//  tree identity: a tree is an immutable value, so the walk runs once per tree
+//  rather than once per render.
 // ============================================================================
 
 import type { Node } from '@fuaran-ui/schema';
@@ -74,6 +85,32 @@ const isStateDeclaration = (v: unknown): v is { key: string; defaultValue: unkno
   v['defaultValue'] !== undefined;
 
 const controlDefaults: readonly unknown[] = Object.values(controlValueDefaults);
+
+/**
+ * The member of `obj` that holds DATA rather than tree structure, when `obj` is
+ * one of the four shapes whose payload is a JSON value by the schema (see the
+ * module header). The tags are matched together with the member they name, so
+ * a node — whose `kind` is an object, never a string — is never mistaken for one.
+ */
+const dataMemberOf = (obj: Record<string, unknown>): string | undefined => {
+  switch (obj['kind']) {
+    case 'Static':
+      return 'value' in obj ? 'value' : undefined;
+    case 'State':
+    case 'Filter':
+    case 'Selection':
+      return 'defaultValue' in obj ? 'defaultValue' : undefined;
+    case 'Embedded':
+      return 'table' in obj ? 'table' : undefined;
+    case 'SetState':
+      return 'value' in obj ? 'value' : undefined;
+    default:
+      return undefined;
+  }
+};
+
+/** Phase 2074 — the seeds of a tree, computed once per tree identity. */
+const seedCache = new WeakMap<object, Readonly<Record<string, unknown>>>();
 
 const deepEqual = (a: unknown, b: unknown): boolean => {
   try {
@@ -135,6 +172,8 @@ const isEmptyDeclaration = (value: unknown): boolean => {
  * its rows is not a special case.
  */
 export const collectStateSeeds = <TMsg>(tree: Node<TMsg>): Readonly<Record<string, unknown>> => {
+  const cached = seedCache.get(tree);
+  if (cached !== undefined) return cached;
   const seeds: Record<string, unknown> = {};
   const seen = new Set<unknown>();
 
@@ -183,7 +222,9 @@ export const collectStateSeeds = <TMsg>(tree: Node<TMsg>): Readonly<Record<strin
     const fieldId =
       typeof ownId === 'string' && typeof record['required'] === 'boolean' ? ownId : undefined;
 
+    const dataMember = dataMemberOf(obj);
     for (const [k, v] of Object.entries(obj)) {
+      if (k === dataMember) continue;
       // The id follows the field's own `kind` subtree, where the synthesised
       // binding sits (`kind.value`), and is otherwise inherited unchanged so it
       // reaches through the `FormFieldKind` wrapper to the value slot.
@@ -200,7 +241,10 @@ export const collectStateSeeds = <TMsg>(tree: Node<TMsg>): Readonly<Record<strin
   };
 
   visitNode(tree);
-  return seeds;
+  // Frozen because it is shared: every caller holding this tree gets this object.
+  const result = Object.freeze(seeds);
+  seedCache.set(tree, result);
+  return result;
 };
 
 /**

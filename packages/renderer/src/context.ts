@@ -81,6 +81,21 @@ export interface RenderContext<TMsg> {
    * through `customHashFloorOf`, never directly.
    */
   readonly customHashFloor?: HashStrictness;
+  /**
+   * Phase 2074 — the in-flight DataGrid row drag, one cell per renderer
+   * instance. HTML5 `dataTransfer` is unreadable during `dragover`, so a drop
+   * target decides whether a drag is its own from this cell; held per renderer
+   * (not per module) so two renderers on one page cannot consume each other's
+   * drags. `<FuaranRenderer>` always supplies it and every derived context
+   * inherits it; a hand-built context without one renders no drag source, and
+   * its rows reorder by keyboard only.
+   */
+  readonly gridDrag?: GridDragCell;
+}
+
+/** Phase 2074 — a renderer instance's in-flight grid drag: the grid's node id and the dragged row. */
+export interface GridDragCell {
+  current: readonly [gridNodeId: string, rowIndex: number] | undefined;
 }
 
 // ─── Unwired-action detection (UX hint only) ─────────────────────────────────

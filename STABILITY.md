@@ -1120,6 +1120,47 @@ Per-release semver bump. Pre-1.0: plain `0.x.y` versions, no prerelease suffix (
 
 **What proves a release, as opposed to a build.** Every suite in `ci.yml` runs inside this workspace, against linked packages and built `dist/` — the right lane for "does the code agree with itself", and structurally blind to the two ways a release fails a newcomer: a package that does not install at all, and two hosts whose PUBLISHED bytes disagree while their sources do not. The clean-machine install smoke ([`.github/workflows/install-smoke.yml`](.github/workflows/install-smoke.yml), fixtures in [`dev-scripts/install-smoke/`](dev-scripts/install-smoke/)) installs the current release from npm and restores it from nuget.org with every local source cleared, authors one tree through each tier's own surface, and requires the canonical bytes to match. It runs after a successful publish, weekly, and on demand — its inputs are the registries, not this branch.
 
+### Recorded behaviour change — `@fuaran-ui/renderer` 0.27.0 and `@fuaran-ui/ops` 0.30.0, the React renderer memoises (Phase 2074)
+
+**Unreleased: rides the untagged drafts** (the newest tag is `v0.29.0`, which published renderer
+0.26.0 and ops 0.29.0). Both drafts already carry the breaking class, so this advances no number;
+no exported signature moves. It is recorded as a BEHAVIOUR change because a host can observe it.
+
+**What changed.** Every node renders through a memoised component. A node is skipped when its node
+object, its render context and every `state` key its subtree READ are unchanged; the keys are
+recorded as they are read, and a subtree that enumerates the state bag depends on all of it. Seeds,
+fragments, the theme style and the context are memoised on their inputs; the seed walk is cached per
+tree identity. On a 500-node tree, one state change used to re-resolve all 499 text bindings; now an
+unrelated key re-resolves none and the read key re-resolves only its reader. Rendered output is
+unchanged (the corpus, hydration and snapshot suites pass unmodified).
+
+**What a host can observe.**
+
+- **A registered `Custom` component, and any node, no longer re-renders on a state change it does
+  not read.** A component that relied on the parent's re-render to pick up mutable data it holds
+  elsewhere must subscribe to that data itself.
+- **A context built from a NEW `runtime` object (or new `i18nResolver`, `transformRefs`, query
+  results, filters, selections) on every render still re-renders every node**, as before. Pass a
+  stable `runtime` (`useMemo`) to get the skip. `dispatch` may change identity freely: the renderer
+  forwards to the latest one.
+- **The `Custom` exposed-ids check runs when its inputs change**, not after every render: the
+  declared ids, the wrapper id, the registered renderer, or the runtime.
+- **The in-flight grid row drag is per renderer instance** (`RenderContext.gridDrag`, a new optional
+  member). Two renderers on one page no longer share it, so a drag begun in one is never consumed by
+  a same-id grid in the other. A hand-built `RenderContext` without the member renders no drag
+  source; its rows still reorder by keyboard.
+- **Handlers still see the latest state.** An action evaluated at dispatch time (a `SetState`
+  `valueFrom`) reads the state of the latest render even from a node that was skipped.
+
+**`@fuaran-ui/ops`: the seeding pass no longer looks inside DATA.** `collectStateSeeds` does not
+descend into a `Static` value, the `defaultValue` of a `State` / `Filter` / `Selection` binding, an
+embedded `DataSource` table, or an `Action.SetState` value. Every node fixture in the conformance
+corpus seeds identically under the old and new walks (a test keeps the old walk as the oracle). The
+one input that differs is a defect: a data row SHAPED like a declaration
+(`{"kind":"State","key":…,"defaultValue":…}`) used to seed that key, and no longer does. That is what
+the reference host's typed walk has always done. The returned seed record is now frozen and shared
+per tree.
+
 ### Where the release notes live
 
 **This file is the changelog.** There is no `CHANGELOG.md` in this repository, and adding one would split the record in two: the reason a version moved and the surface it moved are the same paragraph, and that paragraph belongs beside the surface it describes.

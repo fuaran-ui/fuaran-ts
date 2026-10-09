@@ -236,6 +236,13 @@ const renderGrid = <TMsg,>(
   // deprecated and deliberately absent); pointer is native HTML5 drag onto any
   // row. The reference CSS already ships these class names (the Phase 77
   // byte-copy), so the affordance lands styled.
+  //
+  // The in-flight drag lives on the RENDER CONTEXT (`ctx.gridDrag`, Phase 2074):
+  // HTML5 `dataTransfer` is unreadable during `dragover`, so the drop target
+  // cannot decide whether it is a legitimate target from the event alone. It is
+  // keyed by grid node id, so a drop only ever consumes a drag begun on the SAME
+  // grid, and held per renderer instance rather than per module, so a same-id
+  // grid in a second renderer on the page cannot consume it either.
   const reorderCell = (rowIndex: number): ReactElement | undefined => {
     if (reorderCommit === undefined) return undefined;
     const commit = reorderCommit;
@@ -251,10 +258,10 @@ const renderGrid = <TMsg,>(
           aria-label={`Reorder row ${absolute + 1} of ${total} — drag, or press an arrow key to move it`}
           aria-keyshortcuts="ArrowUp ArrowDown"
           onDragStart={() => {
-            gridDragSource = [parentNodeId, absolute];
+            if (ctx.gridDrag !== undefined) ctx.gridDrag.current = [parentNodeId, absolute];
           }}
           onDragEnd={() => {
-            gridDragSource = undefined;
+            if (ctx.gridDrag !== undefined) ctx.gridDrag.current = undefined;
           }}
           onKeyDown={(e) => {
             if (e.key === 'ArrowUp') {
@@ -291,10 +298,12 @@ const renderGrid = <TMsg,>(
     return {
       onDragOver: (e) => e.preventDefault(),
       onDrop: (e) => {
-        if (gridDragSource !== undefined && gridDragSource[0] === parentNodeId) {
-          const sourceIndex = gridDragSource[1];
+        const drag = ctx.gridDrag;
+        const source = drag?.current;
+        if (drag !== undefined && source !== undefined && source[0] === parentNodeId) {
+          const sourceIndex = source[1];
           e.preventDefault();
-          gridDragSource = undefined;
+          drag.current = undefined;
           commit(sourceIndex, rowOffset + rowIndex);
         }
       },
@@ -1001,13 +1010,6 @@ const updateRowField = (row: unknown, field: string, value: unknown): unknown =>
   if (row === null || typeof row !== 'object' || Array.isArray(row)) return row;
   return { ...(row as Record<string, unknown>), [field]: value };
 };
-
-// The in-flight drag, module-level for the same reason the F# renderer keeps it
-// there: HTML5 `dataTransfer` is unreadable during `dragover`, so the drop
-// target cannot decide whether it is a legitimate target from the event alone.
-// Keyed by grid node id, so a drop only ever consumes a drag begun on the SAME
-// grid — dragging between two grids does nothing rather than something wrong.
-let gridDragSource: readonly [string, number] | undefined;
 
 // Phase 861 — the three-way slot. `readSortDescriptor` collapses "nothing
 // written" and "written but not a sort" into undefined, which was right while

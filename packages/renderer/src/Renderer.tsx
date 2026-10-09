@@ -13,7 +13,14 @@
 //  custom properties as inline variables at the render root.
 // ============================================================================
 
-import { type CSSProperties, type ReactElement, useEffect } from 'react';
+import {
+  type CSSProperties,
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+} from 'react';
 
 import type { HashStrictness, Node } from '@fuaran-ui/schema';
 
@@ -22,7 +29,7 @@ import type { HashStrictness, Node } from '@fuaran-ui/schema';
 import { type BehindView, withStateSeeds } from '@fuaran-ui/ops';
 
 import type { BindingSources } from './bindings.js';
-import type { RenderContext } from './context.js';
+import type { GridDragCell, RenderContext } from './context.js';
 import { collectFragments } from './context.js';
 import { customHashFloorOf } from './customHash.js';
 import type { FuaranRuntime } from './customRegistry.js';
@@ -122,6 +129,13 @@ export interface FuaranRendererProps<TMsg = unknown> {
 
 const noopDispatch = (): void => {};
 
+/** No fragment is expanding at the root; one shared, never-mutated set. */
+const noExpandingFragments: ReadonlySet<string> = new Set<string>();
+
+const noSources: BindingSources = {};
+
+const noRuntime: FuaranRuntime = {};
+
 /** Render a Fuaran tree to React DOM. */
 export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactElement {
   // Register window.__fuaran while mounted, scoped to the live tree + sources.
@@ -170,28 +184,62 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
     return installRelayPeer(readRegisteredDebugGlobal, { optedIn: true });
   }, [props.debug, props.relay]);
 
-  const ctx: RenderContext<TMsg> = {
-    // Phase 1075 — the tree's `Binding.State` declarations are laid UNDER the
-    // host's own sources: a grid bound to `$state.members` and a `Transform`
-    // deriving over the same key read the same rows. The host's map wins on
-    // every key it names (charter §4).
-    sources: withStateSeeds(props.tree, props.sources ?? {}),
-    runtime: props.runtime ?? {},
-    dispatch: props.dispatch ?? noopDispatch,
-    fragments: collectFragments(new Map<string, Node<TMsg>>(), props.tree),
-    expandingFragments: new Set<string>(),
-    inErrorBoundary: false,
-    // Phase 1037 — default-deny. A host widens it BY NAME via `egressPolicy`.
-    egressPolicy: props.egressPolicy ?? denyNonLocalEgress,
-    // Phase 1021 / 1856 — absent means the shipped ENFORCING default floor.
-    // `exactOptionalPropertyTypes`: omit rather than pass an explicit `undefined`.
-    ...(props.customHashFloor !== undefined ? { customHashFloor: props.customHashFloor } : {}),
-  };
+  // Phase 2074 — everything the context is built from is memoised on its own
+  // inputs, so a render caused by one state change hands every node the same
+  // context but for `sources.state`, and the node memo boundary (render/core)
+  // can skip each node that did not read the changed key.
+
+  // Phase 1075 — the tree's `Binding.State` declarations are laid UNDER the
+  // host's own sources: a grid bound to `$state.members` and a `Transform`
+  // deriving over the same key read the same rows. The host's map wins on
+  // every key it names (charter §4). The seed walk itself is cached per tree.
+  const hostSources = props.sources ?? noSources;
+  const sources = useMemo(() => withStateSeeds(props.tree, hostSources), [props.tree, hostSources]);
+  const fragments = useMemo(
+    () => collectFragments(new Map<string, Node<TMsg>>(), props.tree),
+    [props.tree],
+  );
+
+  // `dispatch` is only ever CALLED, never rendered from, so the context carries
+  // one stable forwarder to the latest prop: a host passing an inline arrow
+  // does not thereby re-render every node on every render.
+  const dispatchRef = useRef(props.dispatch);
+  dispatchRef.current = props.dispatch;
+  const dispatch = useCallback((msg: TMsg) => (dispatchRef.current ?? noopDispatch)(msg), []);
+
+  // Phase 2074 — the in-flight grid drag belongs to THIS renderer, so two
+  // renderers on one page cannot consume each other's drags.
+  const gridDrag = useRef<GridDragCell['current']>(undefined) as GridDragCell;
+
+  const runtime = props.runtime;
+  // Phase 1037 — default-deny. A host widens it BY NAME via `egressPolicy`.
+  const egressPolicy = props.egressPolicy ?? denyNonLocalEgress;
+  const customHashFloor = props.customHashFloor;
+  const ctx = useMemo<RenderContext<TMsg>>(
+    () => ({
+      sources,
+      runtime: runtime ?? noRuntime,
+      dispatch,
+      fragments,
+      expandingFragments: noExpandingFragments,
+      inErrorBoundary: false,
+      egressPolicy,
+      // Phase 1021 / 1856 — absent means the shipped ENFORCING default floor.
+      // `exactOptionalPropertyTypes`: omit rather than pass an explicit `undefined`.
+      ...(customHashFloor !== undefined ? { customHashFloor } : {}),
+      gridDrag,
+    }),
+    [sources, runtime, dispatch, fragments, egressPolicy, customHashFloor, gridDrag],
+  );
 
   const rendered = renderNode(ctx, props.tree);
 
-  if (props.theme !== undefined) {
-    const style = themeToStyle(props.theme) as CSSProperties;
+  const theme = props.theme;
+  const style = useMemo(
+    () => (theme === undefined ? undefined : (themeToStyle(theme) as CSSProperties)),
+    [theme],
+  );
+  if (style !== undefined) {
     return (
       <div className="fuaran-root" style={style}>
         {rendered}
