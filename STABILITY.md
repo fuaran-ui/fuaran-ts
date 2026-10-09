@@ -83,7 +83,7 @@ The **`<FuaranRenderer>` prop shape and the emitted class-name + ARIA vocabulary
 
 The **custom-renderer registry** (`createCustomRendererRegistry`, `registerCustomRenderer`, `CustomRendererRegistry`, `FuaranRuntime`) and the **typed `Theme` + `themeToCss` bridge** are **stable** as of Phase 78, validated by the `samples/demo` app (it registers a `Custom` React component through the registry + `FuaranRuntime`, and applies a sample theme via the `theme` prop). React 19+ is a peer dependency.
 
-The **in-page introspection surface** (`window.__fuaran`, `buildDebugGlobal`, `registerDebugGlobal`) remains explicitly **DEBUG-only and unstable**, excluded from semver. It is `undefined` unless the host sets `debug`.
+The **in-page introspection surface** (`window.__fuaran`, `buildDebugGlobal`, `registerDebugGlobal` — at the `@fuaran-ui/renderer/debug` subpath since Phase 2076) remains explicitly **DEBUG-only and unstable**, excluded from semver. It is `undefined` unless the host sets `debug`.
 
 #### Additive surface — extension affordances (Phase 735)
 
@@ -91,7 +91,7 @@ Three additions, all **additive**; no existing entry point changed shape, so a c
 
 - **Change subscription.** `__fuaran.subscribe(cb)` (returning an unsubscribe handle) and `__fuaran.treeRevision()`, over the exported page-wide hub (`pageChangeHub`, `createChangeHub`, `ChangeHub` / `TreeChange` / `ChangeCause`). The revision token is **opaque** — compare for equality; parsing or ordering it is not a supported use, and its format is not part of any contract.
 - **Gated apply, widened.** `__fuaran.apply` now accepts a `TreeOp` as a **structured object** as well as the original **JSON string**; the string form is unchanged, including the bytes handed to an op-stream sink. The `ApplyEnvelope` gains optional fields (`treeRevision` on `applied`, `decodeError` on `decodeFailed`, `code` on `rejected`) — additions to a union member, not a change to one. `FuaranDebugGlobal` gains `canApply` and `getBindingState` (the tagged resolution envelope; `getBindingValue`'s bare `Resolution` is unchanged). `<FuaranRenderer>` gains an optional `validate` prop.
-- **DevTools relay page peer.** `<FuaranRenderer relay>` plus `createRelayPeer` / `installRelayPeer` / `acceptsRelayMessage` / `parseRelayProfile` and the `Relay*` types. **Off by default**: without the prop no listener is installed, and a peer built with no options is not opted in.
+- **DevTools relay page peer.** `<FuaranRenderer relay>` plus `createRelayPeer` / `installRelayPeer` / `acceptsRelayMessage` / `parseRelayProfile` and the `Relay*` types (at the `@fuaran-ui/renderer/relay` subpath since Phase 2076). **Off by default**: without the prop no listener is installed, and a peer built with no options is not opted in.
 
 The relay's **stability contract is the `relay@1.0` profile**, not this package's semver: the wire shapes are pinned by the contract's own fixture family (`wire-format-fixtures/devtools-relay/`, run in `packages/renderer/test/relayCorpus.test.tsx`), and they version independently of the wire profile `core@1.0`. Adding a request type, capability, optional payload field, or refusal class is a **minor** relay bump; removing or renaming any of them is a **major** one. A relay change is therefore governed the way a wire-format change is — by the specification and its corpus — and a change to the profile id is a breaking change to every peer, regardless of what this package's version does.
 
@@ -1160,6 +1160,65 @@ one input that differs is a defect: a data row SHAPED like a declaration
 (`{"kind":"State","key":…,"defaultValue":…}`) used to seed that key, and no longer does. That is what
 the reference host's typed walk has always done. The returned seed record is now frozen and shared
 per tree.
+
+### Recorded breaking change — `@fuaran-ui/renderer` 0.27.0, the root entry sheds KaTeX, the debug surface and the relay (Phase 2076)
+
+**Unreleased: rides the untagged 0.27.0 draft** (the newest tag is `v0.29.0`, which published
+renderer 0.26.0). The draft already carries the breaking class, so no number moves.
+
+**What changed.** Three surfaces left the package root. Each one is still published, at a subpath:
+
+| Left the root                                                                                                                                                                                                                                                                          | Import it from                     |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `enhanceMath`, `parseMathSegments`                                                                                                                                                                                                                                                     | `@fuaran-ui/renderer/enhance-math` |
+| `DEBUG_GLOBAL_KEY`, `DEBUG_GLOBAL_VERSION`, `buildDebugGlobal`, `readRegisteredDebugGlobal`, `registerDebugGlobal`; types `FuaranDebugGlobal`, `DebugError`, `NodeGeometry`, `ApplyEnvelope`, `DebugGlobalOptions`, `BindingState`, `BindingStateError`, `BindingStatus`, `TreeOpJson` | `@fuaran-ui/renderer/debug` (new)  |
+| `RELAY_KEY`, `RELAY_PROFILE`, `acceptsRelayMessage`, `createRelayPeer`, `installRelayPeer`, `parseRelayProfile`; types `InstallRelayPeerOptions`, `RelayCapability`, `RelayDirection`, `RelayEnvelope`, `RelayPeer`, `RelayPeerOptions`, `RelayRefusalClass`, `RelaySurfaceSource`     | `@fuaran-ui/renderer/relay` (new)  |
+
+`./enhance-math` existed already. `./debug` exports exactly the set that left the root. `./relay`
+exports the relay module, which is the same set. Nothing else moved, and nothing became unreachable.
+
+`<FuaranRenderer>` now loads the debug surface and the relay by dynamic `import()`, and only when
+`debug` (and `relay`) is set. So `window.__fuaran` appears once that load resolves, not in the same
+commit as the mount. An unmount before then registers nothing. This surface was already DEBUG-only
+and outside semver.
+
+Every library package now declares `sideEffects`. The value is `false`, except in two cases: the
+renderer declares `["*.css"]`, so `import '@fuaran-ui/renderer/css'` survives, and a package with a
+CLI names its `bin` file. `@fuaran-ui/charts` moved from one module into one module per section behind
+the same entry. Its published declarations are unchanged, checked export by export with their types.
+
+**Why.** A consumer rendering one `Text` node through the root entry carried KaTeX, the relay and the
+debug surface. KaTeX came in through `enhanceMath`'s re-export. The other two came in through
+`<FuaranRenderer>`'s static imports and the root's re-exports. For that consumer, bundled minified as
+ESM with code splitting:
+
+| Bundler           | Before (one chunk)       | After: initial                                        | After: lazy, loaded only under `debug` |
+| ----------------- | ------------------------ | ----------------------------------------------------- | -------------------------------------- |
+| esbuild 0.25      | 860,055 B / 254,002 B gz | 571,814 B / 172,178 B gz (−32%), no KaTeX/relay/debug | 20,518 B / 7,429 B gz                  |
+| Vite 6.4 (Rollup) | 821,833 B / 242,884 B gz | 573,819 B / 171,917 B gz (−29%), no KaTeX/relay/debug | 20,621 B / 7,338 B gz                  |
+
+All of the saving comes from the root and the dynamic imports. Removing `sideEffects` again leaves
+this consumer within 8 bytes, because a bundler already drops what it can prove unused. The
+declaration matters to a consumer importing a subset of a package's modules.
+
+**What it costs a consumer.** A root import of any name in the first table fails to resolve. Import
+it from the subpath shown there. A host that read `window.__fuaran` synchronously after mounting
+`<FuaranRenderer debug>` must wait for the load, for example inside an `act` or after a tick.
+
+The self-contained standalone bundle keeps the same global (`FuaranRenderer` with `mount`,
+`BUNDLE_VERSION` and `WIRE_PROFILE`). It still carries the debug surface inline and has no
+`import()` left, but it grew from 178,644 to 181,188 B gz. That growth is the bundler's lazy-init
+wrapping of the dynamically imported modules. The `sideEffects` declarations and the charts split
+move no package's exports, so no other package's number moves for them.
+
+**What certifies it.** `packages/renderer/test/rootBarrel.test.ts` checks four things:
+
+- the root's static import graph reaches neither `katex` nor the debug or relay modules;
+- the moved names are absent from the root and present at their subpaths;
+- an early unmount registers no global;
+- every package declares `sideEffects`, and no package declaring `false` holds a top-level effectful statement outside its named files.
+
+The relay suites (`relay.test.tsx`, `relayCorpus.test.tsx`) pass over the dynamic load unchanged.
 
 ### Where the release notes live
 

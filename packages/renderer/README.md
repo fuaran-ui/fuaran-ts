@@ -169,9 +169,16 @@ The global tracks the live tree + sources (it re-registers on each render), so
 a value read after a state change reflects the new state. Its shape is
 **DEBUG-only and unstable** (excluded from semver), and it is `undefined` unless
 `debug` is set — leave it on `import.meta.env.DEV` and a production build never
-registers it. `buildDebugGlobal(tree, sources, options?)` /
+registers it. `<FuaranRenderer debug>` loads the surface by dynamic import, so
+the global appears once that load resolves, and a page that never sets `debug`
+never downloads it. `buildDebugGlobal(tree, sources, options?)` /
 `registerDebugGlobal(global)` are exported for hosts that want to wire the
-global on their own terms.
+global on their own terms — from the `@fuaran-ui/renderer/debug` subpath, not
+the package root:
+
+```ts
+import { buildDebugGlobal, registerDebugGlobal } from '@fuaran-ui/renderer/debug';
+```
 
 ### Policy-gated `apply(op)`
 
@@ -260,7 +267,26 @@ Three properties are deliberate and worth knowing before you enable it:
   that a Fuaran host is present.
 
 `createRelayPeer` / `installRelayPeer` are exported for hosts wiring the peer on
-their own terms; both are **not opted in unless told to be**.
+their own terms — from the `@fuaran-ui/renderer/relay` subpath, not the package
+root; both are **not opted in unless told to be**. `<FuaranRenderer debug relay>`
+loads the peer by dynamic import, so a production bundle does not carry it.
+
+## Math (KaTeX) enhancement
+
+`enhanceMath(root)` is the client-only KaTeX pass over rendered `Math` nodes
+and inline `$…$` in markdown. It is published at its own subpath — **not** from
+the package root, because it imports `katex` and the root entry would otherwise
+put KaTeX in every page's bundle:
+
+```ts
+import { enhanceMath } from '@fuaran-ui/renderer/enhance-math';
+import 'katex/dist/katex.min.css';
+
+enhanceMath(document.getElementById('app')!);
+```
+
+The subpath is React-free, so a server-rendered page can run the pass without
+the React renderer.
 
 ## Sanitisation
 

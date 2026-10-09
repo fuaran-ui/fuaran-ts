@@ -27,17 +27,19 @@ import { binding, column, fuaran, preEmitValidate } from '@fuaran-ui/ui';
 
 import {
   type BindingSources,
-  buildDebugGlobal,
   type ChangeHub,
   createChangeHub,
   createCustomRendererRegistry,
   customHashFloorOf,
-  createRelayPeer,
   FuaranRenderer,
+} from '../src/index.js';
+import { buildDebugGlobal } from '../src/debug.js';
+import {
+  createRelayPeer,
   RELAY_PROFILE,
   type RelayEnvelope,
   type RelayPeer,
-} from '../src/index.js';
+} from '../src/relay.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // packages/renderer/test → workspace-root/wire-format-fixtures/devtools-relay

@@ -27,14 +27,13 @@ import { fuaran } from '@fuaran-ui/ui';
 import { describe, expect, it } from 'vitest';
 
 import {
-  DEBUG_GLOBAL_VERSION,
-  buildDebugGlobal,
   decodeWiringIntrospection,
   describeWiringIntrospection,
   encodeWiringIntrospection,
   isWiringDecodeError,
   type WiringIntrospection,
 } from '../src/index.js';
+import { DEBUG_GLOBAL_VERSION, buildDebugGlobal } from '../src/debug.js';
 
 const vectorsDir = join(
   dirname(fileURLToPath(import.meta.url)),

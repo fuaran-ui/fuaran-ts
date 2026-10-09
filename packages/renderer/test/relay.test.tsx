@@ -25,21 +25,25 @@ import type { Node, NodeKind } from '@fuaran-ui/schema';
 import { binding, fuaran, preEmitValidate } from '@fuaran-ui/ui';
 
 import {
-  acceptsRelayMessage,
   type BindingSources,
-  buildDebugGlobal,
   createChangeHub,
   createCustomRendererRegistry,
-  createRelayPeer,
   declaredSlots,
-  type FuaranDebugGlobal,
   FuaranRenderer,
+} from '../src/index.js';
+import {
+  buildDebugGlobal,
+  type FuaranDebugGlobal,
+  readRegisteredDebugGlobal,
+} from '../src/debug.js';
+import {
+  acceptsRelayMessage,
+  createRelayPeer,
   installRelayPeer,
   parseRelayProfile,
-  readRegisteredDebugGlobal,
   RELAY_PROFILE,
   type RelayEnvelope,
-} from '../src/index.js';
+} from '../src/relay.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

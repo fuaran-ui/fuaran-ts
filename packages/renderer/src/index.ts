@@ -15,25 +15,10 @@
 
 export { FuaranRenderer, FuaranBehindRenderer, type FuaranRendererProps } from './Renderer.js';
 
-// In-page introspection REPL — `window.__fuaran` (DEBUG-only). Registered by
-// `<FuaranRenderer debug>`; the builder + register helpers are exported so a
-// host can wire the global on its own terms (e.g. a non-renderer debug surface).
-export {
-  DEBUG_GLOBAL_KEY,
-  DEBUG_GLOBAL_VERSION,
-  buildDebugGlobal,
-  readRegisteredDebugGlobal,
-  registerDebugGlobal,
-  type FuaranDebugGlobal,
-  type DebugError,
-  type NodeGeometry,
-  type ApplyEnvelope,
-  type DebugGlobalOptions,
-  type BindingState,
-  type BindingStateError,
-  type BindingStatus,
-  type TreeOpJson,
-} from './debugGlobal.js';
+// The in-page introspection REPL — `window.__fuaran` (DEBUG-only) — is NOT
+// exported from this entry (Phase 2076): its builder and register helpers live
+// at the `@fuaran-ui/renderer/debug` subpath. `<FuaranRenderer debug>` loads it
+// by dynamic import, so a page that never sets `debug` never ships it.
 
 // The wiring section of that surface (Phase 1844) — the reference host's wiring
 // DTO, read strictly and rendered to the same bytes on both hosts.
@@ -69,23 +54,9 @@ export {
 export { declaredSlots, isDeclaredSlot } from './declaredSlots.js';
 
 // The DevTools relay page peer — OFF by default; installing it is a deliberate
-// host act (see `relay.ts` and the relay contract's opt-in section).
-export {
-  RELAY_KEY,
-  RELAY_PROFILE,
-  acceptsRelayMessage,
-  createRelayPeer,
-  installRelayPeer,
-  parseRelayProfile,
-  type InstallRelayPeerOptions,
-  type RelayCapability,
-  type RelayDirection,
-  type RelayEnvelope,
-  type RelayPeer,
-  type RelayPeerOptions,
-  type RelayRefusalClass,
-  type RelaySurfaceSource,
-} from './relay.js';
+// host act (see `relay.ts` and the relay contract's opt-in section). Like the
+// debug global it lives at its own subpath, `@fuaran-ui/renderer/relay`, and
+// `<FuaranRenderer debug relay>` loads it by dynamic import (Phase 2076).
 
 export {
   CustomRendererRegistry,
@@ -303,9 +274,10 @@ export {
   type EgressVerdict,
 } from './egress.js';
 
-// Phase 293 — the client-only KaTeX math enhancement (also at the
-// `@fuaran-ui/renderer/enhance-math` subpath for React-free consumers).
-export { enhanceMath, parseMathSegments } from './enhanceMath.js';
+// Phase 293 — the client-only KaTeX math enhancement is reached ONLY through the
+// `@fuaran-ui/renderer/enhance-math` subpath (Phase 2076). It statically imports
+// `katex`, so re-exporting it here put KaTeX in every consumer's bundle, a
+// one-Text-node page included; a host that wants the pass imports it by name.
 
 // Phase 1079 — the client-only expandable-image overlay (also at the
 // `@fuaran-ui/renderer/enhance-expandable` subpath for React-free consumers).

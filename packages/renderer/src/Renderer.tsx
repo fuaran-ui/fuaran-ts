@@ -35,13 +35,11 @@ import { customHashFloorOf } from './customHash.js';
 import type { FuaranRuntime } from './customRegistry.js';
 import { denyNonLocalEgress, type EgressPolicy } from './egress.js';
 import { pageChangeHub } from './changeHub.js';
-import {
-  buildDebugGlobal,
-  type DebugGlobalOptions,
-  readRegisteredDebugGlobal,
-  registerDebugGlobal,
-} from './debugGlobal.js';
-import { installRelayPeer } from './relay.js';
+// Phase 2076 — the DEBUG-only surfaces (`debugGlobal.ts`, the DevTools relay) are
+// TYPE imports here and load by dynamic `import()` inside the effects below, only
+// when `debug` is set. A production page — where `debug` is left unset — never
+// fetches them, and a bundler can split them out of the consumer's entry chunk.
+import type { DebugGlobalOptions } from './debugGlobal.js';
 import { renderNode } from './render/core.js';
 import { type Theme, themeToStyle } from './theme.js';
 
@@ -90,6 +88,10 @@ export interface FuaranRendererProps<TMsg = unknown> {
    * exposes the typed layer (node state, resolved bindings, DOM geometry) to the
    * browser DevTools console. DEBUG-only / unstable — gate it on
    * `import.meta.env.DEV` so it never registers in a production build.
+   *
+   * The surface's module loads by dynamic import the first time `debug` is set
+   * (Phase 2076), so the global appears once that load resolves rather than in
+   * the same commit as the mount; a page that never sets `debug` never loads it.
    */
   readonly debug?: boolean;
   /**
@@ -158,11 +160,31 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
       // Phase 1844 — the wiring DTO is the host's to supply; read per call.
       ...(props.wiring !== undefined ? { wiring: () => props.wiring } : {}),
     };
-    const surface = buildDebugGlobal(props.tree, props.sources ?? {}, options);
+    const tree = props.tree;
+    const sources = props.sources ?? {};
+    const warn = props.runtime?.warn;
     // Announce the committed tree. Idempotent on tree identity, so a
     // re-registration caused by `sources` / `runtime` alone is not a change.
-    pageChangeHub.commit(props.tree, 'host');
-    return registerDebugGlobal(surface);
+    pageChangeHub.commit(tree, 'host');
+    // The surface module loads on first use (Phase 2076). A cleanup that runs
+    // before it arrives cancels the registration, so an unmounted (or re-keyed)
+    // renderer never leaves a stale global behind.
+    let cancelled = false;
+    let unregister: (() => void) | undefined;
+    void import('./debugGlobal.js').then(
+      ({ buildDebugGlobal, registerDebugGlobal }) => {
+        if (cancelled) return;
+        unregister = registerDebugGlobal(buildDebugGlobal(tree, sources, options));
+      },
+      // A diagnostic routes through the host's `warn` port (FGP 4), never the console.
+      (error: unknown) => {
+        warn?.(`the debug surface failed to load: ${String(error)}`);
+      },
+    );
+    return () => {
+      cancelled = true;
+      unregister?.();
+    };
   }, [
     props.debug,
     props.tree,
@@ -180,8 +202,24 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
   useEffect(() => {
     if (props.debug !== true || props.relay !== true) return undefined;
     // The `relay` prop IS the host's opt-in — there is no message in the
-    // contract that turns the relay on (§11.1).
-    return installRelayPeer(readRegisteredDebugGlobal, { optedIn: true });
+    // contract that turns the relay on (§11.1). Loaded on first use, like the
+    // debug surface it carries, and cancelled the same way.
+    const warn = props.runtime?.warn;
+    let cancelled = false;
+    let uninstall: (() => void) | undefined;
+    void Promise.all([import('./relay.js'), import('./debugGlobal.js')]).then(
+      ([{ installRelayPeer }, { readRegisteredDebugGlobal }]) => {
+        if (cancelled) return;
+        uninstall = installRelayPeer(readRegisteredDebugGlobal, { optedIn: true });
+      },
+      (error: unknown) => {
+        warn?.(`the DevTools relay failed to load: ${String(error)}`);
+      },
+    );
+    return () => {
+      cancelled = true;
+      uninstall?.();
+    };
   }, [props.debug, props.relay]);
 
   // Phase 2074 — everything the context is built from is memoised on its own

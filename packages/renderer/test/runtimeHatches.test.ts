@@ -13,15 +13,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { fuaran } from '@fuaran-ui/ui';
 
 import {
-  buildDebugGlobal,
   createCustomRendererRegistry,
   CUSTOM_HASH_FLOOR_PERMISSIVE,
   CUSTOM_RENDERER_REGISTERED,
   DEVELOPMENT_SURFACE_LIVE,
   observeRuntimeHatches,
-  registerDebugGlobal,
   customHashFloorOf,
 } from '../src/index.js';
+import { buildDebugGlobal, registerDebugGlobal } from '../src/debug.js';
 
 const tree = fuaran.stack<unknown>({ id: 'root', children: [] });
 

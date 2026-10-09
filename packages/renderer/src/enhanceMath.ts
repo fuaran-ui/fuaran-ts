@@ -18,6 +18,10 @@
 // `data-fuaran-math-done`) so it is safe to call after every render.
 //
 // Hosts must also load KaTeX's stylesheet once (`import 'katex/dist/katex.min.css'`).
+//
+// Reached ONLY at the `@fuaran-ui/renderer/enhance-math` subpath (Phase 2076): the
+// package root does not re-export it, because the `katex` import below would
+// otherwise land in every consumer's bundle, pages with no math included.
 import katex from 'katex';
 
 import { trustedHtml } from './trustedTypes.js';

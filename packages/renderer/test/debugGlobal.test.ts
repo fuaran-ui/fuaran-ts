@@ -15,7 +15,7 @@ import {
   buildDebugGlobal,
   registerDebugGlobal,
   type DebugError,
-} from '../src/index.js';
+} from '../src/debug.js';
 
 const tree = fuaran.stack<unknown>({
   id: 'root',

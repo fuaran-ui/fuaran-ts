@@ -19,6 +19,9 @@
     "directory": "packages/renderer"
   },
   "type": "module",
+  "sideEffects": [
+    "*.css"
+  ],
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -52,6 +55,16 @@
       "types": "./dist/markdown.d.ts",
       "import": "./dist/markdown.js",
       "require": "./dist/markdown.cjs"
+    },
+    "./debug": {
+      "types": "./dist/debug.d.ts",
+      "import": "./dist/debug.js",
+      "require": "./dist/debug.cjs"
+    },
+    "./relay": {
+      "types": "./dist/relay.d.ts",
+      "import": "./dist/relay.js",
+      "require": "./dist/relay.cjs"
     },
     "./css": "./css/fuaran.css"
   },
