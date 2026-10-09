@@ -563,7 +563,7 @@ const renderFormControl = <TMsg,>(ctx: RenderContext<TMsg>, field: FormField<TMs
     }
     case 'Checkbox': {
       const current = tryResolve(ctx.sources, k.value) ?? false;
-      const onToggle = k.onToggle;
+      const onChange = k.onChange;
       return (
         <input
           className="fuaran-form-checkbox"
@@ -571,7 +571,7 @@ const renderFormControl = <TMsg,>(ctx: RenderContext<TMsg>, field: FormField<TMs
           id={field.id}
           {...checkedProps(k.value, current)}
           onChange={(e: ChangeEvent<HTMLInputElement>) =>
-            handle(onToggle, k.value, e.target.checked, e.target.checked)
+            handle(onChange, k.value, e.target.checked, e.target.checked)
           }
         />
       );
@@ -581,7 +581,7 @@ const renderFormControl = <TMsg,>(ctx: RenderContext<TMsg>, field: FormField<TMs
     // switch a11y contract a screen reader announces as on/off.
     case 'Toggle': {
       const current = tryResolve(ctx.sources, k.value) ?? false;
-      const onToggle = k.onToggle;
+      const onChange = k.onChange;
       return (
         <input
           className="fuaran-form-toggle"
@@ -591,7 +591,7 @@ const renderFormControl = <TMsg,>(ctx: RenderContext<TMsg>, field: FormField<TMs
           id={field.id}
           {...checkedProps(k.value, current)}
           onChange={(e: ChangeEvent<HTMLInputElement>) =>
-            handle(onToggle, k.value, e.target.checked, e.target.checked)
+            handle(onChange, k.value, e.target.checked, e.target.checked)
           }
         />
       );

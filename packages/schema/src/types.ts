@@ -2392,7 +2392,7 @@ export type FormFieldKind<TMsg> =
   | {
       readonly kind: 'Checkbox';
       readonly value: Binding<boolean>;
-      readonly onToggle?: (value: boolean) => Action<TMsg>;
+      readonly onChange?: (value: boolean) => Action<TMsg>;
     }
   /**
    * The on/off SWITCH affordance. Identical data to `Checkbox` — a boolean with
@@ -2403,7 +2403,7 @@ export type FormFieldKind<TMsg> =
   | {
       readonly kind: 'Toggle';
       readonly value: Binding<boolean>;
-      readonly onToggle?: (value: boolean) => Action<TMsg>;
+      readonly onChange?: (value: boolean) => Action<TMsg>;
     }
   | {
       readonly kind: 'Choice';

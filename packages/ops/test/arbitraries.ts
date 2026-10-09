@@ -513,7 +513,7 @@ const formFieldsArb: fc.Arbitrary<readonly FormField<unknown>[]> = fc
         rule: compareRule,
       },
       mk('f-number', { kind: 'Number', value: r.sNum, onChange: noopAction }),
-      mk('f-checkbox', { kind: 'Checkbox', value: r.sBool, onToggle: noopAction }),
+      mk('f-checkbox', { kind: 'Checkbox', value: r.sBool, onChange: noopAction }),
       mk('f-choice', { kind: 'Choice', options: r.sOpts, value: r.sVal, onChange: noopAction }),
       mk('f-textarea', { kind: 'TextArea', value: r.sText, onChange: noopAction, rows: r.rows }),
       mk('f-ranged', { kind: 'RangedNumber', value: r.sNum, onChange: noopAction, constraints }),

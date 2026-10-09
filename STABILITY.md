@@ -1220,6 +1220,30 @@ move no package's exports, so no other package's number moves for them.
 
 The relay suites (`relay.test.tsx`, `relayCorpus.test.tsx`) pass over the dynamic load unchanged.
 
+### Recorded breaking change — `@fuaran-ui/schema` 0.26.0, `@fuaran-ui/ops` 0.30.0, `@fuaran-ui/renderer` 0.27.0, `@fuaran-ui/ui` 0.23.1, `@fuaran-ui/mock` 0.12.1, a form field's change handler is `onChange` on every kind (Phase 2177)
+
+**`Checkbox` and `Toggle` spell their change handler `onChange`**, as every other `FormFieldKind` case
+already did; they spelled it `onToggle`. On the wire the handler is the `"<closure>"` sentinel exactly as
+before, emitted only when a closure-authored field carries one; the `value` member is untouched on every
+case, so no value byte of any document moves. The shared corpus certifies it (`nodes/form-1.json`), and the
+bundled snapshot is re-synced to that corpus commit.
+
+**What changes for a consumer.** The schema type's `Checkbox` / `Toggle` members declare
+`onChange?: (value: boolean) => Action<TMsg>` where they declared `onToggle?` — a compile error at every
+construction or read of the old member, which is the intent. The decoder reads a checkbox's or a switch's
+handler from `onChange` and the encoder writes it there; a document carrying the retired `onToggle` decodes
+as the handler-free field (the write-back default), because the key is no longer the handler and is not
+accepted as an alias — the wire format's lenient profile admits a shorthand only where models emit it, and a
+model does not author a closure sentinel. `Disclosure.onToggle` and the grid cell `Checkbox`'s `onToggle`
+are different slots and keep their names.
+
+**Versions.** `@fuaran-ui/schema` was released at 0.25.0 in `v0.29.0`, so the type change advances it to
+0.26.0 (pre-1.0, the minor is the breaking class). `@fuaran-ui/ops` 0.30.0 and `@fuaran-ui/renderer` 0.27.0
+are untagged drafts already in the breaking class and ride them. `@fuaran-ui/ui` (the FUARAN069 inert-control
+check now reads `onChange` on every field kind) and `@fuaran-ui/mock` (its bundled form fixture) were released
+at 0.23.0 and 0.12.0 and advance a patch each; the starter's pins follow. The .NET, Go, Rust and Python hosts
+made the same change in the same change-set.
+
 ### Where the release notes live
 
 **This file is the changelog.** There is no `CHANGELOG.md` in this repository, and adding one would split the record in two: the reason a version moved and the surface it moved are the same paragraph, and that paragraph belongs beside the surface it describes.

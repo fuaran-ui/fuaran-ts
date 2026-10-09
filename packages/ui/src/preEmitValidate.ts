@@ -753,10 +753,9 @@ function runPreEmit<TMsg>(
         if (input.kind === 'Form') {
           for (const field of input.spec.fields) {
             const fk = field.kind;
-            // Toggle (Phase 766) shares Checkbox's onToggle handler shape.
-            const handler =
-              fk.kind === 'Checkbox' || fk.kind === 'Toggle' ? fk.onToggle : fk.onChange;
-            if (handler === undefined && !isWriteBackTarget(fk.value)) {
+            // Every form-field kind carries one change handler, `onChange`
+            // (Phase 2177 — Checkbox and Toggle included).
+            if (fk.onChange === undefined && !isWriteBackTarget(fk.value)) {
               defects.push({
                 code: 'INERT_CONTROL',
                 nodeId: n.id,

@@ -5502,8 +5502,6 @@ const decodeFormFieldKind = (
   // write-back default.
   const onChangeField: { onChange?: () => Action<unknown> } =
     tryField(f, 'onChange') !== undefined ? { onChange: onChangePlaceholder } : {};
-  const onToggleField: { onToggle?: () => Action<unknown> } =
-    tryField(f, 'onToggle') !== undefined ? { onToggle: onChangePlaceholder } : {};
   // Value slot: present => typed decode; absent in a FILTER context => the
   // auto `Filter(name)` binding; absent in a Form => MISSING_FIELD as before.
   const valueOr = (
@@ -5542,7 +5540,7 @@ const decodeFormFieldKind = (
         ? ok({
             kind: 'Checkbox',
             value: v.value as Binding<boolean>,
-            ...onToggleField,
+            ...onChangeField,
           })
         : v;
     }
@@ -5552,7 +5550,7 @@ const decodeFormFieldKind = (
         ? ok({
             kind: 'Toggle',
             value: v.value as Binding<boolean>,
-            ...onToggleField,
+            ...onChangeField,
           })
         : v;
     }

@@ -1510,12 +1510,12 @@ const formFieldKind = (autoBind: ControlAutoBind, k: FormFieldKind<unknown>): st
       ]);
     case 'Checkbox':
       return caseObj('Checkbox', [
-        ...handlerField('onToggle', k.onToggle),
+        ...handlerField('onChange', k.onChange),
         ...valueField(k.value, controlValueDefaults.checkbox, (v) => binding(v)),
       ]);
     case 'Toggle':
       return caseObj('Toggle', [
-        ...handlerField('onToggle', k.onToggle),
+        ...handlerField('onChange', k.onChange),
         ...valueField(k.value, controlValueDefaults.checkbox, (v) => binding(v)),
       ]);
     case 'Choice':

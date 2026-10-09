@@ -13,8 +13,8 @@
   },
   "dependencies": {
     "@fuaran-ui/renderer": "^0.27.0",
-    "@fuaran-ui/schema": "^0.25.0",
-    "@fuaran-ui/ui": "^0.23.0",
+    "@fuaran-ui/schema": "^0.26.0",
+    "@fuaran-ui/ui": "^0.23.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
