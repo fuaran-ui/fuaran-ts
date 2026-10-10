@@ -636,7 +636,7 @@ importers:
         specifier: ^0.26.0
         version: link:../../packages/schema
       '@fuaran-ui/ui':
-        specifier: ^0.23.1
+        specifier: ^0.24.0
         version: link:../../packages/ui
       react:
         specifier: ^19.0.0

@@ -1118,6 +1118,8 @@ Per-release semver bump. Pre-1.0: plain `0.x.y` versions, no prerelease suffix (
 
 **A change to a published surface advances that package's version in the same commit; a change that rides an already-advanced, not-yet-tagged version says so.** The second half is what keeps a release honest under several concurrent changes: once a package's version is ahead of the newest tag it is a DRAFT, and an additive or same-class change rides it rather than minting a number nobody will ever install. A change of a HIGHER class than the draft already carries advances it again, because the number is what tells a consumer what adopting it costs.
 
+**The first half is checked offline in the ordinary gate (Phase 2216).** `dev-scripts/check-release-advances.mjs`, run by the root `pnpm test`, compares every publishable package with the newest `v*` tag reachable from HEAD. It fails when the package's sources moved while its version still equals the one that tag released, and when its version is below the tag's. "Sources" means every file under the package directory except tests, Markdown, and `package.json` changes confined to `version`, `scripts` and `devDependencies`. A shipped data directory such as the conformance corpus counts. A workspace-internal package bundled into `dist` moves every package that bundles it. The check cannot judge a CLASS: a draft advanced a patch and then given a breaking change still passes, so the class stays this document's call. A shallow clone with no tags reports NOT CHECKED with the remedy (a full-history checkout) rather than passing. The registry probe stays a release-time step in the publish workflow.
+
 **What proves a release, as opposed to a build.** Every suite in `ci.yml` runs inside this workspace, against linked packages and built `dist/` — the right lane for "does the code agree with itself", and structurally blind to the two ways a release fails a newcomer: a package that does not install at all, and two hosts whose PUBLISHED bytes disagree while their sources do not. The clean-machine install smoke ([`.github/workflows/install-smoke.yml`](.github/workflows/install-smoke.yml), fixtures in [`dev-scripts/install-smoke/`](dev-scripts/install-smoke/)) installs the current release from npm and restores it from nuget.org with every local source cleared, authors one tree through each tier's own surface, and requires the canonical bytes to match. It runs after a successful publish, weekly, and on demand — its inputs are the registries, not this branch.
 
 ### Recorded behaviour change — `@fuaran-ui/renderer` 0.27.0 and `@fuaran-ui/ops` 0.30.0, the React renderer memoises (Phase 2074)
@@ -1220,7 +1222,7 @@ move no package's exports, so no other package's number moves for them.
 
 The relay suites (`relay.test.tsx`, `relayCorpus.test.tsx`) pass over the dynamic load unchanged.
 
-### Recorded breaking change — `@fuaran-ui/schema` 0.26.0, `@fuaran-ui/ops` 0.30.0, `@fuaran-ui/renderer` 0.27.0, `@fuaran-ui/ui` 0.23.1, `@fuaran-ui/mock` 0.12.1, a form field's change handler is `onChange` on every kind (Phase 2177)
+### Recorded breaking change — `@fuaran-ui/schema` 0.26.0, `@fuaran-ui/ops` 0.30.0, `@fuaran-ui/renderer` 0.27.0, `@fuaran-ui/ui` 0.24.0, `@fuaran-ui/mock` 0.12.1, a form field's change handler is `onChange` on every kind (Phase 2177)
 
 **`Checkbox` and `Toggle` spell their change handler `onChange`**, as every other `FormFieldKind` case
 already did; they spelled it `onToggle`. On the wire the handler is the `"<closure>"` sentinel exactly as
@@ -1239,10 +1241,53 @@ are different slots and keep their names.
 
 **Versions.** `@fuaran-ui/schema` was released at 0.25.0 in `v0.29.0`, so the type change advances it to
 0.26.0 (pre-1.0, the minor is the breaking class). `@fuaran-ui/ops` 0.30.0 and `@fuaran-ui/renderer` 0.27.0
-are untagged drafts already in the breaking class and ride them. `@fuaran-ui/ui` (the FUARAN069 inert-control
-check now reads `onChange` on every field kind) and `@fuaran-ui/mock` (its bundled form fixture) were released
-at 0.23.0 and 0.12.0 and advance a patch each; the starter's pins follow. The .NET, Go, Rust and Python hosts
-made the same change in the same change-set.
+are untagged drafts already in the breaking class and ride them. `@fuaran-ui/mock` (its bundled form fixture)
+was released at 0.12.0 and advances a patch. `@fuaran-ui/ui` was released at 0.23.0 and advances to **0.24.0**,
+a minor: its own change (the FUARAN069 inert-control check now reads `onChange` on every field kind) is a fix,
+but it `export *`s `@fuaran-ui/schema`, so the `Checkbox` / `Toggle` member rename is a compile break on ui's
+author surface too. Phase 2177 first advanced it a patch (0.23.1); Phase 2216 corrected the class before that
+draft was tagged. The starter's pins follow. The .NET, Go, Rust and Python hosts made the same change in the
+same change-set.
+
+### Recorded release-consistency bumps — the release set after `v0.29.0` (Phase 2216)
+
+_Unreleased: every version below is ahead of the newest tag, `v0.29.0`._
+
+**Twelve packages had moved since `v0.29.0` without a version advance**, so the next tag would have
+skipped every one of them and left the registry serving the copies `v0.29.0` published. Their
+siblings that did advance (`schema` 0.26.0, `ops` 0.30.0, `renderer` 0.27.0, `renderer-server` 0.25.0,
+`ai-tools` 0.14.0, `mock` 0.12.1, and `ui`, above) would then have shipped against them. Each is advanced
+here. The class comes from what changed in that package; pre-1.0, per this document's caveat, a
+breaking change is a minor.
+
+| Package                      | From → to       | Class     | What moved                                                                                                                                                                                                                                                                                                                                              |
+| ---------------------------- | --------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@fuaran-ui/conformance`     | 0.26.0 → 0.27.0 | **minor** | The bundled corpus moves under every adapter: Phase 2177's `Checkbox` / `Toggle` handler rename (`nodes/form-1.json`, `reject/reject-multi-context-member.json`, `schema.json`), re-synced to its authority commit. An adapter that passed 0.26.0 still spelling `onToggle` fails here. The snapshot record also moved with Phases 2141, 2161 and 2172. |
+| `@fuaran-ui/react`           | 0.12.3 → 0.13.0 | **minor** | Rendered output moves: `<FuaranGenerated>` now shows a failed turn's error slot (`renderError`, or the default `role="alert"` paragraph) BESIDE a held tree, where it used to drop it silently once a first tree existed (Phase 2077). A consumer asserting on that output sees an extra element. No exported name or signature changes.                |
+| `@fuaran-ui/charts`          | 0.14.3 → 0.14.4 | patch     | The entry splits into one module per section behind an unchanged export list (Phase 2076), and the calendar arithmetic comes from a workspace-internal module bundled into `dist` (Phase 2075). `sideEffects: false` is declared. The chart-lowering corpus pins the output bytes unchanged.                                                            |
+| `@fuaran-ui/client`          | 0.12.3 → 0.12.4 | patch     | Fixes (Phase 2077): an object `tree` in a reply crosses back as the bytes the reply carried rather than a re-serialisation that rewrote numbers and escapes; a refusal's stage is read in either spelling (`access-token` / `AccessToken`), and only an unknown label falls back to `provider`. `sideEffects: false` is declared.                       |
+| `@fuaran-ui/op-stream`       | 0.11.3 → 0.11.4 | patch     | Fixes (Phase 2077): concurrent `applyAndPersist` calls on one (sink, stream) are serialised, so each is allocated its own sequence; a stream whose previous record is missing is reported through `onSinkError` instead of being chained to the genesis hash. The bundled internal module moved too. `sideEffects: false` is declared.                  |
+| `@fuaran-ui/layout-observer` | 0.11.0 → 0.11.1 | patch     | The observer scaffolding is shared with the style observer through a workspace-internal module bundled into `dist` (Phase 2075); the exported names, the flag vocabulary and the flag JSON do not move. `sideEffects: false` is declared.                                                                                                               |
+| `@fuaran-ui/style-observer`  | 0.11.2 → 0.11.3 | patch     | The same shared scaffolding (Phase 2075); no exported name or flag byte moves. `sideEffects: false` is declared.                                                                                                                                                                                                                                        |
+| `@fuaran-ui/theme-manifest`  | 0.12.1 → 0.12.2 | patch     | `sideEffects: false` is declared (Phase 2076). The decoder only gains a comment recording why its default-tolerance is cross-host (Phase 2077).                                                                                                                                                                                                         |
+| `@fuaran-ui/cli`             | 0.11.2 → 0.11.3 | patch     | `sideEffects` names its bin entry (Phase 2076), which changes what a bundler may drop.                                                                                                                                                                                                                                                                  |
+| `@fuaran-ui/mcp`             | 0.14.0 → 0.14.1 | patch     | The same `sideEffects` declaration (Phase 2076).                                                                                                                                                                                                                                                                                                        |
+| `@fuaran-ui/telemetry`       | 0.11.0 → 0.11.1 | patch     | `sideEffects: false` is declared (Phase 2076).                                                                                                                                                                                                                                                                                                          |
+| `@fuaran-ui/validator`       | 0.11.0 → 0.11.1 | patch     | The same `sideEffects` declaration (Phase 2076).                                                                                                                                                                                                                                                                                                        |
+
+The two defensive placeholders are left as they are. `@fuaran-ui/fuaran` gained `sideEffects: false`, and
+a name-holding placeholder is not re-released for a metadata change.
+
+**The set is consistent after the tag.** `pnpm pack` of every publishable package rewrites each
+`workspace:` range to a version this set produces, and every runtime `@fuaran-ui/*` edge (dependency or
+peer) names one. `node dev-scripts/check-peer-ranges.mjs` against the registry reports OK over 21
+publishable packages; the only two on the registry already are the placeholders, which declare no
+`@fuaran-ui/*` range.
+
+**And the next release cannot skip a package this way.** `dev-scripts/check-release-advances.mjs`
+runs in the root `pnpm test`. It fails when a publishable package's sources differ from the newest
+reachable `v*` tag while its version equals the one that tag released (see the versioning policy
+below).
 
 ### Where the release notes live
 
