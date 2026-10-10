@@ -22,6 +22,9 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 /** The resolver itself — the one place allowed to name the sibling clone. */
 const RESOLVER = 'dev-scripts/corpus-root.mjs';
 
+/** This guard, whose allowlist and self-test necessarily spell the path. */
+const SELF = 'packages/conformance/test/corpus-root-guard.test.ts';
+
 /** Lines that name the directory without reading a corpus from it: the declare
  *  step's layout check of the PRIMARY checkout, the registry's producer field,
  *  and the throwaway estate the declare tests build. File → exact line text. */
@@ -60,7 +63,7 @@ describe('every corpus-reading leg resolves the corpus through dev-scripts/corpu
   it('no tracked source spells the sibling corpus path for itself', () => {
     const offenders: string[] = [];
     for (const file of trackedSources()) {
-      if (file === RESOLVER) continue;
+      if (file === RESOLVER || file === SELF) continue;
       const lines = readFileSync(join(repoRoot, file), 'utf8').split('\n');
       lines.forEach((line, i) => {
         if (isComment(line) || !SPELLING.test(line)) return;
