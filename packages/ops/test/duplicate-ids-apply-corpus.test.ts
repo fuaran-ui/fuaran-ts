@@ -13,16 +13,16 @@
 // ============================================================================
 
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import { apply, decodeNode, decodeOp } from '../src/index.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const declaredRoot = process.env['FUARAN_WIRE_FIXTURES'];
-const corpusRoot = declaredRoot || join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+import { resolveCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const { root: corpusRoot, source } = resolveCorpusRoot();
+const declaredRoot = source === 'env';
 const applyRoot = join(corpusRoot, 'apply');
 const manifestPath = join(applyRoot, 'manifest.json');
 

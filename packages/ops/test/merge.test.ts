@@ -42,8 +42,7 @@
 
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import type { Node } from '@fuaran-ui/schema';
 import { describe, expect, it } from 'vitest';
@@ -56,9 +55,9 @@ import {
   sortConflictsCanonical,
 } from '../src/index.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/ops/test → workspace-root/wire-format-fixtures/merge-conformance
-const corpusRoot = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'merge-conformance');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const corpusRoot = join(wireCorpusRoot(), 'merge-conformance');
 
 interface Merge3WayFixture {
   readonly id: string;

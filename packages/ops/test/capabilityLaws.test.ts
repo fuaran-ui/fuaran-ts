@@ -85,11 +85,10 @@ import type { Capability, InvokeArg } from '@fuaran-ui/schema';
 
 import { decodeCapabilityDeclaration, encodeCapabilityDeclaration } from '../src/capabilityDecl.js';
 
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
 const here = dirname(fileURLToPath(import.meta.url));
-// packages/ops/test → workspace-root/wire-format-fixtures/laws, unless
-// FUARAN_WIRE_FIXTURES names the corpus (as the other corpus legs here honour).
-const corpusRoot =
-  process.env['FUARAN_WIRE_FIXTURES'] || join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+const corpusRoot = wireCorpusRoot();
 const lawsRoot = join(corpusRoot, 'laws');
 
 // ─── the family manifest ─────────────────────────────────────────────────────

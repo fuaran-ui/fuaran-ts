@@ -25,8 +25,7 @@
 
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 import { decodeOp, encodeOp } from '@fuaran-ui/ops';
@@ -35,15 +34,14 @@ import type { TreeOp } from '@fuaran-ui/ops';
 import { computeHash, encodeActor, genesisPreviousHash } from '../src/index.js';
 import type { Actor, OpRecord, OpResultEnvelope } from '../src/index.js';
 
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
 // The actor folded into every fixture hash (Phase 320). The JSON literal is an
 // INDEPENDENT reference (not produced by `encodeActor`) so the parity argument
 // stays non-circular — the test below also asserts `encodeActor` reproduces it.
 const testActor: Actor = { kind: 'human', id: 'u' };
 const testActorJson = '{"kind":"human","id":"u"}';
-
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/op-stream/test → workspace-root/wire-format-fixtures
-const corpusRoot = join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+const corpusRoot = wireCorpusRoot();
 const readFixture = (relPath: string): string => readFileSync(join(corpusRoot, relPath), 'utf8');
 
 interface ManifestFixture {

@@ -21,8 +21,7 @@
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
@@ -38,9 +37,9 @@ import {
 } from '@fuaran-ui/schema';
 import { decodeNode, decodeOp } from '../src/index.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/ops/test → workspace-root/wire-format-fixtures/decode-policy
-const familyDir = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'decode-policy');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const familyDir = join(wireCorpusRoot(), 'decode-policy');
 
 interface PolicyDecl {
   readonly identity: string;

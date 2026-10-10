@@ -16,8 +16,7 @@
 // ============================================================================
 
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
@@ -29,6 +28,8 @@ import {
   sanitizeUrl,
   sanitizeUrlOrBlank,
 } from '../src/sanitize.js';
+
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
 
 interface Case {
   id: string;
@@ -49,14 +50,8 @@ interface Group {
 }
 
 const findManifest = (): string | undefined => {
-  let dir = dirname(fileURLToPath(import.meta.url));
-  for (;;) {
-    const candidate = join(dir, 'wire-format-fixtures', 'sanitization', 'manifest.json');
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname(dir);
-    if (parent === dir) return undefined;
-    dir = parent;
-  }
+  const candidate = join(wireCorpusRoot(), 'sanitization', 'manifest.json');
+  return existsSync(candidate) ? candidate : undefined;
 };
 
 const loadGroups = (): Group[] => {

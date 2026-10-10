@@ -15,7 +15,6 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
@@ -28,9 +27,9 @@ import {
   type RenderFidelityManifest,
 } from '../src/index.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/schema/test → workspace-root/wire-format-fixtures/render-fidelity.json
-const ARTIFACT = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'render-fidelity.json');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const ARTIFACT = join(wireCorpusRoot(), 'render-fidelity.json');
 
 const present = existsSync(ARTIFACT);
 if (!present)

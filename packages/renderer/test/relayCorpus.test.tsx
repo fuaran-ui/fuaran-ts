@@ -16,8 +16,7 @@
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -41,9 +40,9 @@ import {
   type RelayPeer,
 } from '../src/relay.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/renderer/test → workspace-root/wire-format-fixtures/devtools-relay
-const fixturesDir = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'devtools-relay');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const fixturesDir = join(wireCorpusRoot(), 'devtools-relay');
 
 interface ManifestEntry {
   readonly id: string;

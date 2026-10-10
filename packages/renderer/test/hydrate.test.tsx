@@ -11,8 +11,7 @@
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -22,8 +21,9 @@ import { decodeNode } from '@fuaran-ui/ops';
 
 import { FuaranRenderer, hydrateEmbedded, hydrationScriptId } from '../src/index.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const nodesDir = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'nodes');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const nodesDir = join(wireCorpusRoot(), 'nodes');
 
 /** Server-render a tree to static HTML (the markup the host would ship). */
 const serverHtml = (json: string): string => {

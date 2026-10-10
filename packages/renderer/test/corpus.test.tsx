@@ -10,8 +10,7 @@
 // ============================================================================
 
 import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -19,6 +18,8 @@ import { describe, expect, it } from 'vitest';
 import { decodeNode } from '@fuaran-ui/ops';
 
 import { FuaranRenderer, permissiveEgress } from '../src/index.js';
+
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
 
 // Phase 1810 — the host ambients a `Format.Date` reads are PINNED for this
 // corpus. WIRE_FORMAT §3.3 makes `LocaleSource.Ambient` defer to the host
@@ -33,10 +34,7 @@ import { FuaranRenderer, permissiveEgress } from '../src/index.js';
 // set before any render so the fork's ICU timezone is reset to it.
 process.env['TZ'] = 'UTC';
 const CORPUS_AMBIENT_LOCALE = 'en-GB';
-
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/renderer/test → workspace-root/wire-format-fixtures
-const nodesDir = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'nodes');
+const nodesDir = join(wireCorpusRoot(), 'nodes');
 
 const fixtureFiles = readdirSync(nodesDir)
   .filter((f) => f.endsWith('.json'))

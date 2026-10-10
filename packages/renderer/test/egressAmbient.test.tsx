@@ -32,8 +32,7 @@
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -54,17 +53,9 @@ import {
 } from '../src/egress.js';
 import { FuaranRenderer } from '../src/index.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const corpusPath = join(
-  here,
-  '..',
-  '..',
-  '..',
-  '..',
-  'wire-format-fixtures',
-  'markdown',
-  'corpus.json',
-);
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const corpusPath = join(wireCorpusRoot(), 'markdown', 'corpus.json');
 
 interface Fixture {
   id: string;

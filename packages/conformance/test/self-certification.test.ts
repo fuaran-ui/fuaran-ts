@@ -7,8 +7,7 @@
 // ============================================================================
 
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import {
   decodeElicitation,
@@ -37,9 +36,9 @@ import { loadCorpus } from '../src/corpus.js';
 import { formatReport } from '../src/report.js';
 import { runConformance } from '../src/run.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/conformance/test → workspace-root/wire-format-fixtures
-const workspaceCorpus = join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const workspaceCorpus = wireCorpusRoot();
 
 const tsHostAdapter: ConformanceAdapter = {
   decodeNode: (json) => decodeNode(json),

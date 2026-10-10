@@ -22,8 +22,7 @@
 // ============================================================================
 
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { decodeNode, encodeNode } from '@fuaran-ui/ops';
 import type { Binding, JsonValue, Node, TextSource } from '@fuaran-ui/ui';
@@ -32,9 +31,9 @@ import { describe, expect, it } from 'vitest';
 import { loadCorpus, type Corpus } from '../src/corpus.js';
 import { reauthorNode, type ReauthorTally } from './reauthor.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/conformance/test → workspace-root/wire-format-fixtures
-const workspaceCorpus = join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const workspaceCorpus = wireCorpusRoot();
 
 /** Decode, re-author, re-encode. Throws with the fixture named on any leg. */
 const roundTripThroughAuthorSurface = (

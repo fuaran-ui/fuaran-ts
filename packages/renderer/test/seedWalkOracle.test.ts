@@ -15,13 +15,14 @@
 // ============================================================================
 
 import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import { ChildReach, children, collectStateSeeds, decodeNode } from '@fuaran-ui/ops';
 import { controlValueDefaults, type Node } from '@fuaran-ui/schema';
+
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
 
 // --- The oracle: the seed walk as it stood before Phase 2074 -----------------
 
@@ -99,10 +100,7 @@ const oracleSeeds = <TMsg>(tree: Node<TMsg>): Record<string, unknown> => {
 };
 
 // --- The fixtures -------------------------------------------------------------
-
-const here = dirname(fileURLToPath(import.meta.url));
-// test -> renderer -> packages -> fuaran-ts -> <workspace>/wire-format-fixtures
-const nodesDir = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'nodes');
+const nodesDir = join(wireCorpusRoot(), 'nodes');
 const corpusFiles = readdirSync(nodesDir)
   .filter((f) => f.endsWith('.json'))
   .sort();

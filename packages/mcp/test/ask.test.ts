@@ -6,7 +6,6 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
@@ -23,8 +22,9 @@ import {
   startElicitationServer,
 } from '../src/tools/ask.js';
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const corpusRoot = join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const corpusRoot = wireCorpusRoot();
 const readFixture = (relPath: string): string => readFileSync(join(corpusRoot, relPath), 'utf8');
 
 interface ManifestFixture {

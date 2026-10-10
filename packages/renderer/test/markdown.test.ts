@@ -9,8 +9,7 @@
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
@@ -22,18 +21,9 @@ import {
 } from '../src/egress.js';
 import { toHtml, toHtmlWithEgress } from '../src/markdown.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/renderer/test → workspace-root/wire-format-fixtures/markdown/corpus.json
-const corpusPath = join(
-  here,
-  '..',
-  '..',
-  '..',
-  '..',
-  'wire-format-fixtures',
-  'markdown',
-  'corpus.json',
-);
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const corpusPath = join(wireCorpusRoot(), 'markdown', 'corpus.json');
 
 interface Fixture {
   id: string;

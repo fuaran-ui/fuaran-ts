@@ -5,8 +5,7 @@
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 import { decodeNode, findNode as opsFindNode } from '@fuaran-ui/ops';
@@ -23,6 +22,8 @@ import {
   kindName,
   walkNodes,
 } from '../src/index.js';
+
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
 
 const nid = (s: string): NodeId => s as NodeId;
 const emptyState: StateBehaviour<unknown> = {};
@@ -257,8 +258,7 @@ describe('getNodeState / findNodes / inspectTree', () => {
 });
 
 describe('introspection over a decoded corpus fixture', () => {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const nodesDir = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'nodes');
+  const nodesDir = join(wireCorpusRoot(), 'nodes');
 
   it('introspects a real decoded Button node', () => {
     const decoded = decodeNode(readFileSync(join(nodesDir, 'btn-1.json'), 'utf8'));

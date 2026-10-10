@@ -17,8 +17,7 @@
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -27,8 +26,9 @@ import { decodeNode } from '@fuaran-ui/ops';
 
 import { FuaranRenderer } from '../src/index.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const nodesDir = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'nodes');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const nodesDir = join(wireCorpusRoot(), 'nodes');
 
 const renderFixtureWithState = (fixture: string, stateKey: string, value: boolean): string => {
   const decoded = decodeNode(readFileSync(join(nodesDir, fixture), 'utf8'));

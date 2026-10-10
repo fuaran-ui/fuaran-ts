@@ -11,8 +11,7 @@
 // ============================================================================
 
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -37,14 +36,13 @@ import {
   type RowWindow,
 } from '../src/render/Visualisation.js';
 
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
 // React 19 wants this flag set before act(...) drives a real root in jsdom.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // ─── The corpus's behaviour vectors ─────────────────────────────────────────
-
-const here = dirname(fileURLToPath(import.meta.url));
-const corpusRoot =
-  process.env['FUARAN_WIRE_FIXTURES'] || join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+const corpusRoot = wireCorpusRoot();
 const corpusPresent = existsSync(join(corpusRoot, 'manifest.json'));
 const vectorsFile = join(corpusRoot, 'grid-window', 'grid-window-vectors.json');
 

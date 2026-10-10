@@ -11,8 +11,7 @@
 // ============================================================================
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { encodeNode } from '@fuaran-ui/ops';
 import { describe, expect, it } from 'vitest';
@@ -31,21 +30,12 @@ import type {
   TextSource,
 } from '@fuaran-ui/schema';
 
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
 /** A `TextSource` in canonical wire JSON: the bare string (the canonical
  * `Literal` form, §16) or a `$type`-tagged arm. */
 type WireTextSource = string | { readonly $type: string; readonly [k: string]: unknown };
-
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/charts/test → workspace-root/wire-format-fixtures/chart-lowering
-const CHART_LOWERING_DIR = join(
-  here,
-  '..',
-  '..',
-  '..',
-  '..',
-  'wire-format-fixtures',
-  'chart-lowering',
-);
+const CHART_LOWERING_DIR = join(wireCorpusRoot(), 'chart-lowering');
 
 interface ChartInput {
   readonly kind: ChartLowerSpec['kind'];

@@ -21,25 +21,16 @@
 // ============================================================================
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { encodeNode } from '@fuaran-ui/ops';
 import { describe, expect, it } from 'vitest';
 
 import { lowerSparklineNode, tryLowerSparkline } from '../src/index.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/charts/test → workspace-root/wire-format-fixtures/sparkline-lowering
-const SPARKLINE_LOWERING_DIR = join(
-  here,
-  '..',
-  '..',
-  '..',
-  '..',
-  'wire-format-fixtures',
-  'sparkline-lowering',
-);
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const SPARKLINE_LOWERING_DIR = join(wireCorpusRoot(), 'sparkline-lowering');
 
 /** A series element on the wire: a JSON number, or one of the three canonical
  * non-finite sentinel strings (WIRE_FORMAT.md §7). */

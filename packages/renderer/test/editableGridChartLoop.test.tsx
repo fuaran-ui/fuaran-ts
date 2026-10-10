@@ -25,8 +25,7 @@
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -38,12 +37,11 @@ import type { Node } from '@fuaran-ui/schema';
 import type { BindingSources } from '../src/index.js';
 import { FuaranRenderer, type FuaranRuntime } from '../src/index.js';
 
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
 // React 19 wants this flag set before act(...) drives a real root in jsdom.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/renderer/test → workspace-root/wire-format-fixtures
-const nodesDir = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'nodes');
+const nodesDir = join(wireCorpusRoot(), 'nodes');
 
 interface StateSource {
   readonly $type: string;

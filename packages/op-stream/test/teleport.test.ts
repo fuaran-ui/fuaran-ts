@@ -19,8 +19,7 @@
 // ============================================================================
 
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { encodeNode, jsonField, parse, renderAstCanonical } from '@fuaran-ui/ops';
 import { describe, expect, it } from 'vitest';
@@ -35,9 +34,9 @@ import {
 import type { JsonAst } from '@fuaran-ui/ops';
 import type { Node } from '@fuaran-ui/schema';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/op-stream/test → workspace-root/wire-format-fixtures
-const corpusRoot = join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const corpusRoot = wireCorpusRoot();
 const manifestPath = join(corpusRoot, 'manifest.json');
 const readFixture = (relPath: string): string => readFileSync(join(corpusRoot, relPath), 'utf8');
 

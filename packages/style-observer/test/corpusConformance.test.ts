@@ -20,8 +20,7 @@
 // ============================================================================
 
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { decodeManifest, type ThemeManifest } from '@fuaran-ui/theme-manifest';
 import { describe, expect, it } from 'vitest';
@@ -39,9 +38,10 @@ import {
   type StyleObserverOptions,
 } from '../src/index.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
 // packages/style-observer/test → the directory holding the fuaran-ts checkout.
-const corpusRoot = join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+const corpusRoot = wireCorpusRoot();
 const manifestPath = join(corpusRoot, 'manifest.json');
 const corpusPresent = existsSync(manifestPath);
 

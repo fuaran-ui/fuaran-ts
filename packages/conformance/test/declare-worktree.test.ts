@@ -35,6 +35,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 const here = dirname(fileURLToPath(import.meta.url));
 const script = join(here, '..', 'scripts', 'sync-corpus.mjs');
 const SCRIPT_IN_REPO = join('packages', 'conformance', 'scripts', 'sync-corpus.mjs');
+// The script imports the repository's corpus-root resolver, so the probe repo carries both.
+const RESOLVER_IN_REPO = join('dev-scripts', 'corpus-root.mjs');
+const RESOLVER = join(here, '..', '..', '..', RESOLVER_IN_REPO);
 const EXPECTED_PREFIX = 'Fuaran/Fuaran-UI/fuaran-ts/packages/conformance/corpus';
 
 /** The ambient environment minus anything that would steer git or the script
@@ -107,10 +110,17 @@ const writeCorpus = (root: string) => {
   );
 };
 
-/** A fresh repository holding only the script, committed. */
-const makeRepo = (root: string) => {
+/** The script, and the resolver it imports, copied into a checkout. */
+const copyScript = (root: string) => {
   mkdirSync(join(root, dirname(SCRIPT_IN_REPO)), { recursive: true });
   copyFileSync(script, join(root, SCRIPT_IN_REPO));
+  mkdirSync(join(root, dirname(RESOLVER_IN_REPO)), { recursive: true });
+  copyFileSync(RESOLVER, join(root, RESOLVER_IN_REPO));
+};
+
+/** A fresh repository holding only the script (and the resolver it imports), committed. */
+const makeRepo = (root: string) => {
+  copyScript(root);
   git(root, 'init', '-q');
   git(root, 'add', '.');
   git(root, 'commit', '-q', '-m', 'probe');
@@ -192,8 +202,7 @@ describe('sync-corpus refuses what it cannot establish', () => {
 
   it('refuses, non-zero, when git cannot name the repository', () => {
     const loose = join(tmp, 'loose');
-    mkdirSync(join(loose, dirname(SCRIPT_IN_REPO)), { recursive: true });
-    copyFileSync(script, join(loose, SCRIPT_IN_REPO));
+    copyScript(loose);
     const corpus = join(tmp, 'corpus-loose');
     writeCorpus(corpus);
     const before = readFileSync(join(corpus, 'copies.json'), 'utf8');

@@ -13,8 +13,7 @@
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
@@ -23,9 +22,9 @@ import type { BindingSources } from '../src/bindings.js';
 
 import { renderToHtml } from '../src/index.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// test → renderer-server → packages → fuaran-ts → Fuaran-UI/wire-format-fixtures
-const nodesDir = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'nodes');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const nodesDir = join(wireCorpusRoot(), 'nodes');
 
 const load = (fixture: string) => {
   const raw = readFileSync(join(nodesDir, `${fixture}.json`), 'utf8');

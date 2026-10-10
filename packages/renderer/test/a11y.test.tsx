@@ -16,8 +16,7 @@
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import axe from 'axe-core';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -27,19 +26,16 @@ import { decodeNode } from '@fuaran-ui/ops';
 
 import { FuaranRenderer } from '../src/index.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// Both the fixture corpus and the a11y contract live under the workspace root,
-// four levels up from this test file (test → renderer → packages → fuaran-ts).
-const workspaceRoot = join(here, '..', '..', '..', '..');
-const nodesDir = join(workspaceRoot, 'wire-format-fixtures', 'nodes');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+// Both the fixture corpus and the a11y contract live in the shared corpus.
+const nodesDir = join(wireCorpusRoot(), 'nodes');
 
 // Canonical a11y contract — the single source of truth shared with the F#
 // accessibility release gate, read from the shared wire-format-fixtures corpus
 // (disabledRules → axe rule overrides; severityThreshold → the impact set the
 // suite fails on).
-const contract = JSON.parse(
-  readFileSync(join(workspaceRoot, 'wire-format-fixtures', 'a11y-contract.json'), 'utf8'),
-);
+const contract = JSON.parse(readFileSync(join(wireCorpusRoot(), 'a11y-contract.json'), 'utf8'));
 
 const axeRules: Record<string, { enabled: false }> = {};
 for (const ruleId of Object.keys(contract.disabledRules ?? {})) {

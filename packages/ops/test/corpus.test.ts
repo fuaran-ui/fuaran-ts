@@ -17,8 +17,7 @@
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
@@ -38,11 +37,9 @@ import {
 import { FORM_FIELD_KIND_NAMES, NODE_KIND_NAMES } from '@fuaran-ui/schema';
 import { WRONG_FORM_FIELD_KIND_HINT, WRONG_NODE_KIND_HINT } from '../src/decode.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/ops/test → workspace-root/wire-format-fixtures, unless FUARAN_WIRE_FIXTURES
-// names the corpus (a worktree gating against a corpus change it carries).
-const corpusRoot =
-  process.env['FUARAN_WIRE_FIXTURES'] || join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const corpusRoot = wireCorpusRoot();
 
 interface ManifestFixture {
   readonly id: string;

@@ -61,9 +61,10 @@ import { encodeDataSource } from '../src/encode.js';
 import { evalPipeline } from '../src/dataframe.js';
 import { parse } from '../src/parse.js';
 
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
 const here = dirname(fileURLToPath(import.meta.url));
-// packages/ops/test → workspace-root/wire-format-fixtures/laws
-const lawsRoot = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'laws');
+const lawsRoot = join(wireCorpusRoot(), 'laws');
 
 // ─── the family manifest ─────────────────────────────────────────────────────
 

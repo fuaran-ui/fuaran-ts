@@ -126,32 +126,24 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { CORPUS_ROOT_ENV, resolveCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
 const here = dirname(fileURLToPath(import.meta.url));
 // The long-name real path: git reports long names, and a relative() between a
 // short (8.3) and a long spelling of one directory would escape with `..`.
 const packageRoot = realpathSync.native(join(here, '..'));
 const snapshot = join(packageRoot, 'corpus');
 
-/** Names the corpus root explicitly — the same variable the estate's other
- *  hosts read. Set and non-empty, it is honoured or refused, never ignored. */
-const CORPUS_ROOT_ENV = 'FUARAN_WIRE_FIXTURES';
-
+/** The corpus root: FUARAN_WIRE_FIXTURES, else the sibling clone — resolved by
+ *  the repository's one resolver (`dev-scripts/corpus-root.mjs`).
+ *  A named root holding no corpus is refused, exit 1, never ignored. */
 const resolveAuthority = () => {
-  const declared = process.env[CORPUS_ROOT_ENV];
-  // packages/conformance → packages → fuaran-ts → the workspace side-by-side root
-  if (!declared) return join(packageRoot, '..', '..', '..', 'wire-format-fixtures');
-  const root = resolve(declared);
-  if (!existsSync(join(root, 'manifest.json'))) {
-    console.error(
-      `${CORPUS_ROOT_ENV}=${JSON.stringify(declared)} does not name a conformance corpus ` +
-        `(no manifest.json under ${root}).\n` +
-        `Point it at the corpus root, or unset it. It is refused rather than ignored: ` +
-        `falling back would reach ../wire-format-fixtures, which from a worktree is the ` +
-        `shared primary clone the override exists to leave alone.`,
-    );
+  try {
+    return resolveCorpusRoot().root;
+  } catch (e) {
+    console.error(e.message);
     process.exit(1);
   }
-  return root;
 };
 
 const authority = resolveAuthority();

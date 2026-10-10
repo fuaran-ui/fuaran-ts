@@ -3,16 +3,15 @@
 // executable contract every conformant host certifies with.
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import { runValidate } from '../src/index.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/mcp/test → workspace-root/wire-format-fixtures
-const corpusRoot = join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const corpusRoot = wireCorpusRoot();
 
 interface ManifestFixture {
   readonly id: string;

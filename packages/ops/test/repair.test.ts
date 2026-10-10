@@ -10,18 +10,15 @@
 // ============================================================================
 
 import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import { decodeNode, repair, REPAIR_CATALOGUE, REPAIR_CATALOGUE_VERSION } from '../src/index.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/ops/test → workspace-root/wire-format-fixtures, unless a worktree
-// names its corpus explicitly.
-const corpusRoot =
-  process.env['FUARAN_WIRE_FIXTURES'] || join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const corpusRoot = wireCorpusRoot();
 
 type Verdict = 'accept' | { readonly code: string; readonly path: string };
 

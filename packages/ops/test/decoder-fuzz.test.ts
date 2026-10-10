@@ -24,7 +24,6 @@
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
@@ -41,9 +40,9 @@ import {
   type SubjectResult,
 } from './fuzz/harness.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/ops/test → workspace-root/wire-format-fixtures
-const corpusRoot = join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const corpusRoot = wireCorpusRoot();
 
 const seeds = loadSeeds(corpusRoot);
 const vocab = loadVocabulary(corpusRoot);

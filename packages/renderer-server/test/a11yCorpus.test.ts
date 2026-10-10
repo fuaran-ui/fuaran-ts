@@ -17,8 +17,7 @@
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
@@ -26,9 +25,9 @@ import { decodeNode } from '@fuaran-ui/ops';
 
 import { renderToHtml } from '../src/index.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// test -> renderer-server -> packages -> fuaran-ts -> Fuaran-UI/wire-format-fixtures
-const corpusDir = join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const corpusDir = wireCorpusRoot();
 const nodesDir = join(corpusDir, 'nodes');
 
 /**

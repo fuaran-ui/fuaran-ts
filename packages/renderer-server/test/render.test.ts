@@ -16,9 +16,10 @@ import { decodeNode } from '@fuaran-ui/ops';
 
 import { renderBehindToHtml, renderToHtml } from '../src/index.js';
 
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
 const here = dirname(fileURLToPath(import.meta.url));
-// packages/renderer-server/test → Fuaran-UI/wire-format-fixtures/nodes
-const nodesDir = join(here, '..', '..', '..', '..', 'wire-format-fixtures', 'nodes');
+const nodesDir = join(wireCorpusRoot(), 'nodes');
 
 const fixtureFiles = readdirSync(nodesDir)
   .filter((f) => f.endsWith('.json'))

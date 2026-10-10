@@ -10,8 +10,7 @@
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import type { HoleValueSpace } from '@fuaran-ui/schema';
 import { describe, expect, it } from 'vitest';
@@ -27,18 +26,9 @@ import {
   registrySignatureShape,
 } from '../src/function.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-// packages/ui/test → workspace-root/wire-format-fixtures/function-registry
-const goldensPath = join(
-  here,
-  '..',
-  '..',
-  '..',
-  '..',
-  'wire-format-fixtures',
-  'function-registry',
-  'goldens.json',
-);
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
+const goldensPath = join(wireCorpusRoot(), 'function-registry', 'goldens.json');
 
 interface NeutralSpace {
   readonly kind: 'intRange' | 'floatRange' | 'stringLen' | 'enum' | 'anyString';

@@ -37,9 +37,10 @@ import {
   type ContractCard,
 } from '../src/index.js';
 
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
 const here = dirname(fileURLToPath(import.meta.url));
-// packages/schema/test → workspace-root/wire-format-fixtures/
-const CORPUS = join(here, '..', '..', '..', '..', 'wire-format-fixtures');
+const CORPUS = wireCorpusRoot();
 const MANIFEST = join(CORPUS, 'manifest.json');
 
 const present = existsSync(MANIFEST);

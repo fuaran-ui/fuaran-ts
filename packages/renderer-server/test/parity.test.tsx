@@ -31,9 +31,11 @@ import { permissiveEgress } from '@fuaran-ui/renderer/egress';
 
 import { renderToHtml } from '../src/index.js';
 
+import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
+
 const here = dirname(fileURLToPath(import.meta.url));
 const estateRoot = join(here, '..', '..', '..', '..');
-const nodesDir = join(estateRoot, 'wire-format-fixtures', 'nodes');
+const nodesDir = join(wireCorpusRoot(), 'nodes');
 
 const fixtureFiles = readdirSync(nodesDir)
   .filter((f) => f.endsWith('.json'))
