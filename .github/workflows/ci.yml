@@ -23,6 +23,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: fuaran-ts
+          # Full history with tags: dev-scripts/check-release-advances.mjs (run by
+          # `pnpm test`) compares each package with the newest reachable v* tag,
+          # and a shallow clone has none, so it would report NOT CHECKED.
+          fetch-depth: 0
 
       - name: Checkout the wire-format corpus (fuaran-ui-specification)
         uses: actions/checkout@v4
