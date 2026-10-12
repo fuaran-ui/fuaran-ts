@@ -291,7 +291,12 @@ const castCell = (ty: ColumnType, c: Cell): DR<Cell> => {
       if (c.kind === 'Date') return dok(c);
       if (c.kind === 'Str') return dok({ kind: 'Date', value: c.value });
       return derr(typeError('cannot cast to date'));
+    // Phase 2206 — a cast to any timestamp unit keeps the instant's one
+    // canonical text; the unit is a statement about the column, not the cell.
     case 'timestamp':
+    case 'timestamp_ms':
+    case 'timestamp_us':
+    case 'timestamp_ns':
       if (c.kind === 'Timestamp') return dok(c);
       if (c.kind === 'Str') return dok({ kind: 'Timestamp', value: c.value });
       return derr(typeError('cannot cast to timestamp'));

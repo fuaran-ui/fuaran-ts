@@ -1289,6 +1289,35 @@ runs in the root `pnpm test`. It fails when a publishable package's sources diff
 reachable `v*` tag while its version equals the one that tag released (see the versioning policy
 below).
 
+### Recorded change — `@fuaran-ui/schema` 0.27.0, `@fuaran-ui/ops` 0.31.0, `@fuaran-ui/conformance` 0.28.0, `@fuaran-ui/ui` 0.25.0, the column wire carries a timestamp unit (Phase 2206)
+
+_Unreleased: every version below is ahead of the newest tag, `v0.30.0`._
+
+**A timestamp column declares the resolution it holds its instants at** (`WIRE_FORMAT.md` §3.6.25, after
+fuaran-core#422). `ColumnType` and `COLUMN_TYPES` gain `timestamp_ms`, `timestamp_us` and `timestamp_ns` after
+`timestamp`. `TIMESTAMP_UNIT_DIGITS` and `isTimestampType` name the family. A timestamp cell stays one canonical
+instant text whatever the unit, so `Cell` does not change.
+
+**The decoder reads every timestamp column strictly, `timestamp` included.** A string is read only as the
+canonical instant text, with a fraction no finer than the column's unit. An epoch number is read in a sub-second
+column in its own unit, and in a `timestamp` column by magnitude as before. In every unit an instant outside
+the years 0000–9999 is refused. Before this change a `timestamp` column took any string and any in-bound epoch
+number unread. The reference host has refused the same text since its Phase 299, so this closes a divergence
+and does not open one. A `timestamp` column of whole-second canonical text, which is every one the corpus has
+pinned, decodes and encodes byte-for-byte as before.
+
+| Package                  | From → to       | Class     | What moved                                                                                                                                                                                            |
+| ------------------------ | --------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@fuaran-ui/schema`      | 0.26.0 → 0.27.0 | **minor** | `ColumnType` widens by three members. An exhaustive `switch` over it with no `default` no longer type-checks, so this is the breaking class (pre-1.0, a minor).                                       |
+| `@fuaran-ui/ops`         | 0.30.0 → 0.31.0 | **minor** | The column decoder admits the three tags and reads a timestamp of every unit strictly (above). Its private copy of the column-type list is gone; it reads `COLUMN_TYPES`.                             |
+| `@fuaran-ui/conformance` | 0.27.0 → 0.28.0 | **minor** | The bundled corpus gains thirteen files: round-trips per unit, the widening vector, the epoch reading per unit, and six refusals an adapter must now honour. It is re-synced to its authority commit. |
+| `@fuaran-ui/ui`          | 0.24.0 → 0.25.0 | **minor** | It `export *`s `@fuaran-ui/schema`, so the union widening reaches its author surface. FUARAN097 accepts a temporal x-axis over a timestamp of any unit. The starter's pins follow.                    |
+| `@fuaran-ui/charts`      | 0.14.4 → 0.14.5 | patch     | The bundled workspace-internal `core-twins` module casts to any timestamp unit.                                                                                                                       |
+| `@fuaran-ui/op-stream`   | 0.11.4 → 0.11.5 | patch     | The same bundled module.                                                                                                                                                                              |
+
+The Go, Rust and Python hosts take the same tags against the same vectors in the same change-set. The .NET host
+reads them through the Fuaran.Core codec once it is on Core 1.0.0.
+
 ### Where the release notes live
 
 **This file is the changelog.** There is no `CHANGELOG.md` in this repository, and adding one would split the record in two: the reason a version moved and the surface it moved are the same paragraph, and that paragraph belongs beside the surface it describes.

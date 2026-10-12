@@ -34,9 +34,22 @@ import type { DeterminismSource, EffectClass, HoleValueSpace } from './types.js'
  * The fixed, Arrow-compatible scalar type set a column ranges over. Closed by
  * intent — these are the canonical wire tags (`ColumnType.tag` in F#).
  */
-export type ColumnType = 'int' | 'float' | 'bool' | 'string' | 'date' | 'timestamp';
+export type ColumnType =
+  | 'int'
+  | 'float'
+  | 'bool'
+  | 'string'
+  | 'date'
+  | 'timestamp'
+  | 'timestamp_ms'
+  | 'timestamp_us'
+  | 'timestamp_ns';
 
-/** The full closed set of column-type tags, in canonical (encode) order. */
+/**
+ * The full closed set of column-type tags, in canonical (encode) order. The
+ * three sub-second timestamp units (Phase 2206, fuaran-core#422) come after
+ * `timestamp`, so the list keeps its earlier prefix in its earlier order.
+ */
 export const COLUMN_TYPES: readonly ColumnType[] = [
   'int',
   'float',
@@ -44,7 +57,26 @@ export const COLUMN_TYPES: readonly ColumnType[] = [
   'string',
   'date',
   'timestamp',
+  'timestamp_ms',
+  'timestamp_us',
+  'timestamp_ns',
 ];
+
+/**
+ * The timestamp family (Phase 2206, WIRE_FORMAT §3.6.25): each tag's unit as
+ * the fraction digits it holds — `timestamp` whole seconds, `timestamp_ms` /
+ * `_us` / `_ns` three, six and nine. Every timestamp tag carries one canonical
+ * instant text per instant; a coarser unit widens into a finer one.
+ */
+export const TIMESTAMP_UNIT_DIGITS: Readonly<Partial<Record<ColumnType, number>>> = {
+  timestamp: 0,
+  timestamp_ms: 3,
+  timestamp_us: 6,
+  timestamp_ns: 9,
+};
+
+/** True for a timestamp tag of any unit. */
+export const isTimestampType = (t: ColumnType): boolean => TIMESTAMP_UNIT_DIGITS[t] !== undefined;
 
 /**
  * A single realized scalar cell. Null/NA is a first-class case (`Null`), never a
