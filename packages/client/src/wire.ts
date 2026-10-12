@@ -25,6 +25,7 @@ import {
   CLIENT_CODES,
   type AppliedOp,
   type GenerateArgs,
+  type KnownTurnStage,
   type ProducedDetail,
   type RecoverableError,
   type SnapshotState,
@@ -101,34 +102,40 @@ function parseAppliedOps(raw: unknown): AppliedOp[] {
   return ops;
 }
 
-/** Each stage keyed by its spelling with case and separators removed, so the
- *  canonical `access-token` and the retired PascalCase `AccessToken` (and
- *  `Apply`, `Parse`, `Provider`) read as the same stage. */
-const TURN_STAGES_BY_FOLDED_LABEL: ReadonlyMap<string, TurnStage> = new Map<string, TurnStage>([
+/** Each known stage keyed by its folded spelling (see {@link foldStageLabel}),
+ *  so the canonical `access-token` and the retired PascalCase `AccessToken`
+ *  (and `Apply`, `Parse`, `Provider`) read as the same stage. */
+const KNOWN_STAGES_BY_FOLDED_LABEL: ReadonlyMap<string, KnownTurnStage> = new Map<
+  string,
+  KnownTurnStage
+>([
   ['accesstoken', 'access-token'],
   ['provider', 'provider'],
   ['parse', 'parse'],
   ['apply', 'apply'],
 ]);
 
-/** The stage a label names, in either spelling — or `undefined` when the label
- *  is absent or names no stage this client knows. Unknown is NOT a stage: the
- *  caller decides what an unknown label falls back to, so a spelling the header
- *  promises to tolerate never lands on the terminal `provider` by accident. */
-function readStage(v: unknown): TurnStage | undefined {
-  const s = asString(v);
-  return s === undefined
-    ? undefined
-    : TURN_STAGES_BY_FOLDED_LABEL.get(s.replace(/[-_\s]/g, '').toLowerCase());
+/** A stage label with `-`, `_`, space, tab, CR and LF removed and ASCII letters
+ *  lower-cased. ASCII only, deliberately: the F# client folds the same way, and
+ *  a Unicode-aware fold is not one two runtimes agree on. */
+function foldStageLabel(label: string): string {
+  return label.replace(/[-_ \t\r\n]/g, '').replace(/[A-Z]/g, (c) => c.toLowerCase());
 }
 
-/** The stage of a refusal envelope. A label this client does not know (or no
- *  label at all) falls back to `provider` — the transport stage, terminal to
- *  the repair loop — because a stage the client cannot read is one it cannot
- *  claim a re-emission would fix. A KNOWN stage in either spelling is never
- *  folded into that fallback. */
+/** The stage of a refusal envelope.
+ *
+ *  - A label that folds to a known stage reads as that stage, in its canonical
+ *    spelling.
+ *  - Any other label — the empty one included — is the UNKNOWN case, kept
+ *    exactly as sent. It never reads as a known stage, `provider` included.
+ *  - No label at all (the member absent, or not a string) is not a label: the
+ *    refusal keeps the `provider` fallback, the transport stage. */
 function asStage(v: unknown): TurnStage {
-  return readStage(v) ?? 'provider';
+  const label = asString(v);
+  if (label === undefined) {
+    return 'provider';
+  }
+  return KNOWN_STAGES_BY_FOLDED_LABEL.get(foldStageLabel(label)) ?? label;
 }
 
 /** Parse a JSON body into its root object, or `undefined` — so a 200 can be

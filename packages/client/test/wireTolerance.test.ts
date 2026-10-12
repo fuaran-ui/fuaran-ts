@@ -1,44 +1,16 @@
-// Phase 2077 — the wire mapping's two tolerance defects, one test per input.
+// Phase 2077 — the wire mapping's tolerance defects.
 //
 //   - A retired PascalCase stage (`Apply`) used to read as `provider`, which the
 //     repair loop treats as terminal, so the shape the header promises to
-//     tolerate silently disabled repair.
+//     tolerate silently disabled repair. Its rows now live in the cross-host
+//     stage table, `turnStage.test.ts` (Phase 2134).
 //   - An object `tree` used to be re-serialised with `JSON.stringify`, so the
 //     caller held bytes the endpoint never sent (`1.0` became `1`, an escape
 //     became its character) — and the repair loop sends those bytes back.
 
 import { describe, expect, it } from 'vitest';
 
-import { isRepairable, parseProducedDetail, parseTurnResponse } from '../src/index.js';
-
-const refusal = (stage: unknown): string =>
-  JSON.stringify({ error: { stage, code: 'C', message: 'm' } });
-
-describe('asStage — a known stage in either spelling is never the terminal fallback', () => {
-  it.each([
-    ['Apply', 'apply'],
-    ['Parse', 'parse'],
-    ['AccessToken', 'access-token'],
-    ['Provider', 'provider'],
-    ['apply', 'apply'],
-    ['access-token', 'access-token'],
-  ])('reads %s as %s', (label, stage) => {
-    const result = parseTurnResponse(422, refusal(label));
-    expect(result).toEqual({ kind: 'turnFailed', error: { stage, code: 'C', message: 'm' } });
-  });
-
-  it('keeps the retired spelling repairable', () => {
-    const result = parseTurnResponse(422, refusal('Apply'));
-    expect(result.kind === 'turnFailed' && isRepairable(result.error.stage)).toBe(true);
-  });
-
-  it('falls back to provider only for a label it does not know, or none', () => {
-    for (const body of [refusal('Telepathy'), refusal(7), JSON.stringify({ error: {} })]) {
-      const result = parseTurnResponse(422, body);
-      expect(result.kind === 'turnFailed' && result.error.stage).toBe('provider');
-    }
-  });
-});
+import { parseProducedDetail, parseTurnResponse } from '../src/index.js';
 
 describe('readTree — an object tree keeps the bytes the reply carried', () => {
   const tree = '{ "id": "root", "n": 1.0, "s": "\\u00e9", "nested": { "a": [1, {"b": "}"}] } }';

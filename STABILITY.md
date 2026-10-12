@@ -370,7 +370,7 @@ The **rule coverage** (which F#-tier codes are ported) is explicitly a **growing
 A small, typed client over the Fuaran generation endpoint – a paid, stateless, bring-your-own-key (BYOK) HTTPS surface that takes a prompt (+ an optional current tree) and returns a new canonical wire-format tree. The endpoint URL + the paid access token are the commercial gate; this package is a thin, **OSS-safe HTTPS + types layer** over it. Its **contract authority** is the generation endpoint's own published surface contract: the request/response _types_ here mirror that surface field-for-field and are kept **in lockstep** – a field added at the surface is added here in the same change, and `wire.ts` pins how each maps onto the HTTP envelope. So the client's stability contract is _faithful mirroring of the surface version it is built against_, the same posture the codec packages take toward the shared `wire-format-fixtures/` corpus. This covers:
 
 - The **`TurnResult`** three-case discriminated union ([`packages/client/src/contract.ts`](packages/client/src/contract.ts)), discriminated on `kind` (`produced` / `accessDenied` / `turnFailed`) – the HTTP status selects the case (see `wire.ts`). Re-meaning a case, or changing which status maps to it, is a breaking change.
-- **`AppliedOp`** (`opId` + `opJson`) – `opId` is a stable dedup discriminant carried by equality; `opJson` is canonical wire JSON, decoded with `@fuaran-ui/ops` `decodeOp`. **`RecoverableError`** (`stage` + `code` + `message`) – `code` is a stable discriminant a caller's retry/recovery loop pattern-matches, and `TurnStage` (`access-token` / `provider` / `parse` / `apply`) is a stable enum. These mirror the surface's applied-op + recoverable-error records; changing a discriminant string is a breaking change, adding a case is minor.
+- **`AppliedOp`** (`opId` + `opJson`) – `opId` is a stable dedup discriminant carried by equality; `opJson` is canonical wire JSON, decoded with `@fuaran-ui/ops` `decodeOp`. **`RecoverableError`** (`stage` + `code` + `message`) – `code` is a stable discriminant a caller's retry/recovery loop pattern-matches, and `TurnStage` is a stable enum of four known labels (`access-token` / `provider` / `parse` / `apply`, the `KnownTurnStage` type) plus the unknown case, a label the client does not know kept exactly as sent (`isKnownTurnStage` tells them apart; from 0.13.0, Phase 2134). These mirror the surface's applied-op + recoverable-error records; changing a discriminant string is a breaking change, adding a case is minor.
 - **`SURFACE_VERSION`** + **`isSurfaceVersionCompatible`** – the surface-version echo + the shared-major compatibility check. A produced result echoes the live surface version (`Produced.version`); a differing major signals a breaking surface revision the client predates. The compatibility _semantics_ (major-equality) are stable; the version _string_ moves with the surface.
 - The **`FuaranClient`** (`generate` + `FuaranClientConfig`) and **`FuaranSession`** turn-loop helper (holds the tree so the next prompt is a repair diff) – the public API shape is stable as of Phase 215. The `@fuaran-ui/client/render` subpath (decode + mount glue, pulling in React + `@fuaran-ui/renderer`) and the low-level `toWireBody` / `parseTurnResponse` wire mapping (for advanced hosts driving their own transport) are exported; the core entry is dependency-light so it runs in a server-proxy (Node) context.
 
@@ -1288,6 +1288,52 @@ publishable packages; the only two on the registry already are the placeholders,
 runs in the root `pnpm test`. It fails when a publishable package's sources differ from the newest
 reachable `v*` tag while its version equals the one that tag released (see the versioning policy
 below).
+
+### Recorded breaking change — `@fuaran-ui/client` 0.13.0, an unknown turn stage keeps its label (Phase 2134)
+
+_Unreleased: ahead of the newest tag, `v0.30.0`, which published client 0.12.4._
+
+**An unrecognised stage label no longer reads as `provider`.** Phase 2077 made the stage parser read the retired
+PascalCase spellings, but a label in neither spelling still fell back to `provider`, which the repair loop treats
+as terminal. So an endpoint newer than the client, sending a stage the client had never heard of, was reported as
+a provider failure: the caller could not tell the two apart, and nothing said the client was out of date. The F#
+client, `Fuaran.UI.Client`, made the same change in the same change-set, and read only the canonical labels until
+then.
+
+**The stage semantics, recorded in the same words by both clients:**
+
+- A stage label that matches a known stage, ignoring case, `-`, `_`, space, tab, CR and LF (ASCII only), reads as
+  that stage in its canonical spelling: `access-token`, `provider`, `parse` or `apply`. The retired PascalCase
+  spellings `AccessToken`, `Provider`, `Parse` and `Apply` are among them.
+- Any other label, the empty one included, is the unknown stage, and it carries the label exactly as the endpoint
+  sent it. It is never read as a known stage, `provider` included. Until this change both clients read it as
+  `provider`.
+- A refusal with no stage label (the member absent, or not a string) keeps the `provider` fallback, as before.
+- The repair loop does not retry an unknown stage: `isRepairable` answers false. An unknown stage is evidence the
+  endpoint is newer than the client, so the client cannot know whether a re-emission fixes it, and every retry is
+  a paid turn. The failure is surfaced with the endpoint's own label, so a caller that knows the newer stage can
+  retry it itself. The loop's behaviour for such a label is therefore unchanged; what changes is that the caller
+  can see it.
+- Each client's suite holds the same label-to-stage table, row for row, including the unknown and PascalCase
+  rows (`packages/client/test/turnStage.test.ts` in the TypeScript client,
+  `src/Fuaran.UI.Client.Tests/TurnStageTests.fs` in the F# client). A row changed in one is changed in the other
+  in the same change-set.
+
+**What changes for a consumer.** `TurnStage` is now `KnownTurnStage | (string & {})`: the four known labels, or
+the unknown case, which is the label itself. A `RecoverableError.stage` stays a string, so code that prints it,
+compares it with a known label, or forwards it keeps working, and now shows the endpoint's own label where it
+showed `provider`. Two things break, deliberately: a `switch` over `TurnStage` that returns a value from its four
+cases no longer covers the type, and a `TurnStage` no longer assigns to a variable typed with the four literals.
+Narrow with the new `isKnownTurnStage` guard. New exports: `KnownTurnStage` and `isKnownTurnStage`.
+
+**Version.** `@fuaran-ui/client` was released at 0.12.4 in `v0.30.0`, so it advances to **0.13.0**: a minor,
+because the union gaining a member is a compile break for an exhaustive consumer, and pre-1.0 a breaking change is
+a minor. `@fuaran-ui/cli`, `@fuaran-ui/mcp` and `@fuaran-ui/react` declare `@fuaran-ui/client` as `workspace:^`,
+which `v0.30.0` published as `^0.12.4`, a range that excludes 0.13.0. None of their sources moves here, so each
+needs a release-consistency advance before the next tag, as the 0.27.0 set recorded above.
+
+**Certified by** `packages/client/test/turnStage.test.ts`, which reads every row of the table through
+`parseTurnResponse` at a 422 and at a 500.
 
 ### Where the release notes live
 
