@@ -49,6 +49,28 @@
 // conformance package's bundled `corpus/` — the rule is deliberately an
 // exclusion list, so a build input added later is covered without editing it.
 //
+// ─── The second clause: a range a sibling's advance leaves behind (Phase 2237) ─
+//
+// A package that is NOT advanced is not republished, so consumers keep the
+// manifest the tag published, and `pnpm pack` wrote that manifest's
+// `workspace:` ranges against the sibling versions that stood AT THE TAG
+// (`workspace:^` becomes `^<tag-time sibling>`, `~` becomes `~…`, `*` becomes
+// the exact version). When the sibling then advances out of that range (pre-1.0,
+// any minor does), the unadvanced package's published range excludes it and the
+// registry holds a set no consumer can satisfy. So for every publishable package
+// whose version equals the tag's, each `@fuaran-ui/*` `workspace:` dependency,
+// peer dependency and optional dependency is resolved the way the tag's pack did
+// (from the tag-time manifests, via `git show`; no network), and a range that
+// excludes the sibling's CURRENT workspace version fails as `LEFT BEHIND BY
+// <sibling>`, naming the advance that fixes it.
+//
+// `devDependencies` are not judged: npm never installs a dependency's own
+// devDependencies, so a stale exact pin there (the mock's `workspace:*` on the
+// client, which only its tests import) constrains no consumer. A literal
+// (non-`workspace:`) range, and the registry-side verdict, belong to
+// `check-peer-ranges.mjs`, which is not imported here: its module body runs the
+// registry lookup on import.
+//
 // ─── Modes ──────────────────────────────────────────────────────────────────
 //
 //   --self-test   Proves the classification and the verdict from fixed data,
@@ -131,6 +153,82 @@ export const manifestMoved = (base, head) => {
   return canonical(strip(base)) !== canonical(strip(head));
 };
 
+// ─── Published ranges, as `pnpm pack` wrote them ────────────────────────────
+
+/** The manifest sections whose ranges a consumer's install resolves. */
+const CONSUMER_EDGES = ['dependencies', 'peerDependencies', 'optionalDependencies'];
+
+/**
+ * The range `pnpm pack` writes for a `workspace:` spec when the sibling stands at
+ * `siblingVersion`, or `null` for a literal range, which pack leaves alone.
+ */
+export const packedRange = (spec, siblingVersion) => {
+  if (!spec.startsWith('workspace:')) return null;
+  const rest = spec.slice('workspace:'.length);
+  if (rest === '^' || rest === '~') return `${rest}${siblingVersion}`;
+  if (rest === '*' || rest === '') return siblingVersion;
+  return rest;
+};
+
+/**
+ * Whether `version` satisfies `range`, for the three shapes a pack produces: `^x.y.z`,
+ * `~x.y.z` and an exact version. Anything else throws rather than being guessed at,
+ * so a range this cannot read is a finding and never a quiet pass.
+ */
+export const satisfiesRange = (version, range) => {
+  const r = range.trim();
+  const op = r[0] === '^' || r[0] === '~' ? r[0] : '';
+  const base = parseVersion(op === '' ? r : r.slice(1));
+  const v = parseVersion(version);
+  if (op === '') return compareVersions(version, r) === 0;
+  const [a, b, c] = base.core;
+  const ceiling =
+    op === '~' ? [a, b + 1, 0] : a > 0 ? [a + 1, 0, 0] : b > 0 ? [0, b + 1, 0] : [0, 0, c + 1];
+  // npm: a prerelease satisfies only a range naming a prerelease on the same x.y.z.
+  const preOk =
+    v.pre.length === 0 || (base.pre.length > 0 && v.core.every((n, i) => n === base.core[i]));
+  return (
+    preOk &&
+    compareVersions(version, r.slice(1)) >= 0 &&
+    compareVersions(version, `${ceiling.join('.')}-0`) < 0
+  );
+};
+
+/** The range violations of one UNADVANCED package against the tag-time and current sibling versions. */
+const leftBehind = (p, siblings) => {
+  const found = [];
+  const { name, version } = p.head;
+  for (const section of CONSUMER_EDGES) {
+    for (const [dep, spec] of Object.entries(p.base[section] ?? {})) {
+      const sibling = siblings.get(dep);
+      if (sibling === undefined || sibling.base === null || sibling.base.private === true) continue;
+      const published = packedRange(spec, sibling.base.version);
+      if (published === null) continue;
+      const current = sibling.head.version;
+      let satisfied;
+      try {
+        satisfied = satisfiesRange(current, published);
+      } catch (e) {
+        found.push(
+          `${name}@${version}: the tag published ${dep} "${published}" (${section}), which this ` +
+            `check cannot read (${e.message}) — refusing rather than guessing.`,
+        );
+        continue;
+      }
+      if (satisfied) continue;
+      const [x, y, z] = parseVersion(version).core;
+      found.push(
+        `${name}@${version} LEFT BEHIND BY ${dep}@${current}: the tag published ${name} with ${dep} ` +
+          `"${published}" (${section}, from ${spec}), a range that excludes ${current} — the release ` +
+          `would SKIP ${name} and the registry would serve an uninstallable set. Advance ${name} to ` +
+          `${x}.${y}.${z + 1} (a release-consistency patch; the next pack then writes ` +
+          `"${packedRange(spec, current)}") and record it in STABILITY.md.`,
+      );
+    }
+  }
+  return found;
+};
+
 // ─── The verdict, over data ─────────────────────────────────────────────────
 
 /**
@@ -152,6 +250,8 @@ export const judgeSet = (packages) => {
   const privateNames = new Set(
     packages.filter((p) => p.head.private === true).map((p) => p.head.name),
   );
+
+  const siblings = new Map(packages.map((p) => [p.head.name, p]));
 
   const violations = [];
   const exempt = [];
@@ -183,6 +283,8 @@ export const judgeSet = (packages) => {
           `the release would SKIP it. Advance it per STABILITY.md (pre-1.0: breaking or additive ` +
           `is a minor, a fix a patch) and record the change there.`,
       );
+    } else if (order === 0) {
+      violations.push(...leftBehind(p, siblings));
     }
   }
   return { violations, judged, exempt };
@@ -333,6 +435,99 @@ const selfTest = () => {
         ['package.json'],
       ),
     ]),
+    0,
+  );
+
+  // Packed ranges and their satisfier (second clause).
+  expect('pack ^', packedRange('workspace:^', '0.12.4'), '^0.12.4');
+  expect('pack ~', packedRange('workspace:~', '0.12.4'), '~0.12.4');
+  expect('pack *', packedRange('workspace:*', '0.12.4'), '0.12.4');
+  expect('pack explicit range', packedRange('workspace:^0.3.0', '0.12.4'), '^0.3.0');
+  expect('pack leaves a literal range', packedRange('^0.3.0', '0.12.4'), null);
+  expect('0.x caret excludes the next minor', satisfiesRange('0.13.0', '^0.12.4'), false);
+  expect('0.x caret includes a later patch', satisfiesRange('0.12.9', '^0.12.4'), true);
+  expect('0.x caret excludes an earlier patch', satisfiesRange('0.12.3', '^0.12.4'), false);
+  expect('1.x caret includes a later minor', satisfiesRange('1.9.0', '^1.2.0'), true);
+  expect('1.x caret excludes the next major', satisfiesRange('2.0.0', '^1.2.0'), false);
+  expect('0.0.x caret is exact', satisfiesRange('0.0.4', '^0.0.3'), false);
+  expect('tilde includes a later patch', satisfiesRange('0.12.9', '~0.12.4'), true);
+  expect('tilde excludes the next minor', satisfiesRange('0.13.0', '~0.12.4'), false);
+  expect('exact range excludes a later patch', satisfiesRange('0.12.5', '0.12.4'), false);
+  expect('exact range includes itself', satisfiesRange('0.12.4', '0.12.4'), true);
+  expect('prerelease is outside a plain caret', satisfiesRange('0.12.5-rc.1', '^0.12.4'), false);
+  expect(
+    'unreadable range throws',
+    (() => {
+      try {
+        satisfiesRange('1.0.0', '>=1');
+        return false;
+      } catch {
+        return true;
+      }
+    })(),
+    true,
+  );
+
+  // The second clause, over a synthetic dependent/sibling pair. `dep` stood at the
+  // tag with `@x/s` at 0.12.4 and `spec` on it; `@x/s` now stands at `now`.
+  const edge = (
+    spec,
+    now,
+    { section = 'dependencies', dependentNow = '0.1.0', sibPrivate } = {},
+  ) => [
+    entry(
+      pkg('@x/d', dependentNow, { [section]: { '@x/s': spec } }),
+      pkg('@x/d', '0.1.0', { [section]: { '@x/s': spec } }),
+      [],
+    ),
+    entry(
+      pkg('@x/s', now),
+      pkg('@x/s', '0.12.4', sibPrivate === true ? { private: true } : {}),
+      now === '0.12.4' ? [] : ['src/s.ts'],
+    ),
+  ];
+  const messages = (set) => judgeSet(set).violations.join('\n');
+
+  // RED direction — each must be refused.
+  expect('caret dependency left behind by a minor', verdict(edge('workspace:^', '0.13.0')), 1);
+  expect(
+    'the refusal names the sibling and the advance',
+    /LEFT BEHIND BY @x\/s@0\.13\.0.*"\^0\.12\.4".*Advance @x\/d to 0\.1\.1.*"\^0\.13\.0"/.test(
+      messages(edge('workspace:^', '0.13.0')),
+    ),
+    true,
+  );
+  expect(
+    'peer dependency left behind',
+    verdict(edge('workspace:^', '0.13.0', { section: 'peerDependencies' })),
+    1,
+  );
+  expect(
+    'optional dependency left behind',
+    verdict(edge('workspace:^', '0.13.0', { section: 'optionalDependencies' })),
+    1,
+  );
+  expect('exact pin left behind by a patch', verdict(edge('workspace:*', '0.12.5')), 1);
+  expect('tilde left behind by a minor', verdict(edge('workspace:~', '0.13.0')), 1);
+  expect('a range the check cannot read is refused', verdict(edge('workspace:>=0.1', '0.13.0')), 1);
+
+  // GREEN direction — each must pass.
+  expect('caret holds across a patch', verdict(edge('workspace:^', '0.12.9')), 0);
+  expect('sibling unmoved', verdict(edge('workspace:^', '0.12.4')), 0);
+  expect(
+    'dependent advanced since the tag',
+    verdict(edge('workspace:^', '0.13.0', { dependentNow: '0.1.1' })),
+    0,
+  );
+  expect(
+    'devDependencies constrain no consumer',
+    verdict(edge('workspace:*', '0.13.0', { section: 'devDependencies' })),
+    0,
+  );
+  expect('literal range is not this check', verdict(edge('^0.12.4', '0.13.0')), 0);
+  expect(
+    'private sibling at the tag is not a range',
+    verdict(edge('workspace:^', '0.13.0', { sibPrivate: true })),
     0,
   );
 

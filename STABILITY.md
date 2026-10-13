@@ -1118,7 +1118,7 @@ Per-release semver bump. Pre-1.0: plain `0.x.y` versions, no prerelease suffix (
 
 **A change to a published surface advances that package's version in the same commit; a change that rides an already-advanced, not-yet-tagged version says so.** The second half is what keeps a release honest under several concurrent changes: once a package's version is ahead of the newest tag it is a DRAFT, and an additive or same-class change rides it rather than minting a number nobody will ever install. A change of a HIGHER class than the draft already carries advances it again, because the number is what tells a consumer what adopting it costs.
 
-**The first half is checked offline in the ordinary gate (Phase 2216).** `dev-scripts/check-release-advances.mjs`, run by the root `pnpm test`, compares every publishable package with the newest `v*` tag reachable from HEAD. It fails when the package's sources moved while its version still equals the one that tag released, and when its version is below the tag's. "Sources" means every file under the package directory except tests, Markdown, and `package.json` changes confined to `version`, `scripts` and `devDependencies`. A shipped data directory such as the conformance corpus counts. A workspace-internal package bundled into `dist` moves every package that bundles it. The check cannot judge a CLASS: a draft advanced a patch and then given a breaking change still passes, so the class stays this document's call. A shallow clone with no tags reports NOT CHECKED with the remedy (a full-history checkout) rather than passing. The registry probe stays a release-time step in the publish workflow.
+**The first half is checked offline in the ordinary gate (Phase 2216).** `dev-scripts/check-release-advances.mjs`, run by the root `pnpm test`, compares every publishable package with the newest `v*` tag reachable from HEAD. It fails when the package's sources moved while its version still equals the one that tag released, and when its version is below the tag's. "Sources" means every file under the package directory except tests, Markdown, and `package.json` changes confined to `version`, `scripts` and `devDependencies`. A shipped data directory such as the conformance corpus counts. A workspace-internal package bundled into `dist` moves every package that bundles it. A second clause (Phase 2237) judges a package that did NOT advance: the `workspace:` ranges the tag published for it must still admit each sibling's current version, or it fails as `LEFT BEHIND BY <sibling>`. The check cannot judge a CLASS: a draft advanced a patch and then given a breaking change still passes, so the class stays this document's call. A shallow clone with no tags reports NOT CHECKED with the remedy (a full-history checkout) rather than passing. The registry probe stays a release-time step in the publish workflow.
 
 **What proves a release, as opposed to a build.** Every suite in `ci.yml` runs inside this workspace, against linked packages and built `dist/` — the right lane for "does the code agree with itself", and structurally blind to the two ways a release fails a newcomer: a package that does not install at all, and two hosts whose PUBLISHED bytes disagree while their sources do not. The clean-machine install smoke ([`.github/workflows/install-smoke.yml`](.github/workflows/install-smoke.yml), fixtures in [`dev-scripts/install-smoke/`](dev-scripts/install-smoke/)) installs the current release from npm and restores it from nuget.org with every local source cleared, authors one tree through each tier's own surface, and requires the canonical bytes to match. It runs after a successful publish, weekly, and on demand — its inputs are the registries, not this branch.
 
@@ -1334,6 +1334,40 @@ needs a release-consistency advance before the next tag, as the 0.27.0 set recor
 
 **Certified by** `packages/client/test/turnStage.test.ts`, which reads every row of the table through
 `parseTurnResponse` at a 422 and at a 500.
+
+### Recorded release-consistency bumps — the dependents of `@fuaran-ui/client` 0.13.0 (Phase 2237)
+
+_Unreleased: every version below is ahead of the newest tag, `v0.30.0`._
+
+The Phase 2134 note above said these three packages needed an advance before the next tag. Nothing enforced
+it: the release-advance check judged only a package whose own sources moved, and none of these did. Each is
+advanced here, and the check now judges the case (below).
+
+| Package            | From → to       | Class | What moved                                                                                                                                                            |
+| ------------------ | --------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@fuaran-ui/cli`   | 0.11.3 → 0.11.4 | patch | Nothing in the package. `v0.30.0` published `@fuaran-ui/client` as `^0.12.4`; the repack writes `^0.13.0`.                                                            |
+| `@fuaran-ui/mcp`   | 0.14.1 → 0.14.2 | patch | Nothing in the package. The same `@fuaran-ui/client` range moves from `^0.12.4` to `^0.13.0`.                                                                         |
+| `@fuaran-ui/react` | 0.13.0 → 0.13.1 | patch | Nothing in the package. The `@fuaran-ui/client` **peer** range moves from `^0.12.4` to `^0.13.0`, which is what lets a consumer on client 0.13.0 install it unwarned. |
+
+The registry confirmed the premise: `cli@0.11.3`, `mcp@0.14.1` and `react@0.13.0` each declare
+`@fuaran-ui/client` `^0.12.4`, a range that excludes 0.13.0 under 0.x semver, and `check-peer-ranges.mjs`
+against the registry refused the set before the advance (it names the same three).
+
+**`@fuaran-ui/mock` does not advance, and the reason is recorded rather than assumed.** Its `workspace:*` pin
+on `@fuaran-ui/client` is in `devDependencies`, which `pnpm pack` rewrites to the exact `0.12.4` (the
+published `mock@0.12.1` carries it) but which npm never installs for a consumer. Only the package's
+integration test imports the client; its `src/` imports nothing from the family. An exact published pin is the
+stricter case of the same class as the three ranges above, but only where a consumer's install resolves it,
+and a development dependency is not resolved.
+
+**The check now judges this class (Phase 2237).** `dev-scripts/check-release-advances.mjs` has a second
+clause. For every publishable package whose version equals the tag's, it resolves each `@fuaran-ui/*`
+`workspace:` dependency, peer dependency and optional dependency the way `pnpm pack` did at the tag
+(`workspace:^` to `^<tag-time sibling>`, `~` to `~`, `*` to the exact version), from the tag-time manifests, and
+fails as `LEFT BEHIND BY <sibling>` when that range excludes the sibling's current workspace version. The
+message names the advance that fixes it. It stays offline. It does not judge `devDependencies`, a literal
+range, or a package that has itself advanced; `check-peer-ranges.mjs` keeps the registry-side verdict and the
+literal ranges. A range shape it cannot read is a finding, not a pass.
 
 ### Where the release notes live
 
