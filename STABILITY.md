@@ -1369,6 +1369,41 @@ message names the advance that fixes it. It stays offline. It does not judge `de
 range, or a package that has itself advanced; `check-peer-ranges.mjs` keeps the registry-side verdict and the
 literal ranges. A range shape it cannot read is a finding, not a pass.
 
+### `@fuaran-ui/client` 0.13.0 — a canonical member of the wrong type is malformed, on both clients (Phase 2239)
+
+_Unreleased: rides the 0.13.0 slot Phase 2134 opened, ahead of the newest tag, `v0.30.0`, which published client
+0.12.4. No version moves here._
+
+**This client's behaviour does not change.** `pick(obj, canonical, alias)` already returned
+`obj[canonical] ?? obj[alias]`: the alias is read only when the canonical member is missing or `null`, so a canonical
+member that is present and mistyped is returned, `asString` turns it into `undefined`, and the field reads as absent.
+The F# client, `Fuaran.UI.Client`, did the opposite for a string field (it read the alias whenever the canonical
+member was not a string), so `{"state":7,"State":"done"}` read as no state here and as `done` there. The F# client
+moved to this client's rule in the same change-set. What this entry adds is the rule written down, and the table
+that holds both clients to it.
+
+**The rule, recorded in the same words by both clients.** An alternate spelling is a fallback for an ABSENT
+canonical member, never a type fallback:
+
+- A canonical member that is missing, or JSON `null`, is absent, so the alias is read.
+- A canonical member that is present and not `null` is the answer, whatever its type. When the caller wants another
+  type the field reads as absent: the alias is not consulted, and the caller's existing absent-field handling
+  applies (a string field's documented default, an op count that falls back to the length of the op list).
+
+It governs every field the helper serves: `provider`, `servedModel`, the snapshot's members, an applied op's `opId`
+and `opJson`, the version echo, the tree, a refusal's `code`, `message` and `stage`, and a 401's `Reason`. A wrongly
+typed `error` member is malformed too, so the body is read as the envelope.
+
+**Why no version advance.** The published surface is unchanged: the only edit to `src/` is the helper's doc
+comment. `@fuaran-ui/client` is already ahead of the newest tag at 0.13.0 on an unreleased slot, so the release
+check passes without a further advance, and moving the number for a doc comment would tell a consumer that
+adopting it costs something.
+
+**Certified by** `packages/client/test/wireMember.test.ts`, which reads every row of the parity table through
+`parseTurnResponse` and `parseProducedDetail`. The F# client holds the same table, row for row, in
+`src/Fuaran.UI.Client.Tests/WireMemberTests.fs`. A row changed in one is changed in the other in the same
+change-set.
+
 ### Where the release notes live
 
 **This file is the changelog.** There is no `CHANGELOG.md` in this repository, and adding one would split the record in two: the reason a version moved and the surface it moved are the same paragraph, and that paragraph belongs beside the surface it describes.

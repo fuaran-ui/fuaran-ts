@@ -79,7 +79,15 @@ const asRecord = (v: unknown): Record<string, unknown> | undefined =>
     : undefined;
 
 /** Read a value tolerant of the canonical wire key or an alternate spelling, so
- *  a proxy or mock that has not yet moved still parses. */
+ *  a proxy or mock that has not yet moved still parses.
+ *
+ *  THE RULE (Phase 2239, held identically by the F# client's `pickString` and
+ *  `pickElement`): the alias is a spelling fallback for an ABSENT canonical
+ *  member, never a type fallback. A canonical member that is missing or `null`
+ *  is absent, so the alias is read. A canonical member that is present and not
+ *  `null` is the answer, whatever its type: `asString` and the other typed
+ *  reads then yield `undefined`, and the caller's existing absent-field
+ *  handling applies. `test/wireMember.test.ts` holds the parity table. */
 function pick(obj: Record<string, unknown>, canonical: string, alias: string): unknown {
   return obj[canonical] ?? obj[alias];
 }
