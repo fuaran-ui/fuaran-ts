@@ -1412,6 +1412,8 @@ change-set.
 
 `scripts/sync-corpus.mjs` gains `--check-distance --remote`, which compares the bundled snapshot's recorded authority commit with the specification's `main` as its remote reports it now, instead of a local clone's HEAD (exit 0 current, 2 behind, 1 could not ask). **No shipped file changed**: the package's `files` are `dist`, `corpus` and `README.md`, and the script is a repository tool that is not packed, so a consumer installs byte-identical contents. The patch number exists because the release-advance guard counts any non-test, non-Markdown file under the package directory as moved sources. Unreleased: ahead of the newest tag.
 
+**Phase 2250 rides this draft slot.** The bundled snapshot is re-synced from the specification's `main` (`bb71e77` to `f6ad000`, eight authority commits behind). Only `corpus/snapshot.json` changed: no fixture payload moved, so the corpus a consumer installs differs only by its recorded authority commit. The slot is untagged and publicly unpinned (the newest tag, `v0.30.0`, carries 0.27.0), and the change is additive, so the number does not move.
+
 The convention, shared with the other producers in this family so a reader crossing between them meets one shape:
 
 - One `###` section per notable change, headed `<package> <version> — <what changed> (<citation>)`, or `Recorded breaking change — <package> <version>, <what changed> (<citation>)` when a consumer must act.
