@@ -20,6 +20,7 @@
     "lint": "pnpm -r --filter \"./packages/*\" --filter \"./tools/*\" run lint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "release-check": "node packages/conformance/scripts/sync-corpus.mjs --check-distance --remote && node dev-scripts/check-release-advances.mjs",
     "bundle-size": "node dev-scripts/measure-bundle-size.mjs"
   },
   "devDependencies": {
