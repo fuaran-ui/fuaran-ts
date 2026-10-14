@@ -12,6 +12,8 @@
 //    node scripts/sync-corpus.mjs                   # write the snapshot (after a regen)
 //    node scripts/sync-corpus.mjs --check           # report byte drift, write nothing
 //    node scripts/sync-corpus.mjs --check-distance  # report how far behind the authority
+//    node scripts/sync-corpus.mjs --check-distance --remote
+//                                                   # ... as the authority's remote `main` is NOW
 //    node scripts/sync-corpus.mjs --declare         # (re)write this snapshot's records
 //                                                   #   into the authority's copies.json
 //
@@ -59,6 +61,20 @@
 //  it had not measured would be the same vacuous green this guard exists to
 //  prevent, read backwards. Both are non-zero, so a gate that refuses on any
 //  non-zero refuses both; only the wording distinguishes them.
+//
+//  --check-distance --remote asks the authority's REMOTE instead of the clone
+//  (Phase 2238), on the same exit contract. The local question is only as
+//  current as the last pull on the machine asking: a snapshot that matches a
+//  clone one commit behind its remote reads "in sync" while the specification
+//  has moved on, which is how a release gets tagged behind the corpus.
+//  `--remote` resolves `main` with `git ls-remote` - it fetches nothing and
+//  writes nothing - on the clone's `origin` when a clone is present, else on
+//  the specification's published URL (SPECIFICATION_URL below), so it needs no
+//  clone and runs where none exists (the publish workflow). 1 means the remote
+//  could not be asked (offline, no such remote, no `main` there) and is kept
+//  apart from 2, as the local check keeps them apart. It is a RELEASE-path
+//  question: run it before tagging (`pnpm run release-check`) and in the
+//  publish workflow, never per PR.
 //
 //  IT IS A SEPARATE FLAG, and that is a decision rather than an oversight.
 //  --check is what test/corpus-sync.test.ts runs, so whatever --check refuses
@@ -134,32 +150,50 @@ const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = realpathSync.native(join(here, '..'));
 const snapshot = join(packageRoot, 'corpus');
 
-/** The corpus root: FUARAN_WIRE_FIXTURES, else the sibling clone — resolved by
+/** The corpus root: FUARAN_WIRE_FIXTURES, else the sibling clone - resolved by
  *  the repository's one resolver (`dev-scripts/corpus-root.mjs`).
- *  A named root holding no corpus is refused, exit 1, never ignored. */
+ *  A named root holding no corpus is refused, exit 1, never ignored. With
+ *  `--check-distance --remote` an ABSENT sibling clone is not an error: the
+ *  remote is asked directly, so the root is `null`. */
 const resolveAuthority = () => {
   try {
-    return resolveCorpusRoot().root;
+    const { root, source } = resolveCorpusRoot();
+    if (remoteDistance && source === 'sibling' && !existsSync(join(root, 'manifest.json')))
+      return null;
+    return root;
   } catch (e) {
     console.error(e.message);
     process.exit(1);
   }
 };
 
+const checkOnly = process.argv.includes('--check');
+const distanceOnly = process.argv.includes('--check-distance');
+const declareOnly = process.argv.includes('--declare');
+const remoteDistance = distanceOnly && process.argv.includes('--remote');
+
+if (process.argv.includes('--remote') && !distanceOnly) {
+  console.error(
+    '--remote only qualifies --check-distance: node scripts/sync-corpus.mjs --check-distance --remote',
+  );
+  process.exit(1);
+}
+
 const authority = resolveAuthority();
 const sentinel = join(snapshot, 'snapshot.json');
 
 const SENTINEL_KIND = 'corpusSnapshot';
 const SHA_RE = /^[0-9a-f]{40}$/;
+/** Where `--check-distance --remote` asks when no clone is present to name its own
+ *  `origin`: the specification repository, public, from which every host's corpus
+ *  snapshot is taken. The branch is the one a release is cut against. */
+const SPECIFICATION_URL = 'https://github.com/fuaran-ui/fuaran-ui-specification.git';
+const REMOTE_BRANCH = 'main';
 const RESYNC_COMMAND = 'pnpm --filter @fuaran-ui/conformance sync-corpus';
 /** Workspace-root-relative, matching the `regen` clause the sweep quotes verbatim. */
 const REGEN_COMMAND = `cd Fuaran/Fuaran-UI/fuaran-ts; ${RESYNC_COMMAND}`;
 
-const checkOnly = process.argv.includes('--check');
-const distanceOnly = process.argv.includes('--check-distance');
-const declareOnly = process.argv.includes('--declare');
-
-if (!existsSync(join(authority, 'manifest.json'))) {
+if (authority !== null && !existsSync(join(authority, 'manifest.json'))) {
   console.error(
     `Authoritative corpus not found at ${authority}\n` +
       `This script requires the canonical workspace layout (the wire-format ` +
@@ -230,9 +264,33 @@ const recordedCommit = () => {
  *  answer — most commonly a shallow checkout, which holds HEAD but not the
  *  commit the snapshot names. The check then says the distance is unknown
  *  rather than guessing at it. */
-const commitsBehind = (sha) => {
-  const count = git(authority, 'rev-list', '--count', `${sha}..HEAD`);
+const commitsBehind = (sha, tip = 'HEAD') => {
+  if (authority === null) return null;
+  const count = git(authority, 'rev-list', '--count', `${sha}..${tip}`);
   return count !== null && /^\d+$/.test(count) ? Number(count) : null;
+};
+
+/** The URL to ask: the clone's own `origin` when there is a clone to read it from,
+ *  else the published specification URL. */
+const remoteUrl = () =>
+  (authority !== null ? git(authority, 'remote', 'get-url', 'origin') : null) || SPECIFICATION_URL;
+
+/** The commit `main` points at on the authority's remote RIGHT NOW, or `null`.
+ *
+ *  `git ls-remote` asks the remote and writes nothing - no fetch, no ref update -
+ *  so it is safe against a clone this checkout must not modify, and it answers
+ *  whether or not any clone has ever fetched `main`. `null` covers every way of
+ *  not getting an answer (offline, no such remote, no `main` there, a prompt
+ *  that cannot be answered); the caller reports it UNMEASURED, never as drift. */
+const remoteHead = (url) => {
+  const r = spawnSync('git', ['ls-remote', url, `refs/heads/${REMOTE_BRANCH}`], {
+    encoding: 'utf8',
+    timeout: 60_000,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+  });
+  if (r.error || r.status !== 0 || typeof r.stdout !== 'string') return null;
+  const sha = r.stdout.trim().split(/\s+/)[0] ?? '';
+  return SHA_RE.test(sha) ? sha : null;
 };
 
 /** Record the authority commit this snapshot was taken from.
@@ -308,7 +366,7 @@ const consumerPrefix = () => {
   const repoPath = posix(relative(resolve(checkout, '..', '..', '..'), checkout));
   return `${repoPath}/${inRepo}`;
 };
-const copiesManifest = join(authority, 'copies.json');
+const copiesManifest = authority === null ? null : join(authority, 'copies.json');
 
 /** JSON carries no comment syntax, so the header note the registry's readers
  *  need is a field. `roadmapctl copies` reads `kind`, `producer` and `records`
@@ -391,7 +449,11 @@ const declare = () => {
 
 const measureDistance = () => {
   const snapshotSha = recordedCommit();
-  const head = authorityHead();
+  // What the snapshot is measured against: the authority remote's `main` as it is
+  // NOW (--remote), or the clone's HEAD.
+  const url = remoteDistance ? remoteUrl() : null;
+  const head = remoteDistance ? remoteHead(url) : authorityHead();
+  const subject = remoteDistance ? `the remote's ${REMOTE_BRANCH}` : 'HEAD';
 
   if (snapshotSha === null)
     return {
@@ -405,18 +467,20 @@ const measureDistance = () => {
   if (head === null)
     return {
       state: 'unmeasured',
-      line:
-        `corpus distance UNMEASURED: cannot read HEAD of the authority at ${authority} ` +
-        `(not a git clone, or git is unavailable)`,
+      line: remoteDistance
+        ? `corpus distance UNMEASURED: cannot read ${subject} at ${url} ` +
+          `(offline, no such remote, or no ${REMOTE_BRANCH} branch there)`
+        : `corpus distance UNMEASURED: cannot read HEAD of the authority at ${authority} ` +
+          `(not a git clone, or git is unavailable)`,
     };
 
   if (snapshotSha === head)
     return {
       state: 'sync',
-      line: `corpus snapshot records the authority's current HEAD (${head})`,
+      line: `corpus snapshot records the authority's current ${subject} (${head})`,
     };
 
-  const behind = commitsBehind(snapshotSha);
+  const behind = commitsBehind(snapshotSha, remoteDistance ? head : 'HEAD');
   const headline =
     behind === null
       ? 'snapshot behind authority by an unknown number of commits'
@@ -431,13 +495,15 @@ const measureDistance = () => {
     state: 'behind',
     line:
       `${headline} (authority ${head}, snapshot ${snapshotSha})\n` +
-      `re-sync and commit the snapshot: ${RESYNC_COMMAND}`,
+      (remoteDistance
+        ? `pull the specification clone, then re-sync and commit the snapshot: ${RESYNC_COMMAND}`
+        : `re-sync and commit the snapshot: ${RESYNC_COMMAND}`),
   };
 };
 
 // ---- dispatch --------------------------------------------------------------
 
-const dirs = payloadDirs(authority);
+const dirs = authority === null ? [] : payloadDirs(authority);
 
 if (declareOnly) declare();
 

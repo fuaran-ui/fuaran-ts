@@ -1408,6 +1408,10 @@ change-set.
 
 **This file is the changelog.** There is no `CHANGELOG.md` in this repository, and adding one would split the record in two: the reason a version moved and the surface it moved are the same paragraph, and that paragraph belongs beside the surface it describes.
 
+### `@fuaran-ui/conformance` 0.27.1 — the sync script can check the specification's remote `main` (Phase 2238)
+
+`scripts/sync-corpus.mjs` gains `--check-distance --remote`, which compares the bundled snapshot's recorded authority commit with the specification's `main` as its remote reports it now, instead of a local clone's HEAD (exit 0 current, 2 behind, 1 could not ask). **No shipped file changed**: the package's `files` are `dist`, `corpus` and `README.md`, and the script is a repository tool that is not packed, so a consumer installs byte-identical contents. The patch number exists because the release-advance guard counts any non-test, non-Markdown file under the package directory as moved sources. Unreleased: ahead of the newest tag.
+
 The convention, shared with the other producers in this family so a reader crossing between them meets one shape:
 
 - One `###` section per notable change, headed `<package> <version> — <what changed> (<citation>)`, or `Recorded breaking change — <package> <version>, <what changed> (<citation>)` when a consumer must act.
