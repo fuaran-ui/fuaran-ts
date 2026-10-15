@@ -11,7 +11,9 @@
 //
 // ─── What it checks ─────────────────────────────────────────────────────────
 //
-// The base is the newest `v*` tag reachable from HEAD. Each package's version
+// The base is the newest `v*` tag reachable from HEAD (a tag pointing AT HEAD is the
+// release being cut and is skipped, so the publish job, which runs on it, compares with
+// the one before). Each package's version
 // AT THAT TAG stands for the version that release published — the offline
 // proxy for "a version the registry serves" (the registry itself is consulted
 // at release time, by `check-peer-ranges.mjs` in the publish workflow). For
@@ -34,20 +36,29 @@
 // placeholder (a `-placeholder.N` version) is never re-released for a metadata
 // change and is exempt.
 //
-// What counts as "sources moved" — every changed or untracked file under the
-// package directory EXCEPT:
+// What counts as "sources moved" — a changed or untracked file under the
+// package directory that the package SHIPS or that is an INPUT to what it ships
+// (operator decision 2026-10-15, Phase 2249; before it, every file counted, so
+// Phase 2238's change to the conformance package's unshipped
+// `scripts/sync-corpus.mjs` demanded a release it did not need):
 //
-//   * tests: a `test/`, `tests/` or `__tests__/` directory, `*.test.*`,
-//     `*.spec.*`, `vitest.config.*`, `tsconfig.test.json`;
-//   * Markdown (`*.md`): documentation does not alter what a consumer
-//     installs or runs;
-//   * a `package.json` change confined to `version`, `scripts` and
-//     `devDependencies` (a bundled private dependency is followed through the
-//     rule above instead).
+//   * shipped: a path the manifest's `files` allowlist names (a directory entry
+//     ships everything beneath it; globs and `!` exclusions are honoured), a
+//     `main`/`bin` target, and a LICENSE/NOTICE file;
+//   * a build input: a path the package's `tsconfig.json` compiles into the
+//     shipped output (its `include` globs and `rootDir`, READ from each package,
+//     never hard-coded), plus the build configuration itself (`tsconfig.json`,
+//     `tsup*.config.*`);
+//   * a `package.json` change outside `version`, `scripts` and `devDependencies`
+//     (a bundled private dependency is followed through the rule above instead).
 //
-// Everything else counts, including a shipped data directory such as the
-// conformance package's bundled `corpus/` — the rule is deliberately an
-// exclusion list, so a build input added later is covered without editing it.
+// Never counted, for any package: tests (a `test/`, `tests/` or `__tests__/`
+// directory, `*.test.*`, `*.spec.*`, `vitest.config.*`, `tsconfig.test.json`) and
+// Markdown (`*.md`: documentation does not alter what a consumer installs or runs).
+//
+// A package WITHOUT a `files` list ships its whole directory, so for it the old
+// rule stands unchanged: everything but tests and Markdown counts. The same holds
+// for an entry the caller gives no layout.
 //
 // ─── The second clause: a range a sibling's advance leaves behind (Phase 2237) ─
 //
@@ -123,15 +134,62 @@ const isPlaceholder = (version) => /-placeholder(\.|$)/.test(String(version));
 
 // ─── Classification ─────────────────────────────────────────────────────────
 
-/** Whether `relPath` (relative to the package directory) is a source of what the package ships. */
-export const isSourcePath = (relPath) => {
+/** A glob (`*`, `**`, `?`) as an anchored RegExp over a slash-separated relative path. */
+const globToRegExp = (glob) => {
+  let out = '';
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === '*' && glob[i + 1] === '*') {
+      const slash = glob[i + 2] === '/';
+      out += slash ? '(?:.*/)?' : '.*';
+      i += slash ? 2 : 1;
+    } else if (c === '*') out += '[^/]*';
+    else if (c === '?') out += '[^/]';
+    else out += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${out}$`);
+};
+
+const normaliseGlob = (g) => g.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+
+/** Whether `path` is what `entry` names, or lies beneath it (an entry naming a directory ships all of it). */
+const underGlob = (path, entry) => {
+  const re = globToRegExp(normaliseGlob(entry));
+  const parts = path.split('/');
+  return parts.some((_, i) => re.test(parts.slice(0, i + 1).join('/')));
+};
+
+/** The package's build configuration: what turns its inputs into the files it ships. */
+const isBuildConfig = (p) => p === 'tsconfig.json' || /^tsup(\.[^/]+)?\.config\.[^/]+$/.test(p);
+
+/**
+ * Whether `p` ships, or builds something that ships, under `layout`: `files` the manifest's
+ * `files` allowlist (`null` when it has none) and `inputs` the globs its tsconfig compiles
+ * into the shipped `dist`.
+ */
+const reachesConsumer = (p, layout) => {
+  const listed = layout.files ?? [];
+  const shipped = listed.filter((f) => !f.startsWith('!'));
+  const excluded = listed.filter((f) => f.startsWith('!')).map((f) => f.slice(1));
+  if (shipped.some((f) => underGlob(p, f)) && !excluded.some((f) => underGlob(p, f))) return true;
+  if (/^(license|licence|notice)(\.[^/]*)?$/i.test(p)) return true;
+  return isBuildConfig(p) || layout.inputs.some((g) => underGlob(p, g));
+};
+
+/**
+ * Whether `relPath` (relative to the package directory) is a source of what the package ships.
+ * `layout` is omitted, or its `files` is `null`, for a package that declares no `files` list:
+ * it ships everything, so everything but tests and Markdown counts.
+ */
+export const isSourcePath = (relPath, layout) => {
   const p = relPath.replace(/\\/g, '/');
   if (/(^|\/)(test|tests|__tests__)\//.test(p)) return false;
   const base = p.slice(p.lastIndexOf('/') + 1);
   if (/\.(test|spec)\.[^/]+$/.test(base)) return false;
   if (/^vitest\.config\./.test(base) || base === 'tsconfig.test.json') return false;
   if (/\.md$/i.test(base)) return false;
-  return true;
+  if (layout === undefined || layout.files === null) return true;
+  return reachesConsumer(p, layout);
 };
 
 const MANIFEST_INERT_KEYS = ['version', 'scripts', 'devDependencies'];
@@ -232,16 +290,17 @@ const leftBehind = (p, siblings) => {
 // ─── The verdict, over data ─────────────────────────────────────────────────
 
 /**
- * `packages`: [{ dir, head, base, changed }] — `head` the working-tree manifest,
+ * `packages`: [{ dir, head, base, changed, layout }] — `head` the working-tree manifest,
  * `base` the manifest at the tag (or `null` when absent there), `changed` the
- * package-relative paths that differ from the tag (manifest included).
+ * package-relative paths that differ from the tag (manifest included), `layout` what the
+ * package ships (see `isSourcePath`; omitted means the old everything-counts rule).
  *
  * Returns { violations, judged, exempt }.
  */
 export const judgeSet = (packages) => {
   const own = new Map();
   for (const p of packages) {
-    const reasons = p.changed.filter((f) => f !== 'package.json' && isSourcePath(f));
+    const reasons = p.changed.filter((f) => f !== 'package.json' && isSourcePath(f, p.layout));
     if (p.base !== null && p.changed.includes('package.json') && manifestMoved(p.base, p.head)) {
       reasons.push('package.json');
     }
@@ -312,6 +371,21 @@ const workspaceDirs = () =>
     )
     .map((e) => e.name);
 
+const binTargets = (m) => (typeof m.bin === 'string' ? [m.bin] : Object.values(m.bin ?? {}));
+
+/** What the package at `dir` ships: its `files` allowlist and the globs its tsconfig compiles. */
+const readLayout = (dir, head) => {
+  const tsconfig = join(repoRoot, 'packages', dir, 'tsconfig.json');
+  const compiled = existsSync(tsconfig) ? readJson(tsconfig) : {};
+  const rootDir = compiled.compilerOptions?.rootDir;
+  return {
+    files: Array.isArray(head.files)
+      ? [...head.files, head.main, ...binTargets(head)].filter(Boolean)
+      : null,
+    inputs: [...(compiled.include ?? []), ...(rootDir === undefined ? [] : [rootDir])],
+  };
+};
+
 const readPackages = (tag) => {
   const listed = [
     ...git('diff', '--name-only', tag, '--', 'packages').split('\n'),
@@ -320,9 +394,11 @@ const readPackages = (tag) => {
   return workspaceDirs().map((dir) => {
     const prefix = `packages/${dir}/`;
     const atTag = tryGit('show', `${tag}:${prefix}package.json`);
+    const head = readJson(join(repoRoot, 'packages', dir, 'package.json'));
     return {
       dir,
-      head: readJson(join(repoRoot, 'packages', dir, 'package.json')),
+      head,
+      layout: readLayout(dir, head),
       base: atTag === null ? null : JSON.parse(atTag),
       changed: listed.filter((l) => l.startsWith(prefix)).map((l) => l.slice(prefix.length)),
     };
@@ -368,7 +444,7 @@ const selfTest = () => {
   expect('key order is not a change', manifestMoved({ a: 1, b: 2 }, { b: 2, a: 1 }), false);
 
   const pkg = (name, version, extra = {}) => ({ name, version, ...extra });
-  const entry = (head, base, changed) => ({ dir: head.name, head, base, changed });
+  const entry = (head, base, changed, layout) => ({ dir: head.name, head, base, changed, layout });
   const verdict = (set) => judgeSet(set).violations.length;
 
   // RED direction — each must be refused.
@@ -435,6 +511,59 @@ const selfTest = () => {
         ['package.json'],
       ),
     ]),
+    0,
+  );
+
+  // What a package SHIPS (Phase 2249). A package with a `files` list is judged by what
+  // that list ships plus what its tsconfig compiles; each class is its own case.
+  const layout = { files: ['dist', 'corpus', 'README.md'], inputs: ['src/**/*'] };
+  const shippedMoved = (path, lay = layout) =>
+    verdict([entry(pkg('@x/a', '0.1.0'), pkg('@x/a', '0.1.0'), [path], lay)]);
+  // RED direction.
+  expect('shipped data file moved', shippedMoved('corpus/nodes/form-1.json'), 1);
+  expect('build input moved', shippedMoved('src/wire.ts'), 1);
+  expect('build config moved', shippedMoved('tsup.config.ts'), 1);
+  expect('tsconfig moved', shippedMoved('tsconfig.json'), 1);
+  expect(
+    'an input named by a non-src include',
+    shippedMoved('gen/a.ts', { files: ['dist'], inputs: ['src/**/*', 'gen/**/*'] }),
+    1,
+  );
+  expect(
+    'a file named by a files glob',
+    shippedMoved('css/theme.css', { files: ['dist', 'css/*.css'], inputs: ['src/**/*'] }),
+    1,
+  );
+  expect(
+    'a package without a files list: a repository tool counts',
+    shippedMoved('scripts/sync-corpus.mjs', { files: null, inputs: ['src/**/*'] }),
+    1,
+  );
+  expect(
+    'no layout at all: the old rule',
+    verdict([entry(pkg('@x/a', '0.1.0'), pkg('@x/a', '0.1.0'), ['scripts/x.mjs'])]),
+    1,
+  );
+  // GREEN direction.
+  expect('unshipped repository tool', shippedMoved('scripts/sync-corpus.mjs'), 0);
+  expect('unshipped examples directory', shippedMoved('examples/a.json'), 0);
+  expect(
+    'a files entry is a whole directory, not a prefix',
+    shippedMoved('corpus-notes/a.json'),
+    0,
+  );
+  expect('a test under a shipped directory', shippedMoved('corpus/test/a.test.ts'), 0);
+  expect('a test of the build input', shippedMoved('src/wire.test.ts'), 0);
+  expect('Markdown under a shipped directory', shippedMoved('corpus/NOTES.md'), 0);
+  expect('Markdown at the root', shippedMoved('README.md'), 0);
+  expect(
+    'a negated files entry is not shipped',
+    shippedMoved('corpus/skip/a.json', { files: ['corpus', '!corpus/skip'], inputs: [] }),
+    0,
+  );
+  expect(
+    'the test directory of a no-files package',
+    shippedMoved('test/a.test.ts', { files: null, inputs: [] }),
     0,
   );
 
@@ -531,6 +660,13 @@ const selfTest = () => {
     0,
   );
 
+  expect('no tag at HEAD: plain describe', describeArgs([]).includes('--exclude'), false);
+  expect(
+    'a tag at HEAD is the release being cut, not the base',
+    describeArgs(['v0.31.0']).join(' '),
+    'describe --tags --abbrev=0 --match v* --exclude v0.31.0 HEAD',
+  );
+
   if (failures.length > 0) {
     console.error('Release-advance check self-test FAILED:\n');
     for (const f of failures) console.error(`  - ${f}`);
@@ -538,6 +674,21 @@ const selfTest = () => {
   }
   console.log('Release-advance check self-test OK (classification + verdict, both directions).');
 };
+
+/**
+ * The `git describe` arguments naming the release to compare with. The publish workflow
+ * runs ON the new tag, so a `v*` tag pointing at HEAD is the release being cut, not the
+ * one it is compared with: it is excluded, and the base is the newest tag before it.
+ */
+export const describeArgs = (tagsAtHead) => [
+  'describe',
+  '--tags',
+  '--abbrev=0',
+  '--match',
+  'v*',
+  ...tagsAtHead.flatMap((t) => ['--exclude', t]),
+  'HEAD',
+];
 
 // ─── Entry point ────────────────────────────────────────────────────────────
 
@@ -547,7 +698,10 @@ const main = () => {
     return;
   }
 
-  const tag = tryGit('describe', '--tags', '--abbrev=0', '--match', 'v*', 'HEAD')?.trim();
+  const atHead = (tryGit('tag', '--points-at', 'HEAD', '--list', 'v*') ?? '')
+    .split('\n')
+    .filter(Boolean);
+  const tag = tryGit(...describeArgs(atHead))?.trim();
   if (tag === undefined || tag === '') {
     if (tryGit('rev-parse', '--is-shallow-repository')?.trim() === 'true') {
       console.log(
