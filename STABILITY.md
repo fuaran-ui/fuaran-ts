@@ -1404,6 +1404,10 @@ adopting it costs something.
 `src/Fuaran.UI.Client.Tests/WireMemberTests.fs`. A row changed in one is changed in the other in the same
 change-set.
 
+### `@fuaran-ui/schema` 0.26.1 and `@fuaran-ui/renderer` 0.27.1 — a doc-comment names the right handler slot (Phase 2245)
+
+Patch advances for comment text only. The shipped `.d.ts` / JS doc text of `FormFieldKind` (schema) and of the `setFilter` seam (renderer) named `FilterKind.onChange`, a type the filters unification removed; they now name `FormFieldKind.onChange`. No type, field, default or runtime behaviour moves, so under the pre-1.0 rules this is a patch.
+
 ### Where the release notes live
 
 **This file is the changelog.** There is no `CHANGELOG.md` in this repository, and adding one would split the record in two: the reason a version moved and the surface it moved are the same paragraph, and that paragraph belongs beside the surface it describes.
