@@ -79,6 +79,10 @@ const fsCliConfiguration = process.env['FUARAN_FS_CLI_CONFIGURATION'] ?? 'Debug'
 // drift, not a standalone clone.
 const fsCliRequired = process.env['FUARAN_REQUIRE_FS_CLI'] === '1';
 
+// Outer bound on one spawned-child test, in minutes rather than seconds. It exists
+// to name a hang; it is not a performance expectation.
+const CHILD_PROCESS_BOUND_MS = 300_000;
+
 const fsCliSiblingPresent = existsSync(fsCliProject);
 const runBehavioralParity = fsCliSiblingPresent || fsCliRequired;
 
@@ -220,6 +224,12 @@ describe('scaffold behavioral parity — both SDK legs vs the mock', () => {
       expect(fsTree).toBe(tsTree.trim());
       expect(tsTree).toContain('"$type":"Metric"');
     },
+    // The leg spawns a .NET process and waits on it, so what it measures is the
+    // machine: vitest's 5 s default went red under load (a .NET start-up alone
+    // can take longer than that on a busy host) with both SDK legs correct. The
+    // bound is only the outer one that names a hung child; the assertion that
+    // matters is the tree comparison, which has no clock in it.
+    CHILD_PROCESS_BOUND_MS,
   );
 
   it('the TS SDK leg round-trips a turn against the mock', async () => {
