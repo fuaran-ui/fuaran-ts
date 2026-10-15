@@ -2372,9 +2372,9 @@ export interface FormField<TMsg> {
   readonly rule?: FieldRule;
 }
 
-// Every handler is optional (Phase 426 — the control write-back default,
-// generalising `FilterKind.onChange`'s Phase 423 mechanics). A present handler
-// dispatches exactly as before (`"<closure>"` sentinel on the wire); omitted —
+// Every handler is optional (Phase 426 — the control write-back default, the Phase 423
+// filter-chip mechanics generalised; a chip's control is a FormFieldKind, so this is its slot).
+// A present handler dispatches exactly as before (`"<closure>"` sentinel on the wire); omitted —
 // the AI-authored / decoded shape — the renderer writes the typed change back
 // to the field's own `value` binding when that binding is directly
 // `State`/`Filter` (any other shape is inert — FUARAN069).
