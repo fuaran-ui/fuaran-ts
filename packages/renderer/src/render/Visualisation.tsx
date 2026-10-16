@@ -32,6 +32,8 @@ import { isLowered, lower } from '@fuaran-ui/charts';
 
 import {
   asArray,
+  ownValue,
+  readState,
   renderCellValue,
   renderText,
   resolve,
@@ -183,7 +185,7 @@ const renderGrid = <TMsg,>(
     (spec.rowKeyField !== undefined
       ? (row: unknown): string => projectRowFieldString(row, spec.rowKeyField as string)
       : undefined);
-  const selectedRaw = ctx.sources.selections?.[parentNodeId];
+  const selectedRaw = ownValue(ctx.sources.selections, parentNodeId);
   const rawSelectedKey =
     rowKeyOf !== undefined && selectedRaw !== undefined ? rowKeyOf(selectedRaw) : undefined;
   const selectedKey =
@@ -683,7 +685,7 @@ const readSortDescriptor = (
   sources: BindingSources,
   key: string,
 ): readonly [number, SortDirection] | undefined => {
-  const raw = sources.state?.[key];
+  const raw = readState(sources, key);
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const rec = raw as Record<string, unknown>;
   const col = rec['column'];
@@ -704,7 +706,7 @@ const readSortDescriptor = (
 // `Query` whose `dependsOn` names the page key already returns the page.
 
 const readPageDescriptor = (sources: BindingSources, key: string): number => {
-  const raw = sources.state?.[key];
+  const raw = readState(sources, key);
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return 1;
   const page = (raw as Record<string, unknown>)['page'];
   if (typeof page !== 'number' || !Number.isInteger(page) || page < 1) return 1;
@@ -786,7 +788,7 @@ export const windowOfValue = (raw: unknown): RowWindow | undefined => {
 
 /** Read the window descriptor carried at `key` in the State store. */
 export const readWindowDescriptor = (sources: BindingSources, key: string): RowWindow | undefined =>
-  windowOfValue(sources.state?.[key]);
+  windowOfValue(readState(sources, key));
 
 /** Does this source window HOST-side? The page rule's test, on the window key. */
 export const sourceHostWindowsOn = (
@@ -1022,7 +1024,7 @@ type SortSlot =
   | { readonly kind: 'Cleared' };
 
 const readSortSlot = (sources: BindingSources, key: string): SortSlot => {
-  if (sources.state?.[key] === undefined) return { kind: 'NotSorted' };
+  if (readState(sources, key) === undefined) return { kind: 'NotSorted' };
   const d = readSortDescriptor(sources, key);
   return d === undefined
     ? { kind: 'Cleared' }

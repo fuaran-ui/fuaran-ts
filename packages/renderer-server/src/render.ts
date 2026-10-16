@@ -97,6 +97,7 @@ import {
   readSelectedItem,
   renderCellValue,
   renderText,
+  readState,
   resolve,
   resolveScalarFloat,
   type Resolution,
@@ -451,7 +452,7 @@ const renderKind = (
       const on = kind.spec.on;
       let raw: unknown;
       if (on.kind === 'State') {
-        raw = ctx.sources.state?.[on.key];
+        raw = readState(ctx.sources, on.key);
         if (raw === undefined) raw = on.defaultValue;
       } else {
         // Phase 1535 — the SCALAR resolver. `tryResolve`'s `Transform` arm is
@@ -2766,7 +2767,7 @@ const readSortDescriptor = (
   sources: BindingSources,
   key: string,
 ): readonly [number, SortDirection] | undefined => {
-  const raw = sources.state?.[key];
+  const raw = readState(sources, key);
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const rec = raw as Record<string, unknown>;
   const col = rec['column'];
@@ -2790,7 +2791,7 @@ const effectiveSortDescriptor = (
   // An absent key is "not yet sorted" (the declared order applies); a key
   // holding anything that is not a usable descriptor is the cycle's authored
   // state (no sort at all).
-  if (sources.state?.[sortStateKey] === undefined) return declared;
+  if (readState(sources, sortStateKey) === undefined) return declared;
   return readSortDescriptor(sources, sortStateKey);
 };
 
