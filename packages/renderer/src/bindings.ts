@@ -598,11 +598,10 @@ export const cellToJsValue = (c: Cell): unknown => {
  */
 export const tableToRows = (t: Table): Record<string, unknown>[] => {
   const n = t.columns.length > 0 ? t.columns[0]!.cells.length : 0;
-  const cellToJs = cellToJsValue;
   const rows: Record<string, unknown>[] = [];
   for (let i = 0; i < n; i += 1) {
     const row = nullProtoRecord<unknown>();
-    for (const col of t.columns) row[col.name] = cellToJs(col.cells[i]!);
+    for (const col of t.columns) row[col.name] = cellToJsValue(col.cells[i]!);
     rows.push(row);
   }
   return rows;
