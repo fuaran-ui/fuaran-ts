@@ -1103,6 +1103,33 @@ type changes: `'DuplicateNodeId'` was already a case.
 (`duplicateIdsApply`), run by `packages/ops/test/duplicate-ids-apply-corpus.test.ts`, and this host's
 own cases in `packages/ops/test/apply-duplicate-ids.test.ts`. Both failed on the previous engine.
 
+### Recorded breaking change — `@fuaran-ui/ops` 0.31.0, `PatchStyle`, the field-level style edit (Phase 2291)
+
+_Unreleased: ahead of the newest tag, `v0.30.0`, which published ops 0.30.0._
+
+**What changed.** `TreeOp` gains `{ kind: 'PatchStyle', target, style: StyleDelta }` (WIRE_FORMAT.md §3.4).
+`StyleDelta` (exported) carries the six `SemanticStyle` members, each optional: an absent member leaves the
+node's field as it is, a present one sets it, a default token included, so the encoder emits every member the
+delta sets. The decoder reuses the `SemanticStyle` token decoders and refuses a delta naming no field
+(`WRONG_TYPE` at `$.style`). `apply` patches over the node's current style; like `UpdateStyle` it carries no
+node, so the tree limits do not measure it.
+
+**Why.** `UpdateStyle` writes the whole record, so a one-field edit resets the other five and two edits of
+different fields on one node always overlap. A patch names only what moved.
+
+**What it costs a consumer.** An exhaustive `switch` over `TreeOp['kind']` under a `default: never` pattern
+gains a case. Pre-1.0 that is a minor advance.
+
+**What certifies it.** The corpus fixtures `ops/op-patchstyle*.json` and `reject/reject-op-patchstyle-*.json`,
+run by `packages/ops/test/corpus.test.ts`; the apply and codec cases in `packages/ops/test/apply.test.ts`; and the
+generator arm in `packages/ops/test/arbitraries.ts`.
+
+**Release-consistency patches.** Each of these declares `@fuaran-ui/ops` as a `workspace:^` peer, which
+`v0.30.0` published as `^0.30.0`, a range that excludes 0.31.0. Nothing in the packages moved; the repack writes
+`^0.31.0`: `@fuaran-ui/ai-tools` 0.14.0 → 0.14.1, `@fuaran-ui/charts` 0.14.4 → 0.14.5, `@fuaran-ui/op-stream`
+0.11.4 → 0.11.5, `@fuaran-ui/renderer-server` 0.25.0 → 0.25.1, `@fuaran-ui/theme-manifest` 0.12.2 → 0.12.3. The
+other dependents (`client`, `mcp`, `renderer`) are already on untagged slots ahead of the tag.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:
@@ -1417,6 +1444,8 @@ Patch advances for comment text only. The shipped `.d.ts` / JS doc text of `Form
 `scripts/sync-corpus.mjs` gains `--check-distance --remote`, which compares the bundled snapshot's recorded authority commit with the specification's `main` as its remote reports it now, instead of a local clone's HEAD (exit 0 current, 2 behind, 1 could not ask). **No shipped file changed**: the package's `files` are `dist`, `corpus` and `README.md`, and the script is a repository tool that is not packed, so a consumer installs byte-identical contents. The patch number exists because the release-advance guard counts any non-test, non-Markdown file under the package directory as moved sources. Unreleased: ahead of the newest tag.
 
 **Phase 2250 rides this draft slot.** The bundled snapshot is re-synced from the specification's `main` (`bb71e77` to `f6ad000`, eight authority commits behind). Only `corpus/snapshot.json` changed: no fixture payload moved, so the corpus a consumer installs differs only by its recorded authority commit. The slot is untagged and publicly unpinned (the newest tag, `v0.30.0`, carries 0.27.0), and the change is additive, so the number does not move.
+
+**Phase 2291 rides this draft slot too.** The snapshot is re-synced to the specification commit that admits `PatchStyle` (`9b65b4b`): three `ops/op-patchstyle*.json` round-trips and four `reject/reject-op-patchstyle-*.json` refusals join the corpus, and `manifest.json` and `schema.json` gain their entries. Additive, so the number does not move.
 
 The convention, shared with the other producers in this family so a reader crossing between them meets one shape:
 

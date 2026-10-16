@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { apply, encodeNode } from '../src/index.js';
+import { apply, decodeOp, encodeNode, encodeOp } from '../src/index.js';
 import type { Node, NodeId } from '@fuaran-ui/schema';
 import type { TreeOp } from '../src/treeOp.js';
 
@@ -225,6 +225,69 @@ describe('apply engine — field / binding / style / state ops', () => {
           : undefined;
       expect(a?.style.tone).toBe('Brand');
     }
+  });
+
+  // Phase 2291 — PatchStyle sets exactly the fields it names and carries the
+  // rest through, over the node's CURRENT style.
+  const styled = (style: Node<unknown>['style']): Node<unknown> =>
+    dashboard('root', [{ ...leaf('a', 'A'), style }, leaf('b', 'B')]);
+  const firstChild = (n: Node<unknown>): Node<unknown> | undefined =>
+    n.kind.kind === 'Layout' ? n.kind.layout.spec.children[0] : undefined;
+  const infoSpacious = { tone: 'Info', weight: 'Spacious', emphasis: 'Normal' } as const;
+
+  it('PatchStyle sets the named field and carries the others', () => {
+    const r = apply(styled(infoSpacious), {
+      kind: 'PatchStyle',
+      target: nid('a'),
+      style: { tone: 'Brand' },
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      const a = firstChild(r.value.newTree);
+      expect(a?.style.tone).toBe('Brand');
+      expect(a?.style.weight).toBe('Spacious');
+      expect(a?.style.emphasis).toBe('Normal');
+    }
+  });
+
+  it('PatchStyle back to every default leaves no style on the wire', () => {
+    const r = apply(styled(infoSpacious), {
+      kind: 'PatchStyle',
+      target: nid('a'),
+      style: { tone: 'Default', weight: 'Standard' },
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      const a = firstChild(r.value.newTree);
+      expect(a).toBeDefined();
+      expect(encodeNode(a!)).not.toContain('"style"');
+    }
+  });
+
+  it('PatchStyle of different fields commutes', () => {
+    const tone: TreeOp<unknown> = {
+      kind: 'PatchStyle',
+      target: nid('a'),
+      style: { tone: 'Brand' },
+    };
+    const voice: TreeOp<unknown> = {
+      kind: 'PatchStyle',
+      target: nid('a'),
+      style: { voice: 'Display' },
+    };
+    const run = (ops: TreeOp<unknown>[]): string => {
+      const r = apply(styled(infoSpacious), { kind: 'Batch', ops });
+      expect(r.ok).toBe(true);
+      return r.ok ? encodeNode(r.value.newTree) : '';
+    };
+    expect(run([tone, voice])).toBe(run([voice, tone]));
+    expect(run([tone, voice])).toContain('"voice":"Display"');
+  });
+
+  it('PatchStyle on a missing target surfaces NodeNotFound', () => {
+    const r = apply(tree(), { kind: 'PatchStyle', target: nid('ghost'), style: { tone: 'Brand' } });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe('NodeNotFound');
   });
 
   it('UpdateState replaces the node state', () => {
@@ -572,5 +635,37 @@ describe('apply engine — does not mutate the input tree', () => {
     const before = encodeNode(original);
     apply(original, { kind: 'RemoveNode', target: nid('a') });
     expect(encodeNode(original)).toBe(before);
+  });
+});
+
+// Phase 2291 — the PatchStyle codec legs the corpus does not state directly. The
+// round-trips and the four refusals are certified by corpus.test.ts.
+describe('PatchStyle codec', () => {
+  it('tolerates an unknown key beside a set member, as a SemanticStyle does', () => {
+    const r = decodeOp('{"$type":"PatchStyle","style":{"future":1,"tone":"Brand"},"target":"a"}');
+    expect(r.ok).toBe(true);
+    if (r.ok)
+      expect(encodeOp(r.value)).toBe(
+        '{"$type":"PatchStyle","style":{"tone":"Brand"},"target":"a"}',
+      );
+  });
+
+  it('refuses a delta whose only keys are unknown — it names no field', () => {
+    const r = decodeOp('{"$type":"PatchStyle","style":{"future":1},"target":"a"}');
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.code).toBe('WRONG_TYPE');
+      expect(r.error.path).toBe('$.style');
+    }
+  });
+
+  it('emits a default token the delta sets', () => {
+    expect(
+      encodeOp({
+        kind: 'PatchStyle',
+        target: nid('a'),
+        style: { direction: 'auto', role: 'None' },
+      }),
+    ).toBe('{"$type":"PatchStyle","style":{"direction":"auto","role":"None"},"target":"a"}');
   });
 });

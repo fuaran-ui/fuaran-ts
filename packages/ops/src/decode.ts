@@ -205,7 +205,7 @@ import {
   tryNumberText,
 } from './localCodec.js';
 import { type JsonAst, parse } from './parse.js';
-import type { TreeOp } from './treeOp.js';
+import type { StyleDelta, TreeOp } from './treeOp.js';
 
 // ─── DecodeError surface ─────────────────────────────────────────────────────
 
@@ -8080,6 +8080,47 @@ const decodeSemanticStyle = framed((path: string, j: JsonAst): R<SemanticStyle> 
   });
 });
 
+// Phase 2291 — the `PatchStyle` payload. The same six members through the same
+// per-field decoders as `decodeSemanticStyle`, in the same order, but absence
+// means "leave this field as it is", so nothing is defaulted: an absent member
+// stays absent. Unknown keys are tolerated exactly as they are in a
+// `SemanticStyle`. A delta naming no field is not an edit — refused as
+// `WRONG_TYPE` at the delta, the `FieldRule` precedent (a record that declares
+// nothing).
+const decodeStyleDelta = framed((path: string, j: JsonAst): R<StyleDelta> => {
+  const fo = requireObject(path, j);
+  if (!fo.ok) return fo;
+  const f = fo.value;
+  const tone = optField(path, f, 'tone', decodeTone);
+  if (!tone.ok) return tone;
+  const weight = optField(path, f, 'weight', decodeWeight);
+  if (!weight.ok) return weight;
+  const emphasis = optField(path, f, 'emphasis', decodeEmphasis);
+  if (!emphasis.ok) return emphasis;
+  const role = optField(path, f, 'role', decodeStyleRole);
+  if (!role.ok) return role;
+  const voice = optField(path, f, 'voice', decodeFontVoice);
+  if (!voice.ok) return voice;
+  const direction = optField(path, f, 'direction', decodeTextDirection);
+  if (!direction.ok) return direction;
+  const delta: StyleDelta = {
+    ...(direction.value !== undefined ? { direction: direction.value } : {}),
+    ...(emphasis.value !== undefined ? { emphasis: emphasis.value } : {}),
+    ...(role.value !== undefined ? { role: role.value } : {}),
+    ...(tone.value !== undefined ? { tone: tone.value } : {}),
+    ...(voice.value !== undefined ? { voice: voice.value } : {}),
+    ...(weight.value !== undefined ? { weight: weight.value } : {}),
+  };
+  if (Object.keys(delta).length === 0)
+    return makeError(
+      'WRONG_TYPE',
+      path,
+      'a style patch that names no field is not an edit — set at least one of direction / emphasis / role / tone / voice / weight, or send no op',
+      'StyleDelta with at least one member',
+    );
+  return ok(delta);
+});
+
 // Phase 959 — the `Accessibility` trait's near-miss set (the Phase 863
 // discipline applied to the §3.1 trait). Parity-locked with F#
 // `accessibilityNearMisses` / `accessibilityNearMiss`, and mirrored in the
@@ -8457,6 +8498,14 @@ const decodeTreeOpAstInner = framed((path: string, j: JsonAst): R<TreeOp<unknown
       const style = reqField(path, f, 'style', 'SemanticStyle object', decodeSemanticStyle);
       return style.ok ? ok({ kind: 'UpdateStyle', target: t.value, style: style.value }) : style;
     }
+    case 'PatchStyle': {
+      // Phase 2291 — the field-level style edit: UpdateStyle's shape, a
+      // StyleDelta payload.
+      const t = target();
+      if (!t.ok) return t;
+      const style = reqField(path, f, 'style', 'StyleDelta object', decodeStyleDelta);
+      return style.ok ? ok({ kind: 'PatchStyle', target: t.value, style: style.value }) : style;
+    }
     case 'UpdateState': {
       const t = target();
       if (!t.ok) return t;
@@ -8534,7 +8583,7 @@ const decodeTreeOpAstInner = framed((path: string, j: JsonAst): R<TreeOp<unknown
       return unknownDuCase(
         path,
         d.value,
-        'EditNode | UpdateProp | ReplaceBinding | UpdateStyle | UpdateState | InsertChild | RemoveNode | MoveNode | ReorderChildren | ReplaceRoot | Batch',
+        'EditNode | UpdateProp | ReplaceBinding | UpdateStyle | PatchStyle | UpdateState | InsertChild | RemoveNode | MoveNode | ReorderChildren | ReplaceRoot | Batch',
       );
   }
 });

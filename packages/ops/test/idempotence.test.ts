@@ -132,6 +132,7 @@ const requiredOpTokens: string[] = [
   'UpdateProp',
   'ReplaceBinding',
   'UpdateStyle',
+  'PatchStyle',
   'UpdateState',
   'InsertChild',
   'RemoveNode',

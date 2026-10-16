@@ -125,7 +125,7 @@ import type {
 import { formatFiniteDouble, num } from '@fuaran-ui/core-twins';
 
 import type { JsonAst } from './parse.js';
-import type { TreeOp } from './treeOp.js';
+import type { StyleDelta, TreeOp } from './treeOp.js';
 
 // ─── Primitive emitters ──────────────────────────────────────────────────────
 
@@ -2527,6 +2527,21 @@ const semanticStyle = (s: SemanticStyle): string => {
   return jObject(fields);
 };
 
+// Phase 2291 — the `PatchStyle` payload. Every member the delta SETS is
+// emitted, a default token included: absence means "leave it", so omitting a
+// default would change the edit (`semanticStyle`'s omit-when-default rule does
+// not apply here). `jObject` sorts keys.
+const styleDelta = (d: StyleDelta): string => {
+  const fields: Field[] = [];
+  if (d.direction !== undefined) fields.push(['direction', str(d.direction)]);
+  if (d.emphasis !== undefined) fields.push(['emphasis', str(d.emphasis)]);
+  if (d.role !== undefined) fields.push(['role', str(d.role)]);
+  if (d.tone !== undefined) fields.push(['tone', str(d.tone)]);
+  if (d.voice !== undefined) fields.push(['voice', str(d.voice)]);
+  if (d.weight !== undefined) fields.push(['weight', str(d.weight)]);
+  return jObject(fields);
+};
+
 const accessibility = (a: Accessibility): string => {
   const fields: Field[] = [];
   if (a.label !== undefined) fields.push(['label', binding(a.label)]);
@@ -2603,6 +2618,11 @@ const treeOp = (op: TreeOp<unknown>): string => {
     case 'UpdateStyle':
       return caseObj('UpdateStyle', [
         ['style', semanticStyle(op.style)],
+        ['target', str(op.target)],
+      ]);
+    case 'PatchStyle':
+      return caseObj('PatchStyle', [
+        ['style', styleDelta(op.style)],
         ['target', str(op.target)],
       ]);
     case 'UpdateState':

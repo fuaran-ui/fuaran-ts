@@ -14,13 +14,36 @@
 
 import type {
   Binding,
+  Emphasis,
+  FontVoice,
   Node,
   NodeId,
   NodeKind,
   SemanticStyle,
   StateBehaviour,
+  StyleRole,
+  StyleWeight,
+  TextDirection,
+  ToneVariant,
   JsonValue,
 } from '@fuaran-ui/schema';
+
+/**
+ * Phase 2291 — the field-level style edit's payload (WIRE_FORMAT.md §3.4,
+ * `PatchStyle`). The six `SemanticStyle` members, each optional: an ABSENT
+ * member leaves the node's field as it is, a PRESENT one sets it — a default
+ * token included. So unlike `SemanticStyle` there is no omit-when-default
+ * rule: `{ tone: 'Default' }` is a real edit. A delta naming no field is not
+ * an edit and is refused at decode.
+ */
+export interface StyleDelta {
+  readonly direction?: TextDirection;
+  readonly emphasis?: Emphasis;
+  readonly role?: StyleRole;
+  readonly tone?: ToneVariant;
+  readonly voice?: FontVoice;
+  readonly weight?: StyleWeight;
+}
 
 export type TreeOp<TMsg> =
   | { readonly kind: 'EditNode'; readonly target: NodeId; readonly newKind: NodeKind<TMsg> }
@@ -37,6 +60,7 @@ export type TreeOp<TMsg> =
       readonly binding: Binding<unknown>;
     }
   | { readonly kind: 'UpdateStyle'; readonly target: NodeId; readonly style: SemanticStyle }
+  | { readonly kind: 'PatchStyle'; readonly target: NodeId; readonly style: StyleDelta }
   | { readonly kind: 'UpdateState'; readonly target: NodeId; readonly state: StateBehaviour<TMsg> }
   | {
       readonly kind: 'InsertChild';

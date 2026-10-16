@@ -1025,6 +1025,21 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
       telem.push({ op: 'UpdateStyle', targetId: op.target });
       return ok(newTree);
     }
+    case 'PatchStyle': {
+      // Phase 2291 — a patch over the node's CURRENT style: every field the
+      // delta sets replaces the node's, every other field is carried through.
+      // No normalisation beyond UpdateStyle's: the style slot is always present
+      // in this model, and an all-default result encodes as the absent slot.
+      const newTree = mapNode(
+        op.target,
+        (n) => ({ ...n, style: { ...n.style, ...op.style } }),
+        root,
+      );
+      if (newTree === undefined)
+        return fail('NodeNotFound', `Node '${op.target}' not found in tree.`);
+      telem.push({ op: 'PatchStyle', targetId: op.target });
+      return ok(newTree);
+    }
     case 'UpdateState': {
       const newTree = mapNode(
         op.target,
@@ -1211,6 +1226,7 @@ const insertedNodes = (op: TreeOp<unknown>): readonly N[] => {
     case 'UpdateProp':
     case 'ReplaceBinding':
     case 'UpdateStyle':
+    case 'PatchStyle':
     case 'RemoveNode':
     case 'MoveNode':
     case 'ReorderChildren':
@@ -1231,9 +1247,10 @@ const insertedNodes = (op: TreeOp<unknown>): readonly N[] => {
  * passed. A root over two branches each half the limit deep is legal, and
  * moving one branch under the other's leaf nests past `MAX_NODE_DEPTH`.
  *
- * Everything else cannot grow the tree: `UpdateProp`, `ReplaceBinding` and
- * `UpdateStyle` carry no node (`UpdateProp` refuses every node-valued field),
- * `RemoveNode` shrinks, and `ReorderChildren` permutes children in place.
+ * Everything else cannot grow the tree: `UpdateProp`, `ReplaceBinding`,
+ * `UpdateStyle` and `PatchStyle` carry no node (`UpdateProp` refuses every
+ * node-valued field), `RemoveNode` shrinks, and `ReorderChildren` permutes
+ * children in place.
  */
 const opCanGrow = (op: TreeOp<unknown>): boolean => {
   switch (op.kind) {
