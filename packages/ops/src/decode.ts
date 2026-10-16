@@ -836,6 +836,16 @@ const traverseIndexed = <T>(
 
 // ─── obj-erased value decode (port of decodeObj) ─────────────────────────────
 
+/**
+ * Phase 1931 — every record this decoder builds from WIRE-CHOSEN keys starts
+ * with no prototype. On a `{}` literal a `"__proto__"` member hits the
+ * prototype SETTER and vanishes (decode→encode was not byte-identical with the
+ * F# host, whose `Map` round-trips it), and every key inherits `Object`'s
+ * members, so `constructor` read as present. A null-prototype record holds
+ * `__proto__` as an ordinary own key and inherits nothing.
+ */
+const wireKeyedRecord = <V>(): Record<string, V> => Object.create(null) as Record<string, V>;
+
 const decodeAstValue = (j: JsonAst): unknown => {
   switch (j.kind) {
     case 'JNull':
@@ -849,7 +859,7 @@ const decodeAstValue = (j: JsonAst): unknown => {
     case 'JArray':
       return j.items.map(decodeAstValue);
     case 'JObject': {
-      const o: Record<string, unknown> = {};
+      const o = wireKeyedRecord<unknown>();
       for (const [k, v] of j.fields) o[k] = decodeAstValue(v);
       return o;
     }
@@ -895,7 +905,7 @@ const decodeJVal = framed((path: string, j: JsonAst): R<JsonValue> => {
       return ok(out);
     }
     case 'JObject': {
-      const out: Record<string, JsonValue> = {};
+      const out = wireKeyedRecord<JsonValue>();
       for (const [k, v] of j.fields) {
         const r = decodeJVal(`${path}.${k}`, v);
         if (!r.ok) return r;
@@ -909,7 +919,7 @@ const decodeJVal = framed((path: string, j: JsonAst): R<JsonValue> => {
 const decodeJValMap = framed((path: string, j: JsonAst): R<Record<string, JsonValue>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
-  const out: Record<string, JsonValue> = {};
+  const out = wireKeyedRecord<JsonValue>();
   for (const [k, v] of fo.value) {
     const r = decodeJVal(`${path}.${k}`, v);
     if (!r.ok) return r;
@@ -3641,7 +3651,7 @@ const decodeBindingArgs = framed(
   (path: string, j: JsonAst): R<Record<string, Binding<JsonValue>>> => {
     const fo = requireObject(path, j);
     if (!fo.ok) return fo;
-    const out: Record<string, Binding<JsonValue>> = {};
+    const out = wireKeyedRecord<Binding<JsonValue>>();
     for (const [k, v] of fo.value) {
       const r = decodeBinding(`${path}.${k}`, v);
       if (!r.ok) return r;
@@ -3674,7 +3684,7 @@ const decodeI18nArgMap = framed(
   (path: string, j: JsonAst): R<Record<string, Binding<JsonValue>>> => {
     const fo = requireObject(path, j);
     if (!fo.ok) return fo;
-    const out: Record<string, Binding<JsonValue>> = {};
+    const out = wireKeyedRecord<Binding<JsonValue>>();
     for (const [k, v] of fo.value) {
       const argPath = `${path}.${k}`;
       if (v.kind === 'JObject' && v.fields.has('$type')) {
@@ -6310,7 +6320,7 @@ const decodeInputKind = framed((path: string, j: JsonAst): R<InputKind<unknown>>
 const decodeToneMap = framed((path: string, j: JsonAst): R<Record<string, ToneVariant>> => {
   const fo = requireObject(path, j);
   if (!fo.ok) return fo;
-  const out: Record<string, ToneVariant> = {};
+  const out = wireKeyedRecord<ToneVariant>();
   for (const [k, v] of fo.value) {
     const entryPath = `${path}.${k}`;
     const got = v.kind === 'JString' ? v.value : '';
@@ -7924,7 +7934,7 @@ const decodeNodeKind = framed((path: string, j: JsonAst): R<NodeKind<unknown>> =
       const name = reqField(path, f, 'name', 'FragmentRef name string', requireString);
       if (!name.ok) return name;
       // Phase 180 — `args` additive; absent ⇒ degenerate zero-arg ref.
-      const args: Record<string, FragmentArg<unknown>> = {};
+      const args = wireKeyedRecord<FragmentArg<unknown>>();
       const argsJ = tryField(f, 'args');
       if (argsJ !== undefined) {
         const argsObj = requireObject(`${path}.args`, argsJ);
@@ -7989,7 +7999,7 @@ const decodeNodeKind = framed((path: string, j: JsonAst): R<NodeKind<unknown>> =
 
       // Phase 265 — `inputs` additive; absent ⇒ zero-input mount. Reuses the
       // FragmentArg decode (value scalar or slot subtree).
-      const inputs: Record<string, FragmentArg<unknown>> = {};
+      const inputs = wireKeyedRecord<FragmentArg<unknown>>();
       const inputsJ = tryField(f, 'inputs');
       if (inputsJ !== undefined) {
         const inputsObj = requireObject(`${path}.inputs`, inputsJ);

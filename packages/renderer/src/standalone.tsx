@@ -201,6 +201,9 @@ export function mount<TMsg = unknown>(
         ...(options?.customHashFloor !== undefined
           ? { customHashFloor: options.customHashFloor }
           : {}),
+        // The policy this mount decodes under is the renderer's policy, so its
+        // debug surface's `apply` decodes under it too (Phase 1931).
+        ...(options?.decodePolicy !== undefined ? { decodePolicy: options.decodePolicy } : {}),
       }),
     );
   };

@@ -137,6 +137,40 @@ export interface BindingSources {
 export const emptySources: BindingSources = {};
 
 /**
+ * Phase 1931 — read ONE key off a host- or wire-keyed bag as an OWN property.
+ *
+ * Every bag the resolver reads is keyed by names a document chose (`$state.k`,
+ * `$filters.k`, an i18n key, a Transform ref). Indexing one with `bag[key]`
+ * walks the prototype chain, so `{"$type":"State","key":"constructor"}`
+ * resolved to the `Object` function and rendered its source text, where the F#
+ * host (a `Map`) answers "absent". `Object.hasOwn` makes an inherited name what
+ * it is on every other host: unset.
+ */
+export const ownValue = <V>(
+  bag: Readonly<Record<string, V>> | undefined,
+  key: string,
+): V | undefined => (bag !== undefined && Object.hasOwn(bag, key) ? bag[key] : undefined);
+
+/** Phase 1931 — the ONE read of a `$state` slot; every state read routes here. */
+export const readState = (sources: BindingSources, key: string): unknown =>
+  ownValue(sources.state, key);
+
+/**
+ * Phase 1931 — the i18n template for `key`, or `undefined`. A catalog is the one
+ * bag a host may legitimately build by prototype chaining (a locale over its
+ * fallback via `Object.create`), so this does not demand an own key; it demands
+ * a STRING, which is what a template is and what no `Object.prototype` member
+ * is. `constructor` is then a missing translation, not a function's source.
+ */
+const i18nTemplate = (sources: BindingSources, key: string): string | undefined => {
+  const t: unknown = sources.i18n?.[key];
+  return typeof t === 'string' ? t : undefined;
+};
+
+/** An empty record with no prototype, so no key a document names is inherited. */
+const nullProtoRecord = <V>(): Record<string, V> => Object.create(null) as Record<string, V>;
+
+/**
  * Build a `BindingContext` over a module-state bag (Phase 137). The `tryGetState`
  * accessor returns the stored value cast to `T`, or `undefined` for a missing
  * key — never throws, so a `Binding.Computed` closure stays total.
@@ -166,7 +200,7 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       return { kind: 'Resolved', value: binding.value };
     case 'Query': {
       if (binding.name === NOT_PROVIDED_SENTINEL) return { kind: 'NotResolved' };
-      const raw = sources.queryResults?.[binding.name];
+      const raw = ownValue(sources.queryResults, binding.name);
       if (raw === undefined) return { kind: 'NotResolved' };
       try {
         return { kind: 'Resolved', value: binding.accessor(raw) };
@@ -175,7 +209,7 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       }
     }
     case 'Filter': {
-      const raw = sources.filters?.[binding.name];
+      const raw = ownValue(sources.filters, binding.name);
       if (raw === undefined) {
         // 0.2.0 — the pre-selected-filter gap: an unwritten filter key
         // resolves to the binding's declared default.
@@ -186,7 +220,7 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       return { kind: 'Resolved', value: raw as T };
     }
     case 'Selection': {
-      const raw = sources.selections?.[binding.nodeId];
+      const raw = ownValue(sources.selections, binding.nodeId);
       if (raw === undefined) {
         // 0.2.9 (Phase 629) — the pre-selected-row gap: an unwritten selection
         // resolves to the binding's declared default (the projected scalar,
@@ -216,7 +250,7 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       // shared rather than restated: `defaultValue` carries the slot's typed
       // placeholder whether or not the document said anything, so the value
       // alone cannot answer this (Phase 1656).
-      const raw = sources.state?.[binding.key];
+      const raw = readState(sources, binding.key);
       if (raw !== undefined) return { kind: 'Resolved', value: raw as T };
       if (stateDefaultDeclared(binding)) return { kind: 'Resolved', value: binding.defaultValue };
       return { kind: 'NotResolved' };
@@ -240,7 +274,11 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       // live state bag. `sources.state` is authoritative (the same map `State`
       // resolves against); any keys injected via `computedContext` are merged
       // underneath, live state winning on a clash.
-      const merged = { ...(sources.computedContext?.state ?? {}), ...(sources.state ?? {}) };
+      const merged = Object.assign(
+        nullProtoRecord<unknown>(),
+        sources.computedContext?.state,
+        sources.state,
+      );
       const ctx = makeBindingContext(merged);
       try {
         return { kind: 'Resolved', value: binding.compute(ctx) };
@@ -371,7 +409,7 @@ const evalTransformFrame = (
   | { readonly ok: false; readonly error: string } => {
   const refs = sources.transformRefs ?? {};
   const resolveRef: SourceResolver = (name) => {
-    const t = refs[name];
+    const t = ownValue(refs, name);
     return t !== undefined
       ? { ok: true, value: t }
       : { ok: false, error: { kind: 'UnresolvedSource', ref: name } };
@@ -416,15 +454,15 @@ const evalTransformFrame = (
     }
   } else {
     const ds = binding.source.source;
-    inputTable = ds.kind === 'Embedded' ? ds.table : refs[ds.name];
+    inputTable = ds.kind === 'Embedded' ? ds.table : ownValue(refs, ds.name);
     if (inputTable === undefined) {
       const refName = ds.kind === 'Ref' ? ds.name : '';
       return { ok: false, error: `Transform source ref '${refName}' not provided` };
     }
   }
   const params = binding.params ?? [];
-  const env: Record<string, Cell> = {};
-  const listEnv: Record<string, readonly Cell[]> = {};
+  const env = nullProtoRecord<Cell>();
+  const listEnv = nullProtoRecord<readonly Cell[]>();
   let hasListParam = false;
   const unbound = new Set<string>();
   for (const p of params) {
@@ -560,11 +598,10 @@ export const cellToJsValue = (c: Cell): unknown => {
  */
 export const tableToRows = (t: Table): Record<string, unknown>[] => {
   const n = t.columns.length > 0 ? t.columns[0]!.cells.length : 0;
-  const cellToJs = cellToJsValue;
   const rows: Record<string, unknown>[] = [];
   for (let i = 0; i < n; i += 1) {
-    const row: Record<string, unknown> = {};
-    for (const col of t.columns) row[col.name] = cellToJs(col.cells[i]!);
+    const row = nullProtoRecord<unknown>();
+    for (const col of t.columns) row[col.name] = cellToJsValue(col.cells[i]!);
     rows.push(row);
   }
   return rows;
@@ -1040,7 +1077,7 @@ export const renderText = (sources: BindingSources, text: TextSource): string =>
       // `Binding.Transform` yields its 1×1 result cell (never the rows list).
       return tryResolveScalarText(sources, text.binding) ?? '';
     case 'I18n': {
-      const template = sources.i18n?.[text.key];
+      const template = i18nTemplate(sources, text.key);
       if (template === undefined) return `[i18n:${text.key}]`;
       let acc = template;
       for (const [k, v] of Object.entries(text.args)) {
@@ -1096,7 +1133,7 @@ export const tryResolveTextSource = (
     case 'Bound':
       return tryResolveScalarText(sources, text.binding);
     case 'I18n':
-      return sources.i18n?.[text.key] === undefined ? undefined : renderText(sources, text);
+      return i18nTemplate(sources, text.key) === undefined ? undefined : renderText(sources, text);
   }
 };
 
@@ -1186,7 +1223,7 @@ export const readExpandedItems = (
   key: string | undefined,
 ): ReadonlySet<string> => {
   if (key === undefined) return new Set<string>();
-  const raw = sources.state?.[key];
+  const raw = readState(sources, key);
   if (!Array.isArray(raw)) return new Set<string>();
   return new Set(raw.filter((v): v is string => typeof v === 'string'));
 };
@@ -1201,7 +1238,7 @@ export const readSelectedItem = (
   key: string | undefined,
 ): string | undefined => {
   if (key === undefined) return undefined;
-  const raw = sources.state?.[key];
+  const raw = readState(sources, key);
   return typeof raw === 'string' && raw !== '' ? raw : undefined;
 };
 
