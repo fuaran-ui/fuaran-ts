@@ -2,12 +2,17 @@
 //  @fuaran-ui/renderer-server/bindings — binding resolution + text / number /
 //  cell formatting.
 //
-//  Verbatim copy of @fuaran-ui/renderer's bindings module (React-free, but only
-//  reachable through the React barrel). Kept local so the server renderer carries
-//  no React dependency. The server resolves bindings exactly as the client does:
-//  `Static` bindings resolve to their value; `Query` / `Filter` / `Selection`
-//  resolve from host-supplied sources or fall back; `State` resolves to its
-//  default. Locale-aware `Intl` formatting matches the client.
+//  The behavioural twin of @fuaran-ui/renderer's bindings module (React-free,
+//  but only reachable through the React barrel). Kept local so the server
+//  renderer carries no React dependency. The server resolves bindings exactly as
+//  the client does: `Static` bindings resolve to their value; `Query` / `Filter`
+//  / `Selection` resolve from host-supplied sources or fall back; `State`
+//  resolves to its default. Locale-aware `Intl` formatting matches the client.
+//
+//  A hand twin drifts, and this one did (Phase 1931: list params and the
+//  `WireSurvivabilityError` text). `test/bindingsParity.test.ts` now resolves
+//  every binding of every corpus node fixture through BOTH modules and fails on
+//  any difference, so "matches the client" is asserted rather than claimed.
 // ============================================================================
 
 import type {
@@ -40,8 +45,9 @@ import {
 import {
   evalPipelineWith,
   evalPipelineWithInEnv,
-  stepParams,
   liveValueToTable,
+  stepParams,
+  substituteListParams,
   type SourceResolver,
 } from '@fuaran-ui/ops';
 
@@ -56,6 +62,25 @@ const objToCell = (v: unknown): Cell | undefined => {
   if (typeof v === 'number') return { kind: 'Float', value: v };
   if (v === null) return { kind: 'Null' };
   return undefined;
+};
+
+/**
+ * Coerce a resolved LIST to a `Cell[]` for a `Transform` LIST param (Phase 610)
+ * — a multi-select chip's selection. Element coercion is `objToCell`'s; a
+ * non-array, or an array holding a non-scalar item, is `undefined` and stays the
+ * loud "non-scalar value" error. Ported by Phase 1931: this tier used to refuse
+ * every list param, so a chip-filtered table painted an error on first paint and
+ * the table after hydration.
+ */
+const objToCells = (v: unknown): Cell[] | undefined => {
+  if (!Array.isArray(v)) return undefined;
+  const cells: Cell[] = [];
+  for (const item of v) {
+    const c = objToCell(item);
+    if (c === undefined) return undefined;
+    cells.push(c);
+  }
+  return cells;
 };
 
 /** Data sources the renderer consults when it encounters a binding. */
@@ -88,6 +113,40 @@ export interface BindingSources {
 
 export const emptySources: BindingSources = {};
 
+/**
+ * Phase 1931 — read ONE key off a host- or wire-keyed bag as an OWN property.
+ *
+ * Every bag the resolver reads is keyed by names a document chose (`$state.k`,
+ * `$filters.k`, an i18n key, a Transform ref). Indexing one with `bag[key]`
+ * walks the prototype chain, so `{"$type":"State","key":"constructor"}`
+ * resolved to the `Object` function and rendered its source text, where the F#
+ * host (a `Map`) answers "absent". `Object.hasOwn` makes an inherited name what
+ * it is on every other host: unset.
+ */
+export const ownValue = <V>(
+  bag: Readonly<Record<string, V>> | undefined,
+  key: string,
+): V | undefined => (bag !== undefined && Object.hasOwn(bag, key) ? bag[key] : undefined);
+
+/** Phase 1931 — the ONE read of a `$state` slot; every state read routes here. */
+export const readState = (sources: BindingSources, key: string): unknown =>
+  ownValue(sources.state, key);
+
+/**
+ * Phase 1931 — the i18n template for `key`, or `undefined`. A catalog is the one
+ * bag a host may legitimately build by prototype chaining (a locale over its
+ * fallback via `Object.create`), so this does not demand an own key; it demands
+ * a STRING, which is what a template is and what no `Object.prototype` member
+ * is. `constructor` is then a missing translation, not a function's source.
+ */
+const i18nTemplate = (sources: BindingSources, key: string): string | undefined => {
+  const t: unknown = sources.i18n?.[key];
+  return typeof t === 'string' ? t : undefined;
+};
+
+/** An empty record with no prototype, so no key a document names is inherited. */
+const nullProtoRecord = <V>(): Record<string, V> => Object.create(null) as Record<string, V>;
+
 /** Build a `BindingContext` over a module-state bag. */
 export const makeBindingContext = (state: Readonly<Record<string, unknown>>): BindingContext => ({
   state,
@@ -114,7 +173,7 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       return { kind: 'Resolved', value: binding.value };
     case 'Query': {
       if (binding.name === NOT_PROVIDED_SENTINEL) return { kind: 'NotResolved' };
-      const raw = sources.queryResults?.[binding.name];
+      const raw = ownValue(sources.queryResults, binding.name);
       if (raw === undefined) return { kind: 'NotResolved' };
       try {
         return { kind: 'Resolved', value: binding.accessor(raw) };
@@ -123,7 +182,7 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       }
     }
     case 'Filter': {
-      const raw = sources.filters?.[binding.name];
+      const raw = ownValue(sources.filters, binding.name);
       if (raw === undefined) {
         // 0.2.0 — the pre-selected-filter gap: an unwritten filter key
         // resolves to the binding's declared default.
@@ -134,7 +193,7 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       return { kind: 'Resolved', value: raw as T };
     }
     case 'Selection': {
-      const raw = sources.selections?.[binding.nodeId];
+      const raw = ownValue(sources.selections, binding.nodeId);
       if (raw === undefined) {
         // 0.2.9 (Phase 629) — the pre-selected-row gap: an unwritten selection
         // resolves to the binding's declared default until the first real
@@ -155,7 +214,7 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       // UNRESOLVED, so the literal text `undefined` can no longer reach the
       // markup and a numeric slot renders its absence placeholder. Both tiers
       // move together or SSR and hydration disagree.
-      const raw = sources.state?.[binding.key];
+      const raw = readState(sources, binding.key);
       if (raw !== undefined) return { kind: 'Resolved', value: raw as T };
       if (stateDefaultDeclared(binding)) return { kind: 'Resolved', value: binding.defaultValue };
       return { kind: 'NotResolved' };
@@ -175,11 +234,23 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
       return { kind: 'Resolved', value: binding.project(instant) };
     }
     case 'Computed': {
-      const merged = { ...(sources.computedContext?.state ?? {}), ...(sources.state ?? {}) };
+      const merged = Object.assign(
+        nullProtoRecord<unknown>(),
+        sources.computedContext?.state,
+        sources.state,
+      );
       const ctx = makeBindingContext(merged);
       try {
         return { kind: 'Resolved', value: binding.compute(ctx) };
       } catch (ex) {
+        // A DECODED `Computed`'s stand-in throws a `WireSurvivabilityError`
+        // whose message is the remedy: surfaced VERBATIM, as the client does,
+        // so the two tiers show one text for one tree (Phase 1931). Matched on
+        // `name`, never `instanceof`, so which copy of @fuaran-ui/ops loaded
+        // cannot change the answer.
+        if (ex instanceof Error && ex.name === 'WireSurvivabilityError') {
+          return { kind: 'Errored', message: ex.message };
+        }
         return { kind: 'Errored', message: `Computed binding threw: ${msg(ex)}` };
       }
     }
@@ -254,7 +325,10 @@ export const resolve = <T>(sources: BindingSources, binding: Binding<T>): Resolu
 /**
  * The shared Transform evaluation (Phase 282/424 machinery, extracted in Phase
  * 632 so the rows path and the scalar path evaluate identically) — the twin of
- * the client renderer's `evalTransformFrame`.
+ * the client renderer's `evalTransformFrame`, list params (Phase 610) included:
+ * a param resolving to a LIST substitutes through `substituteListParams` before
+ * the prune, and an EMPTY selection is unbound. See the client's note for the
+ * full rule.
  */
 const evalTransformFrame = (
   sources: BindingSources,
@@ -264,7 +338,7 @@ const evalTransformFrame = (
   | { readonly ok: false; readonly error: string } => {
   const refs = sources.transformRefs ?? {};
   const resolveRef: SourceResolver = (name) => {
-    const t = refs[name];
+    const t = ownValue(refs, name);
     return t !== undefined
       ? { ok: true, value: t }
       : { ok: false, error: { kind: 'UnresolvedSource', ref: name } };
@@ -309,22 +383,35 @@ const evalTransformFrame = (
     }
   } else {
     const ds = binding.source.source;
-    inputTable = ds.kind === 'Embedded' ? ds.table : refs[ds.name];
+    inputTable = ds.kind === 'Embedded' ? ds.table : ownValue(refs, ds.name);
     if (inputTable === undefined) {
       const refName = ds.kind === 'Ref' ? ds.name : '';
       return { ok: false, error: `Transform source ref '${refName}' not provided` };
     }
   }
   const params = binding.params ?? [];
-  const env: Record<string, Cell> = {};
+  const env = nullProtoRecord<Cell>();
+  const listEnv = nullProtoRecord<readonly Cell[]>();
+  let hasListParam = false;
   const unbound = new Set<string>();
   for (const p of params) {
     const r = resolve<unknown>(sources, p.from);
     if (r.kind === 'Resolved') {
       const cell = objToCell(r.value);
-      if (cell === undefined)
+      if (cell !== undefined) {
+        env[p.name] = cell;
+        continue;
+      }
+      const cells = objToCells(r.value);
+      if (cells === undefined)
         return { ok: false, error: `Transform param '${p.name}' resolved to a non-scalar value` };
-      env[p.name] = cell;
+      // The empty selection is UNBOUND, not an empty membership set.
+      if (cells.length === 0) {
+        unbound.add(p.name);
+      } else {
+        listEnv[p.name] = cells;
+        hasListParam = true;
+      }
     } else if (r.kind === 'NotResolved') {
       unbound.add(p.name);
     } else if (r.kind === 'Errored') {
@@ -336,7 +423,10 @@ const evalTransformFrame = (
       };
     }
   }
-  const pipeline = binding.pipeline.filter(
+  const substituted = hasListParam
+    ? substituteListParams(listEnv, binding.pipeline)
+    : binding.pipeline;
+  const pipeline = substituted.filter(
     (step) => step.kind !== 'filter' || stepParams(step).every((pn) => !unbound.has(pn)),
   );
   const out =
@@ -375,7 +465,7 @@ export const tableToRows = (t: Table): Record<string, unknown>[] => {
   const cellToJs = cellToJsValue;
   const rows: Record<string, unknown>[] = [];
   for (let i = 0; i < n; i += 1) {
-    const row: Record<string, unknown> = {};
+    const row = nullProtoRecord<unknown>();
     for (const col of t.columns) row[col.name] = cellToJs(col.cells[i]!);
     rows.push(row);
   }
@@ -864,7 +954,7 @@ export const renderText = (sources: BindingSources, text: TextSource): string =>
       // `Binding.Transform` yields its 1×1 result cell (never the rows list).
       return tryResolveScalarText(sources, text.binding) ?? '';
     case 'I18n': {
-      const template = sources.i18n?.[text.key];
+      const template = i18nTemplate(sources, text.key);
       if (template === undefined) return `[i18n:${text.key}]`;
       let acc = template;
       for (const [k, v] of Object.entries(text.args)) {
@@ -978,7 +1068,7 @@ export const readExpandedItems = (
   key: string | undefined,
 ): ReadonlySet<string> => {
   if (key === undefined) return new Set<string>();
-  const raw = sources.state?.[key];
+  const raw = readState(sources, key);
   if (!Array.isArray(raw)) return new Set<string>();
   return new Set(raw.filter((v): v is string => typeof v === 'string'));
 };
@@ -993,7 +1083,7 @@ export const readSelectedItem = (
   key: string | undefined,
 ): string | undefined => {
   if (key === undefined) return undefined;
-  const raw = sources.state?.[key];
+  const raw = readState(sources, key);
   return typeof raw === 'string' && raw !== '' ? raw : undefined;
 };
 
