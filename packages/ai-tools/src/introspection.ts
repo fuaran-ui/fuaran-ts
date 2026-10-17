@@ -18,6 +18,7 @@
 // ============================================================================
 
 import { ChildReach, children, findNode } from '@fuaran-ui/ops';
+import { BINDING_SLOTS, idlKindName, kindSpec } from '@fuaran-ui/schema';
 import type { Binding, Node, NodeKind, TextSource } from '@fuaran-ui/schema';
 
 /**
@@ -294,72 +295,12 @@ const slot = <T>(name: string, binding: Binding<T>): BindingSlotInfo => {
  * consistency test pins.
  */
 export const extractBindingSlots = (kind: NodeKind<unknown>): BindingSlotInfo[] => {
-  if (kind.kind === 'Display') {
-    const d = kind.display;
-    switch (d.kind) {
-      case 'Metric': {
-        const slots = [slot('Value', d.spec.value)];
-        if (d.spec.trend !== undefined) slots.push(slot('Trend', d.spec.trend));
-        return slots;
-      }
-      case 'Sparkline':
-        return [slot('Source', d.spec.source)];
-      case 'Progress':
-        return [slot('Fraction', d.spec.fraction)];
-      case 'LabelValueRow':
-        return [slot('Value', d.spec.value)];
-      default:
-        return [];
-    }
-  }
-  if (kind.kind === 'Layout') {
-    const l = kind.layout;
-    switch (l.kind) {
-      case 'Stepper':
-        return [slot('ActiveStep', l.spec.activeStep)];
-      case 'Tabs': {
-        const slots = [slot('ActiveIndex', l.spec.activeIndex)];
-        if (l.spec.activeTag !== undefined) slots.push(slot('ActiveTag', l.spec.activeTag));
-        return slots;
-      }
-      case 'Disclosure':
-        return [slot('Open', l.spec.open)];
-      default:
-        return [];
-    }
-  }
-  if (kind.kind === 'Input') {
-    const i = kind.input;
-    switch (i.kind) {
-      case 'Button':
-        return i.spec.disabled !== undefined ? [slot('Disabled', i.spec.disabled)] : [];
-      case 'Select': {
-        const slots = [slot('Source', i.spec.source), slot('Value', i.spec.value)];
-        if (i.spec.disabled !== undefined) slots.push(slot('Disabled', i.spec.disabled));
-        return slots;
-      }
-      case 'Form':
-        return i.spec.disabled !== undefined ? [slot('Disabled', i.spec.disabled)] : [];
-      case 'FileUpload':
-        return i.spec.disabled !== undefined ? [slot('Disabled', i.spec.disabled)] : [];
-      default:
-        return [];
-    }
-  }
-  if (kind.kind === 'Visualisation') {
-    const v = kind.visualisation;
-    switch (v.kind) {
-      case 'Grid':
-        return [slot('Source', v.spec.source)];
-      case 'Chart':
-        return [slot('Source', v.spec.source)];
-      case 'Map':
-        return [slot('Source', v.spec.source)];
-      default:
-        return [];
-    }
-  }
-  return [];
+  const spec = kindSpec(kind);
+  if (spec === undefined) return [];
+  return BINDING_SLOTS[idlKindName(kind)].flatMap((s) => {
+    const b = spec[s.field];
+    return b === undefined ? [] : [slot(s.slot, b as Binding<unknown>)];
+  });
 };
 
 // ─── Text provenance (port of F# BindingProbe.textProvenance) ─────────────────
@@ -509,47 +450,13 @@ export const bindingForSlot = (
   kind: NodeKind<unknown>,
   slotName: string,
 ): Binding<unknown> | undefined => {
+  const entry = BINDING_SLOTS[idlKindName(kind)].find((s) => s.slot === slotName);
   // `Binding<T>` is invariant (its `Local.initialFrom` + accessor closures pin
-  // `T`), so a concrete `Binding<number>` is not directly assignable to
-  // `Binding<unknown>`. Launder through `unknown` — the slot value is read-only
+  // `T`), so the slot value is laundered through `unknown` — it is read-only
   // and the host re-resolves it; the type parameter is irrelevant here.
-  const u = (binding: unknown): Binding<unknown> | undefined =>
-    binding as Binding<unknown> | undefined;
-  if (kind.kind === 'Display') {
-    const d = kind.display;
-    if (d.kind === 'Metric' && slotName === 'Value') return u(d.spec.value);
-    if (d.kind === 'Metric' && slotName === 'Trend') return u(d.spec.trend);
-    if (d.kind === 'Sparkline' && slotName === 'Source') return u(d.spec.source);
-    if (d.kind === 'Progress' && slotName === 'Fraction') return u(d.spec.fraction);
-    if (d.kind === 'LabelValueRow' && slotName === 'Value') return u(d.spec.value);
-    return undefined;
-  }
-  if (kind.kind === 'Layout') {
-    const l = kind.layout;
-    if (l.kind === 'Stepper' && slotName === 'ActiveStep') return u(l.spec.activeStep);
-    if (l.kind === 'Tabs' && slotName === 'ActiveIndex') return u(l.spec.activeIndex);
-    if (l.kind === 'Tabs' && slotName === 'ActiveTag') return u(l.spec.activeTag);
-    if (l.kind === 'Disclosure' && slotName === 'Open') return u(l.spec.open);
-    return undefined;
-  }
-  if (kind.kind === 'Input') {
-    const i = kind.input;
-    if (i.kind === 'Button' && slotName === 'Disabled') return u(i.spec.disabled);
-    if (i.kind === 'Select' && slotName === 'Source') return u(i.spec.source);
-    if (i.kind === 'Select' && slotName === 'Value') return u(i.spec.value);
-    if (i.kind === 'Select' && slotName === 'Disabled') return u(i.spec.disabled);
-    if (i.kind === 'Form' && slotName === 'Disabled') return u(i.spec.disabled);
-    if (i.kind === 'FileUpload' && slotName === 'Disabled') return u(i.spec.disabled);
-    return undefined;
-  }
-  if (kind.kind === 'Visualisation') {
-    const v = kind.visualisation;
-    if (v.kind === 'Grid' && slotName === 'Source') return u(v.spec.source);
-    if (v.kind === 'Chart' && slotName === 'Source') return u(v.spec.source);
-    if (v.kind === 'Map' && slotName === 'Source') return u(v.spec.source);
-    return undefined;
-  }
-  return undefined;
+  return entry === undefined
+    ? undefined
+    : (kindSpec(kind)?.[entry.field] as Binding<unknown> | undefined);
 };
 
 // ─── Structural traversal ─────────────────────────────────────────────────────

@@ -1097,7 +1097,54 @@ export const NODE_KIND_GROUPS: readonly {
  * attestation). (`DataGrid` is the wire name of the grid kind — the `Grid`
  * discriminator is a `BoxLayout` case, not a NodeKind.)
  */
-export const NODE_KIND_NAMES: readonly NodeKindName[] = NODE_KIND_GROUPS.flatMap((g) => g.kinds);
+export const NODE_KIND_NAMES: readonly string[] = NODE_KIND_GROUPS.flatMap((g) => g.kinds);
+
+/**
+ * The IDL kind name a `NodeKind` carries — the wire `$type` (Phase 2073). The
+ * two spellings this host keeps for itself are folded back: the grid kind is
+ * `Grid` here and `DataGrid` on the wire; the four primitive families are
+ * flattened.
+ */
+export const idlKindName = (kind: NodeKind<unknown>): NodeKindName => {
+  switch (kind.kind) {
+    case 'Layout':
+      return kind.layout.kind;
+    case 'Display':
+      return kind.display.kind;
+    case 'Input':
+      return kind.input.kind;
+    case 'Visualisation':
+      return kind.visualisation.kind === 'Grid' ? 'DataGrid' : kind.visualisation.kind;
+    default:
+      return kind.kind;
+  }
+};
+
+/**
+ * The spec record a `NodeKind` carries, read as its IDL field table's rows —
+ * `undefined` for the two kinds that carry no spec record on this host
+ * (`Custom` holds its members inline; `Filters` holds its chips).
+ */
+export const kindSpec = (
+  kind: NodeKind<unknown>,
+): Readonly<Record<string, unknown>> | undefined => {
+  const members = (spec: object): Readonly<Record<string, unknown>> =>
+    spec as Readonly<Record<string, unknown>>;
+  switch (kind.kind) {
+    case 'Layout':
+      return members(kind.layout.spec);
+    case 'Display':
+      return members(kind.display.spec);
+    case 'Input':
+      return kind.input.kind === 'Filters' ? undefined : members(kind.input.spec);
+    case 'Visualisation':
+      return members(kind.visualisation.spec);
+    case 'Custom':
+      return undefined;
+    default:
+      return members(kind.spec);
+  }
+};
 
 export interface ErrorBoundarySpec<TMsg> extends IdlSpec<'ErrorBoundary', TMsg> {}
 
@@ -1214,7 +1261,10 @@ export type FragmentArg<TMsg> =
 
 export interface FragmentDeclSpec<TMsg> extends IdlSpec<'FragmentDecl', TMsg> {}
 
-export interface FragmentRefSpec<TMsg> extends IdlSpec<'FragmentRef', TMsg> {}
+export interface FragmentRefSpec<TMsg> extends IdlSpec<'FragmentRef', TMsg> {
+  /** Optional on the wire; always present here — an absent `args` decodes to the empty map. */
+  readonly args: Readonly<Record<string, FragmentArg<TMsg>>>;
+}
 
 // ─── Mount — isolation/embedding boundary (Phase 265, §4o) ───────────────────
 //
@@ -1246,7 +1296,10 @@ export type CapabilityTag = string;
  * handler for a guest-bubbled `Action<obj>`) is a closure — the `"<closure>"`
  * sentinel on the wire — so it is not carried structurally on this typed shape.
  */
-export interface MountSpec<TMsg> extends IdlSpec<'Mount', TMsg> {}
+export interface MountSpec<TMsg> extends IdlSpec<'Mount', TMsg> {
+  /** Optional on the wire; always present here — an absent `inputs` decodes to the empty map. */
+  readonly inputs: Readonly<Record<string, FragmentArg<TMsg>>>;
+}
 
 // ─── Layout — semantic intent, not pixel-pushing ─────────────────────────────
 
@@ -3016,17 +3069,26 @@ export interface UnionTypes<TMsg> {
 }
 
 /**
- * The representation of each `hosted` member (a payload whose wire form is JSON
- * and whose host type the IDL leaves open), keyed `<owner>.<member>`.
+ * The members this host represents differently from what their IDL type
+ * implies, keyed `<owner>.<member>` — the one declared overlay on the derived
+ * types: a `hosted` payload's representation (a payload whose wire form is
+ * JSON and whose host type the IDL leaves open), and the branded strings this
+ * host narrows a `str` to. A site named here wins over the IDL type in `Infer`.
  */
-export interface HostedTypes {
-  readonly 'DataGrid.source': readonly unknown[];
-  readonly 'Chart.source': readonly unknown[];
+export interface FieldOverlay {
+  readonly 'DataGrid.source': Binding<readonly unknown[]>;
+  readonly 'Chart.source': Binding<readonly unknown[]>;
   readonly 'Accessibility.role': AriaRole;
+  readonly 'Button.icon': IconSource;
+  readonly 'Callout.icon': IconSource;
+  readonly 'Fact.icon': IconSource;
+  readonly 'Metric.icon': IconSource;
+  readonly 'FragmentDecl.name': FragmentId;
+  readonly 'FragmentRef.name': FragmentId;
 }
 
-/** The TypeScript type an IDL type descriptor denotes, at the member `Site` (`<owner>.<member>`). */
-export type ValueOf<T, TMsg, Site extends string> = T extends { readonly $type: 'str' }
+/** The TypeScript type an IDL type descriptor denotes (a `hosted` payload has none: its site names it in `FieldOverlay`). */
+export type ValueOf<T, TMsg> = T extends { readonly $type: 'str' }
   ? string
   : T extends { readonly $type: 'int' | 'float' }
     ? number
@@ -3039,9 +3101,9 @@ export type ValueOf<T, TMsg, Site extends string> = T extends { readonly $type: 
           : T extends { readonly $type: 'kind' }
             ? NodeKind<TMsg>
             : T extends { readonly $type: 'list'; readonly of: infer U }
-              ? readonly ValueOf<U, TMsg, Site>[]
+              ? readonly ValueOf<U, TMsg>[]
               : T extends { readonly $type: 'map'; readonly values: infer U }
-                ? Readonly<Record<string, ValueOf<U, TMsg, Site>>>
+                ? Readonly<Record<string, ValueOf<U, TMsg>>>
                 : T extends { readonly $type: 'enum'; readonly name: infer N extends EnumName }
                   ? EnumCase<N>
                   : T extends {
@@ -3054,17 +3116,13 @@ export type ValueOf<T, TMsg, Site extends string> = T extends { readonly $type: 
                           readonly name: 'Binding';
                           readonly args: readonly [infer A];
                         }
-                      ? Binding<ValueOf<A, TMsg, Site>>
+                      ? Binding<ValueOf<A, TMsg>>
                       : T extends {
                             readonly $type: 'union';
                             readonly name: infer N extends keyof UnionTypes<TMsg>;
                           }
                         ? UnionTypes<TMsg>[N]
-                        : T extends { readonly $type: 'hosted' }
-                          ? Site extends keyof HostedTypes
-                            ? HostedTypes[Site]
-                            : never
-                          : never;
+                        : never;
 
 /** The rows a host derives: every wire member that is not a closure. */
 type DerivedRow<R> = R extends
@@ -3072,6 +3130,15 @@ type DerivedRow<R> = R extends
   | { readonly type: { readonly $type: 'fn' } }
   ? never
   : R;
+
+/** The type of one member: its overlay entry when the site has one, else what its IDL type denotes. */
+type MemberType<
+  Owner extends string,
+  R extends FieldRow,
+  TMsg,
+> = `${Owner}.${R['name']}` extends keyof FieldOverlay
+  ? FieldOverlay[`${Owner}.${R['name']}`]
+  : ValueOf<R['type'], TMsg>;
 
 /**
  * A field table read as the object type it describes: a `required` or
@@ -3081,11 +3148,11 @@ type DerivedRow<R> = R extends
 export type Infer<Owner extends string, Rows extends readonly FieldRow[], TMsg> = {
   readonly [R in DerivedRow<Rows[number]> as R extends { readonly opt: 'optional' }
     ? never
-    : R['name']]: ValueOf<R['type'], TMsg, `${Owner}.${R['name']}`>;
+    : R['name']]: MemberType<Owner, R, TMsg>;
 } & {
   readonly [R in DerivedRow<Rows[number]> as R extends { readonly opt: 'optional' }
     ? R['name']
-    : never]?: ValueOf<R['type'], TMsg, `${Owner}.${R['name']}`>;
+    : never]?: MemberType<Owner, R, TMsg>;
 };
 
 /** The structural type of a kind's spec — its IDL field table, read as a type. */

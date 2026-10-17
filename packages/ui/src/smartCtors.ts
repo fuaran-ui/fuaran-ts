@@ -29,6 +29,7 @@ import {
   iconSource,
   nodeId,
   projectSelectionField,
+  withDefaults,
 } from '@fuaran-ui/schema';
 import type {
   Accessibility,
@@ -1724,9 +1725,11 @@ export interface PrintBreakOptions {
   readonly breakBefore?: boolean;
 }
 
-const printBreak = (o: PrintBreakOptions): { keepTogether: boolean; breakBefore: boolean } => ({
-  keepTogether: o.keepTogether ?? false,
-  breakBefore: o.breakBefore ?? false,
+const printBreak = (
+  o: PrintBreakOptions,
+): { keepTogether: boolean | undefined; breakBefore: boolean | undefined } => ({
+  keepTogether: o.keepTogether,
+  breakBefore: o.breakBefore,
 });
 
 export const fuaran = {
@@ -1741,12 +1744,12 @@ export const fuaran = {
         kind: 'Layout',
         layout: {
           kind: 'Box',
-          spec: {
+          spec: withDefaults('Box', {
             layout: { kind: 'Auto' },
             role: 'Dashboard',
             children: o.children ?? [],
             ...printBreak(o),
-          },
+          }),
         },
       },
       defaults.accessibility.dashboard,
@@ -1757,12 +1760,12 @@ export const fuaran = {
       kind: 'Layout',
       layout: {
         kind: 'Box',
-        spec: {
+        spec: withDefaults('Box', {
           layout: { kind: 'Flex', direction: o.orientation ?? 'Vertical', wrap: o.wrap ?? false },
           role: 'Group',
           children: o.children ?? [],
           ...printBreak(o),
-        },
+        }),
       },
     });
   },
@@ -1771,7 +1774,7 @@ export const fuaran = {
       kind: 'Layout',
       layout: {
         kind: 'Box',
-        spec: {
+        spec: withDefaults('Box', {
           layout: {
             kind: 'Grid',
             cols: o.cols ?? 12,
@@ -1780,7 +1783,7 @@ export const fuaran = {
           role: 'Group',
           children: o.children ?? [],
           ...printBreak(o),
-        },
+        }),
       },
     });
   },
@@ -1799,7 +1802,7 @@ export const fuaran = {
       kind: 'Layout',
       layout: {
         kind: 'Box',
-        spec: {
+        spec: withDefaults('Box', {
           layout: {
             kind: 'Masonry',
             cols: o.cols ?? 3,
@@ -1808,7 +1811,7 @@ export const fuaran = {
           role: 'Group',
           children: o.children ?? [],
           ...printBreak(o),
-        },
+        }),
       },
     });
   },
@@ -1818,12 +1821,12 @@ export const fuaran = {
       kind: 'Layout',
       layout: {
         kind: 'Box',
-        spec: {
+        spec: withDefaults('Box', {
           layout: { kind: 'Grid', cols: o.cols ?? 12, templateColumns: o.templateColumns },
           role: 'Group',
           children: o.children ?? [],
           ...printBreak(o),
-        },
+        }),
       },
     });
   },
@@ -1863,13 +1866,13 @@ export const fuaran = {
         kind: 'Layout',
         layout: {
           kind: 'Box',
-          spec: {
+          spec: withDefaults('Box', {
             layout: { kind: 'Flex', direction: 'Vertical', wrap: false },
             role: 'Card',
             children: o.children ?? [],
             ...printBreak(o),
             ...(o.heading !== undefined ? { heading: text(o.heading) } : {}),
-          },
+          }),
         },
       },
       defaults.accessibility.card,
@@ -1931,7 +1934,7 @@ export const fuaran = {
         kind: 'Layout',
         layout: {
           kind: 'Modal',
-          spec: {
+          spec: withDefaults('Modal', {
             open: boolBinding(o.open ?? false),
             dismissable: o.dismissable ?? false,
             children: o.children ?? [],
@@ -1941,9 +1944,9 @@ export const fuaran = {
             ...(o.heading !== undefined ? { heading: text(o.heading) } : {}),
             // Phase 1119: `Modal` is the wire identity, so the shortest call
             // still emits the pre-1119 bytes and a popover is asked for by name.
-            modality: o.modality ?? 'Modal',
+            modality: o.modality,
             ...(o.anchor !== undefined ? { anchor: o.anchor } : {}),
-          },
+          }),
         },
       },
       defaults.accessibility.modal,
@@ -2000,13 +2003,13 @@ export const fuaran = {
       kind: 'Display',
       display: {
         kind: 'LabelValueRow',
-        spec: {
+        spec: withDefaults('LabelValueRow', {
           label: text(o.label),
           value: numberBinding(o.value),
-          format: o.format ?? { kind: 'None' },
-          emphasis: o.emphasis ?? false,
+          format: o.format,
+          emphasis: o.emphasis,
           ...(o.help !== undefined ? { help: text(o.help) } : {}),
-        },
+        }),
       },
     });
   },
@@ -2015,13 +2018,13 @@ export const fuaran = {
       kind: 'Display',
       display: {
         kind: 'Fact',
-        spec: {
+        spec: withDefaults('Fact', {
           label: text(o.label),
           value: text(o.value),
-          tone: o.tone ?? 'Default',
-          emphasis: o.emphasis ?? false,
+          tone: o.tone,
+          emphasis: o.emphasis,
           ...(o.help !== undefined ? { help: text(o.help) } : {}),
-        },
+        }),
       },
     });
   },
@@ -2064,23 +2067,23 @@ export const fuaran = {
       kind: 'Display',
       display: {
         kind: 'Image',
-        spec: {
+        spec: withDefaults('Image', {
           src: stringBinding(o.src),
           alt: text(o.alt),
           variant: o.variant ?? 'Default',
-          fit: o.fit ?? 'Natural',
-          aspectRatio: o.aspectRatio ?? 'Natural',
-          loading: o.loading ?? 'Eager',
+          fit: o.fit,
+          aspectRatio: o.aspectRatio,
+          loading: o.loading,
           // Phase 1080 — ALWAYS present on the spec, even when empty: the wire
           // says an absent `srcSet` is `[]`, so a constructed spec that left the
           // field off would disagree with what a decoded one carries.
-          srcSet: (o.srcSet ?? []).map((e) => ({ src: stringBinding(e.src), width: e.width })),
+          srcSet: o.srcSet?.map((e) => ({ src: stringBinding(e.src), width: e.width })),
           // Phase 1079 — ALWAYS present on the spec, for the reason `srcSet` is:
           // the wire says an absent `expandable` is `false`, so a constructed
           // spec that left the field off would disagree with a decoded one.
-          expandable: o.expandable ?? false,
+          expandable: o.expandable,
           ...(o.caption !== undefined ? { caption: text(o.caption) } : {}),
-        },
+        }),
       },
     });
   },
@@ -2109,15 +2112,15 @@ export const fuaran = {
       kind: 'Display',
       display: {
         kind: 'Media',
-        spec: {
+        spec: withDefaults('Media', {
           src: stringBinding(o.src),
           label: text(o.label),
           // ALWAYS present on the spec, and note the DEFAULT IS TRUE: the wire
           // says an absent `controls` is `true`, so a constructed spec that
           // omitted it — or defaulted it to false — would disagree with what a
           // decoded one carries.
-          controls: o.controls ?? true,
-          loop: o.loop ?? false,
+          controls: o.controls,
+          loop: o.loop,
           kind: {
             $type: 'Video',
             autoplay: o.autoplay ?? false,
@@ -2126,9 +2129,9 @@ export const fuaran = {
           // Phase 1110 — ALWAYS present on the spec, even when empty: the wire
           // says an absent `tracks` is `[]`, so a constructed spec that left the
           // field off would disagree with what a decoded one carries.
-          tracks: (o.tracks ?? []).map(trackEntry),
+          tracks: o.tracks?.map(trackEntry),
           ...(o.transcript !== undefined ? { transcript: text(o.transcript) } : {}),
-        },
+        }),
       },
     });
   },
@@ -2137,15 +2140,15 @@ export const fuaran = {
       kind: 'Display',
       display: {
         kind: 'Media',
-        spec: {
+        spec: withDefaults('Media', {
           src: stringBinding(o.src),
           label: text(o.label),
-          controls: o.controls ?? true,
-          loop: o.loop ?? false,
+          controls: o.controls,
+          loop: o.loop,
           kind: { $type: 'Audio' },
-          tracks: (o.tracks ?? []).map(trackEntry),
+          tracks: o.tracks?.map(trackEntry),
           ...(o.transcript !== undefined ? { transcript: text(o.transcript) } : {}),
-        },
+        }),
       },
     });
   },
@@ -2154,7 +2157,7 @@ export const fuaran = {
       kind: 'Display',
       display: {
         kind: 'Embed',
-        spec: {
+        spec: withDefaults('Embed', {
           src: stringBinding(o.src),
           title: text(o.title),
           // Both ALWAYS present on the spec, for the reason `srcSet` and
@@ -2163,9 +2166,9 @@ export const fuaran = {
           // spec that omitted either would disagree with a decoded one. The
           // empty permission list is TOTAL DENIAL, which makes the default
           // here the locked one rather than merely the unset one.
-          aspectRatio: o.aspectRatio ?? 'Natural',
-          permissions: o.permissions ?? [],
-        },
+          aspectRatio: o.aspectRatio,
+          permissions: o.permissions,
+        }),
       },
     });
   },
@@ -2189,13 +2192,11 @@ export const fuaran = {
       kind: 'Layout',
       layout: {
         kind: 'Box',
-        spec: {
+        spec: withDefaults('Box', {
           layout: { kind: 'Flex', direction: 'Horizontal', wrap: false },
           role: 'Separator',
           children: [],
-          keepTogether: false,
-          breakBefore: false,
-        },
+        }),
       },
     });
   },
@@ -2206,12 +2207,12 @@ export const fuaran = {
         kind: 'Display',
         display: {
           kind: 'Toast',
-          spec: {
+          spec: withDefaults('Toast', {
             message: text(o.message),
-            tone: o.tone ?? 'Default',
+            tone: o.tone,
             open: boolBinding(o.open ?? false),
-            dismissable: o.dismissable ?? false,
-          },
+            dismissable: o.dismissable,
+          }),
         },
       },
       defaults.accessibility.toast,
@@ -2254,13 +2255,13 @@ export const fuaran = {
         kind: 'Display',
         display: {
           kind: 'Callout',
-          spec: {
-            tone: o.tone ?? 'Info',
+          spec: withDefaults('Callout', {
+            tone: o.tone,
             body: text(o.body),
-            dismissable: o.dismissable ?? false,
+            dismissable: o.dismissable,
             ...(o.heading !== undefined ? { heading: text(o.heading) } : {}),
             ...(o.icon !== undefined ? { icon: iconSource(o.icon) } : {}),
-          } satisfies CalloutSpec,
+          }),
         },
       },
       defaults.accessibility.callout,
@@ -2273,13 +2274,13 @@ export const fuaran = {
         kind: 'Display',
         display: {
           kind: 'Progress',
-          spec: {
+          spec: withDefaults('Progress', {
             fraction: numberBinding(o.fraction),
-            indeterminate: o.indeterminate ?? false,
-            tone: o.tone ?? 'Default',
+            indeterminate: o.indeterminate,
+            tone: o.tone,
             ...(o.label !== undefined ? { label: text(o.label) } : {}),
             ...(o.caveat !== undefined ? { caveat: text(o.caveat) } : {}),
-          },
+          }),
         },
       },
       defaults.accessibility.progress,
@@ -2293,7 +2294,7 @@ export const fuaran = {
   icon<TMsg>(id: NodeId | string, name: string): Node<TMsg> {
     return buildNode(id, {
       kind: 'Display',
-      display: { kind: 'Icon', spec: { icon: name, size: 'Medium', tone: 'Default' } },
+      display: { kind: 'Icon', spec: withDefaults('Icon', { icon: name }) },
     });
   },
   iconSpec<TMsg>(id: NodeId | string, spec: IconSpec): Node<TMsg> {
@@ -2373,7 +2374,7 @@ export const fuaran = {
         kind: 'Input',
         input: {
           kind: 'FileUpload',
-          spec: {
+          spec: withDefaults('FileUpload', {
             label: text(o.label),
             accept: o.accept ?? [],
             multiple: o.multiple ?? false,
@@ -2381,8 +2382,8 @@ export const fuaran = {
             ...(o.disabled !== undefined ? { disabled: o.disabled } : {}),
             // Phase 1115 — both default `false`, so the shortest call is the
             // plain picker and each ingress route is asked for by name.
-            dropTarget: o.dropTarget ?? false,
-            acceptPaste: o.acceptPaste ?? false,
+            dropTarget: o.dropTarget,
+            acceptPaste: o.acceptPaste,
             // Phase 1116 / 1117 — ordinary optionals: absent is the pre-member
             // control in both cases, so the shortest call is unchanged.
             ...(o.capture !== undefined ? { capture: o.capture } : {}),
@@ -2392,7 +2393,7 @@ export const fuaran = {
             // unchanged and encodes to the bytes it always did.
             ...(o.maxBytes !== undefined ? { maxBytes: o.maxBytes } : {}),
             ...(o.maxFiles !== undefined ? { maxFiles: o.maxFiles } : {}),
-          },
+          }),
         },
       },
       defaults.accessibility.fileUpload,
@@ -2407,15 +2408,15 @@ export const fuaran = {
         kind: 'Visualisation',
         visualisation: {
           kind: 'Chart',
-          spec: {
+          spec: withDefaults('Chart', {
             source: o.source,
             kind: o.kind ?? 'Line',
             xField: o.xField,
             yFields: o.yFields,
-            stacked: o.stacked ?? false,
+            stacked: o.stacked,
             ...(o.title !== undefined ? { title: text(o.title) } : {}),
             ...(o.onPointClick !== undefined ? { onPointClick: o.onPointClick } : {}),
-          },
+          }),
         },
       },
       defaults.accessibility.chart,
@@ -2557,12 +2558,12 @@ export const fuaran = {
   fragmentDecl<TMsg>(o: FragmentDeclOptions<TMsg>): Node<TMsg> {
     return buildNode(o.id, {
       kind: 'FragmentDecl',
-      spec: {
+      spec: withDefaults('FragmentDecl', {
         name: fragmentId(o.name),
         body: o.body,
-        holes: o.holes ?? [],
-        effect: o.effect ?? { hostEffect: 'Pure', determinism: 'Deterministic' },
-      },
+        holes: o.holes,
+        effect: o.effect,
+      }),
     });
   },
   fragmentRef<TMsg>(o: FragmentRefOptions<TMsg>): Node<TMsg> {
@@ -2575,18 +2576,19 @@ export const fuaran = {
 
 // ─── Internal grid-erasure helpers ───────────────────────────────────────────
 
-const buildTabsSpec = <TMsg>(o: TabsOptions<TMsg>): TabsSpec<TMsg> => ({
-  orientation: o.orientation ?? 'Horizontal',
-  children: o.children ?? [],
-  activeIndex: o.activeIndex ?? { kind: 'Static', value: 0 },
-  // `onSelect` omitted by default (Phase 426): the write-back default — a
-  // State/Filter-bound `activeIndex` gets the clicked index written back.
-  ...(o.onSelect !== undefined ? { onSelect: o.onSelect } : {}),
-  ...(o.tabHeaders !== undefined ? { tabHeaders: o.tabHeaders } : {}),
-  ...(o.tabTags !== undefined ? { tabTags: o.tabTags } : {}),
-  ...(o.activeTag !== undefined ? { activeTag: o.activeTag } : {}),
-  ...(o.onSelectTag !== undefined ? { onSelectTag: o.onSelectTag } : {}),
-});
+const buildTabsSpec = <TMsg>(o: TabsOptions<TMsg>): TabsSpec<TMsg> =>
+  withDefaults('Tabs', {
+    orientation: o.orientation,
+    children: o.children ?? [],
+    activeIndex: o.activeIndex,
+    // `onSelect` omitted by default (Phase 426): the write-back default — a
+    // State/Filter-bound `activeIndex` gets the clicked index written back.
+    ...(o.onSelect !== undefined ? { onSelect: o.onSelect } : {}),
+    ...(o.tabHeaders !== undefined ? { tabHeaders: o.tabHeaders } : {}),
+    ...(o.tabTags !== undefined ? { tabTags: o.tabTags } : {}),
+    ...(o.activeTag !== undefined ? { activeTag: o.activeTag } : {}),
+    ...(o.onSelectTag !== undefined ? { onSelectTag: o.onSelectTag } : {}),
+  });
 
 /**
  * Erase a typed row-sequence binding to a `Binding<readonly unknown[]>`.
