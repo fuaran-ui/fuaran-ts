@@ -8,4 +8,4 @@ export type { TreeOp, ApplyError, ApplyResult, JsonAst, DecodeError } from '@fua
 export { apply, encodeOp } from '@fuaran-ui/ops';
 // The canonical-JSON re-renderer + parser + node decoder the teleport codec
 // composes over (byte-parity with the F# tier is inherited from these).
-export { renderAstCanonical, parse, jsonField, decodeNode } from '@fuaran-ui/ops';
+export { renderAstCanonical, parse, jsonField, decodeNodeFromAst } from '@fuaran-ui/ops';

@@ -37,7 +37,7 @@ import {
   renderAstCanonical,
   parse,
   jsonField,
-  decodeNode,
+  decodeNodeFromAst,
   type JsonAst,
   type DecodeError,
   type Node,
@@ -262,7 +262,7 @@ export const decodeTeleport = async (
   if (treeAst === undefined) {
     return fail({ code: 'InvalidEnvelope', path: '$.tree', message: 'missing required field' });
   }
-  const treeResult = decodeNode(renderAstCanonical(treeAst));
+  const treeResult = decodeNodeFromAst(treeAst);
   if (!treeResult.ok) {
     return fail({ code: 'TreeDecode', error: treeResult.error });
   }
