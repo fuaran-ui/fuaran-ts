@@ -34,6 +34,20 @@
 
 import type { Result } from './result.js';
 import type { ColExpr, DataSource, InvokeArg, Transform } from './compute.js';
+import {
+  KIND_CATEGORIES,
+  KINDS_BY_CATEGORY,
+  NODE_KINDS,
+  UNION_CASES,
+  type EnumCase,
+  type KindCategory,
+  type NodeKindName,
+  type EnumName,
+  type RecordName,
+  type KIND_FIELDS,
+  type RECORD_FIELDS,
+} from './generated.js';
+import type { FieldRow } from './idl.js';
 
 // ─── Branded primitives ─────────────────────────────────────────────────────
 //
@@ -81,16 +95,16 @@ export type JsonValue =
 // These DUs encode as a bare JSON string on the wire. In-memory they are TS
 // string-literal unions discriminated structurally by value.
 
-export type Orientation = 'Vertical' | 'Horizontal';
+export type Orientation = EnumCase<'Orientation'>;
 
-export type BadgeVariant = 'Neutral' | 'Brand' | 'Success' | 'Warning' | 'Critical' | 'Info';
+export type BadgeVariant = EnumCase<'BadgeVariant'>;
 
-export type ButtonVariant = 'Primary' | 'Secondary' | 'Tertiary' | 'Destructive';
+export type ButtonVariant = EnumCase<'ButtonVariant'>;
 
-export type HeadingVariant = 'Standard' | 'Eyebrow' | 'Caption' | 'Lead';
+export type HeadingVariant = EnumCase<'HeadingVariant'>;
 
 /** `DisplayKind.Image` presentation variant (Phase 287). Bare-string enum. */
-export type ImageVariant = 'Default' | 'Avatar' | 'Rounded';
+export type ImageVariant = EnumCase<'ImageVariant'>;
 
 /**
  * `DisplayKind.Image.fit` — how the decoded pixels fill the box the layout
@@ -98,7 +112,7 @@ export type ImageVariant = 'Default' | 'Avatar' | 'Rounded';
  * intrinsic aspect with no `object-fit` rule at all. Bare-string enum,
  * omitted-when-`Natural` on both boundaries.
  */
-export type ImageFit = 'Natural' | 'Cover' | 'Contain';
+export type ImageFit = EnumCase<'ImageFit'>;
 
 /**
  * `LayoutKind.Modal.modality` — WHICH overlay the node is (Phase 1119). The
@@ -107,7 +121,7 @@ export type ImageFit = 'Natural' | 'Cover' | 'Contain';
  * `Popover` is the transient anchored one (no scrim, no trap, light dismiss),
  * positioned against `ModalSpec.anchor`. Omitted on the wire at `Modal`.
  */
-export type ModalityKind = 'Modal' | 'Popover';
+export type ModalityKind = EnumCase<'ModalityKind'>;
 
 /**
  * Which browsing context an `Action.Navigate` lands in (Phase 1536). `Self` is
@@ -115,7 +129,7 @@ export type ModalityKind = 'Modal' | 'Popover';
  * `noopener,noreferrer` — the renderer's obligation on every host, because a
  * property every host must remember to apply is owned by nobody.
  */
-export type NavigateTarget = 'Self' | 'Blank';
+export type NavigateTarget = EnumCase<'NavigateTarget'>;
 
 /**
  * `DisplayKind.Image.aspectRatio` — the box the element reserves BEFORE the
@@ -124,7 +138,7 @@ export type NavigateTarget = 'Self' | 'Blank';
  * which is the free-form escape this language does not have. Bare-string enum,
  * omitted-when-`Natural` on both boundaries.
  */
-export type ImageAspect = 'Natural' | 'Square' | 'FourThree' | 'ThreeTwo' | 'SixteenNine';
+export type ImageAspect = EnumCase<'ImageAspect'>;
 
 /**
  * Phase 1111 — one deliberate relaxation of an embed's sandbox. Closed at four,
@@ -136,7 +150,7 @@ export type ImageAspect = 'Natural' | 'Square' | 'FourThree' | 'ThreeTwo' | 'Six
  * top-level-navigation case (a framed document navigating the page that framed
  * it is the drive-by redirect) and no downloads case, and neither is reserved.
  */
-export type EmbedPermission = 'AllowScripts' | 'AllowSameOrigin' | 'AllowForms' | 'AllowFullscreen';
+export type EmbedPermission = EnumCase<'EmbedPermission'>;
 
 /**
  * `DisplayKind.Image.loading` — whether the browser fetches during the initial
@@ -145,37 +159,30 @@ export type EmbedPermission = 'AllowScripts' | 'AllowSameOrigin' | 'AllowForms' 
  * and only the author knows where the image sits. Bare-string enum,
  * omitted-when-`Eager` on both boundaries.
  */
-export type ImageLoading = 'Eager' | 'Lazy';
+export type ImageLoading = EnumCase<'ImageLoading'>;
 
 /** `LayoutKind.ScrollArea` scroll axis (Phase 289). Bare-string enum. */
-export type ScrollOrientation = 'Vertical' | 'Horizontal' | 'Both';
+export type ScrollOrientation = EnumCase<'ScrollOrientation'>;
 
 /**
  * `FormFieldKind.DateTime` / `DateTimeRange` temporal breadth (Phase 288). Bare-string enum.
  * Phase 1811 renamed it from `DateVariant` so the type says what the fields accept — a date,
  * a time of day, or both; the three cases did not move.
  */
-export type DateTimeVariant = 'Date' | 'Time' | 'DateTime';
+export type DateTimeVariant = EnumCase<'DateTimeVariant'>;
 
 /**
  * `DisplayKind.Math` presentation mode (Phase 293). `Inline` flows the equation
  * within surrounding text (a `<span>`); `Block` is a centred display equation on
  * its own line (a `<div>`). Bare-string enum (WIRE_FORMAT.md §3.5).
  */
-export type MathDisplay = 'Inline' | 'Block';
+export type MathDisplay = EnumCase<'MathDisplay'>;
 
-export type ToneVariant =
-  | 'Default'
-  | 'Subdued'
-  | 'Brand'
-  | 'Success'
-  | 'Warning'
-  | 'Critical'
-  | 'Info';
+export type ToneVariant = EnumCase<'ToneVariant'>;
 
-export type StyleWeight = 'Compact' | 'Standard' | 'Spacious';
+export type StyleWeight = EnumCase<'StyleWeight'>;
 
-export type Emphasis = 'Quiet' | 'Normal' | 'Loud';
+export type Emphasis = EnumCase<'Emphasis'>;
 
 /**
  * Phase 867 - which direction of a `Metric`'s measured quantity is GOOD.
@@ -185,7 +192,7 @@ export type Emphasis = 'Quiet' | 'Normal' | 'Loud';
  * omitted on the wire at that default, so every pre-867 document keeps the
  * reading it already had. `Neutral` is reserved, not admitted.
  */
-export type TrendPolarity = 'HigherIsBetter' | 'LowerIsBetter';
+export type TrendPolarity = EnumCase<'TrendPolarity'>;
 
 /**
  * Phase 147 — the bounded, additive-only semantic content-role vocabulary.
@@ -195,16 +202,16 @@ export type TrendPolarity = 'HigherIsBetter' | 'LowerIsBetter';
  * round-trips byte-identically. Generalises `HeadingVariant`'s eyebrow/caption
  * variants to a role any node can carry.
  */
-export type StyleRole = 'None' | 'Eyebrow' | 'Data' | 'Lede' | 'Caption';
+export type StyleRole = EnumCase<'StyleRole'>;
 
 /**
  * Phase 147 — the bounded, additive-only font-voice vocabulary: the
  * display-vs-structural split. Projects a `fuaran-voice-{voice}` class;
  * `'Default'` emits nothing (byte-identical default).
  */
-export type FontVoice = 'Default' | 'Display' | 'Structural';
+export type FontVoice = EnumCase<'FontVoice'>;
 
-export type ChartKind = 'Line' | 'Bar' | 'Area' | 'Pie' | 'Scatter' | 'Heatmap';
+export type ChartKind = EnumCase<'ChartKind'>;
 
 /**
  * Phase 880 — which edge of the chart the series legend occupies, or `'None'`,
@@ -215,7 +222,7 @@ export type ChartKind = 'Line' | 'Bar' | 'Area' | 'Pie' | 'Scatter' | 'Heatmap';
  * column widths, pitches, how the plot shrinks — stays the host's. The lowering
  * carries the DEFAULT (`Right`); an explicit `ChartSpec.legendPosition` beats it.
  */
-export type ChartLegendPosition = 'Top' | 'Right' | 'Bottom' | 'None';
+export type ChartLegendPosition = EnumCase<'ChartLegendPosition'>;
 
 /**
  * Phase 881 — whether a chart writes its values directly onto the picture,
@@ -231,7 +238,7 @@ export type ChartLegendPosition = 'Top' | 'Right' | 'Bottom' | 'None';
  * `'Ends'` names the selective placements that read — a bar's cap, a line's
  * last point — and the set is closed there.
  */
-export type ChartDataLabels = 'Off' | 'Ends';
+export type ChartDataLabels = EnumCase<'ChartDataLabels'>;
 
 /**
  * Phase 882 — what a chart's x axis MEANS: the scale its x column is read on.
@@ -253,7 +260,7 @@ export type ChartDataLabels = 'Off' | 'Ends';
  * `'Category'` is the shipped default and what an absent field means, so every
  * pre-882 chart is byte-unchanged on the wire AND in the picture.
  */
-export type ChartXScale = 'Category' | 'Temporal';
+export type ChartXScale = EnumCase<'ChartXScale'>;
 
 /**
  * Phase 1491 — an annotation's X ADDRESS (§4l "The three addressing forms"), in
@@ -318,7 +325,7 @@ export type ChartAnnotation =
     };
 
 /** `aria-live` politeness. Wire form is lower-case (WIRE_FORMAT.md §3.5). */
-export type LiveRegionKind = 'polite' | 'assertive' | 'off';
+export type LiveRegionKind = EnumCase<'LiveRegionKind'>;
 
 /**
  * ARIA role. The F# `AriaRole` DU enumerates the common roles plus a
@@ -351,15 +358,7 @@ export type AriaRole =
  * this is a consumer-authored in-memory trait the renderer projects to a
  * `fuaran-motion-{token}` class.
  */
-export type Motion =
-  | 'None'
-  | 'PulseDuringLoad'
-  | 'FadeInOnMount'
-  | 'SlideInFromBelow'
-  | 'ShakeOnError'
-  | 'RotateOnRefresh'
-  | 'SlideInFromRight'
-  | 'ExpandCollapse';
+export type Motion = EnumCase<'Motion'>;
 
 export type ErrorKind =
   | 'NotFound'
@@ -370,7 +369,7 @@ export type ErrorKind =
   | 'BindingResolution';
 
 /** Hash-mismatch handling for a `NodeKind.Custom` body (Phase 70). */
-export type HashStrictness = 'StrictReplay' | 'AdvisoryWarning' | 'Enforced';
+export type HashStrictness = EnumCase<'HashStrictness'>;
 
 // ─── Content hash (Phase 70) ─────────────────────────────────────────────────
 
@@ -812,11 +811,11 @@ export type CellValue =
 
 /** Duration grain for `CellFormat.Duration` / `Format.Duration` (Phase 819) —
  * the numeric source counts this unit (Seconds = 1, Minutes = 60, Hours = 3600). */
-export type DurationUnit = 'Seconds' | 'Minutes' | 'Hours';
+export type DurationUnit = EnumCase<'DurationUnit'>;
 
 /** Duration presentation for `CellFormat.Duration` / `Format.Duration`
  * (Phase 819): `Compact` "1h 20m", `Clock` "1:20:00", `Long` "1 hour 20 minutes". */
-export type DurationStyle = 'Compact' | 'Clock' | 'Long';
+export type DurationStyle = EnumCase<'DurationStyle'>;
 
 export type CellFormat =
   | { readonly kind: 'None' }
@@ -838,17 +837,17 @@ export type ColumnWidth =
 // ─── Locale-aware formatting (Phase 102) ─────────────────────────────────────
 
 /** Date-presentation breadth for `Format.DateTime` (maps to Intl `dateStyle`; unchanged by Phase 1811 — it styles only the date part). */
-export type DateStyle = 'Short' | 'Medium' | 'Long' | 'Full';
+export type DateStyle = EnumCase<'DateStyle'>;
 
 /**
  * Time-of-day breadth for `Format.DateTime` (Phase 1810; maps to Intl `timeStyle`).
  * The other half of the platform formatter's `dateStyle` / `timeStyle` pair:
  * `timeStyle` alone displays a time of day, both together a date-time.
  */
-export type TimeStyle = 'Short' | 'Medium' | 'Long' | 'Full';
+export type TimeStyle = EnumCase<'TimeStyle'>;
 
 /** Relative-time grain for `Format.RelativeTime` (maps to Intl `unit`). */
-export type RelativeTimeUnit = 'Second' | 'Minute' | 'Hour' | 'Day' | 'Week' | 'Month' | 'Year';
+export type RelativeTimeUnit = EnumCase<'RelativeTimeUnit'>;
 
 /**
  * Phase 1533 — the resolution a `Binding.Now` declares for the host-furnished
@@ -861,7 +860,7 @@ export type RelativeTimeUnit = 'Second' | 'Minute' | 'Hour' | 'Day' | 'Week' | '
  * calendar). The four here truncate the canonical ISO-8601 form by prefix and
  * nothing else.
  */
-export type TimeGrain = 'Second' | 'Minute' | 'Hour' | 'Day';
+export type TimeGrain = EnumCase<'TimeGrain'>;
 
 /**
  * Bounded, semantic locale-aware formatting intent carried by `Binding.Format`.
@@ -961,7 +960,7 @@ export interface SemanticStyle {
  * values the isolation is ultimately expressed in (the `liveRegion` posture).
  * `'auto'` is the identity and is omitted at it on the wire.
  */
-export type TextDirection = 'auto' | 'ltr' | 'rtl';
+export type TextDirection = EnumCase<'TextDirection'>;
 
 export interface Accessibility {
   readonly label?: Binding<string>;
@@ -1059,92 +1058,48 @@ export type NodeKind<TMsg> =
   | { readonly kind: 'Mount'; readonly spec: MountSpec<TMsg> };
 
 /**
+ * The hint group each IDL kind category is listed under. The four behavioural
+ * categories (WIRE_FORMAT.md §3.2) are named primitive families; the IDL's
+ * `Meta` kinds are the structural group, listed bare at the hint's tail. Typed
+ * over every category the IDL declares, so a new category fails to compile here
+ * until it is given a group.
+ */
+const GROUP_LABEL: Readonly<Record<KindCategory, string>> = {
+  Layout: 'Layout',
+  Display: 'Display',
+  Input: 'Input',
+  Visualisation: 'Visualisation',
+  Meta: 'Structural',
+};
+
+/**
  * The emittable NodeKind vocabulary, grouped by the four behavioural categories
- * (WIRE_FORMAT.md §3.2) plus the structural kinds. This is the SINGLE
- * enumeration: `NODE_KIND_NAMES` flattens it, and `@fuaran-ui/ops` projects the
- * `WRONG_NODE_KIND` decoder hint from it — so a kind added here reaches both,
- * and the hint cannot fall behind the kind set the way three hand-maintained
- * hint strings did across the hosts.
- *
- * The group names and their order are a cross-host contract: the F# and Rust
- * hosts emit the same grouped hint, so a model repairing against any host sees
- * the same vocabulary in the same shape.
+ * (WIRE_FORMAT.md §3.2) plus the structural kinds — a PROJECTION of the IDL's
+ * kind rows (`KINDS_BY_CATEGORY`, Phase 2073): `NODE_KIND_NAMES` flattens it,
+ * and `@fuaran-ui/ops` projects the `WRONG_NODE_KIND` decoder hint from it, so
+ * a kind the IDL gains reaches both on regeneration and no hand-kept list can
+ * fall behind the kind set. The kinds of a group are in IDL order, which is the
+ * order the sibling hosts' generated hints use.
  */
 export const NODE_KIND_GROUPS: readonly {
   readonly label: string;
-  readonly kinds: readonly string[];
-}[] = [
-  {
-    label: 'Layout',
-    kinds: [
-      'Box',
-      'SplitPanel',
-      'Tabs',
-      'Stepper',
-      'SummaryList',
-      'Disclosure',
-      'Modal',
-      'ScrollArea',
-    ],
-  },
-  {
-    label: 'Display',
-    kinds: [
-      'Heading',
-      'Markdown',
-      'Metric',
-      'Badge',
-      'Sparkline',
-      'Callout',
-      'Progress',
-      'Skeleton',
-      'Icon',
-      'LabelValueRow',
-      'Fact',
-      'Link',
-      'Image',
-      'Media',
-      'Embed',
-      'Tree',
-      'List',
-      'Toast',
-      'CodeBlock',
-      'Math',
-      'Drawing',
-    ],
-  },
-  {
-    label: 'Input',
-    kinds: ['Form', 'Filters', 'Button', 'FileUpload', 'Select'],
-  },
-  {
-    label: 'Visualisation',
-    kinds: ['DataGrid', 'Chart', 'Map'],
-  },
-  {
-    // The structural kinds carry no category prose in the hint — they are
-    // listed bare after the four primitive families.
-    label: 'Structural',
-    kinds: ['Custom', 'ErrorBoundary', 'Switch', 'FragmentDecl', 'FragmentRef', 'Mount'],
-  },
-];
+  readonly kinds: readonly NodeKindName[];
+}[] = KIND_CATEGORIES.map((category) => ({
+  label: GROUP_LABEL[category],
+  kinds: KINDS_BY_CATEGORY[category],
+}));
 
 /**
  * The emittable NodeKind vocabulary — one entry per wire `kind.$type` name a
- * conformant host encodes/decodes, flattened from `NODE_KIND_GROUPS`. Pinned
- * against the generated `wire-format-fixtures` manifest `kinds` enumeration by
- * the corpus test suite (Phase 548 cross-host kind-set attestation): a new kind
- * added without an entry in the groups above fails that pin with the kind named.
- * Maintained in lockstep with the codec under the §11 forward-coupling
- * discipline (`DataGrid` is the wire name of the grid kind — the `Grid`
- * discriminator is a `BoxLayout` case, not a NodeKind).
+ * conformant host encodes/decodes, flattened from `NODE_KIND_GROUPS` (so in
+ * group order). Pinned against the generated `wire-format-fixtures` manifest
+ * `kinds` enumeration by the corpus test suite (Phase 548 cross-host kind-set
+ * attestation). (`DataGrid` is the wire name of the grid kind — the `Grid`
+ * discriminator is a `BoxLayout` case, not a NodeKind.)
  */
-export const NODE_KIND_NAMES: readonly string[] = NODE_KIND_GROUPS.flatMap((g) => g.kinds);
+export const NODE_KIND_NAMES: readonly NodeKindName[] = NODE_KIND_GROUPS.flatMap((g) => g.kinds);
 
-export interface ErrorBoundarySpec<TMsg> {
-  readonly child: Node<TMsg>;
-  readonly fallback: Node<TMsg>;
-}
+export interface ErrorBoundarySpec<TMsg> extends IdlSpec<'ErrorBoundary', TMsg> {}
 
 /**
  * State-bound conditional-child primitive (Phase 392). `stateKey` names the
@@ -1157,7 +1112,7 @@ export interface ErrorBoundarySpec<TMsg> {
  * `{ "$type":"Switch", "cases":[{"child":<Node>,"match":<string>},…],
  *    "default":<Node>, "stateKey":<string> }`.
  */
-export interface SwitchSpec<TMsg> {
+export interface SwitchSpec<TMsg> extends IdlSpec<'Switch', TMsg> {
   /**
    * The branch selector — any Binding (Phase 768): a `State` selector keeps the
    * Phase 392 behaviour; a `Selection` selector lets the branch follow the
@@ -1166,8 +1121,6 @@ export interface SwitchSpec<TMsg> {
    * other binding encodes as `on`.
    */
   readonly on: Binding<string>;
-  readonly cases: readonly SwitchCase<TMsg>[];
-  readonly default: Node<TMsg>;
   /**
    * Phase 1122 — advance to the next case every this-many milliseconds. Optional
    * and omitted at absence, so a document that does not declare it is
@@ -1243,10 +1196,10 @@ export type HoleDecl =
   | { readonly kind: 'Repeat'; readonly name: string; readonly countSpace: HoleValueSpace };
 
 /** The host-effect axis: does the fragment read or write host state? */
-export type HostEffect = 'Pure' | 'ReadsHost' | 'WritesHost';
+export type HostEffect = EnumCase<'HostEffect'>;
 
 /** The determinism-source axis (mirrors Calc's `Volatility`). */
-export type DeterminismSource = 'Deterministic' | 'Clock' | 'Random' | 'Network';
+export type DeterminismSource = EnumCase<'DeterminismSource'>;
 
 /** A total two-axis effect class. Defaults to pure-deterministic. */
 export interface EffectClass {
@@ -1259,17 +1212,9 @@ export type FragmentArg<TMsg> =
   | { readonly kind: 'value'; readonly value: FragmentScalar }
   | { readonly kind: 'slot'; readonly tree: Node<TMsg> };
 
-export interface FragmentDeclSpec<TMsg> {
-  readonly name: FragmentId;
-  readonly body: Node<TMsg>;
-  readonly holes: readonly HoleDecl[];
-  readonly effect: EffectClass;
-}
+export interface FragmentDeclSpec<TMsg> extends IdlSpec<'FragmentDecl', TMsg> {}
 
-export interface FragmentRefSpec<TMsg> {
-  readonly name: FragmentId;
-  readonly args: Readonly<Record<string, FragmentArg<TMsg>>>;
-}
+export interface FragmentRefSpec<TMsg> extends IdlSpec<'FragmentRef', TMsg> {}
 
 // ─── Mount — isolation/embedding boundary (Phase 265, §4o) ───────────────────
 //
@@ -1282,7 +1227,7 @@ export interface FragmentRefSpec<TMsg> {
 
 /** The direction a Mount's guest channel permits (§4o.4). `OutOnly` (default,
  * safe for untrusted guests) forbids host→guest push; `TwoWay` permits it. */
-export type ChannelDirection = 'OutOnly' | 'TwoWay';
+export type ChannelDirection = EnumCase<'ChannelDirection'>;
 
 /** The declared out-channel of a Mount (§4o.4). `messageShape` optionally names
  * the guest message shape for validation + the capability gate; omitted at None. */
@@ -1301,12 +1246,7 @@ export type CapabilityTag = string;
  * handler for a guest-bubbled `Action<obj>`) is a closure — the `"<closure>"`
  * sentinel on the wire — so it is not carried structurally on this typed shape.
  */
-export interface MountSpec<TMsg> {
-  readonly scopeId: string;
-  readonly inputs: Readonly<Record<string, FragmentArg<TMsg>>>;
-  readonly channel: GuestChannel;
-  readonly capabilities: readonly CapabilityTag[];
-}
+export interface MountSpec<TMsg> extends IdlSpec<'Mount', TMsg> {}
 
 // ─── Layout — semantic intent, not pixel-pushing ─────────────────────────────
 
@@ -1374,15 +1314,12 @@ export type BoxLayout =
  * (Phase 459) — `separator()` / `divider()` emit a `Box` with this role,
  * rendering `<hr class="fuaran-layout-separator">`.
  */
-export type BoxRole = 'Group' | 'Card' | 'Dashboard' | 'Separator';
+export type BoxRole = EnumCase<'BoxRole'>;
 
 /** The unified container spec (Phase 390). Port of F# `BoxSpec`. */
-export interface BoxSpec<TMsg> {
-  readonly layout: BoxLayout;
-  readonly role: BoxRole;
+export interface BoxSpec<TMsg> extends IdlSpec<'Box', TMsg> {
   /** Optional container heading (the retired Card heading). Emitted only when set. */
   readonly heading?: TextSource;
-  readonly children: readonly Node<TMsg>[];
   /**
    * Phase 1473 — this container and its whole subtree stay on one page when the
    * rendering is PAGED. Omitted on the wire at `false`.
@@ -1423,15 +1360,9 @@ export interface GridLayoutSpec<TMsg> {
   readonly templateColumns?: string;
 }
 
-export interface SplitPanelSpec<TMsg> {
-  readonly weight: number;
-  readonly children: readonly Node<TMsg>[];
-}
+export interface SplitPanelSpec<TMsg> extends IdlSpec<'SplitPanel', TMsg> {}
 
-export interface TabsSpec<TMsg> {
-  readonly orientation: Orientation;
-  readonly children: readonly Node<TMsg>[];
-  readonly activeIndex: Binding<number>;
+export interface TabsSpec<TMsg> extends IdlSpec<'Tabs', TMsg> {
   /**
    * Optional since Phase 426 (the control write-back default): omitted, a tab
    * click writes the clicked index back to a writable `activeIndex` binding
@@ -1442,7 +1373,6 @@ export interface TabsSpec<TMsg> {
   readonly tabHeaders?: readonly TabHeader[];
   /** Phase 69: typed tab-tag overlay; align 1:1 with `children` (FUARAN048). */
   readonly tabTags?: readonly string[];
-  readonly activeTag?: Binding<string>;
   /**
    * Phase 426: omitted with a populated `tabTags` overlay, a tab click writes
    * the clicked tag back to a writable `activeTag` binding.
@@ -1461,9 +1391,7 @@ export interface CardSpec<TMsg> {
   readonly children: readonly Node<TMsg>[];
 }
 
-export interface StepperSpec<TMsg> {
-  readonly activeStep: Binding<number>;
-  readonly children: readonly Node<TMsg>[];
+export interface StepperSpec<TMsg> extends IdlSpec<'Stepper', TMsg> {
   /**
    * Dispatch when the user clicks a step header. The renderer calls this with
    * the clicked step index; the host typically dispatches a `SelectStep i`
@@ -1475,21 +1403,14 @@ export interface StepperSpec<TMsg> {
   readonly onSelect: (index: number) => Action<TMsg>;
 }
 
-export interface SummaryListSpec<TMsg> {
-  readonly heading?: TextSource;
-  readonly children: readonly Node<TMsg>[];
-}
+export interface SummaryListSpec<TMsg> extends IdlSpec<'SummaryList', TMsg> {}
 
-export interface DisclosureSpec<TMsg> {
-  readonly heading: TextSource;
-  readonly open: Binding<boolean>;
+export interface DisclosureSpec<TMsg> extends IdlSpec<'Disclosure', TMsg> {
   /**
    * Optional since Phase 426 (the control write-back default): omitted, a
    * toggle writes the new open value back to a writable `open` binding.
    */
   readonly onToggle?: (open: boolean) => Action<TMsg>;
-  readonly children: readonly Node<TMsg>[];
-  readonly defaultOpen: boolean;
 }
 
 // §4n — the declarative, SSR-rendered modal overlay (Phase 289). `open` is the
@@ -1498,11 +1419,7 @@ export interface DisclosureSpec<TMsg> {
 // (encoded via the Action codec, NOT a closure sentinel) fired on backdrop /
 // close-button click. Renders inline (no React portal), positioned by CSS;
 // closed = the `hidden` attribute — so SSR and CSR are byte-identical.
-export interface ModalSpec<TMsg> {
-  readonly open: Binding<boolean>;
-  readonly heading?: TextSource;
-  readonly dismissable: boolean;
-  readonly children: readonly Node<TMsg>[];
+export interface ModalSpec<TMsg> extends IdlSpec<'Modal', TMsg> {
   /**
    * Optional since Phase 426 (the control write-back default): omitted, a
    * dismiss writes `false` back to a writable `open` binding — a decoded
@@ -1526,12 +1443,7 @@ export interface ModalSpec<TMsg> {
 // An overflow / scroll container (Phase 289). `orientation` selects the scroll
 // axis (CSS owns `overflow`); optional `maxHeight` / `maxWidth` (pixels) bound
 // the viewport via inline `max-height` / `max-width`.
-export interface ScrollAreaSpec<TMsg> {
-  readonly orientation: ScrollOrientation;
-  readonly children: readonly Node<TMsg>[];
-  readonly maxHeight?: number;
-  readonly maxWidth?: number;
-}
+export interface ScrollAreaSpec<TMsg> extends IdlSpec<'ScrollArea', TMsg> {}
 
 // ─── Display — presentation ──────────────────────────────────────────────────
 //
@@ -1565,36 +1477,17 @@ export type DisplayKind<TMsg = unknown> =
   | { readonly kind: 'Math'; readonly spec: MathSpec }
   | { readonly kind: 'Drawing'; readonly spec: DrawingSpec };
 
-export interface HeadingSpec {
-  readonly level: number;
-  readonly text: TextSource;
-  readonly variant: HeadingVariant;
-}
+export interface HeadingSpec extends IdlSpec<'Heading'> {}
 
-export interface MarkdownSpec {
-  readonly text: TextSource;
-}
+export interface MarkdownSpec extends IdlSpec<'Markdown'> {}
 
-export interface MetricSpec {
-  readonly label: TextSource;
+export interface MetricSpec extends IdlSpec<'Metric'> {
   // 0.2.0 rename law: the scalar displayed value is `value` across
   // Metric / LabelValueRow / Fact; `source` is reserved for collection feeds.
   readonly value: Binding<number>;
-  readonly format: CellFormat;
-  readonly tone: ToneVariant;
-  readonly weight: StyleWeight;
-  readonly emphasis: Emphasis;
-  readonly trend?: Binding<number>;
-  readonly trendFormat?: CellFormat;
-  readonly trendPolarity: TrendPolarity;
-  readonly icon?: IconSource;
-  readonly subtext?: TextSource;
 }
 
-export interface BadgeSpec {
-  readonly label: TextSource;
-  readonly variant: BadgeVariant;
-}
+export interface BadgeSpec extends IdlSpec<'Badge'> {}
 
 // A crawlable hyperlink primitive (Phase 139). Renders a real `<a href>` in
 // both the client and server renderers — followable with JavaScript disabled
@@ -1603,14 +1496,7 @@ export interface BadgeSpec {
 // data-bound); the renderer routes it through the URL sanitizer. `rel` /
 // `target` emit the matching anchor attributes when set; `download` emits a
 // bare `download` attribute.
-export interface LinkSpec {
-  readonly href: Binding<string>;
-  readonly label: TextSource;
-  readonly rel?: string;
-  readonly target?: string;
-  readonly download: boolean;
-  readonly protection?: LinkProtection;
-}
+export interface LinkSpec extends IdlSpec<'Link'> {}
 
 // Anti-scraper render strategy for a `Link` (Phase 812). `email` marks a
 // `mailto:` link whose address must not appear in plaintext in emitted HTML —
@@ -1618,7 +1504,7 @@ export interface LinkSpec {
 // label entity-encoded per character; the client sets the decoded href).
 // Omitted on the wire when absent, so every pre-existing tree is
 // byte-identical.
-export type LinkProtection = 'email';
+export type LinkProtection = EnumCase<'LinkProtection'>;
 
 // A crawlable `<img>` primitive (Phase 287). `src` is a `Binding<string>`
 // routed through the URL sanitizer at render time (like `Link.href`); `alt` is
@@ -1642,13 +1528,7 @@ export type LinkProtection = 'email';
 // additions rather than replacing them: `srcSet` sizes the THUMBNAIL, the
 // primary `src` behind the expansion is the full asset, and a `caption` sits
 // outside the link target.
-export interface ImageSpec {
-  readonly src: Binding<string>;
-  readonly alt: TextSource;
-  readonly variant: ImageVariant;
-  readonly fit: ImageFit;
-  readonly aspectRatio: ImageAspect;
-  readonly loading: ImageLoading;
+export interface ImageSpec extends IdlSpec<'Image'> {
   /**
    * Phase 1078 — an optional caption. A full `TextSource`, NOT a string: a
    * caption is i18n-capable on exactly the terms every other authored text slot
@@ -1704,8 +1584,7 @@ export interface SrcSetEntry {
 // `ImageSpec`. An image can be decorative and say so with an empty `alt`; a
 // media element is a TRANSPORT, so it is always an interactive control, and an
 // unnamed one is announced as "video" and nothing more.
-export interface MediaSpec {
-  readonly src: Binding<string>;
+export interface MediaSpec extends IdlSpec<'Media'> {
   /**
    * The accessible name, emitted as `aria-label`. Mandatory — there is no
    * decorative case for a transport, so unlike `ImageSpec.alt` there is no
@@ -1727,7 +1606,6 @@ export interface MediaSpec {
   readonly controls: boolean;
   /** Whether playback repeats. Omitted from the wire at `false`. */
   readonly loop: boolean;
-  readonly kind: MediaKind;
   /**
    * Phase 1110 — the element's timed-text tracks, in AUTHORED order.
    *
@@ -1791,7 +1669,7 @@ export interface TrackEntry {
  * naming it would state an intent no conformant host could honour. The set is
  * closed at four; a fifth is an addition, not a spelling a decoder may guess at.
  */
-export type TrackKind = 'Subtitles' | 'Captions' | 'Descriptions' | 'Chapters';
+export type TrackKind = EnumCase<'TrackKind'>;
 
 /**
  * Phase 1120 — a hierarchy of ROWS and, optionally, the names of the two State
@@ -1802,8 +1680,7 @@ export type TrackKind = 'Subtitles' | 'Captions' | 'Descriptions' | 'Chapters';
  * host both writes and reads, and a flag with no key behind it is a decorative
  * control writing state nothing reads.
  */
-export interface TreeSpec<TMsg> {
-  readonly items: readonly TreeItem[];
+export interface TreeSpec<TMsg> extends IdlSpec<'Tree', TMsg> {
   /**
    * Names a State slot holding a JSON ARRAY OF ROW IDS — the rows currently
    * open. An array rather than a map of booleans, because the question a host
@@ -1869,7 +1746,7 @@ export interface TreeItem {
  * It is equally not a `Media` variant: `Media` fetches an asset and DISPLAYS it,
  * `Embed` fetches a document and lets it EXECUTE.
  */
-export interface EmbedSpec {
+export interface EmbedSpec extends IdlSpec<'Embed'> {
   /**
    * The document to embed. Routed at RENDER time through the `embed` egress
    * class, which admits `https` and nothing else — not `http`, and not a
@@ -1946,22 +1823,14 @@ export type MediaKind =
   | { readonly $type: 'Audio' };
 
 // An ordered (`<ol>`) / unordered (`<ul>`) list of item texts (Phase 287).
-export interface ListSpec {
-  readonly items: readonly TextSource[];
-  readonly ordered: boolean;
-}
+export interface ListSpec extends IdlSpec<'List'> {}
 
 // A declarative, in-tree, SSR-rendered notification surface (Phase 289). `open`
 // is the controlled visibility binding (resolves `true` → shown); `tone`
 // selects the status colour; `dismissable` adds a close affordance. Renders
 // inline (no portal), positioned by CSS, with `role="status"` + an `aria-live`
 // region — see the overlay render-fidelity contract.
-export interface ToastSpec {
-  readonly message: TextSource;
-  readonly tone: ToneVariant;
-  readonly open: Binding<boolean>;
-  readonly dismissable: boolean;
-}
+export interface ToastSpec extends IdlSpec<'Toast'> {}
 
 // A deterministic `<pre><code>` source block (Phase 290). `code` is the raw
 // source text (HTML-escaped at render time, NO markdown library); `language` is
@@ -1971,26 +1840,15 @@ export interface ToastSpec {
 // (the `data-highlight-lines` attribute the enhancement reads); `copyable` adds
 // a copy affordance. All five fields are required + carry plain values (no
 // bindings) — syntax highlighting is explicitly outside the parity output.
-export interface CodeBlockSpec {
-  readonly code: string;
-  readonly language: string;
-  readonly lineNumbers: boolean;
-  readonly highlightLines: readonly number[];
-  readonly copyable: boolean;
-}
+export interface CodeBlockSpec extends IdlSpec<'CodeBlock'> {}
 
 // A deterministic math primitive (Phase 293). `source` is the LaTeX source the
 // renderer emits verbatim (escaped) in a known container; `display` selects
 // inline (`<span>`) vs block (`<div>`) presentation. KaTeX upgrades it
 // client-only post-hydration (targets `.fuaran-math-source`), outside parity.
-export interface MathSpec {
-  readonly source: string;
-  readonly display: MathDisplay;
-}
+export interface MathSpec extends IdlSpec<'Math'> {}
 
-export interface SparklineSpec {
-  readonly source: Binding<readonly number[]>;
-}
+export interface SparklineSpec extends IdlSpec<'Sparkline'> {}
 
 // ─── Drawing (Phase 524) ─────────────────────────────────────────────────────
 //
@@ -2013,7 +1871,7 @@ export interface DrawPoint {
 }
 
 // SVG `text-anchor` for `Shape.Label` — Start | Middle | End (→ start/middle/end).
-export type TextAnchor = 'Start' | 'Middle' | 'End';
+export type TextAnchor = EnumCase<'TextAnchor'>;
 
 // Fill/stroke bindings; every field optional (omitted → inherits the renderer
 // default). `fill`/`stroke` are colour strings; `strokeWidth`/`opacity` numbers.
@@ -2146,20 +2004,12 @@ export type Shape =
       readonly style: DrawStyle;
     };
 
-export interface DrawingSpec {
-  readonly viewBox: ViewBox;
-  readonly shapes: readonly Shape[];
-  readonly style: DrawStyle;
-  readonly title?: TextSource;
-  readonly description?: TextSource;
-}
+export interface DrawingSpec extends IdlSpec<'Drawing'> {}
 
-export interface SkeletonSpec {
-  readonly rows: number;
-}
+export interface SkeletonSpec extends IdlSpec<'Skeleton'> {}
 
 /** Icon glyph size for the standalone `Icon` display kind (Phase 821). */
-export type IconSize = 'Small' | 'Medium' | 'Large';
+export type IconSize = EnumCase<'IconSize'>;
 
 /**
  * Phase 821 — the standalone icon-only display kind: a decorative or labelled
@@ -2167,36 +2017,13 @@ export type IconSize = 'Small' | 'Medium' | 'Large';
  * icon vocabulary (the `data-icon` hook); `label` absent is decorative
  * (`aria-hidden="true"`), present is meaningful (`role="img"` + `aria-label`).
  */
-export interface IconSpec {
-  readonly icon: string;
-  readonly size: IconSize;
-  readonly tone: ToneVariant;
-  readonly label?: string;
-}
+export interface IconSpec extends IdlSpec<'Icon'> {}
 
-export interface CalloutSpec {
-  readonly tone: ToneVariant;
-  readonly heading?: TextSource;
-  readonly body: TextSource;
-  readonly icon?: IconSource;
-  readonly dismissable: boolean;
-}
+export interface CalloutSpec extends IdlSpec<'Callout'> {}
 
-export interface ProgressSpec {
-  readonly fraction: Binding<number>;
-  readonly label?: TextSource;
-  readonly caveat?: TextSource;
-  readonly indeterminate: boolean;
-  readonly tone: ToneVariant;
-}
+export interface ProgressSpec extends IdlSpec<'Progress'> {}
 
-export interface LabelValueRowSpec {
-  readonly label: TextSource;
-  readonly value: Binding<number>;
-  readonly format: CellFormat;
-  readonly emphasis: boolean;
-  readonly help?: TextSource;
-}
+export interface LabelValueRowSpec extends IdlSpec<'LabelValueRow'> {}
 
 /**
  * A labeled TEXT fact — "Patient: Alice Smith". The complementary kind to the
@@ -2205,14 +2032,7 @@ export interface LabelValueRowSpec {
  * kind was the defect, not the type error). `value` is a TextSource, so
  * static / Bound / I18n values ride the label vocabulary.
  */
-export interface FactSpec {
-  readonly label: TextSource;
-  readonly value: TextSource;
-  readonly icon?: IconSource;
-  readonly tone: ToneVariant;
-  readonly emphasis: boolean;
-  readonly help?: TextSource;
-}
+export interface FactSpec extends IdlSpec<'Fact'> {}
 
 // ─── Input — interactive, carries Msg via Action<TMsg> ───────────────────────
 
@@ -2223,11 +2043,7 @@ export type InputKind<TMsg> =
   | { readonly kind: 'FileUpload'; readonly spec: FileUploadSpec<TMsg> }
   | { readonly kind: 'Select'; readonly spec: SelectSpec<TMsg> };
 
-export interface ButtonSpec<TMsg> {
-  readonly label: TextSource;
-  readonly onClick: Action<TMsg>;
-  readonly variant: ButtonVariant;
-  readonly icon?: IconSource;
+export interface ButtonSpec<TMsg> extends IdlSpec<'Button', TMsg> {
   readonly tooltip?: TextSource;
   /**
    * Optional bound disabled-state. Absent (the default) means the button is
@@ -2241,9 +2057,13 @@ export interface ButtonSpec<TMsg> {
   readonly disabled?: Binding<boolean>;
 }
 
-export interface SelectSpec<TMsg> {
-  readonly label: TextSource;
-  readonly source: Binding<readonly SelectOption[]>;
+export interface SelectSpec<TMsg> extends Omit<IdlSpec<'Select', TMsg>, 'value'> {
+  /**
+   * The selection. The IDL types it `Binding<string>`; this host widens the
+   * payload to `string | undefined` because an unselected control is a `Static`
+   * binding carrying NO value (Phase 677: absence is structural — the key is
+   * omitted on the wire, never `null`), which `Binding<string>` cannot spell.
+   */
   readonly value: Binding<string | undefined>;
   /**
    * Optional since Phase 426 (the control write-back default): omitted, the
@@ -2252,7 +2072,6 @@ export interface SelectSpec<TMsg> {
    * dispatches exactly as before (`"onChange":"<closure>"`, byte-stable).
    */
   readonly onChange?: (value: string | undefined) => Action<TMsg>;
-  readonly placeholder?: TextSource;
   /**
    * Optional bound disabled-state (Phase 130 — the interactive-state class-fix
    * generalising `ButtonSpec.disabled`). Absent (the default) means the select
@@ -2289,10 +2108,7 @@ export interface SelectOption {
   readonly label: TextSource;
 }
 
-export interface FormSpec<TMsg> {
-  readonly fields: readonly FormField<TMsg>[];
-  readonly onSubmit: Action<TMsg>;
-  readonly submitLabel: TextSource;
+export interface FormSpec<TMsg> extends IdlSpec<'Form', TMsg> {
   /**
    * Optional bound form-level disabled-state (Phase 130 — the interactive-state
    * class-fix generalising `ButtonSpec.disabled`). Absent (the default) leaves
@@ -2312,10 +2128,10 @@ export interface FormSpec<TMsg> {
  * Distinct from `Format`, which is a `Binding` case about OUTPUT presentation. This is
  * about which values are ACCEPTED on input.
  */
-export type TextFormat = 'email' | 'url' | 'tel';
+export type TextFormat = EnumCase<'TextFormat'>;
 
 /** The comparison a cross-field `CompareRule` makes (Phase 864) — lower-case on the wire. */
-export type CompareOp = 'eq' | 'neq' | 'lt' | 'lte' | 'gt' | 'gte';
+export type CompareOp = EnumCase<'CompareOp'>;
 
 /**
  * The cross-field predicate (Phase 864), and the reason it needed almost no new
@@ -2586,26 +2402,10 @@ export type FormFieldKind<TMsg> =
  * `DateRange` shipped into the corpus and sat unadopted in four hosts with every
  * gate green.
  *
- * The order is the cross-host contract (it is the hint's order); keep it in step
- * with the sibling hosts rather than sorting it.
+ * The order is the IDL's (it is the hint's order), which the sibling hosts'
+ * generated hints share; the list is a projection of `UNION_CASES` (Phase 2073).
  */
-export const FORM_FIELD_KIND_NAMES: readonly string[] = [
-  'Text',
-  'Number',
-  'Checkbox',
-  'Toggle',
-  'Choice',
-  'Range',
-  'RangedNumber',
-  'SegmentedChoice',
-  'TextArea',
-  'DateTime',
-  'DateTimeRange',
-  'Combobox',
-  'Tokens',
-  'Rating',
-  'Color',
-];
+export const FORM_FIELD_KIND_NAMES: readonly string[] = Object.keys(UNION_CASES.FormFieldKind);
 
 export interface NumberFieldConstraints {
   readonly min?: number;
@@ -2634,10 +2434,7 @@ export interface FilterSpec<TMsg> {
   readonly field: FormFieldKind<TMsg>;
 }
 
-export interface FileUploadSpec<TMsg> {
-  readonly label: TextSource;
-  readonly accept: readonly string[];
-  readonly multiple: boolean;
+export interface FileUploadSpec<TMsg> extends IdlSpec<'FileUpload', TMsg> {
   readonly onSelect: (files: readonly FileSelection[]) => Action<TMsg>;
   /**
    * Optional bound disabled-state (Phase 130 — the interactive-state class-fix
@@ -2745,7 +2542,7 @@ export interface FileUploadSpec<TMsg> {
  * a screen capture reaches every window the reader has open rather than one
  * device behind the picker, so it is a different class of thing.
  */
-export type CaptureSource = 'Camera' | 'Microphone';
+export type CaptureSource = EnumCase<'CaptureSource'>;
 
 /**
  * Requested encoding for `Action.ReadFileBody` (Phase 136). The renderer's
@@ -2755,7 +2552,7 @@ export type CaptureSource = 'Camera' | 'Microphone';
  *  - `Base64`  → the file's bytes base64-encoded with no data-URL prefix
  *  - `DataUrl` → the full `data:<mime>;base64,…` string
  */
-export type FileReadEncoding = 'Text' | 'Base64' | 'DataUrl';
+export type FileReadEncoding = EnumCase<'FileReadEncoding'>;
 
 /**
  * An opaque, host-held reference to a user-selected file's blob (Phase 136).
@@ -2797,12 +2594,10 @@ export type VisKind<TMsg> =
  * carry the row type parameter. The author surface is the typed
  * `GridSpecOf<TRow, TMsg>`, which `fuaran.grid` erases into this shape.
  */
-export interface GridSpec<TMsg> {
-  readonly source: Binding<readonly unknown[]>;
+export interface GridSpec<TMsg> extends IdlSpec<'DataGrid', TMsg> {
   // Phase 425 — `rowKey` (closure) is optional; `rowKeyField` names a row property for the key. A
   // decoded grid uses the field for stable identity with zero host code. Closure wins when both present.
   readonly rowKey?: (row: unknown) => string;
-  readonly rowKeyField?: string;
   // Phase 818 — the grid-sort header affordance for a DATA-BOUND grid: names
   // the State key carrying the sort descriptor
   // `{"column": <index>, "direction": "asc"|"desc"}`. When set, the runtime
@@ -2823,7 +2618,6 @@ export interface GridSpec<TMsg> {
   // a `Query` whose `dependsOn` names the page key, the HOST pages and the grid
   // does not slice. Both omitted on the wire when absent.
   readonly pageSize?: number;
-  readonly pageStateKey?: string;
   // Phase 1892 — the row window, the fourth instance of the same rule.
   // `windowStateKey` names the State key carrying `{"offset": <int >= 0>,
   // "count": <int >= 1>}`, which the renderer writes as the viewport moves and
@@ -2832,7 +2626,6 @@ export interface GridSpec<TMsg> {
   // `Query` whose `dependsOn` names the window or page key); it is read only
   // there. Both omitted on the wire when absent.
   readonly windowStateKey?: string;
-  readonly rowTotal?: Binding<number>;
   // Phase 861 — the bound path's declared INITIAL order, reusing the same
   // `DefaultSort` record and field name `staticRows` carries (Phase 801): same
   // behaviour, same spelling, no twin. It applies while the sort state key
@@ -2867,7 +2660,6 @@ export interface GridSpec<TMsg> {
   // this one for its own presentation. Both omitted on the wire when absent; a
   // present member of any other type is WRONG_TYPE and is never coerced.
   readonly transferOutKey?: string;
-  readonly transferInKey?: string;
   // Phase 1125 — this grid's rows are the reader's to take. Omitted at `false`.
   // The grid-behaviour rule reached by a node that writes NOTHING: every other
   // member of that family names a State key because the behaviour it declares
@@ -2883,9 +2675,7 @@ export interface GridSpec<TMsg> {
   // Phase 1473 — the column headers repeat at the top of every page the grid
   // continues onto. Omitted at `false`; scoped to the paged medium.
   readonly repeatHeader: boolean;
-  readonly columns: readonly ColumnErased<TMsg>[];
   readonly onRowClick?: (row: unknown) => Action<TMsg>;
-  readonly editable: boolean;
   // Phase 393 — the static read-only mode. When present, this grid is a static text table
   // folded in from the retired `Table`: the renderer emits semantic `<table>` markup from
   // these `TextSource` cells and ignores `source` / `columns`. Absent for a data-bound grid,
@@ -2895,13 +2685,11 @@ export interface GridSpec<TMsg> {
   // both absent is the pre-801 wire byte-for-byte. `sortable` declares what the table
   // INVITES, not what a host guarantees; `defaultSort` is an initial presentation order,
   // distinct from the transform pipeline's data `sort`.
-  readonly staticRows?: {
-    readonly headers: readonly TextSource[];
-    readonly rows: readonly (readonly TextSource[])[];
-    readonly sortable?: boolean;
-    readonly defaultSort?: DefaultSort;
-  };
+  readonly staticRows?: StaticRows;
 }
+
+/** A static read-only table's rows (the `GridSpec.staticRows` mode, Phase 393; sort intent Phase 801). */
+export interface StaticRows extends IdlRecord<'StaticRows'> {}
 
 /**
  * A static table's declared initial order (Phase 801). `column` is a NON-NEGATIVE index
@@ -2915,7 +2703,7 @@ export interface DefaultSort {
 }
 
 /** Sort direction on a `DefaultSort` (Phase 801) — lower-case on the wire. */
-export type SortDirection = 'asc' | 'desc';
+export type SortDirection = EnumCase<'SortDirection'>;
 
 /** Typed author-facing facade for `GridSpec`. `fuaran.grid` erases it. */
 export interface GridSpecOf<TRow, TMsg> {
@@ -3062,12 +2850,7 @@ export type CellKindErased<TMsg> =
       readonly render: (jsonOf: (row: unknown) => JsonValue) => Node<TMsg>;
     };
 
-export interface ChartSpec<TMsg> {
-  readonly source: Binding<readonly unknown[]>;
-  readonly kind: ChartKind;
-  readonly xField: string;
-  readonly yFields: readonly string[];
-  readonly title?: TextSource;
+export interface ChartSpec<TMsg> extends IdlSpec<'Chart', TMsg> {
   // Phase 876 — the VALUE axis's number format, reusing the existing `Format`
   // vocabulary. A semantic declaration ("these numbers are pounds / a ratio"),
   // which is why it is a wire field where the chart STYLE is not. Absent means
@@ -3083,8 +2866,6 @@ export interface ChartSpec<TMsg> {
   // `subtitle` additionally SUPPRESSES the lowering's own display-unit label:
   // the author has stated the units, so the machine does not repeat them.
   readonly xTitle?: TextSource;
-  readonly yTitle?: TextSource;
-  readonly subtitle?: TextSource;
   // Phase 880 — WHERE the legend sits, and whether it sits anywhere at all.
   // Semantic for the same reason the titles above are: the edge an author wants
   // the legend on is their meaning; the column widths and pitches that realise
@@ -3128,7 +2909,6 @@ export interface ChartSpec<TMsg> {
   // who declared a list and then removed its last member wrote.
   readonly annotations?: readonly ChartAnnotation[];
   readonly onPointClick?: (point: unknown) => Action<TMsg>;
-  readonly stacked: boolean;
 }
 
 export interface TableSpec<TMsg> {
@@ -3141,11 +2921,7 @@ export interface TableSpec<TMsg> {
   readonly defaultSort?: DefaultSort;
 }
 
-export interface MapSpec<TMsg> {
-  readonly source: Binding<readonly MapMarker[]>;
-  readonly centreLatitude: number;
-  readonly centreLongitude: number;
-  readonly zoom: number;
+export interface MapSpec<TMsg> extends IdlSpec<'Map', TMsg> {
   readonly onMarkerClick?: (marker: MapMarker) => Action<TMsg>;
 }
 
@@ -3154,3 +2930,174 @@ export interface MapMarker {
   readonly longitude: number;
   readonly label: TextSource;
 }
+
+// ============================================================================
+//  The field tables as TYPES (Phase 2073).
+//
+//  `generated.ts` projects `idl.json` into one field table per kind, record,
+//  union case and op. `IdlSpec<K>` / `IdlRecord<N>` read a table back as the
+//  TypeScript object type it describes, so a spec interface that EXTENDS its
+//  `IdlSpec` gains a member the IDL gains on regeneration, with no hand edit;
+//  the hand-written interface keeps only its documentation (a documented member
+//  is re-declared with the same type) and what the IDL leaves to the host.
+//
+//  Three things are the host's, by design, and are declared ONCE each here:
+//    - closure members (`fn`, `"<closure>"` on the wire) and `hostOnly` members
+//      are not derived — their TypeScript signatures live on the interfaces;
+//    - a `hosted` payload's representation is named per site in `HostedTypes`;
+//    - a record or union the IDL names resolves through `RecordTypes` /
+//      `UnionTypes`, which are typed over EVERY name the IDL declares, so a new
+//      record or union fails to compile here until this host names its shape.
+// ============================================================================
+
+/** This host's type for each IDL record, by the IDL's name. */
+export interface RecordTypes<TMsg> {
+  readonly Accessibility: Accessibility;
+  /** Spelt inline on `CellKindErased.ButtonGroup` as a `[label, onClick]` pair. */
+  readonly ButtonGroupItem: Extract<
+    CellKindErased<TMsg>,
+    { kind: 'ButtonGroup' }
+  >['buttons'][number];
+  readonly ColumnErased: ColumnErased<TMsg>;
+  readonly CompareRule: CompareRule;
+  readonly ContentHash: ContentHash;
+  /** Spelt as the `[from, to]` pair `FormFieldKind.DateTimeRange` carries. */
+  readonly DateTimeRangePair: readonly [string, string];
+  readonly DefaultSort: DefaultSort;
+  readonly DrawPoint: DrawPoint;
+  readonly DrawStyle: DrawStyle;
+  readonly EffectClass: EffectClass;
+  readonly FieldRule: FieldRule;
+  readonly FilterSpec: FilterSpec<TMsg>;
+  readonly FormField: FormField<TMsg>;
+  readonly GuestChannel: GuestChannel;
+  readonly InvokeArg: InvokeArg;
+  readonly MapMarker: MapMarker;
+  /** Spelt as the `[low, high]` pair `FormFieldKind.Range` carries. */
+  readonly RangePair: readonly [number, number];
+  readonly SelectOption: SelectOption;
+  readonly SemanticStyle: SemanticStyle;
+  readonly SrcSetEntry: SrcSetEntry;
+  readonly StateBehaviour: StateBehaviour<TMsg>;
+  readonly StaticRows: StaticRows;
+  /** The `PatchStyle` op's payload; this host models it beside the op, in `@fuaran-ui/ops`. */
+  readonly StyleDelta: unknown;
+  readonly SwitchCase: SwitchCase<TMsg>;
+  readonly TabHeader: TabHeader;
+  readonly TrackEntry: TrackEntry;
+  readonly TransformParam: TransformParam;
+  readonly TreeItem: TreeItem;
+  readonly ViewBox: ViewBox;
+}
+
+/** This host's type for each non-generic IDL union, by the IDL's name (`Binding<T>` is read structurally). */
+export interface UnionTypes<TMsg> {
+  readonly Action: Action<TMsg>;
+  readonly BoxLayout: BoxLayout;
+  readonly CallResultTarget: CallResultTarget;
+  readonly CellFormat: CellFormat;
+  readonly CellKindErased: CellKindErased<TMsg>;
+  readonly ChartAnnotation: ChartAnnotation;
+  readonly ChartAnnotationRange: ChartAnnotationRange;
+  readonly ChartAnnotationX: ChartAnnotationX;
+  readonly ColumnWidth: ColumnWidth;
+  readonly CurveCommand: CurveCommand;
+  readonly FormFieldKind: FormFieldKind<TMsg>;
+  readonly Format: Format;
+  readonly FragmentArg: FragmentArg<TMsg>;
+  readonly HoleDecl: HoleDecl;
+  readonly HoleValueSpace: HoleValueSpace;
+  readonly LocalFlushTrigger: LocalFlushTrigger;
+  readonly LocaleSource: LocaleSource;
+  readonly MediaKind: MediaKind;
+  readonly Scalar: FragmentScalar;
+  readonly Shape: Shape;
+  readonly TextSource: TextSource;
+}
+
+/**
+ * The representation of each `hosted` member (a payload whose wire form is JSON
+ * and whose host type the IDL leaves open), keyed `<owner>.<member>`.
+ */
+export interface HostedTypes {
+  readonly 'DataGrid.source': readonly unknown[];
+  readonly 'Chart.source': readonly unknown[];
+  readonly 'Accessibility.role': AriaRole;
+}
+
+/** The TypeScript type an IDL type descriptor denotes, at the member `Site` (`<owner>.<member>`). */
+export type ValueOf<T, TMsg, Site extends string> = T extends { readonly $type: 'str' }
+  ? string
+  : T extends { readonly $type: 'int' | 'float' }
+    ? number
+    : T extends { readonly $type: 'bool' }
+      ? boolean
+      : T extends { readonly $type: 'node' }
+        ? Node<TMsg>
+        : T extends { readonly $type: 'json' }
+          ? JsonValue
+          : T extends { readonly $type: 'kind' }
+            ? NodeKind<TMsg>
+            : T extends { readonly $type: 'list'; readonly of: infer U }
+              ? readonly ValueOf<U, TMsg, Site>[]
+              : T extends { readonly $type: 'map'; readonly values: infer U }
+                ? Readonly<Record<string, ValueOf<U, TMsg, Site>>>
+                : T extends { readonly $type: 'enum'; readonly name: infer N extends EnumName }
+                  ? EnumCase<N>
+                  : T extends {
+                        readonly $type: 'record';
+                        readonly name: infer N extends RecordName;
+                      }
+                    ? RecordTypes<TMsg>[N]
+                    : T extends {
+                          readonly $type: 'union';
+                          readonly name: 'Binding';
+                          readonly args: readonly [infer A];
+                        }
+                      ? Binding<ValueOf<A, TMsg, Site>>
+                      : T extends {
+                            readonly $type: 'union';
+                            readonly name: infer N extends keyof UnionTypes<TMsg>;
+                          }
+                        ? UnionTypes<TMsg>[N]
+                        : T extends { readonly $type: 'hosted' }
+                          ? Site extends keyof HostedTypes
+                            ? HostedTypes[Site]
+                            : never
+                          : never;
+
+/** The rows a host derives: every wire member that is not a closure. */
+type DerivedRow<R> = R extends
+  | { readonly opt: 'hostOnly' }
+  | { readonly type: { readonly $type: 'fn' } }
+  ? never
+  : R;
+
+/**
+ * A field table read as the object type it describes: a `required` or
+ * `omitDefault` member is present (an omitted default is restored on decode);
+ * an `optional` member may be absent.
+ */
+export type Infer<Owner extends string, Rows extends readonly FieldRow[], TMsg> = {
+  readonly [R in DerivedRow<Rows[number]> as R extends { readonly opt: 'optional' }
+    ? never
+    : R['name']]: ValueOf<R['type'], TMsg, `${Owner}.${R['name']}`>;
+} & {
+  readonly [R in DerivedRow<Rows[number]> as R extends { readonly opt: 'optional' }
+    ? R['name']
+    : never]?: ValueOf<R['type'], TMsg, `${Owner}.${R['name']}`>;
+};
+
+/** The structural type of a kind's spec — its IDL field table, read as a type. */
+export type IdlSpec<K extends NodeKindName, TMsg = unknown> = Infer<
+  K,
+  (typeof KIND_FIELDS)[K],
+  TMsg
+>;
+
+/** The structural type of a record — its IDL field table, read as a type. */
+export type IdlRecord<N extends RecordName, TMsg = unknown> = Infer<
+  N,
+  (typeof RECORD_FIELDS)[N],
+  TMsg
+>;

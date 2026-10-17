@@ -18,3 +18,5 @@ export * from './customCard.js';
 export * from './limits.js';
 export * from './kindPolicy.js';
 export * from './instant.js';
+export * from './idl.js';
+export * from './generated.js';
