@@ -61,6 +61,9 @@ export const HOST_CORPUS_FAMILIES = {
   dag: 'covered', // packages/ops/test/dag.test.ts
   'decode-policy': 'covered', // packages/ops/test/decodePolicy.test.ts
   'devtools-relay': 'covered', // packages/renderer/test/relayCorpus.test.tsx
+  'diff/treeDiff': notApplicable(
+    'this host ships no structural tree diff: its op streams carry authored ops, and it never derives an op-script from a (before, after) pair',
+  ),
   'laws/capabilityLaws': pending(
     'the capability twin mirrors an older Core than the vectors are stamped for, so capabilityLaws.test.ts reports the gap and asserts nothing until the twin is raised',
   ),
