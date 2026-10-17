@@ -1130,6 +1130,23 @@ generator arm in `packages/ops/test/arbitraries.ts`.
 0.11.4 → 0.11.5, `@fuaran-ui/renderer-server` 0.25.0 → 0.25.1, `@fuaran-ui/theme-manifest` 0.12.2 → 0.12.3. The
 other dependents (`client`, `mcp`, `renderer`) are already on untagged slots ahead of the tag.
 
+### Recorded breaking change — `@fuaran-ui/ops` 0.31.0, a `$profile` that does not parse is `FOREIGN_PROFILE` (Phase 1938)
+
+_Unreleased: rides the 0.31.0 draft slot above._
+
+**What changed.** `decodeEnvelope` refuses a `$profile` that is not `<name>@<major>.<minor>` with
+`FOREIGN_PROFILE` at `$.$profile`, where it raised `MALFORMED_PROFILE`; `EnvelopeErrorCode` loses the
+`'MALFORMED_PROFILE'` member.
+
+**Why.** WIRE_FORMAT.md §15.2 now rules that a profile that does not parse is `Foreign`, and the Go, Python and
+Rust hosts already refused it so. `MALFORMED_PROFILE` was a code in neither the specification nor any other host.
+
+**What it costs a consumer.** The input was refused before and is refused now; only the code differs. A caller
+matching `'MALFORMED_PROFILE'` no longer compiles against the narrowed type, which is the point: it now reads the
+same code every host reports.
+
+**What certifies it.** `packages/ops/test/versioning.test.ts`, which pins the code and the path.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:
