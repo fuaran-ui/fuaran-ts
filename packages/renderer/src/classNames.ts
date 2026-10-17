@@ -148,6 +148,10 @@ export const motionVar = (motion: Motion): string => {
       return 'slide-in-from-right';
     case 'ExpandCollapse':
       return 'expand-collapse';
+    case 'CrossFade':
+      return 'cross-fade';
+    case 'SlideBetween':
+      return 'slide-between';
   }
 };
 

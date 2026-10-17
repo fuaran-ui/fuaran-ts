@@ -19,13 +19,25 @@
 //  the encoder must reproduce the F# encoder's exact bytes for every fixture.
 // ============================================================================
 
-import { controlValueDefaults, stateDefaultDeclared } from '@fuaran-ui/schema';
+import {
+  KIND_FIELDS,
+  RECORD_FIELDS,
+  controlValueDefaults,
+  defaultValue,
+  stateDefaultDeclared,
+  wireRows,
+} from '@fuaran-ui/schema';
 import type {
+  FieldRow,
+  IdlRecord,
+  IdlSpec,
+  IdlType,
+  NodeKindName,
+  RecordName,
   Accessibility,
   Action,
   Agg,
   DefaultSort,
-  BadgeSpec,
   Cell,
   ColExpr,
   ColPair,
@@ -35,44 +47,25 @@ import type {
   InvokeArg,
   SortKey,
   Transform,
-  LinkSpec,
   Binding,
   BoxLayout,
-  BoxSpec,
-  ButtonSpec,
-  CalloutSpec,
   CellFormat,
   CellKindErased,
   ChartAnnotation,
   ChartAnnotationRange,
   ChartAnnotationX,
-  ChartSpec,
   ColumnErased,
   ColumnWidth,
-  DisclosureSpec,
   DisplayKind,
   EffectClass,
-  ImageSpec,
-  EmbedSpec,
   MediaKind,
-  MediaSpec,
   TrackEntry,
   TreeItem,
-  TreeSpec,
-  ListSpec,
-  ModalSpec,
-  ScrollAreaSpec,
-  ToastSpec,
-  CodeBlockSpec,
   CurveCommand,
   DrawPoint,
   DrawStyle,
-  DrawingSpec,
-  MathSpec,
   Shape,
   ViewBox,
-  MathDisplay,
-  FileUploadSpec,
   FilterSpec,
   FragmentArg,
   FragmentScalar,
@@ -81,45 +74,24 @@ import type {
   FieldRule,
   CompareRule,
   FormFieldKind,
-  FormSpec,
   LocaleSource,
-  GridSpec,
-  HeadingSpec,
   HoleDecl,
   HoleValueSpace,
   InputKind,
   JsonValue,
-  MetricSpec,
-  LabelValueRowSpec,
-  FactSpec,
   LayoutKind,
   LocalFlushTrigger,
   MapMarker,
-  MapSpec,
-  MarkdownSpec,
   Node,
   NodeKind,
-  ProgressSpec,
   SelectOption,
   SelectSpec,
   SrcSetEntry,
   SemanticStyle,
-  SkeletonSpec,
-  IconSpec,
-  SparklineSpec,
-  SplitPanelSpec,
   StateBehaviour,
-  SummaryListSpec,
-  StepperSpec,
-  StyleWeight,
-  Emphasis,
-  ToneVariant,
   TabHeader,
-  TableSpec,
-  TabsSpec,
   TextSource,
   VisKind,
-  TrendPolarity,
 } from '@fuaran-ui/schema';
 
 import { formatFiniteDouble, num } from '@fuaran-ui/core-twins';
@@ -978,98 +950,252 @@ const columnWidth = (w: ColumnWidth): string => {
 // CellFormat.None / ColumnWidth.Auto / tone Default / weight Standard / emphasis
 // Normal), mirroring the F# encoder + the role/voice precedent. `jObject` sorts
 // keys, so push order is irrelevant.
-const pushToneOptional = (fields: Field[], t: ToneVariant): void => {
-  if (t !== 'Default') fields.push(['tone', str(t)]);
-};
-const pushWeightOptional = (fields: Field[], w: StyleWeight): void => {
-  if (w !== 'Standard') fields.push(['weight', str(w)]);
-};
-const pushEmphasisOptional = (fields: Field[], e: Emphasis): void => {
-  if (e !== 'Normal') fields.push(['emphasis', str(e)]);
-};
 // Phase 867 - omitted at `HigherIsBetter`, so every pre-867 document is
 // byte-unchanged and the slot costs nothing until it is used.
-const pushTrendPolarityOptional = (fields: Field[], p: TrendPolarity): void => {
-  if (p !== 'HigherIsBetter') fields.push(['trendPolarity', str(p)]);
-};
-const pushCellFormatOptional = (fields: Field[], key: string, f: CellFormat): void => {
-  if (f.kind !== 'None') fields.push([key, cellFormat(f)]);
-};
 const pushColumnWidthOptional = (fields: Field[], key: string, w: ColumnWidth): void => {
   if (w.kind !== 'Auto') fields.push([key, columnWidth(w)]);
 };
 
-const metricSpec = (s: MetricSpec): string => {
-  const fields: Field[] = [
-    ['label', textSource(s.label)],
-    ['value', binding(s.value)],
-  ];
-  pushCellFormatOptional(fields, 'format', s.format);
-  pushToneOptional(fields, s.tone);
-  pushWeightOptional(fields, s.weight);
-  pushEmphasisOptional(fields, s.emphasis);
-  if (s.trend !== undefined) fields.push(['trend', binding(s.trend)]);
-  if (s.trendFormat !== undefined) fields.push(['trendFormat', cellFormat(s.trendFormat)]);
-  pushTrendPolarityOptional(fields, s.trendPolarity);
-  if (s.icon !== undefined) fields.push(['icon', str(s.icon)]);
-  if (s.subtext !== undefined) fields.push(['subtext', textSource(s.subtext)]);
+// ─── Spec encoders from the IDL's field tables (Phase 2073) ───────────────────
+//
+// Every kind spec encoder below is ONE field table folded by `specEncoder`,
+// the mirror of the decoder's fold: each wire member of `KIND_FIELDS[kind]` is
+// emitted through the encoder its IDL type implies (`encoderFor`), an
+// `optional` member only when present, an `omitDefault` member only when its
+// canonical bytes differ from its declared default's (WIRE_FORMAT.md §3.6 —
+// equality is of the WIRE bytes, so a `Static` binding carrying the default
+// equals only another such binding, and a record default compares member for
+// member), a closure member as the `"<closure>"` sentinel when present. Keys
+// are Ordinal-sorted by `jObject`, so the table's order never reaches the
+// wire. What this file supplies per spec is the host's representation, once:
+// a member whose bytes are not what its type implies (`enc`), and nothing
+// else — a member the IDL gains encodes with no edit here, and a member whose
+// type this host cannot encode is a load-time failure naming it.
+
+type Enc = (v: unknown) => string;
+
+/** What a spec declares, once, for one of its members. */
+interface EncOverride {
+  /**
+   * This member's own bytes, in place of what its IDL type implies. Called with
+   * the member's value even when it is absent; `undefined` omits the member.
+   */
+  readonly enc?: (v: unknown) => string | undefined;
+}
+
+type EncOverrides<K extends NodeKindName> = Partial<
+  Record<(typeof KIND_FIELDS)[K][number]['name'], EncOverride>
+>;
+type RecordEncOverrides<N extends RecordName> = Partial<
+  Record<(typeof RECORD_FIELDS)[N][number]['name'], EncOverride>
+>;
+
+/**
+ * This host's encoders of the IDL's records, unions and `Binding<…>` payloads
+ * whose bytes are not a function of their IDL type, by name. Built on first
+ * use: the encoders it names are declared through the rest of this module.
+ */
+const encDialect = (() => {
+  let tables:
+    | {
+        readonly records: Readonly<Record<string, Enc>>;
+        readonly unions: Readonly<Record<string, Enc>>;
+        readonly bindings: Readonly<Record<string, Enc>>;
+      }
+    | undefined;
+  return () =>
+    (tables ??= {
+      records: {
+        ColumnErased: columnErased as Enc,
+        DefaultSort: defaultSortJson as Enc,
+        DrawStyle: drawStyle as Enc,
+        EffectClass: effectClass as Enc,
+        FilterSpec: filterSpec as Enc,
+        FormField: formField as Enc,
+        GuestChannel: guestChannel as Enc,
+        MapMarker: mapMarker as Enc,
+        SelectOption: selectOption as Enc,
+        SrcSetEntry: srcSetEntry as Enc,
+        StaticRows: staticRows as Enc,
+        TabHeader: tabHeader as Enc,
+        TrackEntry: trackEntry as Enc,
+        TreeItem: treeItem as Enc,
+        ViewBox: viewBox as Enc,
+      },
+      unions: {
+        Action: action as Enc,
+        BoxLayout: boxLayout as Enc,
+        CellFormat: cellFormat as Enc,
+        ChartAnnotation: chartAnnotation as Enc,
+        Format: formatIntent as Enc,
+        HoleDecl: holeDecl as Enc,
+        MediaKind: mediaKind as Enc,
+        Shape: shape as Enc,
+        TextSource: textSource as Enc,
+      },
+      bindings: {
+        // fuaran#665 — rows are a typed Static payload, not the opaque residual.
+        hosted: staticRowSeq as Enc,
+      },
+    });
+})();
+
+const typeKey = (t: IdlType): string => {
+  switch (t.$type) {
+    case 'list':
+      return `list<${typeKey(t.of)}>`;
+    case 'map':
+      return `map<${typeKey(t.values)}>`;
+    case 'enum':
+    case 'record':
+    case 'var':
+      return `${t.$type}:${t.name}`;
+    case 'union':
+      return t.args.length === 0
+        ? `union:${t.name}`
+        : `union:${t.name}<${t.args.map(typeKey).join(',')}>`;
+    default:
+      return t.$type;
+  }
+};
+
+/** The encoder a member's IDL type implies, or `undefined` when this host has none. */
+const encoderFor = (t: IdlType): Enc | undefined => {
+  switch (t.$type) {
+    case 'str':
+    case 'enum':
+      return (v) => str(v as string);
+    case 'int':
+    case 'float':
+      return (v) => num(v as number);
+    case 'bool':
+      return (v) => bool(v as boolean);
+    case 'node':
+      return node as Enc;
+    case 'json':
+      return jsonValue as Enc;
+    case 'list': {
+      const inner = encoderFor(t.of);
+      return inner === undefined ? undefined : (v) => jArray((v as readonly unknown[]).map(inner));
+    }
+    case 'map': {
+      const inner = encoderFor(t.values);
+      return inner === undefined
+        ? undefined
+        : (v) =>
+            jObject(
+              Object.entries(v as Readonly<Record<string, unknown>>).map(
+                ([k, x]) => [k, inner(x)] as const,
+              ),
+            );
+    }
+    case 'record':
+      return encDialect().records[t.name];
+    case 'union': {
+      if (t.name !== 'Binding') return encDialect().unions[t.name];
+      const arg = t.args[0];
+      const payload = arg === undefined ? undefined : encDialect().bindings[typeKey(arg)];
+      const staticEnc = payload ?? (arg === undefined ? undefined : encoderFor(arg));
+      return (v) => binding(v as Binding<unknown>, staticEnc);
+    }
+    case 'fn':
+      return () => CLOSURE;
+    default:
+      return undefined;
+  }
+};
+
+interface EncMember {
+  readonly name: string;
+  readonly required: boolean;
+  readonly enc: (v: unknown) => string | undefined;
+  /** The declared default's canonical bytes, for an `omitDefault` member. */
+  readonly dflt: string | undefined;
+}
+
+const tableEncMembers = (
+  owner: string,
+  rows: readonly FieldRow[],
+  overrides: Readonly<Record<string, EncOverride | undefined>>,
+): readonly EncMember[] =>
+  wireRows(rows).map((row) => {
+    const o = overrides[row.name];
+    const implied = encoderFor(row.type);
+    if (o?.enc === undefined && implied === undefined)
+      throw new Error(
+        `${owner}.${row.name}: no encoder writes the IDL type ${typeKey(row.type)}; add an override`,
+      );
+    const enc: (v: unknown) => string | undefined =
+      o?.enc ?? ((v) => (v === undefined ? undefined : implied!(v)));
+    return {
+      name: row.name,
+      required: row.opt === 'required',
+      enc,
+      dflt: row.dflt === undefined ? undefined : enc(defaultValue(row.dflt)),
+    };
+  });
+
+const encodeMembers = (value: Readonly<Record<string, unknown>>, members: readonly EncMember[]) => {
+  const fields: Field[] = [];
+  for (const m of members) {
+    const bytes = m.enc(value[m.name]);
+    if (bytes === undefined || bytes === m.dflt) continue;
+    fields.push([m.name, bytes]);
+  }
   return jObject(fields);
 };
 
-const headingSpec = (s: HeadingSpec): string =>
-  jObject([
-    ['level', num(s.level)],
-    ['text', textSource(s.text)],
-    ['variant', str(s.variant)],
-  ]);
-
-const labelValueRowSpec = (s: LabelValueRowSpec): string => {
-  // 0.2.2 — `emphasis` omitted-when-false (aligning with Fact); `format`
-  // omitted-when-default (Phase 460).
-  const fields: Field[] = [
-    ...(s.emphasis ? ([['emphasis', bool(true)]] as const) : []),
-    ['label', textSource(s.label)],
-    ['value', binding(s.value)],
-  ];
-  pushCellFormatOptional(fields, 'format', s.format);
-  if (s.help !== undefined) fields.push(['help', textSource(s.help)]);
-  return jObject(fields);
+/** The encoder of one field table. */
+const tableEncoder = <T>(
+  owner: string,
+  rows: readonly FieldRow[],
+  overrides: Readonly<Record<string, EncOverride | undefined>>,
+): ((value: T) => string) => {
+  let members: readonly EncMember[] | undefined;
+  return (value) =>
+    encodeMembers(
+      value as unknown as Readonly<Record<string, unknown>>,
+      (members ??= tableEncMembers(owner, rows, overrides)),
+    );
 };
 
-const factSpec = (s: FactSpec): string => {
-  // New-kind posture: label + value required; emphasis omitted-when-false,
-  // tone omitted-when-default (both boundaries); help/icon optional.
-  const fields: Field[] = [
-    ['label', textSource(s.label)],
-    ['value', textSource(s.value)],
-  ];
-  if (s.emphasis) fields.push(['emphasis', bool(true)]);
-  pushToneOptional(fields, s.tone);
-  if (s.help !== undefined) fields.push(['help', textSource(s.help)]);
-  if (s.icon !== undefined) fields.push(['icon', str(s.icon)]);
-  return jObject(fields);
-};
+/** The encoder of a kind's spec, from `KIND_FIELDS`. */
+const specEncoder = <K extends NodeKindName, S = IdlSpec<K>>(
+  kind: K,
+  overrides: EncOverrides<K> = {},
+): ((spec: S) => string) => tableEncoder(kind, KIND_FIELDS[kind], overrides);
 
-const markdownSpec = (s: MarkdownSpec): string => jObject([['text', textSource(s.text)]]);
+/** The encoder of a record, from `RECORD_FIELDS`. */
+const recordEncoder = <N extends RecordName>(
+  name: N,
+  overrides: RecordEncOverrides<N> = {},
+): ((value: IdlRecord<N>) => string) => tableEncoder(name, RECORD_FIELDS[name], overrides);
 
-const badgeSpec = (s: BadgeSpec): string =>
-  jObject([
-    ['label', textSource(s.label)],
-    ['variant', str(s.variant)],
-  ]);
+/** A map member omitted when it holds nothing (the pre-existing wire of the fragment arms). */
+const nonEmptyMap =
+  (inner: Enc): ((v: unknown) => string | undefined) =>
+  (v) => {
+    const entries = Object.entries(v as Readonly<Record<string, unknown>>);
+    return entries.length === 0
+      ? undefined
+      : jObject(entries.map(([k, x]) => [k, inner(x)] as const));
+  };
 
-const linkSpec = (s: LinkSpec): string => {
-  const fields: Field[] = [
-    ['href', binding(s.href)],
-    ['label', textSource(s.label)],
-    ['download', bool(s.download)],
-  ];
-  if (s.rel !== undefined) fields.push(['rel', str(s.rel)]);
-  if (s.target !== undefined) fields.push(['target', str(s.target)]);
-  // Phase 812 — omitted when absent (byte parity with the F# encoder).
-  if (s.protection !== undefined) fields.push(['protection', str(s.protection)]);
-  return jObject(fields);
-};
+// ─── Display specs ───────────────────────────────────────────────────────────
+
+const metricSpec = specEncoder('Metric');
+
+const headingSpec = specEncoder('Heading');
+
+const labelValueRowSpec = specEncoder('LabelValueRow');
+
+const factSpec = specEncoder('Fact');
+
+const markdownSpec = specEncoder('Markdown');
+
+const badgeSpec = specEncoder('Badge');
+
+const linkSpec = specEncoder('Link');
 
 // Phase 1080 — one `srcSet` candidate. `jObject` sorts the members, so `src`
 // precedes `width` on the wire whatever order they are pushed in here.
@@ -1079,34 +1205,7 @@ const srcSetEntry = (e: SrcSetEntry): string =>
     ['width', num(e.width)],
   ]);
 
-const imageSpec = (s: ImageSpec): string => {
-  const fields: Field[] = [
-    ['alt', textSource(s.alt)],
-    ['src', binding(s.src)],
-    ['variant', str(s.variant)],
-  ];
-  // Phase 1077 — omitted at the identity default (byte parity with the F#
-  // encoder). `Natural` / `Natural` / `Eager` ARE today's behaviour, so a
-  // default-presentation image emits exactly the pre-phase three fields.
-  if (s.fit !== 'Natural') fields.push(['fit', str(s.fit)]);
-  if (s.aspectRatio !== 'Natural') fields.push(['aspectRatio', str(s.aspectRatio)]);
-  if (s.loading !== 'Eager') fields.push(['loading', str(s.loading)]);
-  // Phase 1078 — omitted when absent (rule 4), not at a default. `jObject`
-  // sorts, so the key lands in its canonical position wherever it is pushed.
-  if (s.caption !== undefined) fields.push(['caption', textSource(s.caption)]);
-  // Phase 1080 — omitted when EMPTY, which is the encode half of the
-  // missing-list-field rule: an image with no alternate renditions and one with
-  // an empty list are the same document, so both emit no key. The candidate
-  // ORDER is the author's and is emitted verbatim — a JSON array is ordered
-  // data, and re-sorting it here would make this encoder produce bytes it did
-  // not decode. Ascending-by-width is the RENDERER's canonicalisation.
-  if (s.srcSet.length > 0) fields.push(['srcSet', jArray(s.srcSet.map(srcSetEntry))]);
-  // Phase 1079 — omitted at `false`, the plainest instance of the same law:
-  // not declaring an expansion and declaring that there is none are the same
-  // document, so only `true` costs a key.
-  if (s.expandable) fields.push(['expandable', bool(true)]);
-  return jObject(fields);
-};
+const imageSpec = specEncoder('Image');
 
 // Phase 1076 — the media variant. `Video`'s two slots take the two ordinary
 // shapes: `autoplay` omitted at `false`, `poster` omitted when absent. `Audio`
@@ -1124,21 +1223,7 @@ const mediaKind = (k: MediaKind): string => {
 // omit polarities: `controls` omits at TRUE (the accessible value is the free
 // one), `loop` at false. `jObject` sorts, so the keys land canonically wherever
 // they are pushed.
-const mediaSpec = (s: MediaSpec): string => {
-  const fields: Field[] = [];
-  if (!s.controls) fields.push(['controls', bool(false)]);
-  fields.push(['kind', mediaKind(s.kind)]);
-  fields.push(['label', textSource(s.label)]);
-  if (s.loop) fields.push(['loop', bool(true)]);
-  fields.push(['src', binding(s.src)]);
-  // Phase 1110 — `tracks` omits at EMPTY (the encode half of the missing-list
-  // rule) and the AUTHORED order is emitted verbatim: a reader picks a track
-  // from a menu the user agent builds in document order, so re-sorting here
-  // would make this encoder produce bytes it did not decode.
-  if (s.tracks.length > 0) fields.push(['tracks', jArray(s.tracks.map(trackEntry))]);
-  if (s.transcript !== undefined) fields.push(['transcript', textSource(s.transcript)]);
-  return jObject(fields);
-};
+const mediaSpec = specEncoder('Media');
 
 // Phase 1110 — one `<track>`. Four members always ride; `default` omits at
 // `false`. `jObject` sorts, so the listed order is cosmetic.
@@ -1154,14 +1239,7 @@ const trackEntry = (t: TrackEntry): string => {
 
 // Phase 1120 — the tree. `items` always rides; the two State-slot names and the
 // handler sentinel omit when absent.
-const treeSpec = (s: TreeSpec<unknown>): string => {
-  const fields: Field[] = [['items', jArray(s.items.map(treeItem))]];
-  if (s.expandedStateKey !== undefined) fields.push(['expandedStateKey', str(s.expandedStateKey)]);
-  if (s.onSelect !== undefined) fields.push(['onSelect', CLOSURE]);
-  if (s.selectionStateKey !== undefined)
-    fields.push(['selectionStateKey', str(s.selectionStateKey)]);
-  return jObject(fields);
-};
+const treeSpec = specEncoder('Tree');
 
 // Phase 1120 — one row. `children` omits at the EMPTY LIST and `icon` when
 // absent, so a leaf carries two keys and nothing else — a host emitting
@@ -1181,94 +1259,28 @@ const treeItem = (t: TreeItem): string => {
 // is the document's and is emitted verbatim — a JSON array is ordered data, and
 // re-sorting it here would make this encoder produce bytes it did not decode.
 // Emitting the tokens in a canonical order is the RENDERER's obligation.
-const embedSpec = (s: EmbedSpec): string => {
-  const fields: Field[] = [];
-  if (s.aspectRatio !== 'Natural') fields.push(['aspectRatio', str(s.aspectRatio)]);
-  if (s.permissions.length > 0)
-    fields.push(['permissions', jArray(s.permissions.map((p) => str(p)))]);
-  fields.push(['src', binding(s.src)]);
-  fields.push(['title', textSource(s.title)]);
-  return jObject(fields);
-};
+const embedSpec = specEncoder('Embed');
 
-const listSpec = (s: ListSpec): string =>
-  jObject([
-    ['items', jArray(s.items.map(textSource))],
-    ['ordered', bool(s.ordered)],
-  ]);
+const listSpec = specEncoder('List');
 
-const toastSpec = (s: ToastSpec): string => {
-  // Phase 460 — `tone` omitted-when-default.
-  const fields: Field[] = [
-    // 0.2.0 omitted-when-TRUE (a Toast is dismissable unless said otherwise).
-    ...(s.dismissable ? [] : ([['dismissable', bool(false)]] as const)),
-    ['message', textSource(s.message)],
-    ['open', binding(s.open)],
-  ];
-  pushToneOptional(fields, s.tone);
-  return jObject(fields);
-};
+const toastSpec = specEncoder('Toast');
 
 /** `MathDisplay` bare-string enum (WIRE_FORMAT.md §3.5). */
-const mathDisplay = (d: MathDisplay): string => str(d);
+const codeBlockSpec = specEncoder('CodeBlock');
 
-const codeBlockSpec = (s: CodeBlockSpec): string =>
-  jObject([
-    ['code', str(s.code)],
-    ['copyable', bool(s.copyable)],
-    // highlightLines is always present (possibly empty); ints render as decimal
-    // literals (port of F# `int_`), not the float layout.
-    ['highlightLines', jArray(s.highlightLines.map(intLit))],
-    ['language', str(s.language)],
-    ['lineNumbers', bool(s.lineNumbers)],
-  ]);
+const mathSpec = specEncoder('Math');
 
-const mathSpec = (s: MathSpec): string =>
-  jObject([
-    ['display', mathDisplay(s.display)],
-    ['source', str(s.source)],
-  ]);
+const sparklineSpec = specEncoder('Sparkline');
 
-const sparklineSpec = (s: SparklineSpec): string =>
-  jObject([['source', binding(s.source, staticFloatSeq)]]);
-
-const skeletonSpec = (s: SkeletonSpec): string => jObject([['rows', num(s.rows)]]);
+const skeletonSpec = specEncoder('Skeleton');
 
 // Phase 821 — Icon display kind. `size` omitted-when-`Medium`, `tone`
 // omitted-when-`Default`, `label` omitted-when-decorative.
-const iconSpec = (s: IconSpec): string => {
-  const fields: Field[] = [['icon', str(s.icon)]];
-  if (s.label !== undefined) fields.push(['label', str(s.label)]);
-  if (s.size !== 'Medium') fields.push(['size', str(s.size)]);
-  pushToneOptional(fields, s.tone);
-  return jObject(fields);
-};
+const iconSpec = specEncoder('Icon');
 
-const calloutSpec = (s: CalloutSpec): string => {
-  // Phase 460 — `tone` omitted-when-default.
-  const fields: Field[] = [
-    ['body', textSource(s.body)],
-    // 0.2.0 omitted-when-false.
-    ...(s.dismissable ? ([['dismissable', bool(true)]] as const) : []),
-  ];
-  pushToneOptional(fields, s.tone);
-  if (s.heading !== undefined) fields.push(['heading', textSource(s.heading)]);
-  if (s.icon !== undefined) fields.push(['icon', str(s.icon)]);
-  return jObject(fields);
-};
+const calloutSpec = specEncoder('Callout');
 
-const progressSpec = (s: ProgressSpec): string => {
-  // Phase 460 — `tone` omitted-when-default.
-  const fields: Field[] = [
-    ['fraction', binding(s.fraction)],
-    // 0.2.0 omitted-when-false.
-    ...(s.indeterminate ? ([['indeterminate', bool(true)]] as const) : []),
-  ];
-  pushToneOptional(fields, s.tone);
-  if (s.label !== undefined) fields.push(['label', textSource(s.label)]);
-  if (s.caveat !== undefined) fields.push(['caveat', textSource(s.caveat)]);
-  return jObject(fields);
-};
+const progressSpec = specEncoder('Progress');
 
 // ─── Drawing (Phase 524) ─────────────────────────────────────────────────────
 
@@ -1398,16 +1410,7 @@ const shape = (sh: Shape): string => {
   }
 };
 
-const drawingSpec = (s: DrawingSpec): string => {
-  const fields: Field[] = [
-    ['shapes', jArray(s.shapes.map(shape))],
-    ['style', drawStyle(s.style)],
-    ['viewBox', viewBox(s.viewBox)],
-  ];
-  if (s.description !== undefined) fields.push(['description', textSource(s.description)]);
-  if (s.title !== undefined) fields.push(['title', textSource(s.title)]);
-  return jObject(fields);
-};
+const drawingSpec = specEncoder('Drawing');
 
 const displayKind = (d: DisplayKind): string => {
   switch (d.kind) {
@@ -1690,17 +1693,7 @@ const formField = (f: FormField<unknown>): string => {
   return jObject(fields);
 };
 
-const formSpec = (s: FormSpec<unknown>): string => {
-  const fields: Field[] = [
-    ['fields', jArray(s.fields.map(formField))],
-    ['onSubmit', action(s.onSubmit)],
-    ['submitLabel', textSource(s.submitLabel)],
-  ];
-  // Phase 130: optional bound form-level disabled-state — emitted only when
-  // present, mirroring ButtonSpec.disabled.
-  if (s.disabled !== undefined) fields.push(['disabled', binding(s.disabled)]);
-  return jObject(fields);
-};
+const formSpec = specEncoder('Form');
 
 const filterSpec = (s: FilterSpec<unknown>): string =>
   // 0.2.0 filters-unification: the chip's control is an ordinary
@@ -1712,69 +1705,16 @@ const filterSpec = (s: FilterSpec<unknown>): string =>
     ['name', str(s.name)],
   ]);
 
-const buttonSpec = (s: ButtonSpec<unknown>): string => {
-  const fields: Field[] = [
-    ['label', textSource(s.label)],
-    ['onClick', action(s.onClick)],
-    ['variant', str(s.variant)],
-  ];
-  if (s.icon !== undefined) fields.push(['icon', str(s.icon)]);
-  // Phase 129: optional bound disabled-state — emitted only when present,
-  // mirroring MetricSpec.trend's optional-binding shape.
-  if (s.disabled !== undefined) fields.push(['disabled', binding(s.disabled)]);
-  return jObject(fields);
-};
+const buttonSpec = specEncoder('Button');
 
-const selectSpec = (s: SelectSpec<unknown>): string => {
-  const fields: Field[] = [
-    ['label', textSource(s.label)],
-    ['source', binding(s.source, staticSelectOptions)],
-    ['value', binding(s.value, staticStringOpt)],
-  ];
-  // Phase 426: `onChange` rides the wire only when present (byte-identical
-  // sentinel); omitted, the renderer writes the chosen option back to a
-  // writable `value` binding.
-  if (s.onChange !== undefined) fields.push(['onChange', CLOSURE]);
-  if (s.placeholder !== undefined) fields.push(['placeholder', textSource(s.placeholder)]);
-  // Phase 130: optional bound disabled-state.
-  if (s.disabled !== undefined) fields.push(['disabled', binding(s.disabled)]);
-  // Phase 291: multi-select. `multiple` emitted ONLY when true and `values` ONLY
-  // when present, so single-select wire stays byte-identical to pre-multi-select
-  // fixtures (the degenerate case).
-  if (s.multiple) fields.push(['multiple', bool(true)]);
-  if (s.values !== undefined) fields.push(['values', binding(s.values, staticStringList)]);
-  // Phase 426: the multi-select handler carries its own sentinel key when
-  // present (previously never encoded).
-  if (s.onChangeMulti !== undefined) fields.push(['onChangeMulti', CLOSURE]);
-  return jObject(fields);
-};
+const selectSpec = specEncoder<'Select', SelectSpec<unknown>>('Select', {
+  // An unselected control is a `Static` binding carrying no value (Phase 677).
+  value: { enc: (v) => binding(v as Binding<string | undefined>, staticStringOpt) },
+  // Phase 291 — `multiple` rides only when true; a false flag is the absent default.
+  multiple: { enc: (v) => (v === true ? bool(true) : undefined) },
+});
 
-const fileUploadSpec = (s: FileUploadSpec<unknown>): string => {
-  const fields: Field[] = [
-    ['accept', jArray(s.accept.map(str))],
-    ['label', textSource(s.label)],
-    ['multiple', bool(s.multiple)],
-    ['onSelect', CLOSURE],
-  ];
-  // Phase 130: optional bound disabled-state.
-  if (s.disabled !== undefined) fields.push(['disabled', binding(s.disabled)]);
-  // Phase 1115 — the ingress gestures, OMITTED at `false` so the shortest
-  // upload document is the plain picker and every document written before this
-  // revision encodes to the bytes it always did. `jObject` sorts, so the key
-  // order is canonical whatever order these pushes happen in.
-  if (s.acceptPaste) fields.push(['acceptPaste', bool(true)]);
-  if (s.dropTarget) fields.push(['dropTarget', bool(true)]);
-  // Phase 1116 / 1117 — both ordinary optionals, emitted only when declared, so
-  // every upload written before either member existed is byte-identical.
-  if (s.capture !== undefined) fields.push(['capture', str(s.capture)]);
-  if (s.destination !== undefined) fields.push(['destination', str(s.destination)]);
-  // Phase 1548 — the two declared ceilings, ordinary optionals on the same
-  // terms, so an upload declaring neither is byte-identical to what it always
-  // was.
-  if (s.maxBytes !== undefined) fields.push(['maxBytes', num(s.maxBytes)]);
-  if (s.maxFiles !== undefined) fields.push(['maxFiles', num(s.maxFiles)]);
-  return jObject(fields);
-};
+const fileUploadSpec = specEncoder('FileUpload');
 
 const inputKind = (i: InputKind<unknown>): string => {
   switch (i.kind) {
@@ -1814,10 +1754,6 @@ const staticSelectOptions = (v: readonly SelectOption[]): string => jArray(v.map
 const staticStringOpt = (v: string | undefined): string => (v === undefined ? 'null' : str(v));
 
 const staticStringList = (v: readonly string[]): string => jArray(v.map(str));
-
-const staticFloatSeq = (v: readonly number[]): string => jArray(v.map(num));
-
-const staticMarkerSeq = (v: readonly MapMarker[]): string => jArray(v.map(mapMarker));
 
 // fuaran#665 — the typed row-source encoding. A grid/chart rows payload rides
 // the wire as a JSON array of row objects (Ordinal-sorted keys via `jObject`)
@@ -1910,6 +1846,10 @@ const cellKindErased = (k: CellKindErased<unknown>): string => {
   }
 };
 
+const pushCellFormatOptional = (fields: Field[], key: string, f: CellFormat): void => {
+  if (f.kind !== 'None') fields.push([key, cellFormat(f)]);
+};
+
 const columnErased = (c: ColumnErased<unknown>): string => {
   // Phase 425 — `value` (closure) + `field` (declarative) are sibling optional slots.
   // Phase 460 — `format`/`width` omitted-when-default (`None`/`Auto`).
@@ -1939,61 +1879,7 @@ const defaultSortJson = (d: DefaultSort): string =>
     ['direction', str(d.direction)],
   ]);
 
-const gridSpec = (s: GridSpec<unknown>): string => {
-  const fields: Field[] = [
-    ['columns', jArray(s.columns.map(columnErased))],
-    // 0.2.0 omitted-when-false.
-    ...(s.editable ? ([['editable', bool(true)]] as const) : []),
-    // Phase 934 — omit-when-false, exactly as `editable` above.
-    ...(s.reorderable ? ([['reorderable', bool(true)]] as const) : []),
-    // fuaran#665 — rows are a typed Static payload now, not the opaque residual.
-    ['source', binding(s.source, staticRowSeq)],
-  ];
-  if (s.onRowClick !== undefined) fields.push(['onRowClick', CLOSURE]);
-  // Phase 425 — `rowKey` (closure) + `rowKeyField` (declarative) are sibling optional slots.
-  if (s.rowKey !== undefined) fields.push(['rowKey', CLOSURE]);
-  if (s.rowKeyField !== undefined) fields.push(['rowKeyField', str(s.rowKeyField)]);
-  // Phase 818 — omitted when absent, so every pre-818 grid stays byte-identical.
-  if (s.sortStateKey !== undefined) fields.push(['sortStateKey', str(s.sortStateKey)]);
-  // Phase 862 — same discipline: omitted when absent, so every pre-862 grid
-  // stays byte-identical.
-  if (s.pageSize !== undefined) fields.push(['pageSize', num(s.pageSize)]);
-  if (s.pageStateKey !== undefined) fields.push(['pageStateKey', str(s.pageStateKey)]);
-  // Phase 1892 — the row window and the declared total, each emitted only when
-  // declared, so every pre-1892 grid stays byte-identical.
-  if (s.windowStateKey !== undefined) fields.push(['windowStateKey', str(s.windowStateKey)]);
-  if (s.rowTotal !== undefined) fields.push(['rowTotal', binding(s.rowTotal)]);
-  // Phase 861 — the bound path's declared initial order, through the SAME
-  // encoder the staticRows spelling uses.
-  if (s.defaultSort !== undefined) fields.push(['defaultSort', defaultSortJson(s.defaultSort)]);
-  // Phase 863 — the declared edit destination.
-  if (s.editStateKey !== undefined) fields.push(['editStateKey', str(s.editStateKey)]);
-  // Phase 1123 — the two transfer ends, each emitted only when declared, so a
-  // grid declaring neither is byte-identical to every grid written before this
-  // revision.
-  if (s.transferOutKey !== undefined) fields.push(['transferOutKey', str(s.transferOutKey)]);
-  if (s.transferInKey !== undefined) fields.push(['transferInKey', str(s.transferInKey)]);
-  // Phase 1125 / 1473 — three omit-at-`false` declarations on the same terms.
-  if (s.exportable) fields.push(['exportable', bool(true)]);
-  if (s.keepRowsTogether) fields.push(['keepRowsTogether', bool(true)]);
-  if (s.repeatHeader) fields.push(['repeatHeader', bool(true)]);
-  // Phase 393 — the static read-only mode; omitted for a data-bound grid so every existing
-  // grid fixture stays byte-identical.
-  if (s.staticRows !== undefined) {
-    const sr = s.staticRows;
-    const srFields: Field[] = [
-      ['headers', jArray(sr.headers.map(textSource))],
-      ['rows', jArray(sr.rows.map((row) => jArray(row.map(textSource))))],
-    ];
-    // Phase 801 — the declarative sort intent, each emitted only when declared, so a
-    // table saying nothing encodes exactly as it did before the fields existed.
-    if (sr.sortable !== undefined) srFields.push(['sortable', bool(sr.sortable)]);
-    if (sr.defaultSort !== undefined)
-      srFields.push(['defaultSort', defaultSortJson(sr.defaultSort)]);
-    fields.push(['staticRows', jObject(srFields)]);
-  }
-  return jObject(fields);
-};
+const gridSpec = specEncoder('DataGrid');
 
 /** An annotation's x address (Phase 1491, §4l). */
 const chartAnnotationX = (a: ChartAnnotationX): string =>
@@ -2027,45 +1913,7 @@ const chartAnnotation = (a: ChartAnnotation): string => {
   }
 };
 
-const chartSpec = (s: ChartSpec<unknown>): string => {
-  const fields: Field[] = [
-    ['kind', str(s.kind)],
-    // fuaran#665 — rows are a typed Static payload now, not the opaque residual.
-    ['source', binding(s.source, staticRowSeq)],
-    ['xField', str(s.xField)],
-    ['yFields', jArray(s.yFields.map(str))],
-  ];
-  // `stacked` (Phase 126, omit-at-default since Phase 1585) — the identity
-  // default is `false`, and every host's decoder restores it on absence, so a
-  // grouped chart no longer pays a key for saying nothing. An explicit
-  // `"stacked": false` on input still decodes and normalises to the omitted
-  // form (§3.6's scope note), which is what makes this read-compatible.
-  if (s.stacked) fields.push(['stacked', bool(s.stacked)]);
-  if (s.title !== undefined) fields.push(['title', textSource(s.title)]);
-  // Phase 876 — the value axis's declared number format (canonical key order).
-  if (s.valueFormat !== undefined) fields.push(['valueFormat', formatIntent(s.valueFormat)]);
-  // Phase 878 — the axis names + the subtitle (canonical key order).
-  if (s.xTitle !== undefined) fields.push(['xTitle', textSource(s.xTitle)]);
-  if (s.yTitle !== undefined) fields.push(['yTitle', textSource(s.yTitle)]);
-  if (s.subtitle !== undefined) fields.push(['subtitle', textSource(s.subtitle)]);
-  // Phase 880 — the legend's declared edge (canonical key order). Absent means
-  // the host's default, so the key is simply omitted.
-  if (s.legendPosition !== undefined) fields.push(['legendPosition', str(s.legendPosition)]);
-  // Phase 881 — whether the values are written onto the picture (canonical key
-  // order). Absent means `Off`, which is the default, so the key is omitted.
-  if (s.dataLabels !== undefined) fields.push(['dataLabels', str(s.dataLabels)]);
-  // Phase 882 — what the x column MEANS (canonical key order). Absent means
-  // `Category`, which is the default, so the key is OMITTED and every pre-882
-  // chart encodes to the same bytes it always did.
-  if (s.xScale !== undefined) fields.push(['xScale', str(s.xScale)]);
-  // Phase 1490 — the data-addressed annotations (canonical key order). Absent
-  // OMITS, so every pre-1490 chart encodes to the same bytes it always did; an
-  // EMPTY list is a different document and round-trips as `[]`.
-  if (s.annotations !== undefined)
-    fields.push(['annotations', jArray(s.annotations.map(chartAnnotation))]);
-  if (s.onPointClick !== undefined) fields.push(['onPointClick', CLOSURE]);
-  return jObject(fields);
-};
+const chartSpec = specEncoder('Chart');
 
 const mapMarker = (m: MapMarker): string =>
   jObject([
@@ -2074,16 +1922,7 @@ const mapMarker = (m: MapMarker): string =>
     ['longitude', num(m.longitude)],
   ]);
 
-const mapSpec = (s: MapSpec<unknown>): string => {
-  const fields: Field[] = [
-    ['centreLatitude', num(s.centreLatitude)],
-    ['centreLongitude', num(s.centreLongitude)],
-    ['source', binding(s.source, staticMarkerSeq)],
-    ['zoom', num(s.zoom)],
-  ];
-  if (s.onMarkerClick !== undefined) fields.push(['onMarkerClick', CLOSURE]);
-  return jObject(fields);
-};
+const mapSpec = specEncoder('Map');
 
 const visKind = (v: VisKind<unknown>): string => {
   switch (v.kind) {
@@ -2137,23 +1976,9 @@ const boxLayout = (l: BoxLayout): string => {
   }
 };
 
-const boxSpec = (s: BoxSpec<unknown>): string => {
-  const fields: Field[] = [['children', jArray(s.children.map(node))]];
-  if (s.heading !== undefined) fields.push(['heading', textSource(s.heading)]);
-  fields.push(['layout', boxLayout(s.layout)]);
-  fields.push(['role', str(s.role)]);
-  // Phase 1473 — both omitted at `false`, so a document that declares neither is
-  // byte-identical to what it was before this vocabulary existed.
-  if (s.keepTogether) fields.push(['keepTogether', bool(true)]);
-  if (s.breakBefore) fields.push(['breakBefore', bool(true)]);
-  return jObject(fields);
-};
+const boxSpec = specEncoder('Box');
 
-const splitPanelSpec = (s: SplitPanelSpec<unknown>): string =>
-  jObject([
-    ['children', jArray(s.children.map(node))],
-    ['weight', num(s.weight)],
-  ]);
+const splitPanelSpec = specEncoder('SplitPanel');
 
 const tabHeader = (h: TabHeader): string => {
   const fields: Field[] = [['label', textSource(h.label)]];
@@ -2162,95 +1987,20 @@ const tabHeader = (h: TabHeader): string => {
   return jObject(fields);
 };
 
-const tabsSpec = (s: TabsSpec<unknown>): string => {
-  // `activeIndex` (Phase 126) is carried. `onSelect` / `onSelectTag` (Phase
-  // 426): each rides the wire only when present — a defined closure → the
-  // `"<closure>"` sentinel (byte-identical to the pre-426 always-emitted
-  // `onSelect`); omitted, the renderer's ActiveIndex/ActiveTag write-back
-  // default takes over.
-  const fields: Field[] = [
-    ['children', jArray(s.children.map(node))],
-    // 0.2.0 omitted-when-default (`Horizontal`).
-    ...(s.orientation === 'Horizontal' ? [] : ([['orientation', str(s.orientation)]] as const)),
-  ];
-  // `activeIndex` (Phase 126, omit-at-default since Phase 1585) — the identity
-  // default is the `Static` binding carrying `0`, and every host's decoder
-  // restores it on absence, so a tabs control opening on its first tab no
-  // longer pays a key for saying nothing. Every other binding still rides,
-  // including a `Static` carrying any other index and every `State` / `Filter`
-  // / `Selection` / `Query` form. An explicit
-  // `{"$type":"Static","value":0}` on input still decodes and normalises to the
-  // omitted form (§3.6's scope note), which is what makes this read-compatible.
-  if (!(s.activeIndex.kind === 'Static' && s.activeIndex.value === 0)) {
-    fields.push(['activeIndex', binding(s.activeIndex)]);
-  }
-  if (s.onSelect !== undefined) fields.push(['onSelect', CLOSURE]);
-  if (s.tabHeaders !== undefined) fields.push(['tabHeaders', jArray(s.tabHeaders.map(tabHeader))]);
-  if (s.tabTags !== undefined) fields.push(['tabTags', jArray(s.tabTags.map(str))]);
-  if (s.activeTag !== undefined) fields.push(['activeTag', binding(s.activeTag)]);
-  if (s.onSelectTag !== undefined) fields.push(['onSelectTag', CLOSURE]);
-  return jObject(fields);
-};
+const tabsSpec = specEncoder('Tabs');
 
 // `onSelect` is a closure → the `"<closure>"` sentinel (decodes to a no-op,
 // re-encodes to the same sentinel; byte-stable) — same treatment as Tabs
 // `onSelect` (Phase 126).
-const stepperSpec = (s: StepperSpec<unknown>): string =>
-  jObject([
-    ['activeStep', binding(s.activeStep)],
-    ['children', jArray(s.children.map(node))],
-    ['onSelect', CLOSURE],
-  ]);
+const stepperSpec = specEncoder('Stepper');
 
-const summaryListSpec = (s: SummaryListSpec<unknown>): string => {
-  const fields: Field[] = [['children', jArray(s.children.map(node))]];
-  if (s.heading !== undefined) fields.push(['heading', textSource(s.heading)]);
-  return jObject(fields);
-};
+const summaryListSpec = specEncoder('SummaryList');
 
-const disclosureSpec = (s: DisclosureSpec<unknown>): string => {
-  // `onToggle` (Phase 426): rides the wire only when present — a defined
-  // closure → the `"onToggle":"<closure>"` sentinel (previously never encoded,
-  // so every pre-426 fixture omits it and stays byte-identical); omitted, the
-  // renderer's `open` write-back default takes over.
-  const fields: Field[] = [
-    ['children', jArray(s.children.map(node))],
-    ['defaultOpen', bool(s.defaultOpen)],
-    ['heading', textSource(s.heading)],
-    ['open', binding(s.open)],
-  ];
-  if (s.onToggle !== undefined) fields.push(['onToggle', CLOSURE]);
-  return jObject(fields);
-};
+const disclosureSpec = specEncoder('Disclosure');
 
-const modalSpec = (s: ModalSpec<unknown>): string => {
-  // `onDismiss` is a full wire-survivable Action (encoded via the Action codec,
-  // NOT a closure sentinel) — optional since Phase 426: omitted, a dismissable
-  // modal falls to the `open` write-back default; `heading` omitted when
-  // undefined.
-  const fields: Field[] = [
-    ['children', jArray(s.children.map(node))],
-    ['dismissable', bool(s.dismissable)],
-    ['open', binding(s.open)],
-  ];
-  if (s.onDismiss !== undefined) fields.push(['onDismiss', action(s.onDismiss)]);
-  if (s.heading !== undefined) fields.push(['heading', textSource(s.heading)]);
-  // Phase 1119 — `modality` omits at `Modal`, so a blocking dialog encodes to
-  // exactly the bytes it did before this release; `anchor` omits when absent.
-  if (s.modality !== 'Modal') fields.push(['modality', str(s.modality)]);
-  if (s.anchor !== undefined) fields.push(['anchor', str(s.anchor)]);
-  return jObject(fields);
-};
+const modalSpec = specEncoder('Modal');
 
-const scrollAreaSpec = (s: ScrollAreaSpec<unknown>): string => {
-  const fields: Field[] = [
-    ['children', jArray(s.children.map(node))],
-    ['orientation', str(s.orientation)],
-  ];
-  if (s.maxHeight !== undefined) fields.push(['maxHeight', num(s.maxHeight)]);
-  if (s.maxWidth !== undefined) fields.push(['maxWidth', num(s.maxWidth)]);
-  return jObject(fields);
-};
+const scrollAreaSpec = specEncoder('ScrollArea');
 
 const layoutKind = (l: LayoutKind<unknown>): string => {
   switch (l.kind) {
@@ -2352,9 +2102,6 @@ const effectClass = (e: EffectClass): string =>
     ['hostEffect', str(e.hostEffect)],
   ]);
 
-const isPureDeterministic = (e: EffectClass): boolean =>
-  e.hostEffect === 'Pure' && e.determinism === 'Deterministic';
-
 const fragmentArg = (a: FragmentArg<unknown>): string => {
   switch (a.kind) {
     case 'value':
@@ -2367,6 +2114,23 @@ const fragmentArg = (a: FragmentArg<unknown>): string => {
 };
 
 // ─── NodeKind / Node / StateBehaviour / Style / Accessibility ────────────────
+
+// ─── Structural specs (the kinds with no primitive family) ────────────────────
+
+const errorBoundarySpec = specEncoder('ErrorBoundary');
+const fragmentDeclSpec = specEncoder('FragmentDecl');
+const fragmentRefSpec = specEncoder('FragmentRef', {
+  args: { enc: nonEmptyMap(fragmentArg as Enc) },
+});
+/** A `Mount`'s guest channel (Phase 1021). */
+const guestChannel = recordEncoder('GuestChannel');
+const mountSpec = specEncoder('Mount', {
+  inputs: { enc: nonEmptyMap(fragmentArg as Enc) },
+  // The guest's bubble handler is host-side only; the sentinel always rides (byte-stable since Phase 265).
+  onBubble: { enc: () => CLOSURE },
+});
+/** A static read-only table's rows (Phase 393; sort intent Phase 801). */
+const staticRows = recordEncoder('StaticRows');
 
 const nodeKind = (k: NodeKind<unknown>): string => {
   switch (k.kind) {
@@ -2406,10 +2170,7 @@ const nodeKind = (k: NodeKind<unknown>): string => {
       return caseObj('Custom', fields);
     }
     case 'ErrorBoundary':
-      return caseObj('ErrorBoundary', [
-        ['child', node(k.spec.child)],
-        ['fallback', node(k.spec.fallback)],
-      ]);
+      return hoistSpec('ErrorBoundary', errorBoundarySpec(k.spec));
     case 'Switch':
       // State-bound conditional child (Phase 392). Each case encodes as a
       // `{child,match}` object (keys sort child < match); the whole kind's keys
@@ -2444,53 +2205,12 @@ const nodeKind = (k: NodeKind<unknown>): string => {
           ? ['stateKey', str(k.spec.on.key)]
           : ['on', binding(k.spec.on, str)],
       ]);
-    case 'FragmentDecl': {
-      // Phase 180 — `holes` / `effect` additive; omitted at the degenerate
-      // (zero-hole, pure-deterministic) case so the fixed-body shape is
-      // byte-identical.
-      const fields: Field[] = [
-        ['body', node(k.spec.body)],
-        ['name', str(k.spec.name)],
-      ];
-      if (k.spec.holes.length > 0) fields.push(['holes', jArray(k.spec.holes.map(holeDecl))]);
-      if (!isPureDeterministic(k.spec.effect)) fields.push(['effect', effectClass(k.spec.effect)]);
-      return caseObj('FragmentDecl', fields);
-    }
-    case 'FragmentRef': {
-      // Phase 180 — `args` additive; omitted at the zero-arg case.
-      const fields: Field[] = [['name', str(k.spec.name)]];
-      const argKeys = Object.keys(k.spec.args);
-      if (argKeys.length > 0)
-        fields.push([
-          'args',
-          jObject(argKeys.map((key) => [key, fragmentArg(k.spec.args[key]!)] as const)),
-        ]);
-      return caseObj('FragmentRef', fields);
-    }
-    case 'Mount': {
-      // Phase 265, §4o — the isolation/embedding boundary. `scopeId` + `channel`
-      // + `capabilities` + the `onBubble` closure sentinel always present;
-      // `inputs` additive (omitted when empty, reusing the FragmentArg encoding).
-      // `capabilities` always emits (even `[]`) — the explicit visible
-      // default-deny posture. Mirrors the F# CanonicalJson Mount arm.
-      const s = k.spec;
-      const channelFields: Field[] = [['direction', str(s.channel.direction)]];
-      if (s.channel.messageShape !== undefined)
-        channelFields.push(['messageShape', str(s.channel.messageShape)]);
-      const fields: Field[] = [
-        ['capabilities', jArray(s.capabilities.map(str))],
-        ['channel', jObject(channelFields)],
-        ['onBubble', CLOSURE],
-        ['scopeId', str(s.scopeId)],
-      ];
-      const inputKeys = Object.keys(s.inputs);
-      if (inputKeys.length > 0)
-        fields.push([
-          'inputs',
-          jObject(inputKeys.map((key) => [key, fragmentArg(s.inputs[key]!)] as const)),
-        ]);
-      return caseObj('Mount', fields);
-    }
+    case 'FragmentDecl':
+      return hoistSpec('FragmentDecl', fragmentDeclSpec(k.spec));
+    case 'FragmentRef':
+      return hoistSpec('FragmentRef', fragmentRefSpec(k.spec));
+    case 'Mount':
+      return hoistSpec('Mount', mountSpec(k.spec));
     default:
       return assertNever(k);
   }
