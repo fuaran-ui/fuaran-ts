@@ -18,9 +18,14 @@
 // ============================================================================
 
 import {
+  ENUM_CASES,
   FORM_FIELD_KIND_NAMES,
+  KIND_FIELDS,
   NODE_KIND_GROUPS,
   NODE_KIND_NAMES,
+  RECORD_FIELDS,
+  defaultValue,
+  wireRows,
   controlValueDefaults,
   projectSelectionField,
   MAX_EXPR_NODES,
@@ -40,9 +45,18 @@ import type {
   Accessibility,
   Action,
   Agg,
+  EnumCase,
+  EnumName,
+  FieldRow,
+  FragmentRefSpec,
+  IdlRecord,
+  IdlSpec,
+  IdlType,
+  NodeKindName,
+  Optionality,
+  RecordName,
   AggFn,
   AriaRole,
-  BadgeSpec,
   BinOp,
   Cell,
   ColExpr,
@@ -59,71 +73,35 @@ import type {
   TransformParam,
   TransformSource,
   WindowFn,
-  LinkProtection,
-  LinkSpec,
   BadgeVariant,
   Binding,
   BoxLayout,
   BoxRole,
-  BoxSpec,
   CallResultTarget,
-  ButtonSpec,
   ButtonVariant,
-  CalloutSpec,
   CellFormat,
   CellKindErased,
-  ChartKind,
   ChartAnnotation,
   ChartAnnotationRange,
   ChartAnnotationX,
-  ChartDataLabels,
-  ChartLegendPosition,
-  ChartSpec,
-  ChartXScale,
   ColumnErased,
   ColumnWidth,
   ContentHash,
   DateTimeVariant,
   DeterminismSource,
-  DisclosureSpec,
   DisplayKind,
   EffectClass,
   Emphasis,
-  EmbedPermission,
-  EmbedSpec,
-  ImageAspect,
-  ImageFit,
-  ModalityKind,
   NavigateTarget,
-  ImageLoading,
-  ImageSpec,
-  ImageVariant,
   MediaKind,
-  MediaSpec,
   TrackEntry,
-  TrackKind,
   TreeItem,
-  TreeSpec,
-  CaptureSource,
-  TextDirection,
-  ListSpec,
-  ModalSpec,
-  ScrollAreaSpec,
-  ScrollOrientation,
-  ToastSpec,
-  CodeBlockSpec,
   CurveCommand,
   DrawPoint,
   DrawStyle,
-  DrawingSpec,
   Shape,
   ViewBox,
-  MathSpec,
-  MathDisplay,
-  FontVoice,
-  StyleRole,
   ErrorPayload,
-  FileReadEncoding,
   FileUploadSpec,
   FilterSpec,
   FragmentArg,
@@ -131,15 +109,11 @@ import type {
   Format,
   FormField,
   FormFieldKind,
-  FormSpec,
   FieldRule,
   CompareRule,
   CompareOp,
   TextFormat,
-  FragmentId,
-  GridSpec,
   HashStrictness,
-  HeadingSpec,
   HeadingVariant,
   HoleDecl,
   HoleValueSpace,
@@ -148,46 +122,28 @@ import type {
   InputKind,
   JsonValue,
   MapMarker,
-  MetricSpec,
-  LabelValueRowSpec,
-  FactSpec,
+  MountSpec,
   LayoutKind,
-  LiveRegionKind,
   LocaleSource,
   LocalBinding,
   LocalFlushTrigger,
-  MarkdownSpec,
   Node,
   NodeId,
   NodeKind,
   Orientation,
-  ProgressSpec,
   Result,
   SelectOption,
   SelectSpec,
   SrcSetEntry,
   SemanticStyle,
-  SkeletonSpec,
-  IconSpec,
   IconSize,
-  DurationUnit,
-  DurationStyle,
-  RelativeTimeUnit,
-  TimeGrain,
-  SparklineSpec,
-  SplitPanelSpec,
   StateBehaviour,
   SwitchCase,
-  SummaryListSpec,
   StepperSpec,
   StyleWeight,
   DefaultSort,
-  SortDirection,
   TabHeader,
   Table,
-  TableSpec,
-  TabsSpec,
-  TextAnchor,
   TextSource,
   ToneVariant,
   VisKind,
@@ -820,6 +776,12 @@ const bareEnum = <T extends string>(
   return unknownEnumCase(path, j.value, valid.join(' | '));
 };
 
+/** A bare-string enum read against its generated case table (Phase 2073): every enum with no lenient alias. */
+const enumOf = <N extends EnumName>(name: N): Decoder<EnumCase<N>> => {
+  const cases = ENUM_CASES[name];
+  return (_w, p, j) => bareEnum(p, j, cases, name);
+};
+
 const ORIENTATION_ALIASES: Readonly<Record<string, Orientation>> = {
   // CSS flex-direction prior: a row lays out horizontally, a column vertically.
   Row: 'Horizontal',
@@ -863,20 +825,13 @@ const decodeHeadingVariant = (w: Walk, p: string, j: JsonAst): R<HeadingVariant>
   return bareEnum(p, j, ['Standard', 'Eyebrow', 'Caption', 'Lead'] as const, 'HeadingVariant');
 };
 
-const decodeImageVariant = (w: Walk, p: string, j: JsonAst): R<ImageVariant> =>
-  bareEnum(p, j, ['Default', 'Avatar', 'Rounded'] as const, 'ImageVariant');
-
 // Phase 1077 — the three `Image` presentation vocabularies. Bare enums, so an
 // unrecognised case reports at the field's own path with no `.$type` suffix.
-const decodeImageFit = (w: Walk, p: string, j: JsonAst): R<ImageFit> =>
-  bareEnum(p, j, ['Natural', 'Cover', 'Contain'] as const, 'ImageFit');
 
 // Phase 1119 — `ModalSpec.modality`. Two cases and no lenient spelling: the
 // member decides whether the surface BLOCKS the page, and absence already
 // spells the safe answer (`Modal`, the pre-1119 behaviour), so a value the
 // decoder cannot read must be refused rather than recovered from.
-const decodeModalityKind = (w: Walk, p: string, j: JsonAst): R<ModalityKind> =>
-  bareEnum(p, j, ['Modal', 'Popover'] as const, 'ModalityKind');
 
 // Phase 1536 — `Action.Navigate.target`. Two cases, closed, and NO lenient
 // spelling: HTML's `_self` / `_blank` / `_parent` / `_top` are not accepted as
@@ -885,19 +840,7 @@ const decodeModalityKind = (w: Walk, p: string, j: JsonAst): R<ModalityKind> =>
 // that the HTML vocabulary is the one in force here. Absence is `Self`, the
 // pre-1536 behaviour and the safe answer, so an unknown token is
 // UNKNOWN_DU_CASE and never a fallback.
-const decodeNavigateTarget = (w: Walk, p: string, j: JsonAst): R<NavigateTarget> =>
-  bareEnum(p, j, ['Self', 'Blank'] as const, 'NavigateTarget');
-
-const decodeImageAspect = (w: Walk, p: string, j: JsonAst): R<ImageAspect> =>
-  bareEnum(
-    p,
-    j,
-    ['Natural', 'Square', 'FourThree', 'ThreeTwo', 'SixteenNine'] as const,
-    'ImageAspect',
-  );
-
-const decodeImageLoading = (w: Walk, p: string, j: JsonAst): R<ImageLoading> =>
-  bareEnum(p, j, ['Eager', 'Lazy'] as const, 'ImageLoading');
+const decodeNavigateTarget = enumOf('NavigateTarget');
 
 // Phase 1111 — one embed sandbox relaxation. A bare enum inside a LIST, so an
 // unrecognised case reports at the ELEMENT's own path with no `.$type` suffix.
@@ -905,39 +848,24 @@ const decodeImageLoading = (w: Walk, p: string, j: JsonAst): R<ImageLoading> =>
 // that silently dropped an unrecognised permission would turn a document asking
 // for something this vocabulary has no name for into one asking for less, which
 // reads as success — and a decoder that guessed would be worse.
-const decodeEmbedPermission = (w: Walk, p: string, j: JsonAst): R<EmbedPermission> =>
-  bareEnum(
-    p,
-    j,
-    ['AllowScripts', 'AllowSameOrigin', 'AllowForms', 'AllowFullscreen'] as const,
-    'EmbedPermission',
-  );
-
-const decodeScrollOrientation = (w: Walk, p: string, j: JsonAst): R<ScrollOrientation> =>
-  bareEnum(p, j, ['Vertical', 'Horizontal', 'Both'] as const, 'ScrollOrientation');
 
 // Phase 1110 — a track's kind. `metadata` is deliberately NOT a member: its cues
 // are rendered by no user agent and read only by script.
-const decodeTrackKind = (w: Walk, p: string, j: JsonAst): R<TrackKind> =>
-  bareEnum(p, j, ['Subtitles', 'Captions', 'Descriptions', 'Chapters'] as const, 'TrackKind');
+const decodeTrackKind = enumOf('TrackKind');
 
 // Phase 1116 — the recording device. A BARE enum, so an unknown token reports at
 // the member's own path with no `.$type` suffix (WIRE_FORMAT.md §6): the near
 // miss an emitter will actually write is `"Screen"`, and it is refused rather
 // than reserved.
-const decodeCaptureSource = (w: Walk, p: string, j: JsonAst): R<CaptureSource> =>
-  bareEnum(p, j, ['Camera', 'Microphone'] as const, 'CaptureSource');
 
 // Phase 1472 — the declared base direction. LOWER-CASE on the wire, spelled in
 // the values the isolation is ultimately expressed in. An unrecognised token is
 // REFUSED, never coerced to the default: a document that meant `rtl` and
 // misspelled it would otherwise render as reordered digits with nothing said
 // anywhere, which is the failure the member exists to prevent.
-const decodeTextDirection = (w: Walk, p: string, j: JsonAst): R<TextDirection> =>
-  bareEnum(p, j, ['auto', 'ltr', 'rtl'] as const, 'TextDirection');
+const decodeTextDirection = enumOf('TextDirection');
 
-const decodeDateTimeVariant = (w: Walk, p: string, j: JsonAst): R<DateTimeVariant> =>
-  bareEnum(p, j, ['Date', 'Time', 'DateTime'] as const, 'DateTimeVariant');
+const decodeDateTimeVariant = enumOf('DateTimeVariant');
 
 /**
  * Phase 1811 — the `variant` of a `DateTime` / `DateTimeRange` field, read through the §16
@@ -963,9 +891,6 @@ const decodeTemporalVariant = (
     `the variant Time, or no variant at all — a $type of ${timeAlias} already fixes the variant to Time, and a different one beside it is ambiguous`,
   );
 };
-
-const decodeMathDisplay = (w: Walk, p: string, j: JsonAst): R<MathDisplay> =>
-  bareEnum(p, j, ['Inline', 'Block'] as const, 'MathDisplay');
 
 // Phase 460 — lenient-ingest aliases (decode-only; never encoded — canonical
 // re-encode normalises to the DU case names). Faithful semantic mappings only,
@@ -1012,8 +937,7 @@ const decodeWeight = (w: Walk, p: string, j: JsonAst): R<StyleWeight> =>
 
 // Phase 867 - `Neutral` is RESERVED, not admitted, so it is refused here like
 // any other unknown case rather than silently reading as the default.
-const decodeTrendPolarity = (w: Walk, p: string, j: JsonAst): R<TrendPolarity> =>
-  bareEnum(p, j, ['HigherIsBetter', 'LowerIsBetter'] as const, 'TrendPolarity');
+const decodeTrendPolarity = enumOf('TrendPolarity');
 
 const decodeEmphasis = (w: Walk, p: string, j: JsonAst): R<Emphasis> => {
   if (j.kind === 'JString' && j.value in EMPHASIS_ALIASES) return ok(EMPHASIS_ALIASES[j.value]!);
@@ -1053,28 +977,13 @@ const decodeEmphasisFlag = (w: Walk, p: string, j: JsonAst): R<boolean> => {
 };
 
 // Phase 528.1 — SVG text-anchor for DrawStyle (Shape.Label alignment).
-const decodeTextAnchor = (w: Walk, p: string, j: JsonAst): R<TextAnchor> =>
-  bareEnum(p, j, ['Start', 'Middle', 'End'] as const, 'TextAnchor');
+const decodeTextAnchor = enumOf('TextAnchor');
 
 // Phase 147 — the additive style-role / font-voice DUs. Optional on the wire
 // (omitted at default); the style decoder restores the default on absence.
-const decodeStyleRole = (w: Walk, p: string, j: JsonAst): R<StyleRole> =>
-  bareEnum(p, j, ['None', 'Eyebrow', 'Data', 'Lede', 'Caption'] as const, 'StyleRole');
+const decodeStyleRole = enumOf('StyleRole');
 
-const decodeFontVoice = (w: Walk, p: string, j: JsonAst): R<FontVoice> =>
-  bareEnum(p, j, ['Default', 'Display', 'Structural'] as const, 'FontVoice');
-
-const decodeChartKind = (w: Walk, p: string, j: JsonAst): R<ChartKind> =>
-  bareEnum(p, j, ['Line', 'Bar', 'Area', 'Pie', 'Scatter', 'Heatmap'] as const, 'ChartKind');
-
-const decodeChartLegendPosition = (w: Walk, p: string, j: JsonAst): R<ChartLegendPosition> =>
-  bareEnum(p, j, ['Top', 'Right', 'Bottom', 'None'] as const, 'ChartLegendPosition');
-
-const decodeChartDataLabels = (w: Walk, p: string, j: JsonAst): R<ChartDataLabels> =>
-  bareEnum(p, j, ['Off', 'Ends'] as const, 'ChartDataLabels');
-
-const decodeChartXScale = (w: Walk, p: string, j: JsonAst): R<ChartXScale> =>
-  bareEnum(p, j, ['Category', 'Temporal'] as const, 'ChartXScale');
+const decodeFontVoice = enumOf('FontVoice');
 
 // ─── Chart annotations (Phase 1490/1491/1492 — §4l) ──────────────────────────
 
@@ -1295,26 +1204,7 @@ const decodeChartAnnotation = (w: Walk, path: string, j: JsonAst): R<ChartAnnota
   }
 };
 
-const decodeFileReadEncoding = (w: Walk, p: string, j: JsonAst): R<FileReadEncoding> =>
-  bareEnum(p, j, ['Text', 'Base64', 'DataUrl'] as const, 'FileReadEncoding');
-
-const NAMED_ARIA_ROLES = [
-  'button',
-  'link',
-  'dialog',
-  'alert',
-  'status',
-  'banner',
-  'navigation',
-  'main',
-  'form',
-  'region',
-  'heading',
-  'progressbar',
-  'tab',
-  'tablist',
-  'tabpanel',
-] as const;
+const decodeFileReadEncoding = enumOf('FileReadEncoding');
 
 const decodeAriaRole = (w: Walk, p: string, j: JsonAst): R<AriaRole> => {
   // Any string is accepted — named roles or the AriaRole.Custom raw escape
@@ -1323,34 +1213,24 @@ const decodeAriaRole = (w: Walk, p: string, j: JsonAst): R<AriaRole> => {
   return ok(j.value as AriaRole);
 };
 
-const decodeLiveRegion = (w: Walk, p: string, j: JsonAst): R<LiveRegionKind> =>
-  bareEnum(p, j, ['polite', 'assertive', 'off'] as const, 'LiveRegionKind');
+const decodeLiveRegion = enumOf('LiveRegionKind');
 
 // ─── CellFormat / ColumnWidth / IconSource ───────────────────────────────────
 
 // Phase 819 — the Duration / RelativeTime format enums. Defined ahead of
 // `decodeCellFormat` (which references them); `decodeFormat` below shares them.
-const decodeDurationUnit = (w: Walk, p: string, j: JsonAst): R<DurationUnit> =>
-  bareEnum(p, j, ['Seconds', 'Minutes', 'Hours'] as const, 'DurationUnit');
+const decodeDurationUnit = enumOf('DurationUnit');
 
-const decodeDurationStyle = (w: Walk, p: string, j: JsonAst): R<DurationStyle> =>
-  bareEnum(p, j, ['Compact', 'Clock', 'Long'] as const, 'DurationStyle');
+const decodeDurationStyle = enumOf('DurationStyle');
 
-const decodeRelativeTimeUnit = (w: Walk, p: string, j: JsonAst): R<RelativeTimeUnit> =>
-  bareEnum(
-    p,
-    j,
-    ['Second', 'Minute', 'Hour', 'Day', 'Week', 'Month', 'Year'] as const,
-    'RelativeTimeUnit',
-  );
+const decodeRelativeTimeUnit = enumOf('RelativeTimeUnit');
 
 /**
  * Phase 1533 — the `Binding.Now` grain: a strict SUBSET of `RelativeTimeUnit`.
  * `Week` / `Month` / `Year` are refused rather than quietly accepted, because a
  * calendar instant has no truncation to those that every host agrees on.
  */
-const decodeTimeGrain = (w: Walk, p: string, j: JsonAst): R<TimeGrain> =>
-  bareEnum(p, j, ['Second', 'Minute', 'Hour', 'Day'] as const, 'TimeGrain');
+const decodeTimeGrain = enumOf('TimeGrain');
 
 const decodeCellFormat = (w: Walk, path: string, j: JsonAst): R<CellFormat> => {
   const fo = requireObject(w, path, j);
@@ -4090,197 +3970,363 @@ const decodeAction = (w: Walk, path: string, j: JsonAst): R<Action<unknown>> => 
 const placeholderAction: Action<unknown> = { kind: 'Chain', actions: [] };
 const onChangePlaceholder = (): Action<unknown> => placeholderAction;
 
-const decodeMetricSpec = (w: Walk, path: string, j: JsonAst): R<MetricSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const label = reqField(w, path, f, 'label', 'Metric label TextSource', decodeTextSource);
-  // 0.2.0 rename law: the scalar displayed value is `value` (clean break —
-  // the old `source` name is NOT an accepted alias; `data` is the web prior).
-  // DIDACTIC ERROR (2026-07-17): a text value here is the top observed
-  // emission error — name the right kind so the structured repair channel
-  // self-corrects. Mirror of F#. `mapErrors` rewrites every defect the member
-  // reports (§29.4: a rewritten entry stays one entry).
-  const metricDidactic = (e: DecodeError): DecodeError =>
-    e.message.includes('expected JSON number')
-      ? {
-          ...e,
-          message:
-            e.message +
-            ' — Metric is numeric-only (trendable KPI); a labeled TEXT fact belongs in Fact: {"$type":"Fact","label":\u2026,"value":\u2026}',
-        }
-      : e;
-  const source = mapErrors(
-    reqFieldAliased(w, path, f, 'value', ['data'], 'Metric value binding', decodeBindingFloat),
-    metricDidactic,
-  );
-  // Phase 460 — stylistic fields omitted-when-default; restore the identity
-  // default on absence (mirrors the Phase 147 role/voice decode).
-  const format = optField(w, path, f, 'format', decodeCellFormat);
-  const tone = optField(w, path, f, 'tone', decodeTone);
-  const weight = optField(w, path, f, 'weight', decodeWeight);
-  const emphasis = optField(w, path, f, 'emphasis', decodeEmphasis);
-  const trend = optField(w, path, f, 'trend', decodeBindingFloat);
-  const trendFormat = optField(w, path, f, 'trendFormat', decodeCellFormat);
-  const trendPolarity = optField(w, path, f, 'trendPolarity', decodeTrendPolarity);
-  const icon = optField(w, path, f, 'icon', decodeIconSource);
-  const subtext = optField(w, path, f, 'subtext', decodeTextSource);
-  if (
-    !label.ok ||
-    !source.ok ||
-    !format.ok ||
-    !tone.ok ||
-    !weight.ok ||
-    !emphasis.ok ||
-    !trend.ok ||
-    !trendFormat.ok ||
-    !trendPolarity.ok ||
-    !icon.ok ||
-    !subtext.ok
-  )
-    return failed(
-      label,
-      source,
-      format,
-      tone,
-      weight,
-      emphasis,
-      trend,
-      trendFormat,
-      trendPolarity,
-      icon,
-      subtext,
-    );
-  return ok({
-    label: label.value,
-    value: source.value as Binding<number>,
-    format: format.value ?? { kind: 'None' },
-    tone: tone.value ?? 'Default',
-    weight: weight.value ?? 'Standard',
-    emphasis: emphasis.value ?? 'Normal',
-    ...(trend.value !== undefined ? { trend: trend.value as Binding<number> } : {}),
-    ...(trendFormat.value !== undefined ? { trendFormat: trendFormat.value } : {}),
-    trendPolarity: trendPolarity.value ?? 'HigherIsBetter',
-    ...(icon.value !== undefined ? { icon: icon.value } : {}),
-    ...(subtext.value !== undefined ? { subtext: subtext.value } : {}),
+// ─── Spec decoders from the IDL's field tables (Phase 2073) ───────────────────
+//
+// Every kind spec decoder below is ONE field table folded by `specDecoder`:
+// the table is `KIND_FIELDS[kind]` from `@fuaran-ui/schema` (this host's
+// projection of the corpus's `idl.json`), and the fold is the §29 defect walk
+// — the object's members decoded in IDL order through `reqFieldAliased` /
+// `optFieldAliased`, every failure kept and joined (`joinFailures`), an omitted
+// `omitDefault` member restored to its declared default, a closure member
+// present on the wire read as its placeholder. A member reads through the
+// decoder its IDL type implies (`decoderFor`); what this file supplies per
+// spec is BEHAVIOUR, declared once beside the kind: a member whose reading is
+// not the one its type implies (a lenient alias table, a limit, a didactic
+// rewrite), the decode-only field-name aliases (WIRE_FORMAT 3.6), a whole-spec
+// check (`also`), and the host-only members the table does not carry
+// (`after`). A member the IDL gains therefore decodes with no edit here; a
+// member whose type this host has no reading of is a load-time failure naming
+// it, never a silent pass-through.
+//
+// The override keys are typed over the kind's own member names, so an override
+// for a member the IDL does not declare fails to compile.
+
+/** How a member's IDL type is spelt in a missing-member message. */
+const spellType = (t: IdlType): string => {
+  switch (t.$type) {
+    case 'str':
+      return 'string';
+    case 'int':
+      return 'integer';
+    case 'float':
+      return 'number';
+    case 'bool':
+      return 'boolean';
+    case 'node':
+      return 'Node';
+    case 'json':
+      return 'JSON value';
+    case 'kind':
+      return 'NodeKind';
+    case 'op':
+      return 'TreeOp';
+    case 'list':
+      return `${spellType(t.of)} array`;
+    case 'map':
+      return `map of ${spellType(t.values)}`;
+    case 'enum':
+    case 'record':
+    case 'var':
+      return t.name;
+    case 'union':
+      return t.args.length === 0 ? t.name : `${t.name}<${t.args.map(spellType).join(', ')}>`;
+    case 'fn':
+      return 'closure';
+    case 'hosted':
+      return 'JSON payload';
+  }
+};
+
+/** The one spelling of an IDL type the dialect tables below are keyed by. */
+const typeKey = (t: IdlType): string => {
+  switch (t.$type) {
+    case 'list':
+      return `list<${typeKey(t.of)}>`;
+    case 'map':
+      return `map<${typeKey(t.values)}>`;
+    case 'enum':
+    case 'record':
+    case 'var':
+      return `${t.$type}:${t.name}`;
+    case 'union':
+      return t.args.length === 0
+        ? `union:${t.name}`
+        : `union:${t.name}<${t.args.map(typeKey).join(',')}>`;
+    default:
+      return t.$type;
+  }
+};
+
+/**
+ * This host's readers of the IDL's enums, records, unions and `Binding<…>`
+ * payloads, by IDL name / argument type. Built on first use: the decoders it names are
+ * declared through the rest of this module.
+ */
+const dialect = (() => {
+  let tables:
+    | {
+        readonly records: Readonly<Record<string, Decoder<unknown>>>;
+        readonly unions: Readonly<Record<string, Decoder<unknown>>>;
+        readonly bindings: Readonly<Record<string, Decoder<unknown>>>;
+        /** The enums whose reading carries lenient aliases (WIRE_FORMAT 3.6) or a didactic refusal; every other enum reads bare. */
+        readonly enums: Partial<Record<EnumName, Decoder<string>>>;
+      }
+    | undefined;
+  return () =>
+    (tables ??= {
+      records: {
+        ColumnErased: decodeColumnErased,
+        ContentHash: decodeContentHash,
+        DefaultSort: decodeDefaultSort,
+        DrawStyle: decodeDrawStyle,
+        EffectClass: decodeEffectClass,
+        FilterSpec: decodeFilterSpec,
+        FormField: decodeFormField,
+        GuestChannel: decodeGuestChannel,
+        SrcSetEntry: decodeSrcSetEntry,
+        StaticRows: decodeStaticRows,
+        TabHeader: decodeTabHeader,
+        TrackEntry: decodeTrackEntry,
+        TreeItem: decodeTreeItem,
+        ViewBox: decodeViewBox,
+      },
+      unions: {
+        Action: decodeAction,
+        BoxLayout: decodeBoxLayout,
+        CellFormat: decodeCellFormat,
+        ChartAnnotation: decodeChartAnnotation,
+        Format: decodeFormat,
+        HoleDecl: decodeHoleDecl,
+        MediaKind: decodeMediaKind,
+        Shape: decodeShape,
+        TextSource: decodeTextSource,
+      },
+      bindings: {
+        str: decodeBindingString,
+        bool: decodeBindingBool,
+        float: decodeBindingFloat,
+        int: decodeBindingInt,
+        hosted: decodeBindingRows,
+        'list<str>': decodeBindingStringList,
+        'list<float>': decodeBindingFloatSeq,
+        'list<record:SelectOption>': decodeBindingSelectOptions,
+        'list<record:MapMarker>': decodeBindingMarkerSeq,
+      },
+      enums: {
+        BadgeVariant: decodeBadgeVariant,
+        BoxRole: decodeBoxRole,
+        ButtonVariant: decodeButtonVariant,
+        Emphasis: decodeEmphasis,
+        HeadingVariant: decodeHeadingVariant,
+        Orientation: decodeOrientation,
+        StyleWeight: decodeWeight,
+        ToneVariant: decodeTone,
+      },
+    });
+})();
+
+/** The decoder a member's IDL type implies, or `undefined` when this host has no reading of it. */
+const decoderFor = (t: IdlType): Decoder<unknown> | undefined => {
+  switch (t.$type) {
+    case 'str':
+      return requireString;
+    case 'int':
+      return requireInt;
+    case 'float':
+      return requireFloat;
+    case 'bool':
+      return requireBool;
+    case 'node':
+      return decodeNodeAst;
+    case 'json':
+      return decodeJVal;
+    case 'list': {
+      const inner = decoderFor(t.of);
+      return inner === undefined ? undefined : listOf(inner);
+    }
+    case 'map': {
+      const inner = decoderFor(t.values);
+      return inner === undefined
+        ? undefined
+        : (w, path, j) =>
+            andThen(requireObject(w, path, j), (f) =>
+              traverseMembers(path, f, (p, _k, v) => inner(w, p, v)),
+            );
+    }
+    case 'enum':
+      return dialect().enums[t.name as EnumName] ?? enumOf(t.name as EnumName);
+    case 'record':
+      return dialect().records[t.name];
+    case 'union':
+      return t.name === 'Binding'
+        ? t.args.length === 0
+          ? decodeBinding
+          : dialect().bindings[typeKey(t.args[0]!)]
+        : dialect().unions[t.name];
+    default:
+      return undefined;
+  }
+};
+
+/** What a spec declares, once, for one of its members. */
+interface FieldOverride {
+  /** This member's own reading, in place of the one its IDL type implies. */
+  readonly dec?: Decoder<unknown>;
+  /** Decode-only field-name aliases (WIRE_FORMAT 3.6); the canonical name wins when both are present. */
+  readonly aliases?: readonly string[];
+  /** For a closure member: what a present `"<closure>"` sentinel decodes to (an inert placeholder action by default). */
+  readonly placeholder?: unknown;
+}
+
+type MemberName<K extends NodeKindName> = (typeof KIND_FIELDS)[K][number]['name'];
+type Overrides<K extends NodeKindName> = Partial<Record<MemberName<K>, FieldOverride>>;
+
+interface Member {
+  readonly name: string;
+  readonly opt: Optionality;
+  readonly closure: boolean;
+  readonly dec: Decoder<unknown>;
+  readonly aliases: readonly string[];
+  readonly expected: string;
+  readonly dflt: (() => unknown) | undefined;
+  readonly placeholder: unknown;
+}
+
+const closurePlaceholder = (): Action<unknown> => placeholderAction;
+
+const tableMembers = (
+  owner: string,
+  rows: readonly FieldRow[],
+  overrides: Readonly<Record<string, FieldOverride | undefined>>,
+): readonly Member[] =>
+  wireRows(rows).map((row) => {
+    const o = overrides[row.name] ?? {};
+    const closure = row.type.$type === 'fn';
+    const dec = closure ? requireString : (o.dec ?? decoderFor(row.type));
+    if (dec === undefined)
+      throw new Error(
+        `${owner}.${row.name}: no decoder reads the IDL type ${spellType(row.type)}; add an override`,
+      );
+    const dflt = row.dflt;
+    return {
+      name: row.name,
+      opt: row.opt,
+      closure,
+      dec,
+      aliases: o.aliases ?? [],
+      expected: spellType(row.type),
+      dflt: dflt === undefined ? undefined : () => defaultValue(dflt),
+      placeholder: o.placeholder ?? closurePlaceholder,
+    };
   });
+
+/** The members of one object, each decoded at its own path, every defect kept, in table order. */
+const decodeMembers = (
+  w: Walk,
+  path: string,
+  f: Fields,
+  members: readonly Member[],
+  also: ((w: Walk, path: string, f: Fields) => R<unknown>) | undefined,
+): R<Record<string, unknown>> => {
+  const out: Record<string, unknown> = {};
+  const rs: R<unknown>[] = [];
+  for (const m of members) {
+    if (m.closure) {
+      if (fieldAliased(f, m.name, m.aliases) !== undefined) out[m.name] = m.placeholder;
+      continue;
+    }
+    const r =
+      m.opt === 'required'
+        ? reqFieldAliased(w, path, f, m.name, m.aliases, m.expected, m.dec)
+        : optFieldAliased(w, path, f, m.name, m.aliases, m.dec);
+    rs.push(r);
+    if (!r.ok) continue;
+    if (r.value !== undefined) out[m.name] = r.value;
+    else if (m.dflt !== undefined) out[m.name] = m.dflt();
+  }
+  if (also !== undefined) rs.push(also(w, path, f));
+  const error = joinFailures(concatDefects, rs);
+  return error === undefined ? ok(out) : fail(error);
 };
 
-const decodeHeadingSpec = (w: Walk, path: string, j: JsonAst): R<HeadingSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const level = reqField(w, path, f, 'level', 'heading level integer', requireInt);
-  const text = reqField(w, path, f, 'text', 'heading TextSource', decodeTextSource);
-  const variant = reqField(w, path, f, 'variant', 'HeadingVariant', decodeHeadingVariant);
-  if (!level.ok || !text.ok || !variant.ok) return failed(level, text, variant);
-  return ok({ level: level.value, text: text.value, variant: variant.value });
+/**
+ * The decoder of one field table. `overrides` is the behaviour per member;
+ * `also` a whole-object check joined with the members; `after` adds what the
+ * table does not carry (a host-only member) or reshapes the result, once every
+ * member has decoded (§29.1 rule 5).
+ */
+const tableDecoder = <T, S>(
+  owner: string,
+  rows: readonly FieldRow[],
+  overrides: Readonly<Record<string, FieldOverride | undefined>>,
+  after: ((value: T, w: Walk, path: string, f: Fields) => R<S>) | undefined,
+  also: ((w: Walk, path: string, f: Fields) => R<unknown>) | undefined,
+): Decoder<S> => {
+  let members: readonly Member[] | undefined;
+  return (w, path, j) => {
+    const fo = requireObject(w, path, j);
+    if (!fo.ok) return fo;
+    members ??= tableMembers(owner, rows, overrides);
+    const r = decodeMembers(w, path, fo.value, members, also);
+    if (!r.ok) return r;
+    const value = r.value as unknown as T;
+    return after === undefined ? ok(value as unknown as S) : after(value, w, path, fo.value);
+  };
 };
 
-const decodeLabelValueRowSpec = (w: Walk, path: string, j: JsonAst): R<LabelValueRowSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const label = reqField(w, path, f, 'label', 'row TextSource label', decodeTextSource);
-  const source = reqFieldAliased(
-    w,
-    path,
-    f,
-    'value',
-    ['data'],
-    'row Binding<float> value',
-    decodeBindingFloat,
-  );
-  // Phase 460 — `format` omitted-when-default. 0.2.2 — `emphasis` is
-  // omitted-when-false (aligning with Fact), and the style-enum prior
-  // coerces: "Loud" → true, "Normal"/"Quiet" → false; any other string is a
-  // didactic reject naming the bool and where the enum lives.
-  const format = optField(w, path, f, 'format', decodeCellFormat);
-  // 0.2.8 — the cross-vocabulary coercion moved to the shared
-  // `decodeEmphasisFlag` (2026-07-19 sweep: the 0.2.2 site-local version
-  // missed the Phase-460 aliases — 'Strong' hard-failed here — and Fact's
-  // identical flag had no coercion at all).
-  const emphasis = optField(w, path, f, 'emphasis', decodeEmphasisFlag);
-  const help = optField(w, path, f, 'help', decodeTextSource);
-  if (!label.ok || !source.ok || !format.ok || !help.ok || !emphasis.ok)
-    return failed(label, source, format, help, emphasis);
-  return ok({
-    label: label.value,
-    value: source.value as Binding<number>,
-    format: format.value ?? { kind: 'None' },
-    emphasis: emphasis.value ?? false,
-    ...(help.value !== undefined ? { help: help.value } : {}),
-  });
-};
+/** The decoder of a kind's spec, from `KIND_FIELDS`. */
+const specDecoder = <K extends NodeKindName, S = IdlSpec<K>>(
+  kind: K,
+  overrides: Overrides<K> = {},
+  after?: (spec: IdlSpec<K>, w: Walk, path: string, f: Fields) => R<S>,
+  also?: (w: Walk, path: string, f: Fields) => R<unknown>,
+): Decoder<S> => tableDecoder(kind, KIND_FIELDS[kind], overrides, after, also);
 
-const decodeFactSpec = (w: Walk, path: string, j: JsonAst): R<FactSpec> => {
-  // New kind (2026-07-17): minimal wire — only label + value required;
-  // tone/emphasis omitted-when-default on both boundaries. Mirror of F#.
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const label = reqField(w, path, f, 'label', 'fact TextSource label', decodeTextSource);
-  const value = reqField(w, path, f, 'value', 'fact TextSource value', decodeTextSource);
-  const tone = optField(w, path, f, 'tone', decodeTone);
-  // 0.2.8 — the shared cross-vocabulary reader (enum spellings coerce to the bool).
-  const emphasis = optField(w, path, f, 'emphasis', decodeEmphasisFlag);
-  const help = optField(w, path, f, 'help', decodeTextSource);
-  const icon = optField(w, path, f, 'icon', decodeIconSource);
-  if (!label.ok || !value.ok || !tone.ok || !emphasis.ok || !help.ok || !icon.ok)
-    return failed(label, value, tone, emphasis, help, icon);
-  return ok({
-    label: label.value,
-    value: value.value,
-    tone: tone.value ?? 'Default',
-    emphasis: emphasis.value ?? false,
-    ...(help.value !== undefined ? { help: help.value } : {}),
-    ...(icon.value !== undefined ? { icon: icon.value } : {}),
-  });
-};
+type RecordOverrides<N extends RecordName> = Partial<
+  Record<(typeof RECORD_FIELDS)[N][number]['name'], FieldOverride>
+>;
 
-const decodeMarkdownSpec = (w: Walk, path: string, j: JsonAst): R<MarkdownSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const text = reqField(w, path, fo.value, 'text', 'markdown TextSource', decodeTextSource);
-  return text.ok ? ok({ text: text.value }) : text;
-};
+/** The decoder of a record, from `RECORD_FIELDS`. */
+const recordDecoder = <N extends RecordName, S = IdlRecord<N>>(
+  name: N,
+  overrides: RecordOverrides<N> = {},
+  after?: (value: IdlRecord<N>, w: Walk, path: string, f: Fields) => R<S>,
+): Decoder<S> => tableDecoder(name, RECORD_FIELDS[name], overrides, after, undefined);
 
-const decodeBadgeSpec = (w: Walk, path: string, j: JsonAst): R<BadgeSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const label = reqField(w, path, f, 'label', 'Badge label TextSource', decodeTextSource);
-  const variant = reqField(w, path, f, 'variant', 'BadgeVariant', decodeBadgeVariant);
-  if (!label.ok || !variant.ok) return failed(label, variant);
-  return ok({ label: label.value, variant: variant.value });
-};
+/** A positive whole number, refused otherwise with `expected`. */
+const positiveInt =
+  (expected: string): Decoder<number> =>
+  (_w, p, j) =>
+    j.kind !== 'JNumber' || j.value < 1 || !Number.isInteger(j.value)
+      ? wrongType(p, expected)
+      : ok(j.value);
 
-const decodeLinkSpec = (w: Walk, path: string, j: JsonAst): R<LinkSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const href = reqField(w, path, f, 'href', 'link Binding<string> Href', decodeBindingString);
-  const label = reqField(w, path, f, 'label', 'link label TextSource', decodeTextSource);
-  const download = reqField(w, path, f, 'download', 'download bool', requireBool);
-  const rel = optField(w, path, f, 'rel', requireString);
-  const target = optField(w, path, f, 'target', requireString);
-  // Phase 812 — optional anti-scraper render strategy; the closed enumeration
-  // default-denies (UNKNOWN_DU_CASE at `$.kind.protection`).
-  const protection = optField(w, path, f, 'protection', decodeLinkProtection);
-  if (!href.ok || !label.ok || !download.ok || !rel.ok || !target.ok || !protection.ok)
-    return failed(href, label, download, rel, target, protection);
-  return ok({
-    href: href.value,
-    label: label.value,
-    download: download.value,
-    ...(rel.value !== undefined ? { rel: rel.value } : {}),
-    ...(target.value !== undefined ? { target: target.value } : {}),
-    ...(protection.value !== undefined ? { protection: protection.value } : {}),
-  });
-};
+const decodeMetricSpec = specDecoder('Metric', {
+  // 0.2.0 rename law: the scalar displayed value is `value` (clean break — the
+  // old `source` name is NOT an accepted alias; `data` is the web prior).
+  // DIDACTIC ERROR (2026-07-17): a text value here is the top observed emission
+  // error — name the right kind so the structured repair channel self-corrects.
+  // Mirror of F#. `mapErrors` rewrites every defect the member reports (§29.4).
+  value: {
+    aliases: ['data'],
+    dec: (w, p, j) =>
+      mapErrors(decodeBindingFloat(w, p, j), (e) =>
+        e.message.includes('expected JSON number')
+          ? {
+              ...e,
+              message:
+                e.message +
+                ' — Metric is numeric-only (trendable KPI); a labeled TEXT fact belongs in Fact: {"$type":"Fact","label":\u2026,"value":\u2026}',
+            }
+          : e,
+      ),
+  },
+});
 
-const decodeLinkProtection = (w: Walk, p: string, j: JsonAst): R<LinkProtection> =>
-  bareEnum(p, j, ['email'] as const, 'LinkProtection');
+const decodeHeadingSpec = specDecoder('Heading');
+
+const decodeLabelValueRowSpec = specDecoder('LabelValueRow', {
+  value: { aliases: ['data'] },
+  emphasis: { dec: decodeEmphasisFlag },
+});
+
+const decodeFactSpec = specDecoder('Fact', { emphasis: { dec: decodeEmphasisFlag } });
+
+const decodeMarkdownSpec = specDecoder('Markdown');
+
+const decodeBadgeSpec = specDecoder('Badge');
+
+const decodeLinkSpec = specDecoder('Link');
 
 // Phase 1080 — one `srcSet` candidate. `width` is the intrinsic pixel width of
 // this rendition and MUST be a positive integer; zero and negative values are a
@@ -4312,87 +4358,7 @@ const decodeSrcSetEntry = (w: Walk, path: string, j: JsonAst): R<SrcSetEntry> =>
   return ok<SrcSetEntry>({ src: src.value, width: width.value });
 };
 
-const decodeImageSpec = (w: Walk, path: string, j: JsonAst): R<ImageSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const alt = reqField(w, path, f, 'alt', 'Image alt TextSource', decodeTextSource);
-  const src = reqField(w, path, f, 'src', 'Image Binding<string> Src', decodeBindingString);
-  const variant = reqField(w, path, f, 'variant', 'ImageVariant', decodeImageVariant);
-  // Phase 1077 — omitted-when-default; absent restores today's behaviour, which
-  // is what keeps every pre-phase document decoding unchanged.
-  const fitJ = tryField(f, 'fit');
-  const fit = fitJ === undefined ? ok<ImageFit>('Natural') : decodeImageFit(w, `${path}.fit`, fitJ);
-  const aspectJ = tryField(f, 'aspectRatio');
-  const aspectRatio =
-    aspectJ === undefined
-      ? ok<ImageAspect>('Natural')
-      : decodeImageAspect(w, `${path}.aspectRatio`, aspectJ);
-  const loadingJ = tryField(f, 'loading');
-  const loading =
-    loadingJ === undefined
-      ? ok<ImageLoading>('Eager')
-      : decodeImageLoading(w, `${path}.loading`, loadingJ);
-  // Phase 1078 — `caption` is optional CONTENT, so absent means absent (rule 4),
-  // not absent-means-a-default. `decodeTextSource` is the same function `alt`
-  // uses, which is what makes the §16 bare-string shorthand and every
-  // `TextSource` case reach the slot without a caption-specific rule.
-  const caption = optField(w, path, f, 'caption', decodeTextSource);
-  // Phase 1080 — the MISSING-LIST-FIELD decode class, and the one line in this
-  // decoder most worth reading. An ABSENT `srcSet` is the EMPTY ARRAY: not
-  // `undefined`, not `null`, not an error. This is `optField` deliberately NOT
-  // used — `optField` produces `undefined`, and a slot that came back
-  // `undefined` here would hand a consumer a value the wire does not describe
-  // and that this package's own encoder could not round-trip. A PRESENT `null`
-  // is refused rather than read as absence: absence already has a spelling, and
-  // a second one lets two conformant hosts emit different canonical bytes for
-  // the same document.
-  const srcSetJ = tryField(f, 'srcSet');
-  const srcSet: R<readonly SrcSetEntry[]> =
-    srcSetJ === undefined
-      ? ok<readonly SrcSetEntry[]>([])
-      : (() => {
-          const arr = requireArray(w, `${path}.srcSet`, srcSetJ);
-          if (!arr.ok) return arr;
-          return traverseIndexed(arr.value, (i, el) =>
-            decodeSrcSetEntry(w, `${path}.srcSet[${i}]`, el),
-          );
-        })();
-  // Phase 1079 — an ordinary omit-at-default bool: absent is `false`, and a
-  // present non-boolean is a WRONG_TYPE rather than a truthiness coercion.
-  // `"expandable":"true"` is an emitter guessing, and a decoder that guessed
-  // back would have to rule on `"false"` and `""` as well — at which point two
-  // conformant hosts can disagree about whether the document declares an
-  // affordance at all. `requireBool` is the same function `download` uses.
-  const expandableJ = tryField(f, 'expandable');
-  const expandable =
-    expandableJ === undefined
-      ? ok<boolean>(false)
-      : requireBool(w, `${path}.expandable`, expandableJ);
-  if (
-    !aspectRatio.ok ||
-    !loading.ok ||
-    !alt.ok ||
-    !src.ok ||
-    !variant.ok ||
-    !fit.ok ||
-    !caption.ok ||
-    !srcSet.ok ||
-    !expandable.ok
-  )
-    return failed(aspectRatio, loading, alt, src, variant, fit, caption, srcSet, expandable);
-  return ok({
-    alt: alt.value,
-    src: src.value,
-    variant: variant.value,
-    fit: fit.value,
-    aspectRatio: aspectRatio.value,
-    loading: loading.value,
-    srcSet: srcSet.value,
-    expandable: expandable.value,
-    ...(caption.value !== undefined ? { caption: caption.value } : {}),
-  });
-};
+const decodeImageSpec = specDecoder('Image');
 
 // Phase 1076 — which media surface this is. A `$type`-DISCRIMINATED union, so
 // an unknown case reports at `<path>.$type` (the `Binding` / `TextSource`
@@ -4438,54 +4404,7 @@ const decodeMediaKind = (w: Walk, path: string, j: JsonAst): R<MediaKind> => {
 // expressed where a decoder can enforce it; `controls` is the second
 // omit-at-TRUE slot in the vocabulary, so an absent key is the ACCESSIBLE value
 // and the document only spends a key to take the transport away.
-const decodeMediaSpec = (w: Walk, path: string, j: JsonAst): R<MediaSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const src = reqField(w, path, f, 'src', 'Media Binding<string> Src', decodeBindingString);
-  const label = reqField(
-    w,
-    path,
-    f,
-    'label',
-    'Media accessible label TextSource',
-    decodeTextSource,
-  );
-  const kind = reqField(w, path, f, 'kind', 'MediaKind (Video | Audio)', decodeMediaKind);
-  const controlsJ = tryField(f, 'controls');
-  const controls =
-    controlsJ === undefined ? ok<boolean>(true) : requireBool(w, `${path}.controls`, controlsJ);
-  const loopJ = tryField(f, 'loop');
-  const loop = loopJ === undefined ? ok<boolean>(false) : requireBool(w, `${path}.loop`, loopJ);
-  // Phase 1110 — the timed-text tracks. `tracks` is omitted on the wire when
-  // EMPTY (an absent list and an empty one denote the same document), so an
-  // absent key restores `[]` and never a null. The authored order is preserved:
-  // a reader picks a track from a menu the user agent builds in DOCUMENT order,
-  // so sorting it would be rewriting someone else's menu.
-  const tracksJ = tryField(f, 'tracks');
-  const tracks: R<readonly TrackEntry[]> =
-    tracksJ === undefined
-      ? ok<readonly TrackEntry[]>([])
-      : (() => {
-          const arr = requireArray(w, `${path}.tracks`, tracksJ);
-          if (!arr.ok) return arr;
-          return traverseIndexed(arr.value, (i, el) =>
-            decodeTrackEntry(w, `${path}.tracks[${i}]`, el),
-          );
-        })();
-  const transcript = optField(w, path, f, 'transcript', decodeTextSource);
-  if (!controls.ok || !tracks.ok || !src.ok || !label.ok || !kind.ok || !loop.ok || !transcript.ok)
-    return failed(controls, tracks, src, label, kind, loop, transcript);
-  return ok({
-    src: src.value,
-    label: label.value,
-    controls: controls.value,
-    loop: loop.value,
-    kind: kind.value,
-    tracks: tracks.value,
-    ...(transcript.value !== undefined ? { transcript: transcript.value } : {}),
-  });
-};
+const decodeMediaSpec = specDecoder('Media');
 
 // Phase 1110 — one `<track>`. FOUR of the five members are required, which makes
 // it the strictest record on the wire; `default` is the one omitted-at-`false`
@@ -4519,25 +4438,7 @@ const decodeTrackEntry = (w: Walk, path: string, j: JsonAst): R<TrackEntry> => {
 
 // Phase 1120 — the tree spec. The two State-slot names are ordinary optional
 // strings; the hierarchy is the self-referential part.
-const decodeTreeSpec = (w: Walk, path: string, j: JsonAst): R<TreeSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const items = reqField(w, path, f, 'items', 'Tree items list', listOf(decodeTreeItem));
-  const expandedStateKey = optField(w, path, f, 'expandedStateKey', requireString);
-  const selectionStateKey = optField(w, path, f, 'selectionStateKey', requireString);
-  if (!items.ok || !expandedStateKey.ok || !selectionStateKey.ok)
-    return failed(items, expandedStateKey, selectionStateKey);
-  return ok({
-    items: items.value,
-    ...(expandedStateKey.value !== undefined ? { expandedStateKey: expandedStateKey.value } : {}),
-    ...(selectionStateKey.value !== undefined
-      ? { selectionStateKey: selectionStateKey.value }
-      : {}),
-    // Emitted only when present (rule 4); the value is the closure sentinel.
-    ...(tryField(f, 'onSelect') !== undefined ? { onSelect: () => placeholderAction } : {}),
-  });
-};
+const decodeTreeSpec = specDecoder('Tree');
 
 // Phase 1120 — one row. `id` and `label` are required; `children` omits at the
 // EMPTY LIST (so a leaf carries two keys and nothing else, which is most of a
@@ -4597,133 +4498,17 @@ const decodeTreeItemInner = (w: Walk, path: string, j: JsonAst): R<TreeItem> => 
 //
 // Nothing here inspects the `src` STRING: the `embed` egress class is a
 // RENDER-time obligation, as every §19-class rule is.
-const decodeEmbedSpec = (w: Walk, path: string, j: JsonAst): R<EmbedSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const src = reqField(w, path, f, 'src', 'Embed Binding<string> Src', decodeBindingString);
-  const title = reqField(
-    w,
-    path,
-    f,
-    'title',
-    'Embed accessible title TextSource',
-    decodeTextSource,
-  );
-  const aspectJ = tryField(f, 'aspectRatio');
-  const aspectRatio =
-    aspectJ === undefined
-      ? ok<ImageAspect>('Natural')
-      : decodeImageAspect(w, `${path}.aspectRatio`, aspectJ);
-  const permissionsJ = tryField(f, 'permissions');
-  const permissions: R<readonly EmbedPermission[]> =
-    permissionsJ === undefined
-      ? ok<readonly EmbedPermission[]>([])
-      : (() => {
-          const arr = requireArray(w, `${path}.permissions`, permissionsJ);
-          if (!arr.ok) return arr;
-          return traverseIndexed(arr.value, (i, el) =>
-            decodeEmbedPermission(w, `${path}.permissions[${i}]`, el),
-          );
-        })();
-  if (!src.ok || !title.ok || !aspectRatio.ok || !permissions.ok)
-    return failed(src, title, aspectRatio, permissions);
-  return ok({
-    src: src.value,
-    title: title.value,
-    aspectRatio: aspectRatio.value,
-    permissions: permissions.value,
-  });
-};
+const decodeEmbedSpec = specDecoder('Embed');
 
-const decodeListSpec = (w: Walk, path: string, j: JsonAst): R<ListSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const items = reqField(
-    w,
-    path,
-    f,
-    'items',
-    'List items TextSource array',
-    listOf(decodeTextSource),
-  );
-  const ordered = reqField(w, path, f, 'ordered', 'ordered bool', requireBool);
-  if (!items.ok || !ordered.ok) return failed(items, ordered);
-  return ok({ items: items.value, ordered: ordered.value });
-};
+const decodeListSpec = specDecoder('List');
 
-const decodeToastSpec = (w: Walk, path: string, j: JsonAst): R<ToastSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const message = reqField(w, path, f, 'message', 'Toast message TextSource', decodeTextSource);
-  // Phase 460 — `tone` omitted-when-default.
-  const tone = optField(w, path, f, 'tone', decodeTone);
-  const open = reqField(w, path, f, 'open', 'Toast open binding', decodeBinding);
-  // 0.2.0 omitted-when-TRUE (a Toast is dismissable unless said otherwise).
-  const dismissable = optField(w, path, f, 'dismissable', requireBool);
-  if (!message.ok || !tone.ok || !open.ok || !dismissable.ok)
-    return failed(message, tone, open, dismissable);
-  return ok({
-    message: message.value,
-    tone: tone.value ?? 'Default',
-    open: open.value as Binding<boolean>,
-    dismissable: dismissable.value ?? true,
-  });
-};
+const decodeToastSpec = specDecoder('Toast');
 
-const decodeCodeBlockSpec = (w: Walk, path: string, j: JsonAst): R<CodeBlockSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const code = reqField(w, path, f, 'code', 'code-block code string', requireString);
-  const language = reqField(w, path, f, 'language', 'code-block language string', requireString);
-  const lineNumbers = reqField(w, path, f, 'lineNumbers', 'lineNumbers bool', requireBool);
-  const copyable = reqField(w, path, f, 'copyable', 'copyable bool', requireBool);
-  const highlightLines = reqField(
-    w,
-    path,
-    f,
-    'highlightLines',
-    'highlightLines int array',
-    listOf(requireInt),
-  );
-  if (!code.ok || !language.ok || !lineNumbers.ok || !copyable.ok || !highlightLines.ok)
-    return failed(code, language, lineNumbers, copyable, highlightLines);
-  return ok({
-    code: code.value,
-    language: language.value,
-    lineNumbers: lineNumbers.value,
-    highlightLines: highlightLines.value,
-    copyable: copyable.value,
-  });
-};
+const decodeCodeBlockSpec = specDecoder('CodeBlock');
 
-const decodeMathSpec = (w: Walk, path: string, j: JsonAst): R<MathSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const source = reqField(w, path, f, 'source', 'math LaTeX source string', requireString);
-  const display = reqField(w, path, f, 'display', 'MathDisplay', decodeMathDisplay);
-  if (!source.ok || !display.ok) return failed(source, display);
-  return ok({ source: source.value, display: display.value });
-};
+const decodeMathSpec = specDecoder('Math');
 
-const decodeSparklineSpec = (w: Walk, path: string, j: JsonAst): R<SparklineSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const source = reqFieldAliased(
-    w,
-    path,
-    fo.value,
-    'source',
-    ['data'],
-    'Sparkline Source binding',
-    decodeBindingFloatSeq,
-  );
-  return source.ok ? ok({ source: source.value }) : source;
-};
+const decodeSparklineSpec = specDecoder('Sparkline', { source: { aliases: ['data'] } });
 
 // Phase 1666 — `Skeleton.rows` is bounded by WIRE_FORMAT §21.9.
 //
@@ -4736,101 +4521,30 @@ const decodeSparklineSpec = (w: Walk, path: string, j: JsonAst): R<SparklineSpec
 //
 // Upper bound only, deliberately: a negative count is an authoring defect
 // (FUARAN152 in the pre-emit family), not a resource breach.
-const decodeSkeletonSpec = (w: Walk, path: string, j: JsonAst): R<SkeletonSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const rows = reqField(w, path, fo.value, 'rows', 'skeleton row count integer', requireInt);
-  if (!rows.ok) return rows;
-  if (rows.value > MAX_SKELETON_ROWS) {
-    return makeError(
-      'LIMIT_EXCEEDED',
-      `${path}.rows`,
-      `skeleton rows ${rows.value} exceeds the maximum of ${MAX_SKELETON_ROWS} (WIRE_FORMAT 21.9)`,
-      `at most ${MAX_SKELETON_ROWS} rows on one Skeleton`,
-    );
-  }
-  return ok({ rows: rows.value });
-};
+const decodeSkeletonSpec = specDecoder('Skeleton', {
+  rows: {
+    dec: (w, p, j) =>
+      andThen(requireInt(w, p, j), (rows) =>
+        rows > MAX_SKELETON_ROWS
+          ? makeError(
+              'LIMIT_EXCEEDED',
+              p,
+              `skeleton rows ${rows} exceeds the maximum of ${MAX_SKELETON_ROWS} (WIRE_FORMAT 21.9)`,
+              `at most ${MAX_SKELETON_ROWS} rows on one Skeleton`,
+            )
+          : ok(rows),
+      ),
+  },
+});
 
 // Phase 821 — the standalone icon-only display kind.
-const decodeIconSize = (w: Walk, p: string, j: JsonAst): R<IconSize> =>
-  bareEnum(p, j, ['Small', 'Medium', 'Large'] as const, 'IconSize');
+const decodeIconSize = enumOf('IconSize');
 
-const decodeIconSpec = (w: Walk, path: string, j: JsonAst): R<IconSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const icon = reqField(w, path, f, 'icon', 'icon name string', requireString);
-  // `size` omitted-when-`Medium`; `tone` omitted-when-default (the Phase 460
-  // discipline); `label` omitted-when-decorative.
-  const sizeJ = tryField(f, 'size');
-  const size =
-    sizeJ === undefined ? ok<IconSize>('Medium') : decodeIconSize(w, `${path}.size`, sizeJ);
-  const toneJ = tryField(f, 'tone');
-  const tone =
-    toneJ === undefined ? ok<ToneVariant>('Default') : decodeTone(w, `${path}.tone`, toneJ);
-  const label = optField(w, path, f, 'label', requireString);
-  if (!icon.ok || !size.ok || !tone.ok || !label.ok) return failed(icon, size, tone, label);
-  return ok<IconSpec>({
-    icon: icon.value,
-    size: size.value,
-    tone: tone.value,
-    ...(label.value !== undefined ? { label: label.value } : {}),
-  });
-};
+const decodeIconSpec = specDecoder('Icon');
 
-const decodeCalloutSpec = (w: Walk, path: string, j: JsonAst): R<CalloutSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const body = reqField(w, path, f, 'body', 'Callout body TextSource', decodeTextSource);
-  // 0.2.0 omitted-when-false.
-  const dismissable = optField(w, path, f, 'dismissable', requireBool);
-  // Phase 460 — `tone` omitted-when-default.
-  const tone = optField(w, path, f, 'tone', decodeTone);
-  const heading = optFieldAliased(w, path, f, 'heading', ['title'], decodeTextSource);
-  const icon = optField(w, path, f, 'icon', decodeIconSource);
-  if (!body.ok || !dismissable.ok || !tone.ok || !heading.ok || !icon.ok)
-    return failed(body, dismissable, tone, heading, icon);
-  return ok({
-    body: body.value,
-    dismissable: dismissable.value ?? false,
-    tone: tone.value ?? 'Default',
-    ...(heading.value !== undefined ? { heading: heading.value } : {}),
-    ...(icon.value !== undefined ? { icon: icon.value } : {}),
-  });
-};
+const decodeCalloutSpec = specDecoder('Callout', { heading: { aliases: ['title'] } });
 
-const decodeProgressSpec = (w: Walk, path: string, j: JsonAst): R<ProgressSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const fraction = reqField(
-    w,
-    path,
-    f,
-    'fraction',
-    'Progress fraction binding',
-    decodeBindingFloat,
-  );
-  // The Static-envelope unwrap now lives in requireBool itself (generalised
-  // 2026-07-18 after the pilot found `emphasis` wrapped the same way).
-  // 0.2.0 omitted-when-false.
-  const indeterminate = optField(w, path, f, 'indeterminate', requireBool);
-  // Phase 460 — `tone` omitted-when-default.
-  const tone = optField(w, path, f, 'tone', decodeTone);
-  const label = optField(w, path, f, 'label', decodeTextSource);
-  const caveat = optField(w, path, f, 'caveat', decodeTextSource);
-  if (!fraction.ok || !indeterminate.ok || !tone.ok || !label.ok || !caveat.ok)
-    return failed(fraction, indeterminate, tone, label, caveat);
-  return ok({
-    fraction: fraction.value as Binding<number>,
-    indeterminate: indeterminate.value ?? false,
-    tone: tone.value ?? 'Default',
-    ...(label.value !== undefined ? { label: label.value } : {}),
-    ...(caveat.value !== undefined ? { caveat: caveat.value } : {}),
-  });
-};
+const decodeProgressSpec = specDecoder('Progress');
 
 // ─── Drawing (Phase 524) ─────────────────────────────────────────────────────
 
@@ -5078,25 +4792,7 @@ const decodeShape = (w: Walk, path: string, j: JsonAst): R<Shape> => {
   }
 };
 
-const decodeDrawingSpec = (w: Walk, path: string, j: JsonAst): R<DrawingSpec> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const viewBox = reqField(w, path, f, 'viewBox', 'Drawing ViewBox', decodeViewBox);
-  const shapes = reqField(w, path, f, 'shapes', 'Drawing shapes array', listOf(decodeShape));
-  const style = optField(w, path, f, 'style', decodeDrawStyle);
-  const title = optField(w, path, f, 'title', decodeTextSource);
-  const description = optField(w, path, f, 'description', decodeTextSource);
-  if (!viewBox.ok || !shapes.ok || !style.ok || !title.ok || !description.ok)
-    return failed(viewBox, shapes, style, title, description);
-  return ok({
-    viewBox: viewBox.value,
-    shapes: shapes.value,
-    style: style.value ?? emptyDrawStyle,
-    ...(title.value !== undefined ? { title: title.value } : {}),
-    ...(description.value !== undefined ? { description: description.value } : {}),
-  });
-};
+const decodeDrawingSpec = specDecoder('Drawing');
 
 // ─── `$type` dispatch (WIRE_FORMAT.md §3.2) ───────────────────────────────────
 //
@@ -5758,31 +5454,7 @@ const decodeFormField = (w: Walk, path: string, j: JsonAst): R<FormField<unknown
   });
 };
 
-const decodeFormSpec = (w: Walk, path: string, j: JsonAst): R<FormSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const fields = reqField(w, path, f, 'fields', 'form field list', listOf(decodeFormField));
-  const onSubmit = reqField(w, path, f, 'onSubmit', 'onSubmit Action', decodeAction);
-  const submitLabel = reqField(
-    w,
-    path,
-    f,
-    'submitLabel',
-    'submitLabel TextSource',
-    decodeTextSource,
-  );
-  // Phase 130: optional bound form-level disabled-state.
-  const disabled = optField(w, path, f, 'disabled', decodeBindingBool);
-  if (!fields.ok || !onSubmit.ok || !submitLabel.ok || !disabled.ok)
-    return failed(fields, onSubmit, submitLabel, disabled);
-  return ok({
-    fields: fields.value,
-    onSubmit: onSubmit.value,
-    submitLabel: submitLabel.value,
-    ...(disabled.value !== undefined ? { disabled: disabled.value } : {}),
-  });
-};
+const decodeFormSpec = specDecoder('Form');
 
 const decodeFilterSpec = (w: Walk, path: string, j: JsonAst): R<FilterSpec<unknown>> => {
   const fo = requireObject(w, path, j);
@@ -5808,180 +5480,35 @@ const decodeFilterSpec = (w: Walk, path: string, j: JsonAst): R<FilterSpec<unkno
   return ok({ name: name.value, label: label.value, field: kind.value });
 };
 
-const decodeButtonSpec = (w: Walk, path: string, j: JsonAst): R<ButtonSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const label = reqField(w, path, f, 'label', 'Button label TextSource', decodeTextSource);
-  const onClick = reqField(w, path, f, 'onClick', 'onClick Action', decodeAction);
-  const variant = reqField(w, path, f, 'variant', 'ButtonVariant', decodeButtonVariant);
-  const icon = optField(w, path, f, 'icon', decodeIconSource);
-  // Phase 129: optional bound disabled-state.
-  const disabled = optField(w, path, f, 'disabled', decodeBindingBool);
-  if (!label.ok || !onClick.ok || !variant.ok || !icon.ok || !disabled.ok)
-    return failed(label, onClick, variant, icon, disabled);
-  return ok({
-    label: label.value,
-    onClick: onClick.value,
-    variant: variant.value,
-    ...(icon.value !== undefined ? { icon: icon.value } : {}),
-    ...(disabled.value !== undefined ? { disabled: disabled.value } : {}),
-  });
-};
+const decodeButtonSpec = specDecoder('Button');
 
-const decodeSelectSpec = (w: Walk, path: string, j: JsonAst): R<SelectSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const label = reqField(w, path, f, 'label', 'Select label TextSource', decodeTextSource);
-  const source = reqFieldAliased(
-    w,
-    path,
-    f,
-    'source',
-    ['options', 'data'],
-    'Select source binding',
-    decodeBindingSelectOptions,
-  );
-  const value = reqField(w, path, f, 'value', 'Select value binding', decodeBindingStringOpt);
-  const placeholder = optField(w, path, f, 'placeholder', decodeTextSource);
-  // Phase 130: optional bound disabled-state.
-  const disabled = optField(w, path, f, 'disabled', decodeBindingBool);
-  // Phase 291: multi-select. `multiple` absent ⇒ false (single-select); `values`
-  // absent ⇒ omitted. The multi onChange is a closure reconstructed by the
-  // existing `onChange` placeholder. `values` decodes through the typed
-  // string-list decoder (Phase 429 — typed form preferred, opaque read-compat).
-  const multiple = optField(w, path, f, 'multiple', requireBool);
-  const values = optField(w, path, f, 'values', decodeBindingStringList);
-  if (
-    !label.ok ||
-    !source.ok ||
-    !value.ok ||
-    !placeholder.ok ||
-    !disabled.ok ||
-    !multiple.ok ||
-    !values.ok
-  )
-    return failed(label, source, value, placeholder, disabled, multiple, values);
-  return ok({
-    label: label.value,
-    source: source.value,
-    value: value.value,
-    // Phase 426: a present `"<closure>"` sentinel → the inert placeholder; an
-    // absent key → omitted, arming the renderer's write-back default against
-    // `value` / `values`.
-    ...(tryField(f, 'onChange') !== undefined ? { onChange: onChangePlaceholder } : {}),
-    ...(placeholder.value !== undefined ? { placeholder: placeholder.value } : {}),
-    ...(disabled.value !== undefined ? { disabled: disabled.value } : {}),
-    ...(multiple.value === true ? { multiple: true } : {}),
-    ...(values.value !== undefined ? { values: values.value } : {}),
-    ...(tryField(f, 'onChangeMulti') !== undefined ? { onChangeMulti: onChangePlaceholder } : {}),
-  });
-};
+const decodeSelectSpec = specDecoder<'Select', SelectSpec<unknown>>('Select', {
+  source: { aliases: ['options', 'data'] },
+  // An unselected control is a `Static` binding carrying no value (Phase 677).
+  value: { dec: decodeBindingStringOpt },
+  // Phase 426: a present `"<closure>"` sentinel → the inert placeholder; an
+  // absent key → omitted, arming the renderer's write-back default against
+  // `value` / `values`.
+  onChange: { placeholder: onChangePlaceholder },
+  onChangeMulti: { placeholder: onChangePlaceholder },
+});
 
-const decodeFileUploadSpec = (w: Walk, path: string, j: JsonAst): R<FileUploadSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const accept = reqField(w, path, f, 'accept', 'accept string list', listOf(requireString));
-  const label = reqField(w, path, f, 'label', 'FileUpload label TextSource', decodeTextSource);
-  const multiple = reqField(w, path, f, 'multiple', 'multiple bool', requireBool);
-  // Phase 130: optional bound disabled-state.
-  const disabled = optField(w, path, f, 'disabled', decodeBindingBool);
-  // Phase 1115 — the two ingress gestures, both OMIT at `false`. Absent reads as
-  // `false` (the plain picker, which is what every document written before this
-  // revision says); a present member of any other type is WRONG_TYPE and is
-  // never coerced — the slot decides whether a whole ingress route exists, so a
-  // lenient truthiness read would open a drop target on `"no"` and `"false"`.
-  const dropTargetJ = tryField(f, 'dropTarget');
-  const dropTarget =
-    dropTargetJ === undefined
-      ? ok<boolean>(false)
-      : requireBool(w, `${path}.dropTarget`, dropTargetJ);
-  const acceptPasteJ = tryField(f, 'acceptPaste');
-  const acceptPaste =
-    acceptPasteJ === undefined
-      ? ok<boolean>(false)
-      : requireBool(w, `${path}.acceptPaste`, acceptPasteJ);
-  // Phase 1116 — the capture device. OPTIONAL rather than omit-at-default: "say
-  // nothing" is a state of its own here, because an upload naming no device asks
-  // for the ordinary file browser, which is not one of the two devices wearing a
-  // default. An unknown token is UNKNOWN_DU_CASE at the member's own path.
-  const capture = optField(w, path, f, 'capture', decodeCaptureSource);
-  // Phase 1117 — the streamed destination. The EMPTY STRING is REFUSED rather
-  // than read as absence: it is a name no host registers, so a document carrying
-  // it describes an upload that can never stream, and the coercion would
-  // silently turn an upload the author meant to stream into a client-only one
-  // with every visible thing about the control still working.
-  const destinationJ = tryField(f, 'destination');
-  const destination: R<string | undefined> =
-    destinationJ === undefined
-      ? ok<string | undefined>(undefined)
-      : (() => {
-          const str = requireString(w, `${path}.destination`, destinationJ);
-          if (!str.ok) return str;
-          return str.value === ''
-            ? wrongType(`${path}.destination`, 'a non-empty host-registered destination id')
-            : ok<string | undefined>(str.value);
-        })();
-  // Phase 1548 — the two declared ceilings. Absent is undefined, the pre-1548
-  // control: the document states no limit and whatever the host already
-  // enforces is the only bound there is. POSITIVE-ONLY, and the floor runs
-  // AFTER `requireInt` so §7.1's slot rule decides the shape before this rule
-  // decides the sign — a ceiling beyond the 32-bit slot is a WRONG_TYPE naming
-  // the slot's width, never a value silently wrapped. Zero is refused as firmly
-  // as a negative: a ceiling of zero is not a small ceiling, it is a control
-  // that can accept nothing, and an author meaning "no ceiling" omits the
-  // member.
-  const ceiling = (name: 'maxBytes' | 'maxFiles'): R<number | undefined> => {
-    const raw = tryField(f, name);
-    if (raw === undefined) return ok<number | undefined>(undefined);
-    const n = requireInt(w, `${path}.${name}`, raw);
-    if (!n.ok) return n;
-    return n.value > 0
-      ? ok<number | undefined>(n.value)
-      : wrongType(`${path}.${name}`, 'a positive integer ceiling');
-  };
-  const maxBytes = ceiling('maxBytes');
-  const maxFiles = ceiling('maxFiles');
-  if (
-    !dropTarget.ok ||
-    !acceptPaste.ok ||
-    !destination.ok ||
-    !accept.ok ||
-    !label.ok ||
-    !multiple.ok ||
-    !disabled.ok ||
-    !capture.ok ||
-    !maxBytes.ok ||
-    !maxFiles.ok
-  )
-    return failed(
-      dropTarget,
-      acceptPaste,
-      destination,
-      accept,
-      label,
-      multiple,
-      disabled,
-      capture,
-      maxBytes,
-      maxFiles,
-    );
-  return ok({
-    accept: accept.value,
-    label: label.value,
-    multiple: multiple.value,
-    onSelect: () => placeholderAction,
-    ...(disabled.value !== undefined ? { disabled: disabled.value } : {}),
-    dropTarget: dropTarget.value,
-    acceptPaste: acceptPaste.value,
-    ...(capture.value !== undefined ? { capture: capture.value } : {}),
-    ...(destination.value !== undefined ? { destination: destination.value } : {}),
-    ...(maxBytes.value !== undefined ? { maxBytes: maxBytes.value } : {}),
-    ...(maxFiles.value !== undefined ? { maxFiles: maxFiles.value } : {}),
-  });
-};
+const decodeFileUploadSpec = specDecoder(
+  'FileUpload',
+  {
+    destination: {
+      dec: (w, p, j) =>
+        andThen(requireString(w, p, j), (id) =>
+          id === '' ? wrongType(p, 'a non-empty host-registered destination id') : ok(id),
+        ),
+    },
+    maxBytes: { dec: positiveInt('a positive integer ceiling') },
+    maxFiles: { dec: positiveInt('a positive integer ceiling') },
+  },
+  // `onSelect` is always present on this host's spec (the closure slot is
+  // required here); an absent sentinel still decodes to the inert placeholder.
+  (spec) => ok<FileUploadSpec<unknown>>({ ...spec, onSelect: closurePlaceholder }),
+);
 
 const INPUT_KINDS: KindArms<InputKind<unknown>> = {
   Form: (w, path, j) =>
@@ -6347,8 +5874,7 @@ type StaticRows = {
 // Phase 801 — `"asc"` / `"desc"`, closed. Anything else is UNKNOWN_DU_CASE naming both
 // legal values, never a silent fallback to ascending: an unrecognised direction is an
 // emitter defect the author can fix, and quietly picking one hides it.
-const decodeSortDirection = (w: Walk, p: string, j: JsonAst): R<SortDirection> =>
-  bareEnum(p, j, ['asc', 'desc'] as const, 'SortDirection');
+const decodeSortDirection = enumOf('SortDirection');
 
 // Phase 801 — the `{ column, direction }` initial-order declaration. `column` is a
 // NON-NEGATIVE integer index into `headers`; a negative (or non-integral) value is a
@@ -6405,290 +5931,20 @@ const decodeStaticRows = (w: Walk, path: string, j: JsonAst): R<StaticRows> => {
   });
 };
 
-const decodeGridSpec = (w: Walk, path: string, j: JsonAst): R<GridSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const columns = reqField(w, path, f, 'columns', 'columns list', listOf(decodeColumnErased));
-  // 0.2.0 omitted-when-false.
-  const editable = optField(w, path, f, 'editable', requireBool);
-  // Phase 934 — omitted-when-false, the same convention as `editable`.
-  const reorderable = optField(w, path, f, 'reorderable', requireBool);
-  const source = reqFieldAliased(
-    w,
-    path,
-    f,
-    'source',
-    ['data', 'rows'],
-    'Grid source binding',
-    decodeBindingRows,
-  );
-  const hasRowClick = tryField(f, 'onRowClick') !== undefined;
-  // Phase 425 — `rowKey` (closure) + `rowKeyField` (declarative) are sibling optional slots.
-  const hasRowKey = tryField(f, 'rowKey') !== undefined;
-  const rowKeyField = optField(w, path, f, 'rowKeyField', requireString);
-  // Phase 818 — the grid-sort header affordance: `sortStateKey` names the State
-  // key carrying the `{column, direction}` sort descriptor a data-bound grid's
-  // runtime sorts by (and whose headers write it). Optional string,
-  // encode-omitted when absent.
-  const sortStateKey = optField(w, path, f, 'sortStateKey', requireString);
-  // Phase 862 — declarative pagination. `pageStateKey` names the State key
-  // carrying `{"page": N}` (1-based); `pageSize` is how many rows a page holds.
-  // A page of zero or fewer rows names no page at all, so it is WRONG_TYPE —
-  // which is also what schema.json's `minimum: 1` says. The pager that writes
-  // the key is renderer-owned, so nothing here decodes a control.
-  const pageSize = optField(w, path, f, 'pageSize', (_w, p, pj) =>
-    pj.kind !== 'JNumber' || pj.value < 1 || !Number.isInteger(pj.value)
-      ? wrongType(p, 'JSON number (integer page size of 1 or more)')
-      : ok(pj.value),
-  );
-  // Phase 861 — the bound path's declared initial order, decoded by the SAME
-  // function the staticRows spelling uses: same record, same bound, same
-  // message at a different path.
-  const defaultSort = optField(w, path, f, 'defaultSort', decodeDefaultSort);
-  const gridNearMiss = checkNearMisses(w, path, f, GRID_NEAR_MISSES);
-  // Phase 863 — the declared edit destination.
-  const editStateKey = optField(w, path, f, 'editStateKey', requireString);
-  const pageStateKey = optField(w, path, f, 'pageStateKey', requireString);
-  // Phase 1892 — the row window key, and the declared total as an int Binding
-  // decoded exactly as `Tabs.activeIndex` / `Stepper.activeStep` are.
-  const windowStateKey = optField(w, path, f, 'windowStateKey', requireString);
-  const rowTotal = optField(w, path, f, 'rowTotal', decodeBindingInt);
-  // Phase 1123 — the two ends of one shared transfer key. A present member of
-  // any type other than string is WRONG_TYPE and is never coerced: the slot
-  // names a STATE KEY, so an ordinal or a boolean names no key, and a grid
-  // identified by position could not be paired with by any other grid.
-  const transferOutKey = optField(w, path, f, 'transferOutKey', requireString);
-  const transferInKey = optField(w, path, f, 'transferInKey', requireString);
-  // Phase 1125 — the export declaration, omitted at `false`.
-  const exportable = optField(w, path, f, 'exportable', requireBool);
-  // Phase 1473 — the grid's two print-break declarations, on the same terms as
-  // `BoxSpec`'s. Pinned separately from those because they are separate decoder
-  // branches in every host, and a vector on one proves nothing about the other.
-  const keepRowsTogether = optField(w, path, f, 'keepRowsTogether', requireBool);
-  const repeatHeader = optField(w, path, f, 'repeatHeader', requireBool);
-  // Phase 393 — the static read-only mode (omitted for a data-bound grid, so existing fixtures
-  // stay byte-identical).
-  const staticRows = optField(w, path, f, 'staticRows', decodeStaticRows);
-  if (
-    !columns.ok ||
-    !editable.ok ||
-    !reorderable.ok ||
-    !source.ok ||
-    !pageSize.ok ||
-    !gridNearMiss.ok ||
-    !windowStateKey.ok ||
-    !rowTotal.ok ||
-    !transferOutKey.ok ||
-    !transferInKey.ok ||
-    !exportable.ok ||
-    !keepRowsTogether.ok ||
-    !repeatHeader.ok ||
-    !rowKeyField.ok ||
-    !sortStateKey.ok ||
-    !pageSize.ok ||
-    !defaultSort.ok ||
-    !editStateKey.ok ||
-    !pageStateKey.ok ||
-    !staticRows.ok
-  )
-    return failed(
-      columns,
-      editable,
-      reorderable,
-      source,
-      pageSize,
-      gridNearMiss,
-      windowStateKey,
-      rowTotal,
-      transferOutKey,
-      transferInKey,
-      exportable,
-      keepRowsTogether,
-      repeatHeader,
-      rowKeyField,
-      sortStateKey,
-      pageSize,
-      defaultSort,
-      editStateKey,
-      pageStateKey,
-      staticRows,
-    );
-  return ok({
-    columns: columns.value,
-    editable: editable.value ?? false,
-    reorderable: reorderable.value ?? false,
-    source: source.value as Binding<readonly unknown[]>,
-    ...(hasRowClick ? { onRowClick: () => placeholderAction } : {}),
-    ...(hasRowKey ? { rowKey: () => CLOSURE } : {}),
-    ...(rowKeyField.value !== undefined ? { rowKeyField: rowKeyField.value } : {}),
-    ...(sortStateKey.value !== undefined ? { sortStateKey: sortStateKey.value } : {}),
-    ...(pageSize.value !== undefined ? { pageSize: pageSize.value } : {}),
-    ...(pageStateKey.value !== undefined ? { pageStateKey: pageStateKey.value } : {}),
-    ...(windowStateKey.value !== undefined ? { windowStateKey: windowStateKey.value } : {}),
-    ...(rowTotal.value !== undefined ? { rowTotal: rowTotal.value } : {}),
-    ...(defaultSort.value !== undefined ? { defaultSort: defaultSort.value } : {}),
-    ...(editStateKey.value !== undefined ? { editStateKey: editStateKey.value } : {}),
-    ...(transferOutKey.value !== undefined ? { transferOutKey: transferOutKey.value } : {}),
-    ...(transferInKey.value !== undefined ? { transferInKey: transferInKey.value } : {}),
-    exportable: exportable.value ?? false,
-    keepRowsTogether: keepRowsTogether.value ?? false,
-    repeatHeader: repeatHeader.value ?? false,
-    ...(staticRows.value !== undefined ? { staticRows: staticRows.value } : {}),
-  });
-};
+const decodeGridSpec = specDecoder(
+  'DataGrid',
+  {
+    source: { aliases: ['data', 'rows'] },
+    pageSize: { dec: positiveInt('JSON number (integer page size of 1 or more)') },
+    rowKey: { placeholder: () => CLOSURE },
+  },
+  undefined,
+  (w, path, f) => checkNearMisses(w, path, f, GRID_NEAR_MISSES),
+);
 
-const decodeChartSpec = (w: Walk, path: string, j: JsonAst): R<ChartSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const kind = reqField(w, path, f, 'kind', 'ChartKind', decodeChartKind);
-  const source = reqFieldAliased(
-    w,
-    path,
-    f,
-    'source',
-    ['data'],
-    'Chart source binding',
-    decodeBindingRows,
-  );
-  const xField = reqField(w, path, f, 'xField', 'xField string', requireString);
-  const yFields = reqField(w, path, f, 'yFields', 'yFields string list', listOf(requireString));
-  const title = optField(w, path, f, 'title', decodeTextSource);
-  // Phase 876 — `valueFormat`: the value axis's number format, reusing the
-  // existing `Format` vocabulary. Absent is the ordinary shape.
-  const valueFormat = optField(w, path, f, 'valueFormat', decodeFormat);
-  // Phase 878 — the axis NAMES and the muted subtitle. Absent is the ordinary
-  // shape: each axis title falls back to its capitalised field name.
-  const xTitle = optField(w, path, f, 'xTitle', decodeTextSource);
-  const yTitle = optField(w, path, f, 'yTitle', decodeTextSource);
-  const subtitle = optField(w, path, f, 'subtitle', decodeTextSource);
-  // Phase 880 — `legendPosition`: WHERE the legend goes, or `None` to suppress
-  // it. Absent means the host's default (`Right`) — NOT "no legend" — so the
-  // ordinary wire shape omits the key and suppression has to be said out loud.
-  const legendPosition = optField(w, path, f, 'legendPosition', decodeChartLegendPosition);
-  // Phase 881 — `dataLabels`: whether the values are written onto the picture.
-  // Absent means `Off`, which is also the default, so the ordinary wire shape
-  // omits the key and lowers to the pre-881 picture byte-for-byte. `Ends` is
-  // the only other value: no shape of this vocabulary can request a label on
-  // every interior point.
-  const dataLabels = optField(w, path, f, 'dataLabels', decodeChartDataLabels);
-  // Phase 882 — `xScale`: what the x column MEANS, discrete `Category` bands or
-  // `Temporal` dates on a continuous day-scale. Absent means `Category`, which
-  // is also the default, so the ordinary wire shape omits the key and lowers to
-  // the pre-882 picture byte-for-byte. A `Temporal` declaration is GROUNDED
-  // pre-emit (FUARAN097) rather than inferred here: the decoder's job is to
-  // carry the author's claim faithfully, not to second-guess it against the rows.
-  const xScale = optField(w, path, f, 'xScale', decodeChartXScale);
-  // Phase 1490 — `annotations` (§4l): the data-addressed attachments — reference
-  // lines, event markers and range bands — as one closed union, so a further
-  // member is a case rather than a further widening of this record. Absent OMITS
-  // on the wire, so every pre-1490 document decodes and lowers byte-for-byte as
-  // it did. An EMPTY list is a different document from an absent field and is
-  // carried as such: it round-trips to `"annotations":[]`, which is what an
-  // author who declared a list and then removed its last member wrote.
-  const annotations = optField(w, path, f, 'annotations', listOf(decodeChartAnnotation));
-  const hasPointClick = tryField(f, 'onPointClick') !== undefined;
-  // stacked (Phase 126) now round-trips. Absent restores `false` BY CONTRACT
-  // since Phase 1585 made the member omit-at-default — not, as this note read
-  // until then, as tolerance of legacy wire predating the field.
-  const stacked = optField(w, path, f, 'stacked', requireBool);
-  if (
-    !kind.ok ||
-    !source.ok ||
-    !xField.ok ||
-    !yFields.ok ||
-    !title.ok ||
-    !valueFormat.ok ||
-    !xTitle.ok ||
-    !yTitle.ok ||
-    !subtitle.ok ||
-    !legendPosition.ok ||
-    !dataLabels.ok ||
-    !xScale.ok ||
-    !stacked.ok ||
-    !annotations.ok
-  )
-    return failed(
-      kind,
-      source,
-      xField,
-      yFields,
-      title,
-      valueFormat,
-      xTitle,
-      yTitle,
-      subtitle,
-      legendPosition,
-      dataLabels,
-      xScale,
-      stacked,
-      annotations,
-    );
-  return ok({
-    kind: kind.value,
-    source: source.value as Binding<readonly unknown[]>,
-    xField: xField.value,
-    yFields: yFields.value,
-    stacked: stacked.value ?? false,
-    ...(title.value !== undefined ? { title: title.value } : {}),
-    ...(valueFormat.value !== undefined ? { valueFormat: valueFormat.value } : {}),
-    ...(xTitle.value !== undefined ? { xTitle: xTitle.value } : {}),
-    ...(yTitle.value !== undefined ? { yTitle: yTitle.value } : {}),
-    ...(subtitle.value !== undefined ? { subtitle: subtitle.value } : {}),
-    ...(legendPosition.value !== undefined ? { legendPosition: legendPosition.value } : {}),
-    ...(dataLabels.value !== undefined ? { dataLabels: dataLabels.value } : {}),
-    ...(xScale.value !== undefined ? { xScale: xScale.value } : {}),
-    ...(annotations.value !== undefined ? { annotations: annotations.value } : {}),
-    ...(hasPointClick ? { onPointClick: () => placeholderAction } : {}),
-  });
-};
+const decodeChartSpec = specDecoder('Chart', { source: { aliases: ['data'] } });
 
-const decodeMapSpec = (
-  w: Walk,
-  path: string,
-  j: JsonAst,
-): R<import('@fuaran-ui/schema').MapSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const centreLatitude = reqField(
-    w,
-    path,
-    f,
-    'centreLatitude',
-    'centre latitude float',
-    requireFloat,
-  );
-  const centreLongitude = reqField(
-    w,
-    path,
-    f,
-    'centreLongitude',
-    'centre longitude float',
-    requireFloat,
-  );
-  const source = reqFieldAliased(
-    w,
-    path,
-    f,
-    'source',
-    ['data', 'markers'],
-    'Map source binding',
-    decodeBindingMarkerSeq,
-  );
-  const zoom = reqField(w, path, f, 'zoom', 'zoom integer', requireInt);
-  if (!centreLatitude.ok || !centreLongitude.ok || !source.ok || !zoom.ok)
-    return failed(centreLatitude, centreLongitude, source, zoom);
-  const hasMarkerClick = tryField(f, 'onMarkerClick') !== undefined;
-  return ok({
-    centreLatitude: centreLatitude.value,
-    centreLongitude: centreLongitude.value,
-    source: source.value,
-    zoom: zoom.value,
-    ...(hasMarkerClick ? { onMarkerClick: () => placeholderAction } : {}),
-  });
-};
+const decodeMapSpec = specDecoder('Map', { source: { aliases: ['data', 'markers'] } });
 
 const VIS_KINDS: KindArms<VisKind<unknown>> = {
   // Wire discriminator 'DataGrid'; in-memory tag stays 'Grid'.
@@ -6704,9 +5960,6 @@ const decodeVisKind: Decoder<VisKind<unknown>> = (w, path, j) =>
   dispatchKind(w, path, j, VIS_KINDS, 'DataGrid | Chart | Table | Map');
 
 // ─── Layout specs ────────────────────────────────────────────────────────────
-
-const decodeChildren = (w: Walk, path: string, fields: Fields): R<readonly Node<unknown>[]> =>
-  reqField(w, path, fields, 'children', 'children Node list', listOf(decodeNodeAst));
 
 // ─── Box — the unified container (Phase 390) ─────────────────────────────────
 
@@ -6809,43 +6062,9 @@ const decodeBoxRole = (w: Walk, path: string, j: JsonAst): R<BoxRole> => {
   }
 };
 
-const decodeBox = (w: Walk, path: string, j: JsonAst): R<BoxSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const children = decodeChildren(w, path, f);
-  const heading = optFieldAliased(w, path, f, 'heading', ['title'], decodeTextSource);
-  const layout = reqField(w, path, f, 'layout', 'layout object', decodeBoxLayout);
-  const role = reqField(w, path, f, 'role', 'role string', decodeBoxRole);
-  // Phase 1473 — the two print-break declarations, both omitted at `false`.
-  // ABSENT is the only spelling of "not declared", so there is no third value; a
-  // present member of the wrong JSON kind is REFUSED, never coerced, because a
-  // document that meant `true` and wrote `"true"` would otherwise render with
-  // its declaration silently dropped — exactly the split block the member exists
-  // to prevent.
-  const keepTogether = optField(w, path, f, 'keepTogether', requireBool);
-  const breakBefore = optField(w, path, f, 'breakBefore', requireBool);
-  if (!children.ok || !heading.ok || !layout.ok || !role.ok || !keepTogether.ok || !breakBefore.ok)
-    return failed(children, heading, layout, role, keepTogether, breakBefore);
-  return ok({
-    children: children.value,
-    ...(heading.value !== undefined ? { heading: heading.value } : {}),
-    layout: layout.value,
-    role: role.value,
-    keepTogether: keepTogether.value ?? false,
-    breakBefore: breakBefore.value ?? false,
-  });
-};
+const decodeBox = specDecoder('Box', { heading: { aliases: ['title'] } });
 
-const decodeSplitPanelSpec = (w: Walk, path: string, j: JsonAst): R<SplitPanelSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const children = decodeChildren(w, path, f);
-  const weight = reqField(w, path, f, 'weight', 'weight float', requireFloat);
-  if (!children.ok || !weight.ok) return failed(children, weight);
-  return ok({ children: children.value, weight: weight.value });
-};
+const decodeSplitPanelSpec = specDecoder('SplitPanel');
 
 const decodeTabHeader = (w: Walk, path: string, j: JsonAst): R<TabHeader> => {
   const fo = requireObject(w, path, j);
@@ -6862,172 +6081,19 @@ const decodeTabHeader = (w: Walk, path: string, j: JsonAst): R<TabHeader> => {
   });
 };
 
-const decodeTabsSpec = (w: Walk, path: string, j: JsonAst): R<TabsSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const children = decodeChildren(w, path, f);
-  // 0.2.0 omitted-when-default (`Horizontal`).
-  const orientationJ = tryField(f, 'orientation');
-  const orientation =
-    orientationJ === undefined
-      ? ok<Orientation>('Horizontal')
-      : decodeOrientation(w, `${path}.orientation`, orientationJ);
-  const tabHeaders = optField(w, path, f, 'tabHeaders', listOf(decodeTabHeader));
-  const tabTags = optField(w, path, f, 'tabTags', listOf(requireString));
-  const activeTag = optField(w, path, f, 'activeTag', decodeBindingString);
-  // activeIndex (Phase 126) now round-trips. Absent restores the `Static`
-  // binding carrying `0` BY CONTRACT since Phase 1585 made the member
-  // omit-at-default — not, as this note read until then, as tolerance of legacy
-  // wire predating the field. onSelect / onSelectTag (Phase 426): a present `"<closure>"`
-  // sentinel → the inert placeholder; an absent key → omitted, arming the
-  // renderer's ActiveIndex/ActiveTag write-back default.
-  const activeIndex = optField(w, path, f, 'activeIndex', decodeBindingInt);
-  if (
-    !orientation.ok ||
-    !children.ok ||
-    !activeTag.ok ||
-    !activeIndex.ok ||
-    !tabHeaders.ok ||
-    !tabTags.ok
-  )
-    return failed(orientation, children, activeTag, activeIndex, tabHeaders, tabTags);
-  return ok({
-    children: children.value,
-    orientation: orientation.value,
-    activeIndex: (activeIndex.value as Binding<number> | undefined) ?? { kind: 'Static', value: 0 },
-    ...(tryField(f, 'onSelect') !== undefined ? { onSelect: () => placeholderAction } : {}),
-    ...(tabHeaders.value !== undefined ? { tabHeaders: tabHeaders.value } : {}),
-    ...(tabTags.value !== undefined ? { tabTags: tabTags.value } : {}),
-    ...(activeTag.value !== undefined ? { activeTag: activeTag.value } : {}),
-    ...(tryField(f, 'onSelectTag') !== undefined ? { onSelectTag: () => placeholderAction } : {}),
-  });
-};
+const decodeTabsSpec = specDecoder('Tabs');
 
-const decodeStepperSpec = (w: Walk, path: string, j: JsonAst): R<StepperSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const activeStep = reqField(w, path, f, 'activeStep', 'activeStep binding', decodeBindingInt);
-  const children = decodeChildren(w, path, f);
-  if (!activeStep.ok || !children.ok) return failed(activeStep, children);
-  // `onSelect` is a closure → the sentinel is consumed and reconstructs a
-  // no-op placeholder action (mirrors Tabs).
-  return ok({
-    activeStep: activeStep.value as Binding<number>,
-    children: children.value,
-    onSelect: () => placeholderAction,
-  });
-};
+const decodeStepperSpec = specDecoder('Stepper', {}, (spec) =>
+  ok<StepperSpec<unknown>>({ ...spec, onSelect: closurePlaceholder }),
+);
 
-const decodeSummaryListSpec = (w: Walk, path: string, j: JsonAst): R<SummaryListSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const children = decodeChildren(w, path, f);
-  const heading = optFieldAliased(w, path, f, 'heading', ['title'], decodeTextSource);
-  if (!children.ok || !heading.ok) return failed(children, heading);
-  return ok({
-    children: children.value,
-    ...(heading.value !== undefined ? { heading: heading.value } : {}),
-  });
-};
+const decodeSummaryListSpec = specDecoder('SummaryList', { heading: { aliases: ['title'] } });
 
-const decodeDisclosureSpec = (w: Walk, path: string, j: JsonAst): R<DisclosureSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const children = decodeChildren(w, path, f);
-  const defaultOpen = reqField(w, path, f, 'defaultOpen', 'defaultOpen bool', requireBool);
-  const heading = reqFieldAliased(
-    w,
-    path,
-    f,
-    'heading',
-    ['title'],
-    'Disclosure heading TextSource',
-    decodeTextSource,
-  );
-  const open = reqField(w, path, f, 'open', 'open binding', decodeBinding);
-  if (!children.ok || !defaultOpen.ok || !heading.ok || !open.ok)
-    return failed(children, defaultOpen, heading, open);
-  return ok({
-    children: children.value,
-    defaultOpen: defaultOpen.value,
-    heading: heading.value,
-    open: open.value as Binding<boolean>,
-    // Phase 426: a present `"<closure>"` sentinel → the inert placeholder; an
-    // absent key → omitted, arming the `open` write-back default.
-    ...(tryField(f, 'onToggle') !== undefined ? { onToggle: () => placeholderAction } : {}),
-  });
-};
+const decodeDisclosureSpec = specDecoder('Disclosure', { heading: { aliases: ['title'] } });
 
-const decodeModalSpec = (w: Walk, path: string, j: JsonAst): R<ModalSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const children = decodeChildren(w, path, f);
-  const dismissable = reqField(w, path, f, 'dismissable', 'dismissable bool', requireBool);
-  // `onDismiss` is optional since Phase 426: absent → omitted, arming the
-  // `open` write-back default (dismiss writes `false` to the slot).
-  const onDismiss = optField(w, path, f, 'onDismiss', decodeAction);
-  const open = reqField(w, path, f, 'open', 'open binding', decodeBinding);
-  const heading = optFieldAliased(w, path, f, 'heading', ['title'], decodeTextSource);
-  // Phase 1119 — omitted-when-`Modal`; absent restores the pre-1119 blocking
-  // dialog, which is what keeps every existing modal document decoding
-  // unchanged. `anchor` admits any string: whether it names a node in this tree
-  // is a whole-tree question the validator answers (FUARAN122), never a decoder.
-  const modalityJ = tryField(f, 'modality');
-  const modality =
-    modalityJ === undefined
-      ? ok<ModalityKind>('Modal')
-      : decodeModalityKind(w, `${path}.modality`, modalityJ);
-  const anchor = optField(w, path, f, 'anchor', requireString);
-  if (
-    !modality.ok ||
-    !children.ok ||
-    !dismissable.ok ||
-    !onDismiss.ok ||
-    !open.ok ||
-    !heading.ok ||
-    !anchor.ok
-  )
-    return failed(modality, children, dismissable, onDismiss, open, heading, anchor);
-  return ok({
-    children: children.value,
-    dismissable: dismissable.value,
-    ...(onDismiss.value !== undefined ? { onDismiss: onDismiss.value } : {}),
-    open: open.value as Binding<boolean>,
-    ...(heading.value !== undefined ? { heading: heading.value } : {}),
-    modality: modality.value,
-    ...(anchor.value !== undefined ? { anchor: anchor.value } : {}),
-  });
-};
+const decodeModalSpec = specDecoder('Modal', { heading: { aliases: ['title'] } });
 
-const decodeScrollAreaSpec = (w: Walk, path: string, j: JsonAst): R<ScrollAreaSpec<unknown>> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const f = fo.value;
-  const children = decodeChildren(w, path, f);
-  const orientation = reqField(
-    w,
-    path,
-    f,
-    'orientation',
-    'ScrollOrientation',
-    decodeScrollOrientation,
-  );
-  const maxHeight = optField(w, path, f, 'maxHeight', requireInt);
-  const maxWidth = optField(w, path, f, 'maxWidth', requireInt);
-  if (!children.ok || !orientation.ok || !maxHeight.ok || !maxWidth.ok)
-    return failed(children, orientation, maxHeight, maxWidth);
-  return ok({
-    children: children.value,
-    orientation: orientation.value,
-    ...(maxHeight.value !== undefined ? { maxHeight: maxHeight.value } : {}),
-    ...(maxWidth.value !== undefined ? { maxWidth: maxWidth.value } : {}),
-  });
-};
+const decodeScrollAreaSpec = specDecoder('ScrollArea');
 
 // Phase 390 — the unified container + the four legacy decode-upgrades.
 const LAYOUT_KINDS: KindArms<LayoutKind<unknown>> = {
@@ -7232,6 +6298,9 @@ const fragmentArgMap: Decoder<Record<string, FragmentArg<unknown>>> = (w, path, 
     traverseMembers(path, fields, (ep, _k, v) => decodeFragmentArg(w, ep, v)),
   );
 
+/** A `Mount`'s guest channel (Phase 1021): the direction, and the message shape it declares. */
+const decodeGuestChannel = recordDecoder('GuestChannel');
+
 const decodeEffectClass = (w: Walk, path: string, j: JsonAst): R<EffectClass> => {
   const fo = requireObject(w, path, j);
   if (!fo.ok) return fo;
@@ -7285,6 +6354,26 @@ export const WRONG_NODE_KIND_HINT: string = (() => {
 // tables, so a kind added to one of them routes here for free; the structural
 // kinds (Custom, ErrorBoundary, Switch, the fragment kinds, Mount) keep their
 // bodies in the switch below.
+// ─── Structural specs (the kinds with no primitive family) ────────────────────
+
+const decodeErrorBoundarySpec = specDecoder('ErrorBoundary');
+const decodeFragmentDeclSpec = specDecoder('FragmentDecl');
+const decodeFragmentRefSpec = specDecoder(
+  'FragmentRef',
+  { args: { dec: fragmentArgMap } },
+  (spec) =>
+    ok<FragmentRefSpec<unknown>>({
+      ...spec,
+      args: spec.args ?? wireKeyedRecord<FragmentArg<unknown>>(),
+    }),
+);
+const decodeMountSpec = specDecoder('Mount', { inputs: { dec: fragmentArgMap } }, (spec) =>
+  ok<MountSpec<unknown>>({
+    ...spec,
+    inputs: spec.inputs ?? wireKeyedRecord<FragmentArg<unknown>>(),
+  }),
+);
+
 const NODE_KIND_FAMILIES: KindArms<NodeKind<unknown>> = {
   ...familyOf(LAYOUT_KINDS, decodeLayoutKind, (layout) => ({ kind: 'Layout', layout })),
   ...familyOf(DISPLAY_KINDS, decodeDisplayKind, (display) => ({ kind: 'Display', display })),
@@ -7343,19 +6432,10 @@ const decodeNodeKind = (w: Walk, path: string, j: JsonAst): R<NodeKind<unknown>>
         ...(contentHash.value !== undefined ? { contentHash: contentHash.value } : {}),
       });
     }
-    case 'ErrorBoundary': {
-      const child = reqField(w, path, f, 'child', 'ErrorBoundary child Node', decodeNodeAst);
-      const fallback = reqField(
-        w,
-        path,
-        f,
-        'fallback',
-        'ErrorBoundary fallback Node',
-        decodeNodeAst,
+    case 'ErrorBoundary':
+      return andThen(decodeErrorBoundarySpec(w, path, j), (spec) =>
+        ok<NodeKind<unknown>>({ kind: 'ErrorBoundary', spec }),
       );
-      if (!child.ok || !fallback.ok) return failed(child, fallback);
-      return ok({ kind: 'ErrorBoundary', spec: { child: child.value, fallback: fallback.value } });
-    }
     case 'Switch': {
       // State-bound conditional child (Phase 392). `stateKey` (string), `cases`
       // (array of `{child,match}` objects), `default` (Node) — all required.
@@ -7459,100 +6539,18 @@ const decodeNodeKind = (w: Walk, path: string, j: JsonAst): R<NodeKind<unknown>>
         },
       });
     }
-    case 'FragmentDecl': {
-      const name = reqField(w, path, f, 'name', 'FragmentDecl name string', requireString);
-      const body = reqField(w, path, f, 'body', 'FragmentDecl body Node', decodeNodeAst);
-      // Phase 180 — `holes` / `effect` additive; absent ⇒ degenerate fixed-body.
-      const holes = optField(w, path, f, 'holes', listOf(decodeHoleDecl));
-      const effect = optField(w, path, f, 'effect', decodeEffectClass);
-      if (!name.ok || !body.ok || !holes.ok || !effect.ok) return failed(name, body, holes, effect);
-      return ok({
-        kind: 'FragmentDecl',
-        spec: {
-          name: name.value as FragmentId,
-          body: body.value,
-          holes: holes.value ?? [],
-          effect: effect.value ?? { hostEffect: 'Pure', determinism: 'Deterministic' },
-        },
-      });
-    }
-    case 'FragmentRef': {
-      const name = reqField(w, path, f, 'name', 'FragmentRef name string', requireString);
-      // Phase 180 — `args` additive; absent ⇒ degenerate zero-arg ref. Each
-      // entry is decoded on its own, so one bad entry does not hide another's
-      // defects (WIRE_FORMAT §29.1).
-      const args = optField(w, path, f, 'args', fragmentArgMap);
-      if (!name.ok || !args.ok) return failed(name, args);
-      return ok({
-        kind: 'FragmentRef',
-        spec: {
-          name: name.value as FragmentId,
-          args: args.value ?? wireKeyedRecord<FragmentArg<unknown>>(),
-        },
-      });
-    }
-    case 'Mount': {
-      // Phase 265, §4o — the isolation/embedding boundary. Mirror the encoder:
-      // required `scopeId` + `channel` + `capabilities`; optional `inputs`
-      // (additive, reusing the FragmentArg decode). `onBubble` is a closure
-      // sentinel on the wire → dropped from the typed shape. A malformed Mount
-      // surfaces a structured DecodeError, never a throw (default-deny).
-      const scopeId = reqField(w, path, f, 'scopeId', 'Mount scopeId string', requireString);
-
-      const channel = reqField(w, path, f, 'channel', 'Mount channel object', (w2, p, j2) => {
-        const co = requireObject(w2, p, j2);
-        if (!co.ok) return co;
-        const direction = reqField(
-          w2,
-          p,
-          co.value,
-          'direction',
-          'channel direction string',
-          (w3, dp, dj) =>
-            andThen(requireString(w3, dp, dj), (d) =>
-              d !== 'OutOnly' && d !== 'TwoWay'
-                ? makeError(
-                    'UNKNOWN_DU_CASE',
-                    dp,
-                    `unknown ChannelDirection '${d}'`,
-                    'OutOnly | TwoWay',
-                  )
-                : ok(d as 'OutOnly' | 'TwoWay'),
-            ),
-        );
-        const messageShape = optField(w2, p, co.value, 'messageShape', requireString);
-        if (!direction.ok || !messageShape.ok) return failed(direction, messageShape);
-        // Build `channel` conditionally so `messageShape` is present only when
-        // decoded (exactOptionalPropertyTypes forbids an explicit `undefined`).
-        return ok(
-          messageShape.value !== undefined
-            ? { direction: direction.value, messageShape: messageShape.value }
-            : { direction: direction.value },
-        );
-      });
-      const capabilities = reqField(
-        w,
-        path,
-        f,
-        'capabilities',
-        'Mount capabilities array',
-        listOf(requireString),
+    case 'FragmentDecl':
+      return andThen(decodeFragmentDeclSpec(w, path, j), (spec) =>
+        ok<NodeKind<unknown>>({ kind: 'FragmentDecl', spec }),
       );
-      // Phase 265 — `inputs` additive; absent ⇒ zero-input mount. Reuses the
-      // FragmentArg decode (value scalar or slot subtree), one entry at a time.
-      const inputs = optField(w, path, f, 'inputs', fragmentArgMap);
-      if (!scopeId.ok || !channel.ok || !capabilities.ok || !inputs.ok)
-        return failed(scopeId, channel, capabilities, inputs);
-      return ok({
-        kind: 'Mount',
-        spec: {
-          scopeId: scopeId.value,
-          inputs: inputs.value ?? wireKeyedRecord<FragmentArg<unknown>>(),
-          channel: channel.value,
-          capabilities: capabilities.value,
-        },
-      });
-    }
+    case 'FragmentRef':
+      return andThen(decodeFragmentRefSpec(w, path, j), (spec) =>
+        ok<NodeKind<unknown>>({ kind: 'FragmentRef', spec }),
+      );
+    case 'Mount':
+      return andThen(decodeMountSpec(w, path, j), (spec) =>
+        ok<NodeKind<unknown>>({ kind: 'Mount', spec }),
+      );
     default:
       return makeError(
         'WRONG_NODE_KIND',
