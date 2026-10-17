@@ -1,0 +1,80 @@
+{
+  "$manifest": "fuaran.host-capability/1",
+  "host": "fuaran-ts",
+  "hostVersion": "0.31.0",
+  "corpusAuthority": null,
+  "generator": "packages/conformance/scripts/host-capability.mjs",
+  "families": {
+    "caseFields": {
+      "covered": false,
+      "reason": "this host has no generator deriving construct tokens from its type model yet, so it makes no claim in this family (§27.1)"
+    },
+    "hostedCases": {
+      "covered": false,
+      "reason": "this host has no generator deriving construct tokens from its type model yet, so it makes no claim in this family (§27.1)"
+    },
+    "kindFields": {
+      "covered": false,
+      "reason": "this host has no generator deriving construct tokens from its type model yet, so it makes no claim in this family (§27.1)"
+    },
+    "kinds": {
+      "covered": false,
+      "reason": "this host has no generator deriving construct tokens from its type model yet, so it makes no claim in this family (§27.1)"
+    },
+    "recordFields": {
+      "covered": false,
+      "reason": "this host has no generator deriving construct tokens from its type model yet, so it makes no claim in this family (§27.1)"
+    },
+    "unionCases": {
+      "covered": false,
+      "reason": "this host has no generator deriving construct tokens from its type model yet, so it makes no claim in this family (§27.1)"
+    }
+  },
+  "corpusFamilies": {
+    "apply/duplicateIdsApply": "covered",
+    "apply/limitsApply": "covered",
+    "apply/skeletonApply": {
+      "pending": "this host's suite does not yet run the skeleton-apply vectors"
+    },
+    "apply/styleNormaliseApply": "covered",
+    "contract-card-reject": "covered",
+    "contract-card-round-trip": "covered",
+    "dag": "covered",
+    "decode-policy": "covered",
+    "devtools-relay": "covered",
+    "elicitation-answer-accept": "covered",
+    "elicitation-answer-reject": "covered",
+    "elicitation-reject": "covered",
+    "elicitation-round-trip": "covered",
+    "envelope-reject": "covered",
+    "envelope-round-trip": "covered",
+    "laws/capabilityLaws": {
+      "pending": "the capability twin mirrors an older Core than the vectors are stamped for, so capabilityLaws.test.ts reports the gap and asserts nothing until the twin is raised"
+    },
+    "laws/dataframeParity": {
+      "pending": "this host's evaluator runs the drawn transformLaws sample; the authored dataframeParity cases are not run yet"
+    },
+    "laws/decimal": {
+      "pending": "this host's suite does not yet run this law family's vectors"
+    },
+    "laws/fieldLaws": {
+      "pending": "this host's suite does not yet run this law family's vectors"
+    },
+    "laws/transformLaws": "covered",
+    "lenient-accept": "covered",
+    "lowers-to": {
+      "pending": "this host's suite does not yet run the lowers-to vectors"
+    },
+    "merge-conformance": "covered",
+    "node-round-trip": "covered",
+    "op-round-trip": "covered",
+    "reject": "covered",
+    "repair": "covered",
+    "sanitization": "covered",
+    "stored-emissions": "covered",
+    "style-observer": "covered",
+    "teleport-decode": "covered",
+    "teleport-reject": "covered"
+  },
+  "tokens": []
+}

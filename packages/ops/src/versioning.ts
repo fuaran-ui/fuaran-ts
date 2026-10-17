@@ -123,13 +123,17 @@ export const REQUIRED_PROFILE_KEY = 'requiredProfile';
 // ─── Versioning error surface ────────────────────────────────────────────────
 
 /**
- * A versioning-layer failure. Extends the six canonical `DecodeErrorCode`s with
- * two envelope-specific codes, kept OUT of the core `DecodeErrorCode` set (the
- * six-code AI-recovery surface stays unpolluted — WIRE_FORMAT.md §6):
- *   - `FOREIGN_PROFILE` — negotiate returned `Foreign`; the artifact is refused.
- *   - `MALFORMED_PROFILE` — the `$profile` value is not a `<name>@<major>.<minor>`.
+ * A versioning-layer failure. Extends the canonical `DecodeErrorCode`s with one
+ * envelope-specific code, kept OUT of the core `DecodeErrorCode` set (the
+ * AI-recovery surface stays unpolluted — WIRE_FORMAT.md §6):
+ *   - `FOREIGN_PROFILE` — negotiate returned `Foreign`, or the `$profile` value is
+ *     not a `<name>@<major>.<minor>` at all; either way the artifact is refused.
+ *     A profile that does not parse names no capability set this consumer could
+ *     be compatible with, so WIRE_FORMAT.md §15.2 refuses it as Foreign — one
+ *     code on every host (Phase 1938; this host spelled it `MALFORMED_PROFILE`
+ *     until then, a code in neither the spec nor any other host).
  */
-export type EnvelopeErrorCode = DecodeErrorCode | 'FOREIGN_PROFILE' | 'MALFORMED_PROFILE';
+export type EnvelopeErrorCode = DecodeErrorCode | 'FOREIGN_PROFILE';
 
 export interface EnvelopeError {
   readonly code: EnvelopeErrorCode;
@@ -190,7 +194,7 @@ export const decodeEnvelopeAst = (ast: JsonAst): Result<Envelope, EnvelopeError>
   }
   const profile = tryParseProfile(profileJ.value);
   if (!profile.ok) {
-    return { ok: false, error: envErr('MALFORMED_PROFILE', `$.${PROFILE_KEY}`, profile.error) };
+    return { ok: false, error: envErr('FOREIGN_PROFILE', `$.${PROFILE_KEY}`, profile.error) };
   }
   const payload = ast.fields.get(PAYLOAD_KEY);
   if (payload === undefined) {
