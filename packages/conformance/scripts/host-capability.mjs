@@ -72,7 +72,6 @@ export const HOST_CORPUS_FAMILIES = {
   'apply/styleNormaliseApply': 'covered', // packages/ops/test/style-normalise-apply-corpus.test.ts
   'apply/skeletonApply': pending("this host's suite does not yet run the skeleton-apply vectors"),
   dag: 'covered', // packages/ops/test/dag.test.ts
-  formatting: pending("this host's suite does not yet run the number-formatting vectors"),
   'decode-policy': 'covered', // packages/ops/test/decodePolicy.test.ts
   'design-seam-reject': notApplicable(NO_DESIGN_SEAM),
   'design-seam-round-trip': notApplicable(NO_DESIGN_SEAM),
