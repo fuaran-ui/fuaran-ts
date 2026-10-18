@@ -88,7 +88,7 @@ export const HOST_CORPUS_FAMILIES = {
   'laws/dataframeParity': pending(
     "this host's evaluator runs the drawn transformLaws sample; the authored dataframeParity cases are not run yet",
   ),
-  'laws/decimal': pending(LAW_UNRUN),
+  'laws/decimal': 'covered', // packages/ops/test/decimalLaws.test.ts
   'laws/fieldLaws': pending(LAW_UNRUN),
   'laws/transformLaws': 'covered', // packages/ops/test/transformLaws.test.ts
   'lowers-to': pending("this host's suite does not yet run the lowers-to vectors"),
