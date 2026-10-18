@@ -55,15 +55,11 @@
     "formatting": {
       "pending": "this host's cell formatter (renderer-server formatNumber) is not yet driven from the formatting vectors"
     },
-    "laws/capabilityLaws": {
-      "pending": "the capability twin mirrors an older Core than the vectors are stamped for, so capabilityLaws.test.ts reports the gap and asserts nothing until the twin is raised"
-    },
+    "laws/capabilityLaws": "covered",
     "laws/dataframeParity": {
       "pending": "this host's evaluator runs the drawn transformLaws sample; the authored dataframeParity cases are not run yet"
     },
-    "laws/decimal": {
-      "pending": "this host's suite does not yet run this law family's vectors"
-    },
+    "laws/decimal": "covered",
     "laws/fieldLaws": {
       "pending": "this host's suite does not yet run this law family's vectors"
     },

@@ -11,8 +11,7 @@
 //  on: refuse only what is PROVABLY wrong.
 //
 //  The port is over THIS host's transform algebra, which is a subset of the
-//  reference's (no `intersect` / `except`, no filtering joins, a smaller scalar
-//  and window vocabulary). A document carrying a verb outside it is refused by
+//  reference's (no filtering joins, a smaller scalar and window vocabulary). A document carrying a verb outside it is refused by
 //  this host's decoder before any walk runs, so the subset is not a divergence
 //  in what a decoded tree means. Every rule below is the reference's rule for
 //  the same verb, and each unresolved-knowledge `reason` is the reference's
@@ -114,6 +113,8 @@ const ofCell = (c: Cell): Typing => {
       return of('date');
     case 'Timestamp':
       return of('timestamp');
+    case 'Decimal':
+      return of('decimal');
     case 'Null':
       return ABSENT;
   }
@@ -124,6 +125,10 @@ const binary = (op: BinOp, a: Typing, b: Typing): Typing => {
     a.t === 'absent' || b.t === 'absent' ? ABSENT : decide();
   const numeric = (t: Typing): boolean => isOf(t, 'int', 'float');
   const boolLike = (t: Typing): boolean => t.t === 'absent' || isOf(t, 'bool');
+  // Phase 2001 — the exact family: a decimal, or an int (which promotes to one losslessly); the
+  // pair decimal arithmetic takes is two exact operands, at least one a decimal.
+  const exact = (t: Typing): boolean => isOf(t, 'int', 'decimal');
+  const decimalPair = exact(a) && exact(b) && (isOf(a, 'decimal') || isOf(b, 'decimal'));
 
   switch (op) {
     case 'add':
@@ -134,12 +139,17 @@ const binary = (op: BinOp, a: Typing, b: Typing): Typing => {
           ? of('int')
           : numeric(a) && numeric(b)
             ? of('float')
-            : UNKNOWN,
+            : decimalPair
+              ? of('decimal')
+              : UNKNOWN,
       );
+    // A decimal `div` is refused on every row (it names `quotient`), so no present value.
     case 'div':
       return nullPropagating(() => (numeric(a) && numeric(b) ? of('float') : UNKNOWN));
     case 'mod':
-      return nullPropagating(() => (isOf(a, 'int') && isOf(b, 'int') ? of('int') : UNKNOWN));
+      return nullPropagating(() =>
+        isOf(a, 'int') && isOf(b, 'int') ? of('int') : decimalPair ? of('decimal') : UNKNOWN,
+      );
     case 'eq':
     case 'ne':
     case 'lt':
@@ -148,6 +158,7 @@ const binary = (op: BinOp, a: Typing, b: Typing): Typing => {
     case 'ge':
       return nullPropagating(() => {
         if (numeric(a) && numeric(b)) return of('bool');
+        if (exact(a) && exact(b)) return of('bool');
         if (a.t === 'of' && b.t === 'of' && a.ty === b.ty && a.ty !== 'int' && a.ty !== 'float')
           return of('bool');
         return UNKNOWN;
@@ -173,11 +184,13 @@ const applyFn = (fn: ScalarFn, args: readonly Typing[]): Typing => {
 
   switch (fn) {
     case 'abs':
-      return unary((t) => (isOf(t, 'int') ? of('int') : isOf(t, 'float') ? of('float') : UNKNOWN));
+      return unary((t) => (isOf(t, 'int', 'float', 'decimal') ? t : UNKNOWN));
+    // Over a decimal these are scale-0 `rounded`s and answer a decimal; over an operand the typer
+    // cannot decide they cannot be decided either, because that operand may be a decimal.
     case 'round':
     case 'floor':
     case 'ceil':
-      return unary(() => of('float'));
+      return unary((t) => (isOf(t, 'decimal') ? t : t.t === 'unknown' ? UNKNOWN : of('float')));
     case 'length':
       return unary(() => of('int'));
     case 'lower':
@@ -229,27 +242,53 @@ const typing = (cols: readonly ColumnKnowledge[], e: ColExpr): Typing => {
       return go(e.expr).t === 'absent' ? ABSENT : of('bool');
     case 'isNull':
       return of('bool');
+    // Phase 2001 — a decimal over exact operands, null where one is; any other operand is refused.
+    case 'quotient': {
+      const a = go(e.dividend);
+      const b = go(e.divisor);
+      if (a.t === 'absent' || b.t === 'absent') return ABSENT;
+      return isOf(a, 'int', 'decimal') && isOf(b, 'int', 'decimal') ? of('decimal') : UNKNOWN;
+    }
+    case 'rounded': {
+      const a = go(e.expr);
+      return a.t === 'absent' ? ABSENT : isOf(a, 'int', 'decimal') ? of('decimal') : UNKNOWN;
+    }
+  }
+};
+
+/** Does an arm the value is drawn from — through `case` and `coalesce` — carry the type `ty`? */
+const armsHave = (ty: ColumnType, cols: readonly ColumnKnowledge[], e: ColExpr): boolean => {
+  switch (e.kind) {
+    case 'coalesce':
+      return e.exprs.some((x) => armsHave(ty, cols, x));
+    case 'case':
+      return armsHave(ty, cols, e.else) || e.cases.some((c) => armsHave(ty, cols, c.then));
+    default:
+      return isOf(typing(cols, e), ty);
   }
 };
 
 /**
- * The type a `derive` of `e` produces, where the expression alone decides it —
- * the reference's rule: the evaluator types a derived column from its first
- * present cell and falls back to `string` when there is none, so only an
- * expression whose present values are all strings (or that has none) is
- * decidable on every frame.
+ * The type a `derive` of `e` produces, where the schema decides it — the
+ * reference's derived-column rule (Phase 2001, porting fuaran-core Phase 338),
+ * which the evaluator applies too: a decided type IS the column's type on every
+ * frame, full, empty or all-null alike; an expression with no present value is
+ * `string`; an undecidable one, or a float beside a decimal (refused), is not
+ * known here.
  */
 const derivedColumnType = (
   cols: readonly ColumnKnowledge[],
   e: ColExpr,
 ): ColumnType | undefined => {
+  if (armsHave('float', cols, e) && armsHave('decimal', cols, e)) return undefined;
   const t = typing(cols, e);
-  return t.t === 'absent' || isOf(t, 'string') ? 'string' : undefined;
+  return t.t === 'absent' ? 'string' : t.t === 'of' ? t.ty : undefined;
 };
 
 const aggregateType = (fn: AggFn, source: ColumnType | undefined): ColumnType | undefined => {
   switch (fn) {
     case 'count':
+    case 'countDistinct':
       return 'int';
     case 'mean':
     case 'median':
@@ -269,7 +308,12 @@ const windowType = (input: SchemaKnowledge, spec: WindowSpec): ColumnType | unde
     case 'rowNumber':
     case 'rank':
       return 'int';
-    case 'cumulSum':
+    // A running total over a decimal column is a decimal (exact), over any other a float — so it
+    // is known exactly when the source column's type is.
+    case 'cumulSum': {
+      const source = schemaTypeOf(spec.of, input);
+      return source === undefined ? undefined : source === 'decimal' ? 'decimal' : 'float';
+    }
     case 'rollingMean':
       return 'float';
     case 'lag':
@@ -286,6 +330,8 @@ export const ofTransform = (input: SchemaKnowledge, step: Transform): SchemaKnow
     case 'distinct':
     case 'limit':
     case 'union':
+    case 'intersect':
+    case 'except':
       return input;
     case 'project':
       return {
@@ -323,10 +369,23 @@ export const ofTransform = (input: SchemaKnowledge, step: Transform): SchemaKnow
           "a pivot's value columns are named by the data — one per distinct value in its `on` column",
       };
     case 'unpivot': {
-      const valueType =
-        step.valueVars.length === 0
-          ? 'string'
-          : step.valueVars.map((n) => schemaTypeOf(n, input)).find((t) => t !== undefined);
+      // The evaluator's rule over the value columns' declared types: decided where every value
+      // column's type is known and they join under the widening lattice (an int into a float or a
+      // decimal), unknown where one is not known, a pair does not join, or a float meets a decimal.
+      const types = step.valueVars.map((n) => schemaTypeOf(n, input));
+      const widens = (from: ColumnType, to: ColumnType): boolean =>
+        from === to || (from === 'int' && (to === 'float' || to === 'decimal'));
+      let valueType: ColumnType | undefined = types.length === 0 ? 'string' : types[0];
+      for (const t of types.slice(1)) {
+        valueType =
+          valueType === undefined || t === undefined
+            ? undefined
+            : widens(valueType, t)
+              ? t
+              : widens(t, valueType)
+                ? valueType
+                : undefined;
+      }
       return {
         kind: 'Closed',
         columns: [

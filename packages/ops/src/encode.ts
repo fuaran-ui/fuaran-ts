@@ -95,6 +95,9 @@ import type {
 } from '@fuaran-ui/schema';
 
 import { formatFiniteDouble, num } from '@fuaran-ui/core-twins';
+// Phase 2001 — the exact decimal's canonical-text check and the rounding policy.
+import { isCanonicalDecimal } from '@fuaran-ui/core-twins';
+import type { Rounding } from '@fuaran-ui/schema';
 
 import type { JsonAst } from './parse.js';
 import type { StyleDelta, TreeOp } from './treeOp.js';
@@ -261,10 +264,24 @@ type WireColumnType = ColumnType;
 const columnCellWire = (ty: WireColumnType, c: Cell): string => {
   switch (c.kind) {
     case 'Null':
-      // Cell.defaultFor ty, then cellJson: int→"0", float→"0", bool→false, others→"".
-      return ty === 'bool' ? bool(false) : ty === 'int' || ty === 'float' ? '0' : str('');
+      // Cell.defaultFor ty, then cellJson: int→"0", float→"0", bool→false, decimal→"0" (a
+      // string, Phase 2001), others→"".
+      return ty === 'bool'
+        ? bool(false)
+        : ty === 'int' || ty === 'float'
+          ? '0'
+          : ty === 'decimal'
+            ? str('0')
+            : str('');
     case 'Int':
-      return ty === 'float' ? num(c.value) : intLit(c.value);
+      // An int in a decimal column is held as its digits — a decimal is a JSON string on the wire.
+      return ty === 'float'
+        ? num(c.value)
+        : ty === 'decimal'
+          ? str(intLit(c.value))
+          : intLit(c.value);
+    case 'Decimal':
+      return str(c.value);
     case 'Float':
       return num(c.value);
     case 'Bool':
@@ -336,10 +353,19 @@ const cellLit = (c: Cell): string => {
       return caseObj('Date', [['value', str(c.value)]]);
     case 'Timestamp':
       return caseObj('Timestamp', [['value', str(c.value)]]);
+    case 'Decimal':
+      return caseObj('Decimal', [['value', str(c.value)]]);
     default:
       return assertNever(c);
   }
 };
+
+/** Phase 2001 — a rounding policy, `{"mode":…,"scale":…}`. */
+const roundingJson = (r: Rounding): string =>
+  jObject([
+    ['mode', str(r.mode)],
+    ['scale', intLit(r.scale)],
+  ]);
 
 /** A `ColExpr` — port of F# `DataFrameCodec.encodeExpr`. */
 const colExpr = (e: ColExpr): string => {
@@ -397,6 +423,17 @@ const colExpr = (e: ColExpr): string => {
       ]);
     case 'isNull':
       return caseObj('isNull', [['expr', colExpr(e.expr)]]);
+    case 'quotient':
+      return caseObj('quotient', [
+        ['dividend', colExpr(e.dividend)],
+        ['divisor', colExpr(e.divisor)],
+        ['rounding', roundingJson(e.rounding)],
+      ]);
+    case 'rounded':
+      return caseObj('rounded', [
+        ['expr', colExpr(e.expr)],
+        ['rounding', roundingJson(e.rounding)],
+      ]);
     default:
       return assertNever(e);
   }
@@ -479,6 +516,10 @@ const transformStep = (t: Transform): string => {
       ]);
     case 'union':
       return caseObj('union', [['source', dataSource(t.source)]]);
+    case 'intersect':
+      return caseObj('intersect', [['source', dataSource(t.source)]]);
+    case 'except':
+      return caseObj('except', [['source', dataSource(t.source)]]);
     default:
       return assertNever(t);
   }
@@ -486,6 +527,39 @@ const transformStep = (t: Transform): string => {
 
 /** Encode a `DataSource` to its canonical-JSON string (Compute layer). */
 export const encodeDataSource = (src: DataSource): string => dataSource(src);
+
+/**
+ * Phase 2001 — the GUARDED encode of a `DataSource`: the canonical string, or
+ * the refusal of a cell the decimal column cannot carry — a decimal whose text
+ * is not CANONICAL decimal text (`12.50` is refused; the decimal type has one
+ * spelling per value), or a present cell that is neither a decimal nor an int.
+ * Every other table encodes exactly as `encodeDataSource` encodes it.
+ */
+export const tryEncodeDataSource = (
+  src: DataSource,
+):
+  | { readonly ok: true; readonly value: string }
+  | { readonly ok: false; readonly error: string } => {
+  if (src.kind === 'Embedded') {
+    for (const col of src.table.columns) {
+      if (col.type !== 'decimal') continue;
+      for (const c of col.cells) {
+        if (c.kind === 'Null' || c.kind === 'Int') continue;
+        if (c.kind !== 'Decimal')
+          return {
+            ok: false,
+            error: `column '${col.name}': expected decimal value, got ${c.kind}`,
+          };
+        if (!isCanonicalDecimal(c.value))
+          return {
+            ok: false,
+            error: `malformed: column '${col.name}': decimal text '${c.value}' is not in canonical form`,
+          };
+      }
+    }
+  }
+  return { ok: true, value: dataSource(src) };
+};
 
 /** Encode a literal `Cell` to its `$type`-tagged canonical-JSON string. */
 export const encodeCell = (c: Cell): string => cellLit(c);
