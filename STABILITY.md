@@ -1147,6 +1147,25 @@ same code every host reports.
 
 **What certifies it.** `packages/ops/test/versioning.test.ts`, which pins the code and the path.
 
+### Recorded breaking change — `@fuaran-ui/ops` 0.31.0, a row cell outside ±2^53 is refused at encode (Phase 1960)
+
+_Unreleased: rides the 0.31.0 draft slot above._
+
+**What changed.** A row feed's (DataGrid / Chart `source`) `bigint` cell is rule 11's 64-bit integer. Inside ±2^53
+it encodes as an integer, exactly; past either bound `encodeNode` and the new `encodeRows` throw
+`RowCellRefusedError` (exported, with `code: 'ROW_CELL_INEXACT_INTEGER'`, `row` and `key`) naming the cell. Before,
+a `bigint` cell fell to the `"<opaque>"` sentinel. Every other cell encodes exactly as before.
+
+**Why.** WIRE_FORMAT.md §5 "The two encode refusals": a 64-bit integer past 2^53 has no JSON number that holds it,
+and widening it to a double writes a different number no reader can detect. Every codec host now refuses it. The
+other refusal, a date-time naming no instant, cannot arise here: a `Date` always names one.
+
+**What it costs a consumer.** A feed carrying a `bigint` cell encodes differently: a number in range where it was
+`"<opaque>"`, and a throw past the bound. Carry an integer that can leave ±2^53 as a string.
+
+**What certifies it.** The `row-encode/` corpus family, run by `packages/ops/test/rowEncode.test.ts`, which names
+the one vector this host cannot express and fails on any other skip.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:

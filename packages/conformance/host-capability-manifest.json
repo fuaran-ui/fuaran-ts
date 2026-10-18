@@ -73,6 +73,7 @@
     "op-round-trip": "covered",
     "reject": "covered",
     "repair": "covered",
+    "row-encode": "covered",
     "sanitization": "covered",
     "stored-emissions": "covered",
     "style-observer": "covered",

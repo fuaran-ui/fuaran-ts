@@ -76,6 +76,7 @@ export const HOST_CORPUS_FAMILIES = {
   'lowers-to': pending("this host's suite does not yet run the lowers-to vectors"),
   'merge-conformance': 'covered', // packages/ops/test/merge.test.ts
   repair: 'covered', // packages/ops/test/repair.test.ts
+  'row-encode': 'covered', // packages/ops/test/rowEncode.test.ts
   sanitization: 'covered', // packages/renderer/test/sanitizationCorpus.test.ts
   'stored-emissions': 'covered', // packages/ops/test/stored-emissions.test.ts
 };
