@@ -1632,10 +1632,12 @@ const formFieldKind = (autoBind: ControlAutoBind, k: FormFieldKind<unknown>): st
       return caseObj('RangedNumber', fields);
     }
     case 'SegmentedChoice':
+      // Phase 2300 — `orientation` is omitted at its declared default
+      // `Horizontal`; the decoder restores it.
       return caseObj('SegmentedChoice', [
         ...handlerField('onChange', k.onChange),
         ['options', binding(k.options, staticSelectOptions)],
-        ['orientation', str(k.orientation)],
+        ...(k.orientation === 'Horizontal' ? [] : [['orientation', str(k.orientation)] as Field]),
         ...valueField(k.value, controlValueDefaults.choice, (v) => binding(v, staticStringOpt)),
       ]);
     case 'Combobox': {
@@ -1760,8 +1762,9 @@ const formField = (f: FormField<unknown>): string => {
     ['id', str(f.id)],
     ['kind', formFieldKind({ kind: 'form', id: f.id }, f.kind)],
     ['label', textSource(f.label)],
-    ['required', bool(f.required)],
   ];
+  // Phase 2300 — `required` is omitted at its declared default `false`.
+  if (f.required) fields.push(['required', bool(true)]);
   if (f.help !== undefined) fields.push(['help', textSource(f.help)]);
   if (f.rule !== undefined) fields.push(['rule', fieldRule(f.rule)]);
   return jObject(fields);
@@ -1783,9 +1786,14 @@ const buttonSpec = specEncoder('Button');
 
 const selectSpec = specEncoder<'Select', SelectSpec<unknown>>('Select', {
   // An unselected control is a `Static` binding carrying no value (Phase 677).
-  value: { enc: (v) => binding(v as Binding<string | undefined>, staticStringOpt) },
-  // Phase 291 — `multiple` rides only when true; a false flag is the absent default.
-  multiple: { enc: (v) => (v === true ? bool(true) : undefined) },
+  // Phase 1962: optional in the IDL, so the table writes it only when present —
+  // a multi-select carries `values` and no `value`. `multiple` has no override
+  // for the same reason: an ordinary optional field, emitted as authored (an
+  // explicit `false` is kept; `nodes/select-multiple-false.json`).
+  value: {
+    enc: (v) =>
+      v === undefined ? undefined : binding(v as Binding<string | undefined>, staticStringOpt),
+  },
 });
 
 const fileUploadSpec = specEncoder('FileUpload');
@@ -2079,10 +2087,11 @@ const visKind = (v: VisKind<unknown>): string => {
 const boxLayout = (l: BoxLayout): string => {
   switch (l.kind) {
     case 'Flex': {
-      // direction < gap < wrap
+      // direction < gap < wrap; Phase 2300 — `wrap` is omitted at its
+      // declared default `false`.
       const fields: Field[] = [['direction', str(l.direction)]];
       if (l.gap !== undefined) fields.push(['gap', intLit(l.gap)]);
-      fields.push(['wrap', bool(l.wrap)]);
+      if (l.wrap) fields.push(['wrap', bool(true)]);
       return caseObj('Flex', fields);
     }
     case 'Grid': {

@@ -184,10 +184,11 @@ const tabHeader: TabHeader = { label: emptyLiteral };
 
 const card = <TMsg>(): CardSpec<TMsg> => ({ children: [] });
 
+// `onSelect` omitted (Phase 1962): the declarative floor — a State/Filter-bound
+// `activeStep` gets the clicked index written back by the renderer, as `tabs`.
 const stepper = <TMsg>(): StepperSpec<TMsg> => ({
   activeStep: staticBinding(0),
   children: [],
-  onSelect: () => noActions<TMsg>(),
 });
 
 const summaryList = <TMsg>(): SummaryListSpec<TMsg> => ({ children: [] });
@@ -277,12 +278,13 @@ const filter = <TMsg>(): FilterSpec<TMsg> => ({
 
 // Phase 1115 — both gestures (`dropTarget`, `acceptPaste`) are off by default,
 // which IS the wire identity: a default upload encodes to the bytes it always did.
+// `onSelect` omitted (Phase 1962): a declarative upload carries no handler and
+// the wire omits the key.
 const fileUpload = <TMsg>(): FileUploadSpec<TMsg> =>
   withDefaults('FileUpload', {
     label: emptyLiteral,
     accept: [],
     multiple: false,
-    onSelect: () => noActions<TMsg>(),
   });
 
 // ─── Visualisation defaults ──────────────────────────────────────────────────
