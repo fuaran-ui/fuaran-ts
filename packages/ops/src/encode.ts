@@ -1762,21 +1762,76 @@ const staticStringList = (v: readonly string[]): string => jArray(v.map(str));
 // null/undefined cell is OMITTED (rule 4: absence is structural, never
 // `"k":null`), and a nested array/object cell is the residual `"<opaque>"`
 // sentinel — the opaque boundary narrowed from the whole payload to the cell
-// seam. Mirror of F# `Fuaran.Core.RowCodec.encodeRows`.
-const rowValue = (row: unknown): string => {
+// seam. Mirror of F# `Fuaran.UI.RowCodec.encodeRows`.
+//
+// Phase 1960 — WIRE_FORMAT.md §5 "The two encode refusals". The 64-bit integer
+// cell of rule 11 is a `bigint` here: inside ±2^53 it is exactly a double and
+// encodes in integer form; past either bound no JSON number holds it, so the
+// cell is REFUSED with a typed `RowCellRefusedError` naming it, rather than
+// widened to a different number. (Before, a `bigint` fell to the `"<opaque>"`
+// sentinel, which rule 11 does not allow for an integer.) A `Date` always names
+// an instant, so the other refusal — a date-time naming none — cannot arise.
+const EXACT_INTEGER_LIMIT = 9007199254740992n;
+
+/** The stable codes of the two row-cell refusals (WIRE_FORMAT.md §5). */
+export type RowCellRefusalCode = 'ROW_CELL_INEXACT_INTEGER' | 'ROW_CELL_UNSPECIFIED_DATETIME';
+
+/**
+ * A row cell the row-feed encoder refuses: the row's zero-based position in
+ * the feed and the cell's key. Recognise it by `name`, never `instanceof` —
+ * the same posture as `WireSurvivabilityError`.
+ */
+export class RowCellRefusedError extends Error {
+  readonly code: RowCellRefusalCode;
+  readonly row: number;
+  readonly key: string;
+  constructor(code: RowCellRefusalCode, row: number, key: string, why: string) {
+    super(`row ${row}, cell '${key}': ${why}`);
+    this.name = 'RowCellRefusedError';
+    this.code = code;
+    this.row = row;
+    this.key = key;
+  }
+}
+
+const rowCell = (v: unknown, row: number, key: string): string => {
+  if (typeof v === 'bigint') {
+    if (v > EXACT_INTEGER_LIMIT || v < -EXACT_INTEGER_LIMIT) {
+      throw new RowCellRefusedError(
+        'ROW_CELL_INEXACT_INTEGER',
+        row,
+        key,
+        `the integer ${v} is outside +/-2^53, so no JSON number holds it exactly; carry it as a string`,
+      );
+    }
+    return num(Number(v));
+  }
+  return objValue(v);
+};
+
+const rowValue = (row: unknown, i: number): string => {
   // A non-record element is unrepresentable from the typed authoring surface
   // (the F# slot is statically `Row seq`) and rejected by the decoder, so this
   // guard only keeps the encoder total.
   if (row === null || typeof row !== 'object') return '{}';
   const fields: Field[] = [];
-  for (const [k, v] of Object.entries(row)) {
+  // Ordinal key order, so the FIRST refused cell is the one every host names.
+  for (const k of Object.keys(row).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
+    const v = (row as Record<string, unknown>)[k];
     if (v === null || v === undefined) continue;
-    fields.push([k, objValue(v)]);
+    fields.push([k, rowCell(v, i, k)]);
   }
   return jObject(fields);
 };
 
 const staticRowSeq = (v: readonly unknown[]): string => jArray(v.map(rowValue));
+
+/**
+ * Encode a row feed (the DataGrid / Chart `source` payload) to its canonical
+ * bytes — the encoder a node's row slot takes. Throws `RowCellRefusedError`
+ * on a refused cell (WIRE_FORMAT.md §5).
+ */
+export const encodeRows = (rows: readonly unknown[]): string => staticRowSeq(rows);
 
 // ─── Visualisation specs ─────────────────────────────────────────────────────
 

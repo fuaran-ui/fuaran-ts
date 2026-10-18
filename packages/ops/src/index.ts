@@ -11,6 +11,7 @@
 // @fuaran-ui/schema (a peer dependency).
 
 export { encodeNode, encodeOp } from './encode.js';
+export { encodeRows, RowCellRefusedError, type RowCellRefusalCode } from './encode.js';
 export { encodeDataSource, encodeCell, encodeColExpr, encodePipeline } from './encode.js';
 export {
   evalPipeline,
