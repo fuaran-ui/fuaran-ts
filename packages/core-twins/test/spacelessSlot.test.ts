@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Capability, CapabilitySignature, InvokeArg } from '@fuaran-ui/schema';
 
-import { createCapability, validateArgs } from '../src/capability.js';
+import { createCapability, determinismOf, validateArgs } from '../src/capability.js';
 
 const signature: CapabilitySignature = {
   name: 'tpl',
@@ -37,7 +37,7 @@ const signature: CapabilitySignature = {
     },
     { addr: 'tpl/s', name: 'body', kind: 'slot', slotKind: 'para', required: true },
   ],
-  effect: { hostEffect: 'Pure', determinism: 'Deterministic' },
+  effect: { hostEffect: 'Pure', determinism: determinismOf() },
 };
 
 const cap: Capability = createCapability('tpl-cap', signature, { kind: 'Server' });
@@ -92,7 +92,7 @@ describe('a slot hole with no declared space (fuaran-core#229)', () => {
       {
         name: 'any',
         holes: [{ addr: 's', name: 's', kind: 'slot', required: true }],
-        effect: { hostEffect: 'Pure', determinism: 'Deterministic' },
+        effect: { hostEffect: 'Pure', determinism: determinismOf() },
       },
       { kind: 'Server' },
     );

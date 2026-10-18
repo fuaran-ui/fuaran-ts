@@ -46,22 +46,29 @@ export {
 } from './dataframe.js';
 
 export {
+  admissionOf,
+  canonicalValue,
   capabilityDeterminismTag,
+  coversDeterminism,
   createCapability,
   describeInvokeError,
+  determinismOf,
   determinismTag,
   emptyRegistry,
   enumerate,
   fnv1a,
   invocationKey,
+  joinDeterminism,
   mirroredCoreVersion,
   register,
   registryOf,
   spaceValidate,
   toJsonSchema,
+  tryDeterminismOfTag,
   tryFind,
   validateArgs,
   type CapabilityRegistry,
+  type DeclarationFault,
   type InvokeError,
 } from './capability.js';
 
