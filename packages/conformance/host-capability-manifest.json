@@ -41,6 +41,12 @@
     "contract-card-round-trip": "covered",
     "dag": "covered",
     "decode-policy": "covered",
+    "design-seam-reject": {
+      "notApplicable": "this host ships no design-provider seam: its records are read by a design-tool integration, and this host carries none"
+    },
+    "design-seam-round-trip": {
+      "notApplicable": "this host ships no design-provider seam: its records are read by a design-tool integration, and this host carries none"
+    },
     "devtools-relay": "covered",
     "diff/treeDiff": {
       "notApplicable": "this host ships no structural tree diff: its op streams carry authored ops, and it never derives an op-script from a (before, after) pair"

@@ -228,7 +228,7 @@ describe('self-certification — @fuaran-ui/ops through the public kit', () => {
     expect(elicitationCount).toBeGreaterThan(0);
     expect(cardCount).toBeGreaterThan(0);
 
-    // Two families are exercised by NO leg here, and naming them is what keeps
+    // Three families are exercised by NO leg here, and naming them is what keeps
     // the guarantee above total rather than approximate.
     //
     // `teleport-decode` / `teleport-reject` (WIRE_FORMAT.md §17.6) need an
@@ -249,10 +249,23 @@ describe('self-certification — @fuaran-ui/ops through the public kit', () => {
     // snapshot's payload is derived from the manifest, and a snapshot listing
     // files it does not hold is worse than one carrying files it does not read.
     //
+    // `design-seam-round-trip` / `design-seam-reject` (DESIGN_SEAM.md, Phase
+    // 2295) are style-observer's case: the design-provider seam's records are
+    // read by a design-tool integration, and no package here carries one, so
+    // there is no codec for a leg to run. The host manifest declares the family
+    // notApplicable for the same reason; it is bundled because the snapshot's
+    // payload is derived from the manifest.
+    //
     // The exclusion is COMPUTED and pinned to exactly these kinds, so a future
     // family that no leg covers still trips this assertion — which is the whole
     // point of the accounting. Widening this set is a decision, never a repair.
-    const notExercisedHere = ['teleport-decode', 'teleport-reject', 'style-observer'];
+    const notExercisedHere = [
+      'teleport-decode',
+      'teleport-reject',
+      'style-observer',
+      'design-seam-round-trip',
+      'design-seam-reject',
+    ];
     const corpus = loadCorpus();
     const unexercised = corpus.fixtures.filter((f) => notExercisedHere.includes(f.kind));
     expect(new Set(unexercised.map((f) => f.kind))).toEqual(new Set(notExercisedHere));

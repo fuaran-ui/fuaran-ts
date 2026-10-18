@@ -33,6 +33,8 @@ export const manifestPath = join(packageRoot, 'host-capability-manifest.json');
 const pending = (why) => ({ pending: why });
 const notApplicable = (why) => ({ notApplicable: why });
 
+const NO_DESIGN_SEAM =
+  'this host ships no design-provider seam: its records are read by a design-tool integration, and this host carries none';
 const LAW_UNRUN = "this host's suite does not yet run this law family's vectors";
 const NO_TOKEN_DERIVER =
   'this host has no generator deriving construct tokens from its type model yet, so it makes no claim in this family (§27.1)';
@@ -60,6 +62,8 @@ export const HOST_CORPUS_FAMILIES = {
   'apply/skeletonApply': pending("this host's suite does not yet run the skeleton-apply vectors"),
   dag: 'covered', // packages/ops/test/dag.test.ts
   'decode-policy': 'covered', // packages/ops/test/decodePolicy.test.ts
+  'design-seam-reject': notApplicable(NO_DESIGN_SEAM),
+  'design-seam-round-trip': notApplicable(NO_DESIGN_SEAM),
   'devtools-relay': 'covered', // packages/renderer/test/relayCorpus.test.tsx
   'diff/treeDiff': notApplicable(
     'this host ships no structural tree diff: its op streams carry authored ops, and it never derives an op-script from a (before, after) pair',
