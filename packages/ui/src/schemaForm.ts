@@ -21,8 +21,9 @@
 //    - member ORDER: field order is the schema's `properties` order, and a
 //      JavaScript object enumerates integer-like keys (`"2"`, `"10"`) first,
 //      in numeric order, whatever the document said;
-//    - DUPLICATE members: two `properties` of one name are two fields (and a
-//      `duplicate-field-id` refusal), not the last one silently winning;
+//    - DUPLICATE members: a repeated member name is refused as the reference
+//      reader refuses it (`repeated member name in one object`), never read
+//      with the last one silently winning, as `JSON.parse` would;
 //    - integer vs float literals: `maxLength: 5.0` is not a count.
 //
 //  `parseSchemaJson` is a port of the reference host's null-tolerant reader
@@ -333,15 +334,28 @@ export const parseSchemaJson = (
       i += 1;
       return { kind: 'obj', members };
     }
+    const seen = new Set<string>();
     for (;;) {
       skipWs();
+      const keyAt = i;
       const key = parseString();
       skipWs();
       expect(':');
       skipWs();
-      // A member whose value is exactly the `null` token reads as absent.
+      // A member whose value is exactly the `null` token reads as absent, and is no occurrence of
+      // its name: the tolerant read is the strict read of the document with its member nulls deleted.
       if (i + 4 <= n && input.slice(i, i + 4) === 'null') i += 4;
-      else members.push([key, parseValue(depth + 1)]);
+      else {
+        members.push([key, parseValue(depth + 1)]);
+        // A repeated member name is refused once its value is read, at the name's opening quote,
+        // as the reference host's reader refuses it (Fuaran.Core 0.37.0, its Phase 462): two members
+        // of one name have no one value.
+        if (seen.has(key)) {
+          i = keyAt;
+          fail('repeated member name in one object');
+        }
+        seen.add(key);
+      }
       skipWs();
       const c = peek();
       if (c === ',') i += 1;

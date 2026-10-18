@@ -362,8 +362,8 @@ describe('the options', () => {
 });
 
 describe('reading the schema', () => {
-  it('parseSchemaJson keeps document order, duplicates and the int/float distinction', () => {
-    const r = parseSchemaJson('{"b":1,"10":2.0,"b":3}');
+  it('parseSchemaJson keeps document order and the int/float distinction', () => {
+    const r = parseSchemaJson('{"b":1,"10":2.0,"c":3}');
     expect(r).toEqual({
       ok: true,
       value: {
@@ -371,9 +371,21 @@ describe('reading the schema', () => {
         members: [
           ['b', { kind: 'int', value: 1 }],
           ['10', { kind: 'float', value: 2 }],
-          ['b', { kind: 'int', value: 3 }],
+          ['c', { kind: 'int', value: 3 }],
         ],
       },
+    });
+  });
+
+  it('parseSchemaJson refuses a repeated member name at its opening quote, as the reference reader does', () => {
+    expect(parseSchemaJson('{"b":1,"10":2.0,"b":3}')).toEqual({
+      ok: false,
+      error: 'not valid JSON: repeated member name in one object at position 16',
+    });
+    // An erased member null is no occurrence of its name.
+    expect(parseSchemaJson('{"b":null,"b":3}')).toEqual({
+      ok: true,
+      value: { kind: 'obj', members: [['b', { kind: 'int', value: 3 }]] },
     });
   });
 

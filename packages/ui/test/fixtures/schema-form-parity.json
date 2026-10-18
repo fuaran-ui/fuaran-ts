@@ -230,10 +230,10 @@
       "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"b\",\"kind\":{\"$type\":\"Text\"},\"label\":\"b\",\"required\":false},{\"id\":\"10\",\"kind\":{\"$type\":\"Text\"},\"label\":\"10\",\"required\":false},{\"id\":\"2\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"2\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
-      "name": "text-duplicate-keys-are-kept",
+      "name": "text-duplicate-keys-are-refused",
       "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\"},\"a\":{\"type\":\"number\"}}}",
       "outcome": "refused",
-      "wire": "{\"refusals\":[{\"code\":\"duplicate-field-id\",\"message\":\"two properties derive to field id 'a'\",\"path\":\"\"}]}"
+      "wire": "{\"refusals\":[{\"code\":\"schema-not-json\",\"message\":\"the schema is not JSON: not valid JSON: repeated member name in one object at position 53\",\"path\":\"\"}]}"
     },
     {
       "name": "text-escapes-and-whitespace",
