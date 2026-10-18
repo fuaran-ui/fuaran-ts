@@ -82,9 +82,7 @@ export const HOST_CORPUS_FAMILIES = {
   'diff/treeDiff': notApplicable(
     'this host ships no structural tree diff: its op streams carry authored ops, and it never derives an op-script from a (before, after) pair',
   ),
-  'laws/capabilityLaws': pending(
-    'the capability twin mirrors an older Core than the vectors are stamped for, so capabilityLaws.test.ts reports the gap and asserts nothing until the twin is raised',
-  ),
+  'laws/capabilityLaws': 'covered', // packages/ops/test/capabilityLaws.test.ts
   'laws/dataframeParity': pending(
     "this host's evaluator runs the drawn transformLaws sample; the authored dataframeParity cases are not run yet",
   ),

@@ -26,7 +26,7 @@
 //   - F# `option` / absent ⟺ a field omitted; never `null`.
 // ============================================================================
 
-import type { DeterminismSource, EffectClass, HoleValueSpace } from './types.js';
+import type { HoleValueSpace, HostEffect } from './types.js';
 
 // ─── Columnar model (port of Fuaran.Core.Column) ─────────────────────────────
 
@@ -380,7 +380,7 @@ export type CapabilityInvoker = (
 // `@fuaran-ui/ops` owns the canonical DECLARATION CODEC, and a codec whose
 // types sit in the author package would need a dependency that inverts this
 // workspace's layering. Both already depend on this package, so the shared
-// shape belongs here — the same reason `HoleValueSpace` and `EffectClass` are
+// shape belongs here — the same reason `HoleValueSpace` and `HostEffect` are
 // in `types.ts` rather than beside the runtime that ranges over them.
 // `@fuaran-ui/ui` re-exports all five, so its published surface is unchanged.
 
@@ -404,11 +404,33 @@ export interface CapabilitySigEntry {
   readonly required: boolean;
 }
 
+/**
+ * One atomic source of non-determinism a capability body may read beyond its
+ * explicit inputs. Port of F# `DeterminismFactor`; the case order is the
+ * canonical order a determinism label renders a set in.
+ */
+export type DeterminismFactor = 'ClockFactor' | 'RandomFactor' | 'NetworkFactor';
+
+/**
+ * A capability's determinism axis: the SET of factors its body reads, joined by
+ * union; the empty set is deterministic. Port of F# `DeterminismSource`, which
+ * became `Set<DeterminismFactor>` at Core 0.33.0 (fuaran-core Phase 319). It is
+ * a capability type only: the UI wire's fragment `EffectClass` keeps the
+ * `DeterminismSource` its IDL declares.
+ */
+export type DeterminismSet = ReadonlySet<DeterminismFactor>;
+
+/** A capability's total two-axis effect class: the host axis and the determinism set. */
+export interface CapabilityEffectClass {
+  readonly hostEffect: HostEffect;
+  readonly determinism: DeterminismSet;
+}
+
 /** A capability's derived signature: which holes, what spaces, and its effect class. */
 export interface CapabilitySignature {
   readonly name: string;
   readonly holes: readonly CapabilitySigEntry[];
-  readonly effect: EffectClass;
+  readonly effect: CapabilityEffectClass;
 }
 
 /** Which client-island runtime a `ClientIsland` capability's body runs in. */
@@ -432,7 +454,7 @@ export type Placement =
 export interface Capability {
   readonly id: string;
   readonly signature: CapabilitySignature;
-  readonly determinism: DeterminismSource;
+  readonly determinism: DeterminismSet;
   readonly placement: Placement;
 }
 

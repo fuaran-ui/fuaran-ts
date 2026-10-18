@@ -14,6 +14,7 @@ import type { Deferred, InvokeArg } from '../src/index.js';
 import {
   type CapabilitySignature,
   createCapability,
+  determinismOf,
   discover,
   emptyRegistry,
   enumerate,
@@ -39,7 +40,7 @@ const doubleSig: CapabilitySignature = {
       required: true,
     },
   ],
-  effect: { hostEffect: 'ReadsHost', determinism: 'Random' },
+  effect: { hostEffect: 'ReadsHost', determinism: determinismOf('RandomFactor') },
 };
 const doubleCap = createCapability('compute.double', doubleSig, {
   kind: 'ClientIsland',
@@ -50,7 +51,7 @@ const doubleCap = createCapability('compute.double', doubleSig, {
 const slotSig: CapabilitySignature = {
   name: 'wrap',
   holes: [{ addr: 'body', name: 'body', kind: 'slot', slotKind: 'Layout', required: true }],
-  effect: { hostEffect: 'Pure', determinism: 'Deterministic' },
+  effect: { hostEffect: 'Pure', determinism: determinismOf() },
 };
 const slotCap = createCapability('compute.wrap', slotSig, { kind: 'Server' });
 
@@ -195,7 +196,7 @@ describe('invocationKey — FNV-1a replay keying, byte-identical to the F# arith
         { addr: 'a', name: 'a', kind: 'value', space: { kind: 'AnyString' }, required: true },
         { addr: 'b', name: 'b', kind: 'value', space: { kind: 'AnyString' }, required: true },
       ],
-      effect: { hostEffect: 'Pure', determinism: 'Deterministic' },
+      effect: { hostEffect: 'Pure', determinism: determinismOf() },
     };
     const multi = createCapability('m', multiSig, { kind: 'ClientDeclarative' });
     expect(invocationKey(multi, a)).toBe(invocationKey(multi, b));
