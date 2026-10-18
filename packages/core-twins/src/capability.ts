@@ -259,20 +259,17 @@ export const createCapability = (
 /**
  * The value space an argument for this hole must lie in.
  *
- * The rule (Phase 1873, from fuaran-core#229): a slot hole with no declared
- * space ranges over the tree space constrained to its `slotKind`, so it admits
- * a well-formed wire document whose `"kind"` satisfies that constraint (any
- * kind when the slot is unconstrained) — exactly the space the reference's
- * decoder restores for a slot entry that travels without one.
- *
- * The reference writes a slot's space only when it disagrees with the slot's
- * constraint, so this is the ordinary shape of a slotted capability on the
- * wire. The space is supplied here, at validation, rather than written into
- * the declaration, so a declaration re-encodes to the bytes it arrived as.
- * Every other hole answers its declared space.
+ * The rule (Phase 1873, from fuaran-core#229; narrowed by Core 0.37.0,
+ * fuaran-core Phase 409): a slot hole ranges over the tree space constrained to
+ * its `slotKind`, so it admits a well-formed wire document whose `"kind"`
+ * satisfies that constraint (any kind when the slot is unconstrained). The slot
+ * entry IS its constraint: no declared space overrides it, so a `Text` tree in
+ * a `Layout` slot is out of space. The space is supplied here, at validation,
+ * rather than written into the declaration. Every other hole answers its
+ * declared space.
  */
 const invocationSpace = (hole: CapabilitySigEntry): CapabilitySpace | undefined => {
-  if (hole.space !== undefined || hole.kind !== 'slot') return hole.space;
+  if (hole.kind !== 'slot') return hole.space;
   return hole.slotKind === undefined
     ? { kind: 'SlotTree' }
     : { kind: 'SlotTree', slotKind: hole.slotKind };
