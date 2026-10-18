@@ -21,12 +21,14 @@ import {
   ENUM_CASES,
   FORM_FIELD_KIND_NAMES,
   KIND_FIELDS,
+  KINDS_BY_CATEGORY,
   NODE_KIND_GROUPS,
   NODE_KIND_NAMES,
   RECORD_FIELDS,
   defaultValue,
   wireRows,
   controlValueDefaults,
+  defaults,
   projectSelectionField,
   MAX_EXPR_NODES,
   MAX_NODES,
@@ -52,6 +54,7 @@ import type {
   IdlRecord,
   IdlSpec,
   IdlType,
+  KindCategory,
   NodeKindName,
   Optionality,
   RecordName,
@@ -4798,49 +4801,38 @@ const decodeDrawingSpec = specDecoder('Drawing');
 //
 // A kind object is dispatched on its discriminator through a TABLE of arms, one
 // per tag: the tag selects the arm, the arm decodes the spec, and an unknown
-// tag is refused at `$type` with nothing beneath it decoded (§29.1 rule 9). The
-// node-level family routing below is DERIVED from the four family tables, so
-// there is no name-set to keep in sync with the inner decoders.
+// tag is refused at `$type` with nothing beneath it decoded (§29.1 rule 9). Each
+// family's table is keyed by exactly the kinds the IDL files under that
+// category (`KINDS_BY_CATEGORY`, Phase 2329): a kind the IDL gains, moves or
+// drops fails to compile here until its arm follows. The node-level routing
+// below is the union of the four tables, so there is no name-set to keep in
+// sync with the arms, and the one hint an unknown tag reports is the
+// `WRONG_NODE_KIND` hint, projected from the same IDL rows.
 
 /** One arm of a `$type` dispatch: the kind object, with its fields already read. */
 type KindArm<T> = (w: Walk, path: string, j: JsonAst, f: Fields) => R<T>;
 
 type KindArms<T> = Readonly<Record<string, KindArm<T>>>;
 
+/** A family's arms: one per kind the IDL files under the category, and no other. */
+type FamilyArms<C extends KindCategory, T> = {
+  readonly [K in (typeof KINDS_BY_CATEGORY)[C][number]]: KindArm<T>;
+};
+
 /** The arm a tag names, or nothing — an own-key lookup, so a wire tag never reaches `Object.prototype`. */
 const armFor = <T>(arms: KindArms<T>, tag: string): KindArm<T> | undefined =>
   Object.hasOwn(arms, tag) ? arms[tag] : undefined;
 
-/**
- * Dispatch a kind object on its `$type`. Flat wire: spec fields are hoisted onto
- * the kind object itself (no `spec` wrapper), so the arm is handed `j` and reads
- * its fields by name, ignoring the extra `$type` key.
- */
-const dispatchKind = <T>(
-  w: Walk,
-  path: string,
-  j: JsonAst,
-  arms: KindArms<T>,
-  expected: string,
-): R<T> => {
-  const fo = requireObject(w, path, j);
-  if (!fo.ok) return fo;
-  const d = requireDiscriminator(path, fo.value);
-  if (!d.ok) return d;
-  const arm = armFor(arms, d.value);
-  return arm === undefined ? unknownDuCase(path, d.value, expected) : arm(w, path, j, fo.value);
-};
-
-/** The family table lifted to the node level: every tag routes to its family decoder, wrapped as the category. */
-const familyOf = <F, T>(arms: KindArms<F>, family: Decoder<F>, wrap: (k: F) => T): KindArms<T> => {
+/** The family table lifted to the node level: every arm, its result wrapped as the category. */
+const familyOf = <F, T>(arms: KindArms<F>, wrap: (k: F) => T): KindArms<T> => {
   const out: Record<string, KindArm<T>> = Object.create(null) as Record<string, KindArm<T>>;
-  for (const tag of Object.keys(arms)) {
-    out[tag] = (w, path, j) => andThen(family(w, path, j), (k) => ok(wrap(k)));
+  for (const [tag, arm] of Object.entries(arms)) {
+    out[tag] = (w, path, j, f) => andThen(arm(w, path, j, f), (k) => ok(wrap(k)));
   }
   return out;
 };
 
-const DISPLAY_KINDS: KindArms<DisplayKind> = {
+const DISPLAY_KINDS: FamilyArms<'Display', DisplayKind> = {
   Heading: (w, path, j) =>
     andThen(decodeHeadingSpec(w, path, j), (spec) => ok<DisplayKind>({ kind: 'Heading', spec })),
   Markdown: (w, path, j) =>
@@ -4890,15 +4882,6 @@ const DISPLAY_KINDS: KindArms<DisplayKind> = {
   Drawing: (w, path, j) =>
     andThen(decodeDrawingSpec(w, path, j), (spec) => ok<DisplayKind>({ kind: 'Drawing', spec })),
 };
-
-const decodeDisplayKind: Decoder<DisplayKind> = (w, path, j) =>
-  dispatchKind(
-    w,
-    path,
-    j,
-    DISPLAY_KINDS,
-    'Heading | Markdown | Metric | Badge | Link | Image | Media | Embed | Tree | List | Toast | CodeBlock | Math | Drawing | Sparkline | Callout | Progress | Skeleton | LabelValueRow | Fact',
-  );
 
 // ─── Input specs ─────────────────────────────────────────────────────────────
 
@@ -5510,7 +5493,7 @@ const decodeFileUploadSpec = specDecoder(
   (spec) => ok<FileUploadSpec<unknown>>({ ...spec, onSelect: closurePlaceholder }),
 );
 
-const INPUT_KINDS: KindArms<InputKind<unknown>> = {
+const INPUT_KINDS: FamilyArms<'Input', InputKind<unknown>> = {
   Form: (w, path, j) =>
     andThen(decodeFormSpec(w, path, j), (spec) => ok<InputKind<unknown>>({ kind: 'Form', spec })),
   Filters: (w, path, _j, f) =>
@@ -5530,9 +5513,6 @@ const INPUT_KINDS: KindArms<InputKind<unknown>> = {
       ok<InputKind<unknown>>({ kind: 'Select', spec }),
     ),
 };
-
-const decodeInputKind: Decoder<InputKind<unknown>> = (w, path, j) =>
-  dispatchKind(w, path, j, INPUT_KINDS, 'Form | Filters | Button | FileUpload | Select');
 
 // ─── Visualisation specs ─────────────────────────────────────────────────────
 
@@ -5946,7 +5926,7 @@ const decodeChartSpec = specDecoder('Chart', { source: { aliases: ['data'] } });
 
 const decodeMapSpec = specDecoder('Map', { source: { aliases: ['data', 'markers'] } });
 
-const VIS_KINDS: KindArms<VisKind<unknown>> = {
+const VIS_KINDS: FamilyArms<'Visualisation', VisKind<unknown>> = {
   // Wire discriminator 'DataGrid'; in-memory tag stays 'Grid'.
   DataGrid: (w, path, j) =>
     andThen(decodeGridSpec(w, path, j), (spec) => ok<VisKind<unknown>>({ kind: 'Grid', spec })),
@@ -5955,9 +5935,6 @@ const VIS_KINDS: KindArms<VisKind<unknown>> = {
   Map: (w, path, j) =>
     andThen(decodeMapSpec(w, path, j), (spec) => ok<VisKind<unknown>>({ kind: 'Map', spec })),
 };
-
-const decodeVisKind: Decoder<VisKind<unknown>> = (w, path, j) =>
-  dispatchKind(w, path, j, VIS_KINDS, 'DataGrid | Chart | Table | Map');
 
 // ─── Layout specs ────────────────────────────────────────────────────────────
 
@@ -6096,7 +6073,7 @@ const decodeModalSpec = specDecoder('Modal', { heading: { aliases: ['title'] } }
 const decodeScrollAreaSpec = specDecoder('ScrollArea');
 
 // Phase 390 — the unified container + the four legacy decode-upgrades.
-const LAYOUT_KINDS: KindArms<LayoutKind<unknown>> = {
+const LAYOUT_KINDS: FamilyArms<'Layout', LayoutKind<unknown>> = {
   Box: (w, path, j) =>
     andThen(decodeBox(w, path, j), (spec) => ok<LayoutKind<unknown>>({ kind: 'Box', spec })),
   SplitPanel: (w, path, j) =>
@@ -6126,15 +6103,6 @@ const LAYOUT_KINDS: KindArms<LayoutKind<unknown>> = {
       ok<LayoutKind<unknown>>({ kind: 'ScrollArea', spec }),
     ),
 };
-
-const decodeLayoutKind: Decoder<LayoutKind<unknown>> = (w, path, j) =>
-  dispatchKind(
-    w,
-    path,
-    j,
-    LAYOUT_KINDS,
-    'Box | SplitPanel | Tabs | Stepper | SummaryList | Disclosure | Modal | ScrollArea',
-  );
 
 // ─── NodeKind ────────────────────────────────────────────────────────────────
 
@@ -6375,10 +6343,10 @@ const decodeMountSpec = specDecoder('Mount', { inputs: { dec: fragmentArgMap } }
 );
 
 const NODE_KIND_FAMILIES: KindArms<NodeKind<unknown>> = {
-  ...familyOf(LAYOUT_KINDS, decodeLayoutKind, (layout) => ({ kind: 'Layout', layout })),
-  ...familyOf(DISPLAY_KINDS, decodeDisplayKind, (display) => ({ kind: 'Display', display })),
-  ...familyOf(INPUT_KINDS, decodeInputKind, (input) => ({ kind: 'Input', input })),
-  ...familyOf(VIS_KINDS, decodeVisKind, (visualisation) => ({
+  ...familyOf(LAYOUT_KINDS, (layout) => ({ kind: 'Layout', layout })),
+  ...familyOf(DISPLAY_KINDS, (display) => ({ kind: 'Display', display })),
+  ...familyOf(INPUT_KINDS, (input) => ({ kind: 'Input', input })),
+  ...familyOf(VIS_KINDS, (visualisation) => ({
     kind: 'Visualisation',
     visualisation,
   })),
@@ -6598,13 +6566,15 @@ const decodeSemanticStyle = (w: Walk, path: string, j: JsonAst): R<SemanticStyle
   const direction = optField(w, path, f, 'direction', decodeTextDirection);
   if (!tone.ok || !weight.ok || !emphasis.ok || !role.ok || !voice.ok || !direction.ok)
     return failed(tone, weight, emphasis, role, voice, direction);
+  // Every member of the record is `omitDefault` in the IDL, so each has its default.
+  const d = defaults.style as Required<SemanticStyle>;
   return ok({
-    tone: tone.value ?? 'Default',
-    weight: weight.value ?? 'Standard',
-    emphasis: emphasis.value ?? 'Normal',
-    role: role.value ?? 'None',
-    voice: voice.value ?? 'Default',
-    direction: direction.value ?? 'auto',
+    tone: tone.value ?? d.tone,
+    weight: weight.value ?? d.weight,
+    emphasis: emphasis.value ?? d.emphasis,
+    role: role.value ?? d.role,
+    voice: voice.value ?? d.voice,
+    direction: direction.value ?? d.direction,
   });
 };
 
@@ -6759,7 +6729,13 @@ const decodeAccessibility = (w: Walk, path: string, j: JsonAst): R<Accessibility
 /** All-empty StateBehaviour the decoder restores when `state` is absent (§3.1). */
 const emptyStateBehaviour: StateBehaviour<unknown> = {};
 
-/** All-default SemanticStyle the decoder restores when `style` is absent (§3.1). */
+/**
+ * All-default SemanticStyle the decoder restores when `style` is absent (§3.1).
+ * It carries no `direction`, where a present all-default `style` object decodes
+ * WITH `direction: 'auto'`; the merge engine re-omits that identity and is
+ * pinned to this shape, so the asymmetry is kept here and recorded rather than
+ * changed under a table refactor.
+ */
 const defaultSemanticStyle: SemanticStyle = {
   tone: 'Default',
   weight: 'Standard',
@@ -6775,13 +6751,7 @@ const placeholderClosureNode: Node<unknown> = {
     display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: CLOSURE } } },
   },
   state: {},
-  style: {
-    tone: 'Default',
-    weight: 'Standard',
-    emphasis: 'Normal',
-    role: 'None',
-    voice: 'Default',
-  },
+  style: defaultSemanticStyle,
 };
 
 // ─── §21 walk bounds for the structural + op decoders ──────────────────────

@@ -136,8 +136,10 @@ const entryJson = (e: CapabilitySigEntry): string => {
     ['kind', str(e.kind)],
     ['required', bool(e.required)],
   ];
-  // Option fields are OMITTED when absent, never `null` (WIRE_FORMAT.md §2).
-  if (e.space !== undefined) fields.push(['space', spaceJson(e.space)]);
+  // Option fields are OMITTED when absent, never `null` (WIRE_FORMAT.md §2). A
+  // slot entry writes its constraint and NO space (Core 0.37.0, fuaran-core
+  // Phase 409): its space is the tree space of that constraint, never its own.
+  if (e.space !== undefined && e.kind !== 'slot') fields.push(['space', spaceJson(e.space)]);
   if (e.slotKind !== undefined) fields.push(['slotKind', str(e.slotKind)]);
   return jObject(fields);
 };
@@ -249,12 +251,18 @@ const entryOf = (raw: unknown): CapabilitySigEntry => {
     fail(`unknown hole kind: ${kind}; expected one of: value, slot, repeat`);
   const required = o['required'];
   if (typeof required !== 'boolean') fail('missing or non-boolean field: required');
+  const addr = strAt(o, 'addr');
+  const name = strAt(o, 'name');
+  // A slot entry is read as its constraint (Core 0.37.0, fuaran-core Phase 409):
+  // a `space` it still carries — the pre-0.37.0 encoding wrote one — is read,
+  // so a malformed one is refused as before, and is not part of the entry.
+  const space = 'space' in o ? spaceOf(o['space']) : undefined;
   return {
-    addr: strAt(o, 'addr'),
-    name: strAt(o, 'name'),
+    addr,
+    name,
     kind,
     required,
-    ...('space' in o ? { space: spaceOf(o['space']) } : {}),
+    ...(space !== undefined && kind !== 'slot' ? { space } : {}),
     ...('slotKind' in o ? { slotKind: strAt(o, 'slotKind') } : {}),
   };
 };
