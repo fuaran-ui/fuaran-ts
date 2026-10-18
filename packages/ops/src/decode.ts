@@ -154,6 +154,9 @@ import type {
 } from '@fuaran-ui/schema';
 
 import { civilFromDays, parseIsoDay } from '@fuaran-ui/core-twins';
+// Phase 2001 — the exact decimal: its canonical text and the rounding policy's seven modes.
+import { decimalCanonical } from '@fuaran-ui/core-twins';
+import { ROUNDING_MODES, type Rounding, type RoundingMode } from '@fuaran-ui/schema';
 
 import {
   DECODED_COMPUTED_MESSAGE,
@@ -1461,6 +1464,7 @@ const COMPUTE_COLUMN_TYPES: readonly ColumnType[] = [
   'string',
   'date',
   'timestamp',
+  'decimal',
 ];
 const BIN_OPS = [
   'add',
@@ -1505,6 +1509,7 @@ const AGG_FNS = [
   'stddev',
   'first',
   'last',
+  'countDistinct',
 ] as const;
 const JOIN_KINDS = ['inner', 'left', 'right', 'outer'] as const;
 const WINDOW_FNS = ['rowNumber', 'rank', 'lag', 'lead', 'cumulSum', 'rollingMean'] as const;
@@ -1606,9 +1611,45 @@ const decodeCellLit = (j: JsonAst): CR<Cell> => {
       return v.kind === 'JString' ? cok({ kind: 'Date', value: v.value }) : mismatch;
     case 'Timestamp':
       return v.kind === 'JString' ? cok({ kind: 'Timestamp', value: v.value }) : mismatch;
+    case 'Decimal': {
+      // Phase 2001 — decimal text, canonicalised on read; an integer token is exact and read too;
+      // anything else (a fractional number token included) is refused.
+      if (v.kind === 'JString') {
+        const c = decimalCanonical(v.value);
+        return c !== undefined ? cok({ kind: 'Decimal', value: c }) : mismatch;
+      }
+      return v.kind === 'JNumber' && isInt32Slot(v.value)
+        ? cok({ kind: 'Decimal', value: String(v.value) })
+        : mismatch;
+    }
     default:
       return mismatch;
   }
+};
+
+/** Phase 2001 — 2^53, the largest whole number token a decimal column reads exactly. */
+const DECIMAL_INT53_MAX = 9007199254740992;
+
+/**
+ * Phase 2001 — one present decimal-column value: a JSON STRING of decimal text,
+ * canonicalised; or a whole number token within ±2^53, read as its digits. A
+ * fractional token, or a whole one past 2^53, has been through a float by the
+ * time it arrives and is refused — a type whose purpose is exactness cannot
+ * vouch for it.
+ */
+const decodeDecimalColumnCell = (colName: string, v: JsonAst): CR<Cell> => {
+  if (v.kind === 'JString') {
+    const c = decimalCanonical(v.value);
+    return c !== undefined
+      ? cok({ kind: 'Decimal', value: c })
+      : cerr(
+          `malformed: column '${colName}': a decimal value must be decimal text — an optional '-', digits, and an optional '.' followed by digits, with no exponent, sign '+', separator or white space`,
+        );
+  }
+  if (v.kind === 'JNumber' && Number.isInteger(v.value) && Math.abs(v.value) <= DECIMAL_INT53_MAX) {
+    return cok({ kind: 'Decimal', value: BigInt(v.value).toString() });
+  }
+  return cerr(`column '${colName}': expected decimal value, got ${astKind(v)}`);
 };
 
 /**
@@ -1660,6 +1701,8 @@ const decodeColumnCell = (colName: string, ty: ColumnType, v: JsonAst): CR<Cell>
       }
       return mismatch;
     }
+    case 'decimal':
+      return decodeDecimalColumnCell(colName, v);
     default:
       return mismatch;
   }
@@ -1825,6 +1868,26 @@ export const decodeDataSource = (j: JsonAst): CR<DataSource> => {
   });
 };
 
+/**
+ * Phase 2001 — a rounding policy `{"mode":…,"scale":…}`: `mode` one of the
+ * seven spellings (anything else is refused naming them), `scale` an integer.
+ */
+const decodeRoundingCore = (j: JsonAst): CR<Rounding> => {
+  const fo = cFields(j);
+  if (!fo.ok) return fo;
+  const mode = cStrField(fo.value, 'mode');
+  if (!mode.ok) return mode;
+  if (!(ROUNDING_MODES as readonly string[]).includes(mode.value)) {
+    return cerr(
+      `unknown column type '${mode.value}'; expected one of: ${ROUNDING_MODES.join(', ')}`,
+    );
+  }
+  const sj = cField(fo.value, 'scale');
+  if (!sj.ok) return sj;
+  const scale = cInt(sj.value);
+  return scale.ok ? cok<Rounding>({ mode: mode.value as RoundingMode, scale: scale.value }) : scale;
+};
+
 /** A `ColExpr` — port of F# `DataFrameCodec.decodeExpr`. */
 const decodeColExprCore = (j: JsonAst): CR<ColExpr> => {
   const fo = cFields(j);
@@ -1971,6 +2034,41 @@ const decodeColExprCore = (j: JsonAst): CR<ColExpr> => {
       if (!ej.ok) return ej;
       const e = decodeColExprCore(ej.value);
       return e.ok ? cok<ColExpr>({ kind: 'isNull', expr: e.value }) : e;
+    }
+    case 'quotient': {
+      // Phase 2001 — exact division, correctly rounded once.
+      const aj = cField(f, 'dividend');
+      if (!aj.ok) return aj;
+      const dividend = decodeColExprCore(aj.value);
+      if (!dividend.ok) return dividend;
+      const bj = cField(f, 'divisor');
+      if (!bj.ok) return bj;
+      const divisor = decodeColExprCore(bj.value);
+      if (!divisor.ok) return divisor;
+      const rj = cField(f, 'rounding');
+      if (!rj.ok) return rj;
+      const rounding = decodeRoundingCore(rj.value);
+      return rounding.ok
+        ? cok<ColExpr>({
+            kind: 'quotient',
+            dividend: dividend.value,
+            divisor: divisor.value,
+            rounding: rounding.value,
+          })
+        : rounding;
+    }
+    case 'rounded': {
+      // Phase 2001 — an exact operand brought to a scale under a mode.
+      const ej = cField(f, 'expr');
+      if (!ej.ok) return ej;
+      const e = decodeColExprCore(ej.value);
+      if (!e.ok) return e;
+      const rj = cField(f, 'rounding');
+      if (!rj.ok) return rj;
+      const rounding = decodeRoundingCore(rj.value);
+      return rounding.ok
+        ? cok<ColExpr>({ kind: 'rounded', expr: e.value, rounding: rounding.value })
+        : rounding;
     }
     case 'contains':
     case 'startsWith':
@@ -2362,6 +2460,16 @@ const decodeTransformCore = (j: JsonAst): CR<Transform> => {
       const source = decodeDataSource(sj.value);
       return source.ok ? cok<Transform>({ kind: 'union', source: source.value }) : source;
     }
+    case 'intersect':
+    case 'except': {
+      // The multiset set-ops: keep the left rows whose full row does (not) appear in `source`.
+      const sj = cField(f, 'source');
+      if (!sj.ok) return sj;
+      const source = decodeDataSource(sj.value);
+      return source.ok
+        ? cok<Transform>({ kind: k.value as 'intersect' | 'except', source: source.value })
+        : source;
+    }
     default:
       return cerr(
         `unknown column type '${k.value}'; expected one of: filter, project, derive, groupBy, join, window, pivot, unpivot, sort, distinct, limit, union`,
@@ -2456,6 +2564,13 @@ const scanExpr = (root: ColExpr): { count: number; sawCol: boolean } => {
         e.items.forEach(walk);
         return;
       case 'inParam':
+        walk(e.expr);
+        return;
+      case 'quotient':
+        walk(e.dividend);
+        walk(e.divisor);
+        return;
+      case 'rounded':
         walk(e.expr);
         return;
     }
@@ -2555,6 +2670,13 @@ const colExprParamNames = (root: ColExpr): readonly string[] => {
       case 'inParam':
         walk(e.expr);
         push(e.param);
+        return;
+      case 'quotient':
+        walk(e.dividend);
+        walk(e.divisor);
+        return;
+      case 'rounded':
+        walk(e.expr);
         return;
     }
   };

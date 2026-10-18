@@ -30,6 +30,15 @@ export {
 } from './civil.js';
 
 export {
+  decimalAdd,
+  decimalCanonical,
+  decimalCompare,
+  decimalToFloat,
+  isCanonicalDecimal,
+} from './decimalText.js';
+
+export {
+  aggregateCells,
   cellString,
   evalErrorString,
   evalPipeline,

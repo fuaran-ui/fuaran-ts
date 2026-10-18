@@ -33,8 +33,12 @@ import type { DeterminismSource, EffectClass, HoleValueSpace } from './types.js'
 /**
  * The fixed, Arrow-compatible scalar type set a column ranges over. Closed by
  * intent — these are the canonical wire tags (`ColumnType.tag` in F#).
+ *
+ * `decimal` (Phase 2001, porting fuaran-core Phase 276) is the EXACT number: a
+ * column of canonical decimal text, never a host float. Its arrival widened this
+ * closed union — a breaking addition for an exhaustive consumer (STABILITY.md).
  */
-export type ColumnType = 'int' | 'float' | 'bool' | 'string' | 'date' | 'timestamp';
+export type ColumnType = 'int' | 'float' | 'bool' | 'string' | 'date' | 'timestamp' | 'decimal';
 
 /** The full closed set of column-type tags, in canonical (encode) order. */
 export const COLUMN_TYPES: readonly ColumnType[] = [
@@ -44,6 +48,7 @@ export const COLUMN_TYPES: readonly ColumnType[] = [
   'string',
   'date',
   'timestamp',
+  'decimal',
 ];
 
 /**
@@ -59,6 +64,10 @@ export type Cell =
   | { readonly kind: 'Str'; readonly value: string }
   | { readonly kind: 'Date'; readonly value: string }
   | { readonly kind: 'Timestamp'; readonly value: string }
+  // Phase 2001 — an exact decimal, carried as its CANONICAL text (`-?[0-9]+(\.[0-9]+)?`, no
+  // leading zero, no trailing fraction zero, no point on a whole number, no sign on zero). Never a
+  // JS number: the type exists to be exact, and a double is not.
+  | { readonly kind: 'Decimal'; readonly value: string }
   | { readonly kind: 'Null' };
 
 /** A `(name, type)` schema entry — the column order of a table follows the schema. */
@@ -146,7 +155,46 @@ export type AggFn =
   | 'median'
   | 'stddev'
   | 'first'
-  | 'last';
+  | 'last'
+  // The number of DISTINCT present values (nulls skipped) under the cell identity token.
+  | 'countDistinct';
+
+/**
+ * How an exact value is brought to a stated number of decimal places (Phase
+ * 2001, porting fuaran-core Phase 277) — the seven modes of the well-known set,
+ * as their canonical wire spellings. Ties: `half-even` to the even neighbour,
+ * `half-up` away from zero, `half-down` toward zero. Directed: `up` away from
+ * zero, `down` toward zero, `ceiling` toward +infinity, `floor` toward
+ * -infinity.
+ */
+export type RoundingMode =
+  | 'half-even'
+  | 'half-up'
+  | 'half-down'
+  | 'up'
+  | 'down'
+  | 'ceiling'
+  | 'floor';
+
+/** Every rounding mode, in canonical order. */
+export const ROUNDING_MODES: readonly RoundingMode[] = [
+  'half-even',
+  'half-up',
+  'half-down',
+  'up',
+  'down',
+  'ceiling',
+  'floor',
+];
+
+/**
+ * A rounding policy: a `scale` (decimal places; refused by name at evaluation
+ * outside `0 .. 1000`) and a `mode`. Wire: `{"mode":"half-even","scale":4}`.
+ */
+export interface Rounding {
+  readonly mode: RoundingMode;
+  readonly scale: number;
+}
 
 /** A join kind — its canonical wire tag. */
 export type JoinKind = 'inner' | 'left' | 'right' | 'outer';
@@ -190,7 +238,18 @@ export type ColExpr =
   | { readonly kind: 'isNull'; readonly expr: ColExpr }
   // fuaran-core#91 — a LIST-valued named param membership test (multi-select-chip binding).
   // Same `in` wire tag as the literal form, with `param` in place of `items`.
-  | { readonly kind: 'inParam'; readonly expr: ColExpr; readonly param: string };
+  | { readonly kind: 'inParam'; readonly expr: ColExpr; readonly param: string }
+  // Phase 2001 — the quotient of two EXACT operands (decimal or int), correctly rounded once to
+  // `rounding`; a zero divisor answers null, a float operand is refused naming the cast.
+  | {
+      readonly kind: 'quotient';
+      readonly dividend: ColExpr;
+      readonly divisor: ColExpr;
+      readonly rounding: Rounding;
+    }
+  // Phase 2001 — an exact operand brought to `rounding`: the one general place a decimal loses
+  // digits. `round` / `floor` / `ceil` over a decimal are its scale-0 forms.
+  | { readonly kind: 'rounded'; readonly expr: ColExpr; readonly rounding: Rounding };
 
 /** One `when → then` branch of a `ColExpr.case`. */
 export interface CaseBranch {
@@ -260,7 +319,13 @@ export type Transform =
   | { readonly kind: 'sort'; readonly by: readonly SortKey[] }
   | { readonly kind: 'distinct' }
   | { readonly kind: 'limit'; readonly n: number; readonly offset: number }
-  | { readonly kind: 'union'; readonly source: DataSource };
+  | { readonly kind: 'union'; readonly source: DataSource }
+  // Keep the left rows whose FULL row also appears in `source` (SQL `INTERSECT ALL`): the left's
+  // order and duplicate multiplicity survive, and row identity is the cell identity token, so a
+  // null matches a null.
+  | { readonly kind: 'intersect'; readonly source: DataSource }
+  // `intersect`'s complement: keep the left rows whose full row does NOT appear (`EXCEPT ALL`).
+  | { readonly kind: 'except'; readonly source: DataSource };
 
 // ─── Capability invocation (Phase 283 wire surface) ─────────────────────────
 
