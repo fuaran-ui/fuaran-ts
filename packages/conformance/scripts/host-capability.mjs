@@ -16,14 +16,25 @@
 //      family set from the corpus tree with `corpusFamilies(root)` below and
 //      fails on a family this table does not name, or one the corpus no longer
 //      has.
-//    - the six token families of §27.3, each declared NOT covered with its
-//      reason: this host has no generator deriving construct tokens from its type
-//      model yet, and §27.1 makes "not covered" the honest form until it does.
+//    - the token families of §27.3 and their `tokens` (Phase 2332), PROJECTED
+//      from this host's generated type model — the field tables
+//      `@fuaran-ui/schema` generates from idl.json (`NODE_KINDS`, `KIND_FIELDS`,
+//      `UNION_CASES`, `RECORD_FIELDS`). No token is written here: a construct
+//      the generated layer gains is claimed on the next run, and one it loses is
+//      dropped (§27.1). A row the IDL classes `hostOnly` never reaches the wire,
+//      so it is no token. `hostedCases` stays not covered: the generated layer
+//      types every hosted slot opaquely, so it holds no enumeration of the
+//      discriminators inside one (§27.5) for a projection to read.
+//
+//  The generation reads no corpus (§27.3). The corpus enters only in the test,
+//  which reads the claim back against the fixtures' vocabulary.
 // ============================================================================
 
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { KIND_FIELDS, NODE_KINDS, RECORD_FIELDS, UNION_CASES } from '@fuaran-ui/schema';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(here, '..');
@@ -36,8 +47,8 @@ const notApplicable = (why) => ({ notApplicable: why });
 const NO_DESIGN_SEAM =
   'this host ships no design-provider seam: its records are read by a design-tool integration, and this host carries none';
 const LAW_UNRUN = "this host's suite does not yet run this law family's vectors";
-const NO_TOKEN_DERIVER =
-  'this host has no generator deriving construct tokens from its type model yet, so it makes no claim in this family (§27.1)';
+const HOSTED_OPAQUE =
+  "this host's generated type model carries each hosted slot opaquely, so it holds no enumeration of the discriminators inside one (§27.5) and this host makes no claim in this family";
 
 /** Every corpus family and this host's answer (§27.7), with the suite that runs each covered one. */
 export const HOST_CORPUS_FAMILIES = {
@@ -119,6 +130,51 @@ export const corpusFamilies = (root) => {
   return found;
 };
 
+/** This host's generated type model: the tables `@fuaran-ui/schema` generates from idl.json. */
+export const TYPE_MODEL = {
+  kinds: NODE_KINDS,
+  kindFields: KIND_FIELDS,
+  unionCases: UNION_CASES,
+  recordFields: RECORD_FIELDS,
+};
+
+const onWire = (rows) => rows.filter((r) => r.opt !== 'hostOnly').map((r) => r.name);
+
+/**
+ * The construct tokens (§27.2) a type model can author, sorted and deduplicated:
+ * every kind, every union case, and every wire member of a kind, a union case or
+ * a record. A pure function of the model, so the falsification test can hand it
+ * a model with one construct removed.
+ */
+export const constructTokens = (model) => {
+  const found = new Set();
+  for (const tag of model.kinds) {
+    found.add(`Kind.${tag}`);
+    for (const f of onWire(model.kindFields[tag] ?? [])) found.add(`Kind.${tag}.${f}`);
+  }
+  for (const [union, cases] of Object.entries(model.unionCases)) {
+    for (const [tag, rows] of Object.entries(cases)) {
+      found.add(`${union}.${tag}`);
+      for (const f of onWire(rows)) found.add(`${union}.${tag}.${f}`);
+    }
+  }
+  for (const [record, rows] of Object.entries(model.recordFields)) {
+    for (const f of onWire(rows)) found.add(`${record}.${f}`);
+  }
+  return [...found].sort();
+};
+
+/** The token families `constructTokens` projects; the sixth, `hostedCases`, is declared not covered. */
+export const DERIVED_FAMILIES = ['kinds', 'kindFields', 'unionCases', 'caseFields', 'recordFields'];
+
+/** The §27.3 token family a token belongs to, read from the §27.2 grammar alone. */
+export const tokenFamily = (token) => {
+  const segments = token.split('.');
+  if (segments[0] === 'Kind') return segments.length === 2 ? 'kinds' : 'kindFields';
+  if (segments.length === 3) return 'caseFields';
+  return /^[A-Z]/.test(segments[1]) ? 'unionCases' : 'recordFields';
+};
+
 const sorted = (obj) =>
   Object.fromEntries(
     Object.keys(obj)
@@ -131,7 +187,8 @@ export const render = () => {
   const hostVersion = JSON.parse(
     readFileSync(join(repoRoot, 'packages', 'ops', 'package.json'), 'utf8'),
   ).version;
-  const notCovered = { covered: false, reason: NO_TOKEN_DERIVER };
+  const family = (name) =>
+    DERIVED_FAMILIES.includes(name) ? { covered: true } : { covered: false, reason: HOSTED_OPAQUE };
   const doc = {
     $manifest: 'fuaran.host-capability/1',
     host: 'fuaran-ts',
@@ -139,15 +196,15 @@ export const render = () => {
     corpusAuthority: null,
     generator: 'packages/conformance/scripts/host-capability.mjs',
     families: sorted({
-      kinds: notCovered,
-      kindFields: notCovered,
-      unionCases: notCovered,
-      caseFields: notCovered,
-      recordFields: notCovered,
-      hostedCases: notCovered,
+      kinds: family('kinds'),
+      kindFields: family('kindFields'),
+      unionCases: family('unionCases'),
+      caseFields: family('caseFields'),
+      recordFields: family('recordFields'),
+      hostedCases: family('hostedCases'),
     }),
     corpusFamilies: sorted(HOST_CORPUS_FAMILIES),
-    tokens: [],
+    tokens: constructTokens(TYPE_MODEL),
   };
   return `${JSON.stringify(doc, null, 2)}\n`;
 };
