@@ -57,6 +57,9 @@ export const HOST_CORPUS_FAMILIES = {
   reject: 'covered', // packages/ops/test/corpus.test.ts
   'lenient-accept': 'covered', // packages/ops/test/corpus.test.ts
   'envelope-round-trip': 'covered', // packages/ops/test/corpus.test.ts
+  formatting: pending(
+    "this host's cell formatter (renderer-server formatNumber) is not yet driven from the formatting vectors",
+  ),
   'envelope-reject': 'covered', // packages/ops/test/corpus.test.ts
   'elicitation-round-trip': 'covered', // packages/ops/test/corpus.test.ts
   'elicitation-reject': 'covered', // packages/ops/test/corpus.test.ts
