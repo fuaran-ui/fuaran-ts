@@ -586,6 +586,9 @@ export const cellToJsValue = (c: Cell): unknown => {
     case 'Date':
     case 'Timestamp':
       return c.value;
+    // Phase 2001 — an exact decimal stays its canonical TEXT: a JS number would round it.
+    case 'Decimal':
+      return c.value;
     case 'Null':
       return null;
   }
@@ -781,6 +784,9 @@ export const cellToText = (c: Cell): CellCoerce<string> => {
       return { ok: true, value: String(c.value) };
     case 'Bool':
       return { ok: true, value: c.value ? 'true' : 'false' };
+    // Phase 2001 — a decimal renders as its canonical text, every digit kept.
+    case 'Decimal':
+      return { ok: true, value: c.value };
     case 'Null':
       return { ok: false, error: 'Transform yielded a null cell in a text slot' };
   }
@@ -805,6 +811,16 @@ export const cellToFloat = (c: Cell): CellCoerce<number> => {
         ok: false,
         error: `Transform yielded a date cell ('${c.value}') in a numeric slot — project a numeric column, or aggregate with count / sum / mean`,
       };
+    // Phase 2001 — a numeric slot holds a double: the decimal's nearest one, never an infinity.
+    case 'Decimal': {
+      const f = Number(c.value);
+      return Number.isFinite(f)
+        ? { ok: true, value: f }
+        : {
+            ok: false,
+            error: `Transform yielded a decimal cell ('${c.value}') past the float range in a numeric slot`,
+          };
+    }
     case 'Null':
       return { ok: false, error: 'Transform yielded a null cell in a numeric slot' };
   }
@@ -885,6 +901,7 @@ export const cellToBool = (c: Cell): CellCoerce<boolean> => {
       return { ok: true, value: c.value };
     case 'Int':
     case 'Float':
+    case 'Decimal':
       return {
         ok: false,
         error:

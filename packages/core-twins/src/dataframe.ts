@@ -32,6 +32,23 @@ import type { Result } from '@fuaran-ui/schema';
 
 import { num } from './canonFloat.js';
 import { daysFromCivil } from './civil.js';
+import {
+  MAX_DECIMAL_SCALE,
+  decimalAbs,
+  decimalAdd,
+  decimalCanonical,
+  decimalCompare,
+  decimalDivide,
+  decimalIsZero,
+  decimalMul,
+  decimalOfFloat,
+  decimalQuantize,
+  decimalRem,
+  decimalSub,
+  decimalToFloat,
+  decimalTruncate,
+  type DecimalRoundingMode,
+} from './decimalText.js';
 
 type DR<T> = Result<T, EvalError>;
 const dok = <T>(value: T): DR<T> => ({ ok: true, value });
@@ -115,6 +132,8 @@ export const cellString = (c: Cell): string => {
     case 'Date':
     case 'Timestamp':
       return c.value;
+    case 'Decimal':
+      return decimalCanonical(c.value) ?? c.value;
     case 'Null':
       return '';
   }
@@ -123,13 +142,34 @@ export const cellString = (c: Cell): string => {
 const asNum = (c: Cell): number | undefined =>
   c.kind === 'Int' || c.kind === 'Float' ? c.value : undefined;
 
-const sign = (n: number): number => (n < 0 ? -1 : n > 0 ? 1 : 0);
+/**
+ * The numeric family's order in the float carrier: IEEE order on the non-NaN
+ * values, `-0` equal to `0`, and NaN one value ABOVE every other (equal to
+ * itself) — the substrate's cell order, the same on every host.
+ */
+const compareFloat = (x: number, y: number): number => {
+  const xn = Number.isNaN(x);
+  const yn = Number.isNaN(y);
+  if (xn || yn) return xn && yn ? 0 : xn ? 1 : -1;
+  return x < y ? -1 : x > y ? 1 : 0;
+};
+
+/** A cell as exact decimal text — a `Decimal`'s, or an `Int`'s digits (the lossless promotion). */
+const decimalText = (c: Cell): string | undefined =>
+  c.kind === 'Decimal' ? c.value : c.kind === 'Int' ? String(Math.trunc(c.value)) : undefined;
 
 /** Total comparison of two present, same-family cells. `undefined` ⇒ incomparable. */
 const compareCells = (a: Cell, b: Cell): number | undefined => {
   const an = asNum(a);
   const bn = asNum(b);
-  if (an !== undefined && bn !== undefined) return sign(an - bn);
+  if (an !== undefined && bn !== undefined) return compareFloat(an, bn);
+  // A decimal against a decimal or an int compares EXACTLY; against a float it is incomparable
+  // (a type error), as the widening lattice refuses that retype in both directions.
+  if (
+    (a.kind === 'Decimal' && (b.kind === 'Decimal' || b.kind === 'Int')) ||
+    (a.kind === 'Int' && b.kind === 'Decimal')
+  )
+    return decimalCompare(decimalText(a)!, decimalText(b)!);
   if (a.kind === 'Bool' && b.kind === 'Bool') return a.value === b.value ? 0 : a.value ? 1 : -1;
   if (a.kind === 'Str' && b.kind === 'Str')
     return a.value < b.value ? -1 : a.value > b.value ? 1 : 0;
@@ -142,13 +182,67 @@ const compareCells = (a: Cell, b: Cell): number | undefined => {
 
 const cellEq = (a: Cell, b: Cell): boolean => {
   if (a.kind === 'Null' || b.kind === 'Null') return false;
+  // A decimal matches only a decimal (an equi-join key never promotes).
+  if (a.kind === 'Decimal' || b.kind === 'Decimal')
+    return a.kind === b.kind && compareCells(a, b) === 0;
   return compareCells(a, b) === 0;
 };
 
 const bothInt = (a: Cell, b: Cell): boolean => a.kind === 'Int' && b.kind === 'Int';
 
+/**
+ * The refusal a decimal beside a float meets, naming both types and the cast
+ * that resolves it: nothing converts between them unless the pipeline says
+ * which way.
+ */
+const decimalFloatMismatch = (what: string): EvalError =>
+  typeError(
+    what +
+      " between a decimal and a float: cast one to the other's type first — Cast(decimal, …) " +
+      'to keep the digits exact, Cast(float, …) to compute approximately',
+  );
+
+const decimalResult = (ctx: string, r: string | undefined): DR<Cell> =>
+  r !== undefined
+    ? dok({ kind: 'Decimal', value: r })
+    : derr(typeError(ctx + ': an operand is not decimal text'));
+
+/**
+ * `add` / `sub` / `mul` / `mod` over two exact operands, at least one a
+ * decimal: exact, and a decimal. `div` is refused by name — a quotient of
+ * decimals is not a finite decimal in general, so it names its rounding.
+ */
+const decimalArith = (op: string, x: string, y: string): DR<Cell> => {
+  switch (op) {
+    case 'add':
+      return decimalResult('add', decimalAdd(x, y));
+    case 'sub':
+      return decimalResult('sub', decimalSub(x, y));
+    case 'mul':
+      return decimalResult('mul', decimalMul(x, y));
+    case 'mod':
+      return decimalIsZero(y) ? dok(NULL) : decimalResult('mod', decimalRem(x, y));
+    case 'div':
+      return derr(
+        typeError(
+          'division of an exact decimal names its rounding: write quotient(dividend, divisor, { scale, mode })',
+        ),
+      );
+    default:
+      return derr(typeError('not an arithmetic operator'));
+  }
+};
+
 const arith = (op: string, a: Cell, b: Cell): DR<Cell> => {
   if (a.kind === 'Null' || b.kind === 'Null') return dok(NULL);
+  if (a.kind === 'Decimal' || b.kind === 'Decimal') {
+    if (a.kind === 'Float' || b.kind === 'Float') return derr(decimalFloatMismatch('arithmetic'));
+    const dx = decimalText(a);
+    const dy = decimalText(b);
+    if (dx === undefined || dy === undefined)
+      return derr(typeError('arithmetic on a non-numeric operand'));
+    return decimalArith(op, dx, dy);
+  }
   const x = asNum(a);
   const y = asNum(b);
   if (x === undefined || y === undefined)
@@ -187,7 +281,12 @@ const arith = (op: string, a: Cell, b: Cell): DR<Cell> => {
 const comparison = (op: string, a: Cell, b: Cell): DR<Cell> => {
   if (a.kind === 'Null' || b.kind === 'Null') return dok(NULL);
   const c = compareCells(a, b);
-  if (c === undefined) return derr(typeError('comparison between incompatible types'));
+  if (c === undefined)
+    return derr(
+      (a.kind === 'Decimal' && b.kind === 'Float') || (a.kind === 'Float' && b.kind === 'Decimal')
+        ? decimalFloatMismatch('comparison')
+        : typeError('comparison between incompatible types'),
+    );
   let r: boolean;
   switch (op) {
     case 'eq':
@@ -264,6 +363,16 @@ const castCell = (ty: ColumnType, c: Cell): DR<Cell> => {
     case 'float': {
       const n = asNum(c);
       if (n !== undefined) return dok({ kind: 'Float', value: n });
+      // The nearest float to the decimal — the cast says the pipeline asked for the
+      // approximation. A decimal past the float range is refused, never an infinity.
+      if (c.kind === 'Decimal') {
+        const f = decimalToFloat(c.value);
+        return f !== undefined
+          ? dok({ kind: 'Float', value: f })
+          : derr(
+              typeError("cannot cast decimal '" + c.value + "' to float: outside the float range"),
+            );
+      }
       if (c.kind === 'Str') {
         const p = tryParseFloat(c.value);
         return p !== undefined
@@ -275,6 +384,13 @@ const castCell = (ty: ColumnType, c: Cell): DR<Cell> => {
     case 'int':
       if (c.kind === 'Int') return dok(c);
       if (c.kind === 'Float') return dok({ kind: 'Int', value: Math.trunc(c.value) });
+      // Truncated toward zero, as a float is; outside int32 a named refusal.
+      if (c.kind === 'Decimal') {
+        const t = decimalTruncate(c.value);
+        return t !== undefined && t >= -2147483648n && t <= 2147483647n
+          ? dok({ kind: 'Int', value: Number(t) })
+          : derr(typeError('decimal→int cast out of int32 range: ' + c.value));
+      }
       if (c.kind === 'Bool') return dok({ kind: 'Int', value: c.value ? 1 : 0 });
       if (c.kind === 'Str') {
         const p = tryParseInt(c.value);
@@ -295,7 +411,60 @@ const castCell = (ty: ColumnType, c: Cell): DR<Cell> => {
       if (c.kind === 'Timestamp') return dok(c);
       if (c.kind === 'Str') return dok({ kind: 'Timestamp', value: c.value });
       return derr(typeError('cannot cast to timestamp'));
+    case 'decimal': {
+      // An int is exactly a decimal; a string is read by the decimal grammar; a FLOAT is the one
+      // place an approximation enters a decimal — its shortest round-trip digits.
+      if (c.kind === 'Int') return dok({ kind: 'Decimal', value: String(Math.trunc(c.value)) });
+      if (c.kind === 'Float') {
+        const d = decimalOfFloat(c.value);
+        return d !== undefined
+          ? dok({ kind: 'Decimal', value: d })
+          : derr(typeError('cannot cast a non-finite float to decimal'));
+      }
+      if (c.kind === 'Decimal' || c.kind === 'Str') {
+        const d = decimalCanonical(c.value);
+        return d !== undefined
+          ? dok({ kind: 'Decimal', value: d })
+          : derr(typeError("cannot cast '" + c.value + "' to decimal"));
+      }
+      return derr(typeError('cannot cast to decimal'));
+    }
   }
+};
+
+/**
+ * THE rounding primitive over cells: `rounded`'s, and through it the decimal
+ * arm of `round` / `floor` / `ceil` (scale-0 specialisations). The scale is
+ * checked first, then a null propagates, then an exact operand is brought to
+ * the scale; a float names the cast.
+ */
+const scaleRefusal = (scale: number): EvalError | undefined =>
+  Number.isInteger(scale) && scale >= 0 && scale <= MAX_DECIMAL_SCALE
+    ? undefined
+    : typeError('rounding scale ' + String(scale) + ' is outside 0..' + String(MAX_DECIMAL_SCALE));
+
+const roundedCell = (mode: DecimalRoundingMode, scale: number, c: Cell): DR<Cell> => {
+  const bad = scaleRefusal(scale);
+  if (bad !== undefined) return derr(bad);
+  if (c.kind === 'Null') return dok(NULL);
+  if (c.kind === 'Float') return derr(decimalFloatMismatch('rounding'));
+  const t = decimalText(c);
+  if (t === undefined) return derr(typeError('rounding of a non-numeric'));
+  return decimalResult('rounded', decimalQuantize(mode, scale, t));
+};
+
+/** `quotient`'s primitive: the scale, then null propagation, then one correctly rounded division. */
+const quotientCell = (mode: DecimalRoundingMode, scale: number, a: Cell, b: Cell): DR<Cell> => {
+  const bad = scaleRefusal(scale);
+  if (bad !== undefined) return derr(bad);
+  if (a.kind === 'Null' || b.kind === 'Null') return dok(NULL);
+  if (a.kind === 'Float' || b.kind === 'Float') return derr(decimalFloatMismatch('quotient'));
+  const x = decimalText(a);
+  const y = decimalText(b);
+  if (x === undefined || y === undefined) return derr(typeError('quotient of a non-numeric'));
+  const q = decimalDivide(mode, scale, x, y);
+  if (q === undefined) return derr(typeError('quotient: an operand is not decimal text'));
+  return dok(q === null ? NULL : { kind: 'Decimal', value: q });
 };
 
 /** Round half away from zero — host-independent (not banker's rounding). */
@@ -317,10 +486,15 @@ const applyScalar = (fn: string, args: readonly Cell[]): DR<Cell> => {
           ? dok({ kind: 'Int', value: Math.abs(c.value) })
           : c.kind === 'Float'
             ? dok({ kind: 'Float', value: Math.abs(c.value) })
-            : derr(typeError('abs of a non-numeric')),
+            : c.kind === 'Decimal'
+              ? decimalResult('abs', decimalAbs(c.value))
+              : derr(typeError('abs of a non-numeric')),
       );
+    // Over a decimal `round`, `floor` and `ceil` are scale-0 `rounded`s under their pinned modes —
+    // exact, through the one rounding kernel; over the numeric family, unchanged.
     case 'round':
       return unary((c) => {
+        if (c.kind === 'Decimal') return roundedCell('half-up', 0, c);
         const n = asNum(c);
         return n !== undefined
           ? dok({ kind: 'Float', value: roundHalfAway(n) })
@@ -328,6 +502,7 @@ const applyScalar = (fn: string, args: readonly Cell[]): DR<Cell> => {
       });
     case 'floor':
       return unary((c) => {
+        if (c.kind === 'Decimal') return roundedCell('floor', 0, c);
         const n = asNum(c);
         return n !== undefined
           ? dok({ kind: 'Float', value: Math.floor(n) })
@@ -335,6 +510,7 @@ const applyScalar = (fn: string, args: readonly Cell[]): DR<Cell> => {
       });
     case 'ceil':
       return unary((c) => {
+        if (c.kind === 'Decimal') return roundedCell('ceiling', 0, c);
         const n = asNum(c);
         return n !== undefined
           ? dok({ kind: 'Float', value: Math.ceil(n) })
@@ -593,6 +769,22 @@ const evalExpr = (
       // fuaran-core#91 — list params resolve by substitution BEFORE evaluation; one that
       // reaches the evaluator is unbound (scalar-param strictness parity).
       return derr(unboundParam(e.param, Object.keys(env).sort()));
+    case 'quotient': {
+      // Evaluation order: the scale, the dividend, the divisor.
+      const bad = scaleRefusal(e.rounding.scale);
+      if (bad !== undefined) return derr(bad);
+      const a = evalExpr(cols, row, e.dividend, env);
+      if (!a.ok) return a;
+      const b = evalExpr(cols, row, e.divisor, env);
+      if (!b.ok) return b;
+      return quotientCell(e.rounding.mode, e.rounding.scale, a.value, b.value);
+    }
+    case 'rounded': {
+      const bad = scaleRefusal(e.rounding.scale);
+      if (bad !== undefined) return derr(bad);
+      const a = evalExpr(cols, row, e.expr, env);
+      return a.ok ? roundedCell(e.rounding.mode, e.rounding.scale, a.value) : a;
+    }
   }
 };
 
@@ -612,29 +804,441 @@ const cellTypeOf = (c: Cell): ColumnType | undefined => {
       return 'date';
     case 'Timestamp':
       return 'timestamp';
+    case 'Decimal':
+      return 'decimal';
     case 'Null':
       return undefined;
   }
 };
 
-const inferType = (cells: readonly Cell[]): ColumnType => {
+/**
+ * The widening lattice: a type widens into itself, and an int into a float or
+ * a decimal (losslessly). A float and a decimal never widen into each other.
+ */
+const widens = (from: ColumnType, to: ColumnType): boolean =>
+  from === to || (from === 'int' && (to === 'float' || to === 'decimal'));
+
+/** The least type two types both widen into, or `undefined` (a float beside a decimal included). */
+const joinColumnType = (a: ColumnType, b: ColumnType): ColumnType | undefined =>
+  widens(a, b) ? b : widens(b, a) ? a : undefined;
+
+const floatBesideDecimal = (column: string): EvalError =>
+  typeError(
+    "derived column '" +
+      column +
+      "' joins a float and a decimal: cast one to the other's type first - Cast(decimal, ...) " +
+      'to keep the digits exact, Cast(float, ...) to compute approximately',
+  );
+
+const typesBesideEachOther = (column: string, a: ColumnType, b: ColumnType): EvalError =>
+  typeError(
+    "derived column '" +
+      column +
+      "' holds a " +
+      a +
+      ' beside a ' +
+      b +
+      ", which no column type holds together: cast one to the other's type first",
+  );
+
+/**
+ * The cells' half of the derived-column rule: the widening join of the present
+ * cells' types in row order, `string` when none is present, and the named
+ * refusals of a float beside a decimal or two types no widening relates.
+ */
+const typeFromCells = (column: string, cells: readonly Cell[]): DR<ColumnType> => {
+  let acc: ColumnType | undefined;
+  let sawFloat = false;
+  let sawDecimal = false;
+  let disjoint: [ColumnType, ColumnType] | undefined;
   for (const c of cells) {
     const t = cellTypeOf(c);
-    if (t !== undefined) return t;
+    if (t === undefined) continue;
+    if (t === 'float') sawFloat = true;
+    if (t === 'decimal') sawDecimal = true;
+    if (acc === undefined) acc = t;
+    else {
+      const j = joinColumnType(acc, t);
+      if (j === undefined) disjoint ??= [acc, t];
+      else acc = j;
+    }
   }
-  return 'string';
+  if (sawFloat && sawDecimal) return derr(floatBesideDecimal(column));
+  if (disjoint !== undefined) return derr(typesBesideEachOther(column, disjoint[0], disjoint[1]));
+  return dok(acc ?? 'string');
 };
+
+// ─── the static typer and THE derived-column typing rule ─────────────────────
+//
+// What a node's PRESENT values can be, decided from a step's schema alone:
+// `'absent'` (no present value is ever produced — every row answers null or an
+// error), a decided `ColumnType`, or `'unknown'`. The join is EXACT, not the
+// widening one: int beside float is unknown here (the cells then decide).
+//
+// The derived-column rule a `derive` and an `unpivot` read:
+//  - a decided type IS the column's type on every frame — full, empty or
+//    all-null alike; the cells are stored as produced (an int in a float or
+//    decimal column), never converted;
+//  - `'absent'` types the column `string`;
+//  - `'unknown'` leaves it to the cells (the widening join, `string` when none);
+//  - a float beside a decimal is refused by name — statically where the
+//    expression's own arms carry both, and from the cells otherwise.
+
+type Typing = ColumnType | 'absent' | 'unknown';
+
+const tJoin = (a: Typing, b: Typing): Typing =>
+  a === 'absent' ? b : b === 'absent' ? a : a === b ? a : 'unknown';
+
+const tJoinAll = (ts: readonly Typing[]): Typing => ts.reduce<Typing>(tJoin, 'absent');
+
+const isExact = (t: Typing): boolean => t === 'int' || t === 'decimal';
+const isNumeric = (t: Typing): boolean => t === 'int' || t === 'float';
+
+const binaryTyping = (op: string, a: Typing, b: Typing): Typing => {
+  const nullPropagating = (decide: () => Typing): Typing =>
+    a === 'absent' || b === 'absent' ? 'absent' : decide();
+  const decimalPair = isExact(a) && isExact(b) && (a === 'decimal' || b === 'decimal');
+  switch (op) {
+    case 'add':
+    case 'sub':
+    case 'mul':
+      return nullPropagating(() =>
+        a === 'int' && b === 'int'
+          ? 'int'
+          : isNumeric(a) && isNumeric(b)
+            ? 'float'
+            : decimalPair
+              ? 'decimal'
+              : 'unknown',
+      );
+    // A decimal `div` is refused on every row (it names `quotient`), so no present value.
+    case 'div':
+      return nullPropagating(() => (isNumeric(a) && isNumeric(b) ? 'float' : 'unknown'));
+    case 'mod':
+      return nullPropagating(() =>
+        a === 'int' && b === 'int' ? 'int' : decimalPair ? 'decimal' : 'unknown',
+      );
+    case 'eq':
+    case 'ne':
+    case 'lt':
+    case 'le':
+    case 'gt':
+    case 'ge':
+      return nullPropagating(() =>
+        (isNumeric(a) && isNumeric(b)) ||
+        (isExact(a) && isExact(b)) ||
+        (a === b && (a === 'string' || a === 'date' || a === 'timestamp' || a === 'bool'))
+          ? 'bool'
+          : 'unknown',
+      );
+    case 'and':
+    case 'or': {
+      const boolLike = (t: Typing): boolean => t === 'absent' || t === 'bool';
+      return boolLike(a) && boolLike(b) ? tJoin(a, b) : 'unknown';
+    }
+    case 'contains':
+    case 'startsWith':
+    case 'endsWith':
+      return nullPropagating(() => (a === 'string' && b === 'string' ? 'bool' : 'unknown'));
+    default:
+      return 'unknown';
+  }
+};
+
+const applyTyping = (fn: string, args: readonly Typing[]): Typing => {
+  const arity = (n: number): boolean => args.length === n;
+  const anyAbsent = args.some((t) => t === 'absent');
+  const unary = (decide: (t: Typing) => Typing): Typing => {
+    if (!arity(1)) return 'absent';
+    const t = args[0]!;
+    return t === 'absent' ? 'absent' : decide(t);
+  };
+  switch (fn) {
+    case 'abs':
+      return unary((t) => (t === 'int' || t === 'float' || t === 'decimal' ? t : 'unknown'));
+    // Over a decimal these answer a decimal; over an undecidable operand they cannot be decided.
+    case 'round':
+    case 'floor':
+    case 'ceil':
+      return unary((t) => (t === 'decimal' ? 'decimal' : t === 'unknown' ? 'unknown' : 'float'));
+    case 'length':
+      return unary(() => 'int');
+    case 'lower':
+    case 'upper':
+    case 'trim':
+      return unary(() => 'string');
+    case 'substr':
+      return !arity(3) || args[0] === 'absent' ? 'absent' : 'string';
+    case 'datePart':
+      return !arity(2) || args[1] === 'absent' ? 'absent' : 'int';
+    case 'concat':
+      return args.length === 0 || anyAbsent ? 'absent' : 'string';
+    case 'replace':
+      return !arity(3) || anyAbsent ? 'absent' : 'string';
+    case 'dateDiffDays':
+      return !arity(2) || anyAbsent ? 'absent' : 'int';
+    default:
+      return 'unknown';
+  }
+};
+
+/** The static typing of an expression over a schema, with no env (a param is unknown). */
+const typing = (cols: readonly SchemaEntry[], e: ColExpr): Typing => {
+  const go = (x: ColExpr): Typing => typing(cols, x);
+  switch (e.kind) {
+    case 'col':
+      return colType(cols, e.name) ?? 'unknown';
+    case 'lit':
+      return cellTypeOf(e.cell) ?? 'absent';
+    case 'param':
+      return 'unknown';
+    case 'binary':
+      return binaryTyping(e.op, go(e.left), go(e.right));
+    case 'not': {
+      const t = go(e.expr);
+      return t === 'absent' ? 'absent' : t === 'bool' ? 'bool' : 'unknown';
+    }
+    case 'coalesce':
+      return tJoinAll(e.exprs.map(go));
+    case 'case':
+      return tJoinAll([go(e.else), ...e.cases.map((br) => go(br.then))]);
+    case 'cast':
+      return go(e.expr) === 'absent' ? 'absent' : e.type;
+    case 'apply':
+      return applyTyping(e.fn, e.args.map(go));
+    case 'in':
+    case 'inParam':
+      return go(e.expr) === 'absent' ? 'absent' : 'bool';
+    case 'isNull':
+      return 'bool';
+    case 'quotient': {
+      const a = go(e.dividend);
+      const b = go(e.divisor);
+      if (a === 'absent' || b === 'absent') return 'absent';
+      return isExact(a) && isExact(b) ? 'decimal' : 'unknown';
+    }
+    case 'rounded': {
+      const a = go(e.expr);
+      return a === 'absent' ? 'absent' : isExact(a) ? 'decimal' : 'unknown';
+    }
+  }
+};
+
+/** How a derived column is typed: decided by the schema, left to the cells, or refused. */
+type DerivedTyping =
+  | { readonly kind: 'decided'; readonly type: ColumnType }
+  | { readonly kind: 'byCells' }
+  | { readonly kind: 'refused' };
+
+/** Does an arm the value is drawn from — through `case` and `coalesce` — carry the type `ty`? */
+const armsHave = (ty: ColumnType, cols: readonly SchemaEntry[], e: ColExpr): boolean => {
+  switch (e.kind) {
+    case 'coalesce':
+      return e.exprs.some((x) => armsHave(ty, cols, x));
+    case 'case':
+      return armsHave(ty, cols, e.else) || e.cases.some((br) => armsHave(ty, cols, br.then));
+    default:
+      return typing(cols, e) === ty;
+  }
+};
+
+const derivedTyping = (cols: readonly SchemaEntry[], e: ColExpr): DerivedTyping => {
+  if (armsHave('float', cols, e) && armsHave('decimal', cols, e)) return { kind: 'refused' };
+  const t = typing(cols, e);
+  if (t === 'absent') return { kind: 'decided', type: 'string' };
+  if (t === 'unknown') return { kind: 'byCells' };
+  return { kind: 'decided', type: t };
+};
+
+/** Replace every `param` bound in `env` by its literal — the expression the evaluator answers. */
+const substituteParams = (env: EvalEnv, e: ColExpr): ColExpr => {
+  const go = (x: ColExpr): ColExpr => substituteParams(env, x);
+  switch (e.kind) {
+    case 'col':
+    case 'lit':
+      return e;
+    case 'param': {
+      const c = Object.prototype.hasOwnProperty.call(env, e.name) ? env[e.name] : undefined;
+      return c === undefined ? e : { kind: 'lit', cell: c };
+    }
+    case 'binary':
+      return { kind: 'binary', op: e.op, left: go(e.left), right: go(e.right) };
+    case 'not':
+      return { kind: 'not', expr: go(e.expr) };
+    case 'coalesce':
+      return { kind: 'coalesce', exprs: e.exprs.map(go) };
+    case 'case':
+      return {
+        kind: 'case',
+        cases: e.cases.map((br) => ({ when: go(br.when), then: go(br.then) })),
+        else: go(e.else),
+      };
+    case 'cast':
+      return { kind: 'cast', type: e.type, expr: go(e.expr) };
+    case 'apply':
+      return { kind: 'apply', fn: e.fn, args: e.args.map(go) };
+    case 'in':
+      return { kind: 'in', expr: go(e.expr), items: e.items.map(go) };
+    case 'isNull':
+      return { kind: 'isNull', expr: go(e.expr) };
+    case 'inParam':
+      return { kind: 'inParam', expr: go(e.expr), param: e.param };
+    case 'quotient':
+      return {
+        kind: 'quotient',
+        dividend: go(e.dividend),
+        divisor: go(e.divisor),
+        rounding: e.rounding,
+      };
+    case 'rounded':
+      return { kind: 'rounded', expr: go(e.expr), rounding: e.rounding };
+  }
+};
+
+/**
+ * How an EVALUATION of a derive types its column: the static rule wherever it
+ * decides or refuses; where it leaves the column to the cells, the type the
+ * same rule decides over the expression with the env's params substituted.
+ */
+const derivedTypingIn = (env: EvalEnv, cols: readonly SchemaEntry[], e: ColExpr): DerivedTyping => {
+  const dt = derivedTyping(cols, e);
+  if (dt.kind !== 'byCells') return dt;
+  const sub = derivedTyping(cols, substituteParams(env, e));
+  return sub.kind === 'decided' ? sub : dt;
+};
+
+/**
+ * An unpivot's value column, typed by the same rule over the value columns'
+ * DECLARED types (their widening join): no value column is `string`, a float
+ * beside a decimal is refused, and a pair no widening relates is the cells'.
+ */
+const unpivotTyping = (types: readonly ColumnType[]): DerivedTyping => {
+  if (types.includes('float') && types.includes('decimal')) return { kind: 'refused' };
+  if (types.length === 0) return { kind: 'decided', type: 'string' };
+  let acc: ColumnType | undefined = types[0]!;
+  for (const t of types.slice(1)) {
+    acc = acc === undefined ? undefined : joinColumnType(acc, t);
+  }
+  return acc === undefined ? { kind: 'byCells' } : { kind: 'decided', type: acc };
+};
+
+const columnTypeBy = (dt: DerivedTyping, column: string, cells: readonly Cell[]): DR<ColumnType> =>
+  dt.kind === 'decided'
+    ? dok(dt.type)
+    : dt.kind === 'refused'
+      ? derr(floatBesideDecimal(column))
+      : typeFromCells(column, cells);
 
 // ─── aggregates (pinned) ─────────────────────────────────────────────────────
 
 const presentNums = (cells: readonly Cell[]): number[] =>
   cells.map(asNum).filter((n): n is number => n !== undefined);
 
+/** `mean` / `stddev` (population) / `median` over numbers already read as floats. */
+const floatAgg = (fn: 'mean' | 'stddev' | 'median', nums: readonly number[]): Cell => {
+  if (nums.length === 0) return NULL;
+  const n = nums.length;
+  if (fn === 'median') {
+    const sorted = nums.slice().sort(compareFloat);
+    const mid = Math.floor(n / 2);
+    return {
+      kind: 'Float',
+      value: n % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2,
+    };
+  }
+  const mean = nums.reduce((a, x) => a + x, 0) / n;
+  if (fn === 'mean') return { kind: 'Float', value: mean };
+  const variance = nums.reduce((a, x) => a + (x - mean) * (x - mean), 0) / n;
+  return { kind: 'Float', value: Math.sqrt(variance) };
+};
+
+/**
+ * Every aggregate over a DECIMAL column. The column is admitted first: a
+ * present cell that is not decimal text (an int is its digits) is refused by
+ * name, never truncated or dropped, and every value is read canonicalised.
+ * `sum` is EXACT and a decimal; `min` / `max` compare exactly (`min` keeps the
+ * first of equals, `max` the last); `mean` / `median` / `stddev` read each
+ * value at its nearest double, and a value past the float range is refused.
+ */
+const aggDecimal = (fn: AggFn, cells: readonly Cell[]): DR<Cell> => {
+  const texts: string[] = [];
+  for (const c of cells) {
+    if (c.kind === 'Null') continue;
+    const t =
+      c.kind === 'Decimal'
+        ? decimalCanonical(c.value)
+        : c.kind === 'Int'
+          ? decimalText(c)
+          : undefined;
+    if (t === undefined)
+      return derr({
+        kind: 'AggError',
+        detail: 'aggregate over a decimal column met a cell outside its type: ' + cellString(c),
+      });
+    texts.push(t);
+  }
+  const dec = (t: string): Cell => ({ kind: 'Decimal', value: t });
+  switch (fn) {
+    case 'count':
+      return dok({ kind: 'Int', value: texts.length });
+    case 'countDistinct':
+      return dok({ kind: 'Int', value: new Set(texts).size });
+    case 'first':
+    case 'last': {
+      // The first or the last ROW, a null included.
+      const c = fn === 'first' ? cells[0] : cells[cells.length - 1];
+      return dok(c === undefined || c.kind === 'Null' ? NULL : dec(decimalText(c)!));
+    }
+    case 'sum': {
+      let total: string | undefined;
+      for (const t of texts) total = total === undefined ? t : (decimalAdd(total, t) ?? total);
+      return dok(total === undefined ? NULL : dec(total));
+    }
+    case 'min':
+    case 'max': {
+      let best: string | undefined;
+      for (const t of texts) {
+        if (best === undefined) best = t;
+        else {
+          const k = decimalCompare(best, t)!;
+          if (fn === 'min' ? k > 0 : k <= 0) best = t;
+        }
+      }
+      return dok(best === undefined ? NULL : dec(best));
+    }
+    case 'mean':
+    case 'median':
+    case 'stddev': {
+      const nums: number[] = [];
+      for (const t of texts) {
+        const f = decimalToFloat(t);
+        if (f === undefined)
+          return derr({
+            kind: 'AggError',
+            detail: 'the decimal ' + t + ' is past the float range, and ' + fn + ' is a float',
+          });
+        nums.push(f);
+      }
+      return dok(floatAgg(fn, nums));
+    }
+  }
+};
+
+/**
+ * One aggregate over a cell list of the given source type — the evaluator's
+ * adapter onto the pinned aggregate semantics. Public so a host leg can fold
+ * an aggregate over a column it builds directly.
+ */
+export const aggregateCells = (fn: AggFn, srcType: ColumnType, cells: readonly Cell[]): DR<Cell> =>
+  srcType === 'decimal' ? aggDecimal(fn, cells) : dok(aggCells(fn, srcType, cells));
+
 const aggCells = (fn: AggFn, srcType: ColumnType, cells: readonly Cell[]): Cell => {
   const present = cells.filter((c) => !isNull(c));
   switch (fn) {
     case 'count':
       return { kind: 'Int', value: present.length };
+    case 'countDistinct':
+      return { kind: 'Int', value: new Set(present.map(cellKey)).size };
     case 'first':
       return cells.length === 0 ? NULL : cells[0]!;
     case 'last':
@@ -646,29 +1250,10 @@ const aggCells = (fn: AggFn, srcType: ColumnType, cells: readonly Cell[]): Cell 
         ? { kind: 'Int', value: nums.reduce((acc, x) => acc + Math.trunc(x), 0) }
         : { kind: 'Float', value: nums.reduce((acc, x) => acc + x, 0) };
     }
-    case 'mean': {
-      const nums = presentNums(cells);
-      if (nums.length === 0) return NULL;
-      return { kind: 'Float', value: nums.reduce((a, x) => a + x, 0) / nums.length };
-    }
-    case 'stddev': {
-      const nums = presentNums(cells);
-      if (nums.length === 0) return NULL;
-      const n = nums.length;
-      const mean = nums.reduce((a, x) => a + x, 0) / n;
-      const variance = nums.reduce((a, x) => a + (x - mean) * (x - mean), 0) / n;
-      return { kind: 'Float', value: Math.sqrt(variance) };
-    }
-    case 'median': {
-      const nums = presentNums(cells)
-        .slice()
-        .sort((a, b) => a - b);
-      if (nums.length === 0) return NULL;
-      const n = nums.length;
-      const mid = Math.floor(n / 2);
-      if (n % 2 === 1) return { kind: 'Float', value: nums[mid]! };
-      return { kind: 'Float', value: (nums[mid - 1]! + nums[mid]!) / 2 };
-    }
+    case 'mean':
+    case 'stddev':
+    case 'median':
+      return floatAgg(fn, presentNums(cells));
     case 'min':
     case 'max': {
       if (present.length === 0) return NULL;
@@ -690,6 +1275,7 @@ const aggCells = (fn: AggFn, srcType: ColumnType, cells: readonly Cell[]): Cell 
 const aggType = (fn: AggFn, srcType: ColumnType): ColumnType => {
   switch (fn) {
     case 'count':
+    case 'countDistinct':
       return 'int';
     case 'mean':
     case 'median':
@@ -754,6 +1340,10 @@ const cellKey = (c: Cell): string => {
       return 'D' + c.value;
     case 'Timestamp':
       return 'T' + c.value;
+    case 'Decimal':
+      // The CANONICAL text under its own tag: `1.50` and `1.5` are one value, and a decimal never
+      // shares a key with an int or a float of the same value.
+      return 'M' + (decimalCanonical(c.value) ?? c.value);
   }
 };
 
@@ -785,13 +1375,20 @@ const evalProject = (f: Frame, pairs: readonly { a: string; b: string }[]): DR<F
 };
 
 const evalDerive = (f: Frame, name: string, expr: ColExpr, env: EvalEnv = EMPTY_ENV): DR<Frame> => {
+  // The column's typing is read off the schema before any row: a derive refused statically is
+  // refused on every frame, an empty one included, and a decided one carries its type whatever
+  // rows the frame holds.
+  const dt = derivedTypingIn(env, f.cols, expr);
+  if (dt.kind === 'refused') return derr(floatBesideDecimal(name));
   const newCells: Cell[] = [];
   for (const row of f.rows) {
     const r = evalExpr(f.cols, row, expr, env);
     if (!r.ok) return r;
     newCells.push(r.value);
   }
-  const ty = inferType(newCells);
+  const typed = columnTypeBy(dt, name, newCells);
+  if (!typed.ok) return typed;
+  const ty = typed.value;
   const i = colIndex(f.cols, name);
   if (i >= 0) {
     return dok({
@@ -839,17 +1436,21 @@ const evalGroupBy = (f: Frame, keys: readonly string[], aggs: readonly Agg[]): D
     type: aggType(r.agg.fn, r.type),
   }));
 
-  const rows = order.map((ks) => {
+  const rows: Cell[][] = [];
+  for (const ks of order) {
     const g = groups.get(ks)!;
-    const aggVals = resolvedAggs.map((r) =>
-      aggCells(
+    const out: Cell[] = [...g.key];
+    for (const r of resolvedAggs) {
+      const v = aggregateCells(
         r.agg.fn,
         r.type,
         g.rows.map((row) => row[r.index]!),
-      ),
-    );
-    return [...g.key, ...aggVals];
-  });
+      );
+      if (!v.ok) return v;
+      out.push(v.value);
+    }
+    rows.push(out);
+  }
 
   return dok({ cols: [...keyCols, ...aggCols], rows });
 };
@@ -936,6 +1537,22 @@ const evalUnion = (f: Frame, other: Frame): DR<Frame> => {
   return dok({ ...f, rows: [...f.rows, ...other.rows] });
 };
 
+/**
+ * `intersect` / `except` — the multiset set-ops, keyed on the SAME row key
+ * `distinct` dedups on, so a null matches a null and an int never matches a
+ * float. `keepPresent` selects intersect from except; the left's order and
+ * duplicate multiplicity survive.
+ */
+const evalSetOp = (verb: string, keepPresent: boolean, f: Frame, other: Frame): DR<Frame> => {
+  const an = available(f.cols);
+  const bn = available(other.cols);
+  if (an.length !== bn.length || an.some((n, i) => n !== bn[i])) {
+    return derr({ kind: 'JoinError', detail: verb + ' requires matching column names' });
+  }
+  const present = new Set(other.rows.map(rowKey));
+  return dok({ ...f, rows: f.rows.filter((row) => present.has(rowKey(row)) === keepPresent) });
+};
+
 const evalWindow = (f: Frame, spec: WindowSpecLike): DR<Frame> => {
   const ofIdx = colIndex(f.cols, spec.of);
   if (ofIdx < 0 && spec.fn !== 'rowNumber' && spec.fn !== 'rank') {
@@ -959,6 +1576,7 @@ const evalWindow = (f: Frame, spec: WindowSpecLike): DR<Frame> => {
   });
 
   const valueAt = (row: readonly Cell[]): Cell => (ofIdx >= 0 ? row[ofIdx]! : NULL);
+  const sourceIsDecimal = colType(f.cols, spec.of) === 'decimal';
 
   const computed: { index: number; out: Cell }[] = [];
   for (const k of order) {
@@ -995,6 +1613,16 @@ const evalWindow = (f: Frame, spec: WindowSpecLike): DR<Frame> => {
         outs = [...vals.slice(Math.min(1, vals.length)), NULL];
         break;
       case 'cumulSum': {
+        if (sourceIsDecimal) {
+          // Over a decimal column the running total is EXACT and a decimal, as `sum` over one is.
+          let dacc = '0';
+          outs = vals.map((v) => {
+            const x = decimalText(v);
+            if (x !== undefined) dacc = decimalAdd(dacc, x) ?? dacc;
+            return { kind: 'Decimal', value: dacc };
+          });
+          break;
+        }
         let acc = 0;
         outs = vals.map((v) => {
           const n = asNum(v);
@@ -1007,7 +1635,10 @@ const evalWindow = (f: Frame, spec: WindowSpecLike): DR<Frame> => {
         outs = vals.map((_, i) => {
           const lo = Math.max(0, i - 2);
           const window = vals.slice(lo, i + 1);
-          const nums = window.map(asNum).filter((n): n is number => n !== undefined);
+          // A decimal is read at its nearest double: the mean is a float by declaration.
+          const nums = window
+            .map((c) => (c.kind === 'Decimal' ? decimalToFloat(c.value) : asNum(c)))
+            .filter((n): n is number => n !== undefined);
           return nums.length === 0
             ? NULL
             : { kind: 'Float', value: nums.reduce((a, x) => a + x, 0) / nums.length };
@@ -1027,6 +1658,8 @@ const evalWindow = (f: Frame, spec: WindowSpecLike): DR<Frame> => {
       ty = 'int';
       break;
     case 'cumulSum':
+      ty = sourceIsDecimal ? 'decimal' : 'float';
+      break;
     case 'rollingMean':
       ty = 'float';
       break;
@@ -1099,16 +1732,20 @@ const evalPivot = (f: Frame, spec: PivotSpecLike): DR<Frame> => {
     type: aggType(spec.agg, valType),
   }));
 
-  const rows = order.map((k) => {
+  const rows: Cell[][] = [];
+  for (const k of order) {
     const ks = rowKey(k);
-    const cellsFor = (ov: Cell): Cell => {
+    const out: Cell[] = [...k];
+    for (const ov of onValues) {
       const matching = f.rows
         .filter((row) => rowKey(indexKey(row)) === ks && cellEq(row[onIdx]!, ov))
         .map((row) => row[valIdx]!);
-      return aggCells(spec.agg, valType, matching);
-    };
-    return [...k, ...onValues.map(cellsFor)];
-  });
+      const v = aggregateCells(spec.agg, valType, matching);
+      if (!v.ok) return v;
+      out.push(v.value);
+    }
+    rows.push(out);
+  }
 
   return dok({ cols: [...idxCols, ...pivotCols], rows });
 };
@@ -1131,19 +1768,11 @@ const evalUnpivot = (
     valIdx.push(i);
   }
   const idCols: SchemaEntry[] = idVars.map((n) => ({ name: n, type: colType(f.cols, n)! }));
-  let valType: ColumnType = 'string';
-  for (const n of valueVars) {
-    const t = colType(f.cols, n);
-    if (t !== undefined) {
-      valType = t;
-      break;
-    }
-  }
-  const cols: SchemaEntry[] = [
-    ...idCols,
-    { name: 'variable', type: 'string' },
-    { name: 'value', type: valType },
-  ];
+  // The value column is typed by the one derived-column rule, the value columns being its arms:
+  // their declared types' join where the schema decides it — over an empty frame too — and the
+  // melted cells only where it does not.
+  const dt = unpivotTyping(valueVars.map((n) => colType(f.cols, n)!));
+  if (dt.kind === 'refused') return derr(floatBesideDecimal('value'));
   const rows: Cell[][] = [];
   for (const row of f.rows) {
     const idCells = idIdx.map((i) => row[i]!);
@@ -1151,6 +1780,18 @@ const evalUnpivot = (
       rows.push([...idCells, { kind: 'Str', value: name }, row[valIdx[k]!]!]);
     });
   }
+  const valueAt = idCols.length + 1;
+  const valType = columnTypeBy(
+    dt,
+    'value',
+    rows.map((r) => r[valueAt]!),
+  );
+  if (!valType.ok) return valType;
+  const cols: SchemaEntry[] = [
+    ...idCols,
+    { name: 'variable', type: 'string' },
+    { name: 'value', type: valType.value },
+  ];
   return dok({ cols, rows });
 };
 
@@ -1217,6 +1858,12 @@ const evalStep = (
       const r = evalSource(resolve, t.source);
       if (!r.ok) return r;
       return evalUnion(f, toFrame(r.value));
+    }
+    case 'intersect':
+    case 'except': {
+      const r = evalSource(resolve, t.source);
+      if (!r.ok) return r;
+      return evalSetOp(t.kind, t.kind === 'intersect', f, toFrame(r.value));
     }
   }
 };
@@ -1308,6 +1955,10 @@ const colExprParams = (e: ColExpr): string[] => {
     case 'inParam':
       // A list param shares the scalar params' namespace (reactivity derivation needs it).
       return [...colExprParams(e.expr), e.param];
+    case 'quotient':
+      return [...colExprParams(e.dividend), ...colExprParams(e.divisor)];
+    case 'rounded':
+      return colExprParams(e.expr);
   }
 };
 
@@ -1391,6 +2042,19 @@ const substituteListParamsExpr = (
         ? { kind: 'inParam', expr, param: e.param }
         : { kind: 'in', expr, items: items.map((c): ColExpr => ({ kind: 'lit', cell: c })) };
     }
+    case 'quotient':
+      return {
+        kind: 'quotient',
+        dividend: substituteListParamsExpr(listEnv, e.dividend),
+        divisor: substituteListParamsExpr(listEnv, e.divisor),
+        rounding: e.rounding,
+      };
+    case 'rounded':
+      return {
+        kind: 'rounded',
+        expr: substituteListParamsExpr(listEnv, e.expr),
+        rounding: e.rounding,
+      };
   }
 };
 
