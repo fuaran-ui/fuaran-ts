@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = '857888fc68ecc881b6a11e7f141e32f04ba07fd5d21d6ff47ed16538bad2d2d2';
+export const IDL_SHA256 = 'e9ff0a22d727111d3d847a689655149081bdd1203f66ea2417905e13cd1791c7';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -584,7 +584,12 @@ export const KINDS_BY_CATEGORY = {
 export const KIND_FIELDS = {
   Badge: [
     { name: 'label', opt: 'required', type: T_union_TextSource },
-    { name: 'variant', opt: 'required', type: T_enum_BadgeVariant },
+    {
+      name: 'variant',
+      opt: 'omitDefault',
+      type: T_enum_BadgeVariant,
+      dflt: { $type: 'enum', case: 'Neutral' },
+    },
   ],
   Box: [
     { name: 'children', opt: 'required', type: T_list_node },
@@ -607,7 +612,12 @@ export const KIND_FIELDS = {
   Button: [
     { name: 'label', opt: 'required', type: T_union_TextSource },
     { name: 'onClick', opt: 'required', type: T_union_Action },
-    { name: 'variant', opt: 'required', type: T_enum_ButtonVariant },
+    {
+      name: 'variant',
+      opt: 'omitDefault',
+      type: T_enum_ButtonVariant,
+      dflt: { $type: 'enum', case: 'Secondary' },
+    },
     { name: 'icon', opt: 'optional', type: T_str },
     { name: 'tooltip', opt: 'hostOnly', type: T_fn },
     { name: 'disabled', opt: 'optional', type: T_union_Binding_bool },
@@ -648,10 +658,20 @@ export const KIND_FIELDS = {
   ],
   CodeBlock: [
     { name: 'code', opt: 'required', type: T_str },
-    { name: 'copyable', opt: 'required', type: T_bool },
-    { name: 'highlightLines', opt: 'required', type: T_list_int },
+    { name: 'copyable', opt: 'omitDefault', type: T_bool, dflt: { $type: 'bool', value: true } },
+    {
+      name: 'highlightLines',
+      opt: 'omitDefault',
+      type: T_list_int,
+      dflt: { $type: 'list', items: [] },
+    },
     { name: 'language', opt: 'required', type: T_str },
-    { name: 'lineNumbers', opt: 'required', type: T_bool },
+    {
+      name: 'lineNumbers',
+      opt: 'omitDefault',
+      type: T_bool,
+      dflt: { $type: 'bool', value: false },
+    },
   ],
   Custom: [
     { name: 'moduleId', opt: 'required', type: T_str },
@@ -747,7 +767,7 @@ export const KIND_FIELDS = {
   FileUpload: [
     { name: 'accept', opt: 'required', type: T_list_str },
     { name: 'label', opt: 'required', type: T_union_TextSource },
-    { name: 'multiple', opt: 'required', type: T_bool },
+    { name: 'multiple', opt: 'omitDefault', type: T_bool, dflt: { $type: 'bool', value: false } },
     { name: 'onSelect', opt: 'optional', type: T_fn },
     { name: 'disabled', opt: 'optional', type: T_union_Binding_bool },
     {
@@ -798,7 +818,12 @@ export const KIND_FIELDS = {
   Heading: [
     { name: 'level', opt: 'required', type: T_int },
     { name: 'text', opt: 'required', type: T_union_TextSource },
-    { name: 'variant', opt: 'required', type: T_enum_HeadingVariant },
+    {
+      name: 'variant',
+      opt: 'omitDefault',
+      type: T_enum_HeadingVariant,
+      dflt: { $type: 'enum', case: 'Standard' },
+    },
   ],
   Icon: [
     { name: 'icon', opt: 'required', type: T_str },
@@ -819,7 +844,12 @@ export const KIND_FIELDS = {
   Image: [
     { name: 'alt', opt: 'required', type: T_union_TextSource },
     { name: 'src', opt: 'required', type: T_union_Binding_str },
-    { name: 'variant', opt: 'required', type: T_enum_ImageVariant },
+    {
+      name: 'variant',
+      opt: 'omitDefault',
+      type: T_enum_ImageVariant,
+      dflt: { $type: 'enum', case: 'Default' },
+    },
     {
       name: 'fit',
       opt: 'omitDefault',
@@ -862,14 +892,14 @@ export const KIND_FIELDS = {
   Link: [
     { name: 'href', opt: 'required', type: T_union_Binding_str },
     { name: 'label', opt: 'required', type: T_union_TextSource },
-    { name: 'download', opt: 'required', type: T_bool },
+    { name: 'download', opt: 'omitDefault', type: T_bool, dflt: { $type: 'bool', value: false } },
     { name: 'rel', opt: 'optional', type: T_str },
     { name: 'target', opt: 'optional', type: T_str },
     { name: 'protection', opt: 'optional', type: T_enum_LinkProtection },
   ],
   List: [
     { name: 'items', opt: 'required', type: T_list_union_TextSource },
-    { name: 'ordered', opt: 'required', type: T_bool },
+    { name: 'ordered', opt: 'omitDefault', type: T_bool, dflt: { $type: 'bool', value: false } },
   ],
   Map: [
     { name: 'centreLatitude', opt: 'required', type: T_float },
@@ -937,7 +967,7 @@ export const KIND_FIELDS = {
   ],
   Modal: [
     { name: 'children', opt: 'required', type: T_list_node },
-    { name: 'dismissable', opt: 'required', type: T_bool },
+    { name: 'dismissable', opt: 'omitDefault', type: T_bool, dflt: { $type: 'bool', value: true } },
     { name: 'onDismiss', opt: 'optional', type: T_union_Action },
     { name: 'open', opt: 'required', type: T_union_Binding_bool },
     { name: 'heading', opt: 'optional', type: T_union_TextSource },
@@ -984,7 +1014,7 @@ export const KIND_FIELDS = {
     { name: 'onChange', opt: 'optional', type: T_fn },
     { name: 'onChangeMulti', opt: 'optional', type: T_fn },
     { name: 'source', opt: 'required', type: T_union_Binding_list_record_SelectOption },
-    { name: 'value', opt: 'required', type: T_union_Binding_str },
+    { name: 'value', opt: 'optional', type: T_union_Binding_str },
     { name: 'placeholder', opt: 'optional', type: T_union_TextSource },
     { name: 'disabled', opt: 'optional', type: T_union_Binding_bool },
     { name: 'multiple', opt: 'optional', type: T_bool },
@@ -997,7 +1027,16 @@ export const KIND_FIELDS = {
     { name: 'weight', opt: 'required', type: T_float },
   ],
   Stepper: [
-    { name: 'activeStep', opt: 'required', type: T_union_Binding_int },
+    {
+      name: 'activeStep',
+      opt: 'omitDefault',
+      type: T_union_Binding_int,
+      dflt: {
+        $type: 'union',
+        tag: 'Static',
+        fields: [{ name: 'value', value: { $type: 'int', value: 0 } }],
+      },
+    },
     { name: 'children', opt: 'required', type: T_list_node },
     { name: 'onSelect', opt: 'optional', type: T_fn },
   ],
@@ -1159,7 +1198,7 @@ export const RECORD_FIELDS = {
     { name: 'id', opt: 'required', type: T_str },
     { name: 'kind', opt: 'required', type: T_union_FormFieldKind },
     { name: 'label', opt: 'required', type: T_union_TextSource },
-    { name: 'required', opt: 'required', type: T_bool },
+    { name: 'required', opt: 'omitDefault', type: T_bool, dflt: { $type: 'bool', value: false } },
     { name: 'help', opt: 'optional', type: T_union_TextSource },
     { name: 'rule', opt: 'optional', type: T_record_FieldRule },
   ],
@@ -1402,7 +1441,7 @@ export const UNION_CASES = {
     Auto: [],
     Flex: [
       { name: 'direction', opt: 'required', type: T_enum_Orientation },
-      { name: 'wrap', opt: 'required', type: T_bool },
+      { name: 'wrap', opt: 'omitDefault', type: T_bool, dflt: { $type: 'bool', value: false } },
       { name: 'gap', opt: 'optional', type: T_int },
     ],
     Grid: [
@@ -1563,7 +1602,12 @@ export const UNION_CASES = {
       { name: 'options', opt: 'required', type: T_union_Binding_list_record_SelectOption },
       { name: 'value', opt: 'optional', type: T_hosted },
       { name: 'onChange', opt: 'optional', type: T_fn },
-      { name: 'orientation', opt: 'required', type: T_enum_Orientation },
+      {
+        name: 'orientation',
+        opt: 'omitDefault',
+        type: T_enum_Orientation,
+        dflt: { $type: 'enum', case: 'Horizontal' },
+      },
     ],
     DateTime: [
       { name: 'value', opt: 'optional', type: T_hosted },
@@ -1923,14 +1967,14 @@ export const BINDING_SLOTS = {
   ScrollArea: [],
   Select: [
     { field: 'source', slot: 'Source', optional: false },
-    { field: 'value', slot: 'Value', optional: false },
+    { field: 'value', slot: 'Value', optional: true },
     { field: 'disabled', slot: 'Disabled', optional: true },
     { field: 'values', slot: 'Values', optional: true },
   ],
   Skeleton: [],
   Sparkline: [{ field: 'source', slot: 'Source', optional: false }],
   SplitPanel: [],
-  Stepper: [{ field: 'activeStep', slot: 'ActiveStep', optional: false }],
+  Stepper: [{ field: 'activeStep', slot: 'ActiveStep', optional: true }],
   SummaryList: [],
   Switch: [{ field: 'on', slot: 'On', optional: true }],
   Tabs: [

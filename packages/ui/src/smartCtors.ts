@@ -1483,7 +1483,12 @@ export interface SelectOptions<TMsg> {
   readonly id: NodeId | string;
   readonly label: TextInput;
   readonly source: Binding<readonly SelectOption[]>;
-  readonly value: Binding<string | undefined>;
+  /**
+   * The single-select value binding. Optional since Phase 1962: a multi-select
+   * carries `values` and no `value`, so it is ignored when `multiple` is set; a
+   * single-select without one gets the empty `Static` ("no selection").
+   */
+  readonly value?: Binding<string | undefined>;
   /** Phase 426 — optional; omitted arms the `value` write-back default. */
   readonly onChange?: (value: string | undefined) => Action<TMsg>;
   readonly placeholder?: TextInput;
@@ -1509,7 +1514,8 @@ export interface FormOptions<TMsg> {
 export interface FileUploadOptions<TMsg> {
   readonly id: NodeId | string;
   readonly label: TextInput;
-  readonly onSelect: (files: readonly FileSelection[]) => Action<TMsg>;
+  /** Phase 1962 — optional: a declarative upload declares no handler and the wire omits the key. */
+  readonly onSelect?: (files: readonly FileSelection[]) => Action<TMsg>;
   readonly accept?: readonly string[];
   readonly multiple?: boolean;
   /** Phase 130 — optional bound disabled-state; absent means always enabled. */
@@ -1886,7 +1892,9 @@ export const fuaran = {
         spec: {
           activeStep: o.activeStep ?? { kind: 'Static', value: 0 },
           children: o.children ?? [],
-          onSelect: o.onSelect ?? (() => action.chain<TMsg>([])),
+          // Phase 1962: omitted by default — the write-back default against a
+          // writable `activeStep`, as `tabs`; a present handler rides as the sentinel.
+          ...(o.onSelect !== undefined ? { onSelect: o.onSelect } : {}),
         },
       },
     });
@@ -2332,12 +2340,16 @@ export const fuaran = {
           spec: {
             label: text(o.label),
             source: o.source,
-            value: o.value,
+            // Phase 1962: a multi-select carries `values` and no `value`.
+            ...(o.multiple
+              ? {}
+              : { value: o.value ?? { kind: 'Static' as const, value: undefined } }),
             // Phase 426: omitted by default — the `value` write-back default.
             ...(o.onChange !== undefined ? { onChange: o.onChange } : {}),
             ...(o.placeholder !== undefined ? { placeholder: text(o.placeholder) } : {}),
             ...(o.disabled !== undefined ? { disabled: o.disabled } : {}),
-            ...(o.multiple ? { multiple: true } : {}),
+            // Phase 1962: `multiple` is emitted as authored (an explicit `false` is kept).
+            ...(o.multiple !== undefined ? { multiple: o.multiple } : {}),
             ...(o.values !== undefined ? { values: stringArrayBinding(o.values) } : {}),
             ...(o.onChangeMulti !== undefined ? { onChangeMulti: o.onChangeMulti } : {}),
           },
@@ -2378,7 +2390,8 @@ export const fuaran = {
             label: text(o.label),
             accept: o.accept ?? [],
             multiple: o.multiple ?? false,
-            onSelect: o.onSelect,
+            // Phase 1962: an optional closure slot — a declarative upload omits it.
+            ...(o.onSelect !== undefined ? { onSelect: o.onSelect } : {}),
             ...(o.disabled !== undefined ? { disabled: o.disabled } : {}),
             // Phase 1115 — both default `false`, so the shortest call is the
             // plain picker and each ingress route is asked for by name.

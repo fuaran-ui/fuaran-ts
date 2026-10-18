@@ -1449,11 +1449,13 @@ export interface StepperSpec<TMsg> extends IdlSpec<'Stepper', TMsg> {
    * Dispatch when the user clicks a step header. The renderer calls this with
    * the clicked step index; the host typically dispatches a `SelectStep i`
    * message and the model-driven `activeStep` binding picks up the new value
-   * on the next render. Defaults to a no-op `Chain []` — steps render and the
-   * active styling tracks `activeStep`, but no dispatch fires on click.
-   * Mirrors `TabsSpec.onSelect`.
+   * on the next render. Optional (Phase 1962, as the IDL and §3.2 table have
+   * had it since the handler sweep): omitted, the renderer writes the clicked
+   * index back to a writable `activeStep` binding — the write-back default,
+   * exactly as `TabsSpec.onSelect`; present, it rides the wire as the
+   * `"<closure>"` sentinel. Mirrors `TabsSpec.onSelect`.
    */
-  readonly onSelect: (index: number) => Action<TMsg>;
+  readonly onSelect?: (index: number) => Action<TMsg>;
 }
 
 export interface SummaryListSpec<TMsg> extends IdlSpec<'SummaryList', TMsg> {}
@@ -2112,12 +2114,15 @@ export interface ButtonSpec<TMsg> extends IdlSpec<'Button', TMsg> {
 
 export interface SelectSpec<TMsg> extends Omit<IdlSpec<'Select', TMsg>, 'value'> {
   /**
-   * The selection. The IDL types it `Binding<string>`; this host widens the
-   * payload to `string | undefined` because an unselected control is a `Static`
-   * binding carrying NO value (Phase 677: absence is structural — the key is
-   * omitted on the wire, never `null`), which `Binding<string>` cannot spell.
+   * The single-select selection. The IDL types it `Binding<string>`; this host
+   * widens the payload to `string | undefined` because an unselected control is
+   * a `Static` binding carrying NO value (Phase 677: absence is structural — the
+   * key is omitted on the wire, never `null`), which `Binding<string>` cannot
+   * spell. Optional since Phase 1962: a single-select carries it (required on
+   * the wire); a multi-select (`multiple: true`) carries `values` instead and
+   * omits `value`.
    */
-  readonly value: Binding<string | undefined>;
+  readonly value?: Binding<string | undefined>;
   /**
    * Optional since Phase 426 (the control write-back default): omitted, the
    * renderer writes the chosen option back to a writable `value` binding
@@ -2135,9 +2140,10 @@ export interface SelectSpec<TMsg> extends Omit<IdlSpec<'Select', TMsg>, 'value'>
   readonly disabled?: Binding<boolean>;
   /**
    * Multi-select flag (Phase 291). `false`/absent (the default) is
-   * single-select — `value` / `onChange` carry the chosen option, and the field
-   * is omitted on the wire (the degenerate case stays byte-identical to
-   * pre-multi-select fixtures). When `true`, the renderer emits a
+   * single-select — `value` / `onChange` carry the chosen option. The field is
+   * emitted as authored (Phase 1962): absent stays absent on the wire (the
+   * degenerate case stays byte-identical to pre-multi-select fixtures) and an
+   * explicit `false` is kept — it is not omit-at-default. When `true`, the renderer emits a
    * `<select multiple>` and the selection is carried by `values` (a list).
    */
   readonly multiple?: boolean;
@@ -2488,7 +2494,14 @@ export interface FilterSpec<TMsg> {
 }
 
 export interface FileUploadSpec<TMsg> extends IdlSpec<'FileUpload', TMsg> {
-  readonly onSelect: (files: readonly FileSelection[]) => Action<TMsg>;
+  /**
+   * The selection handler. Optional (Phase 1962, as the IDL and §3.2 table have
+   * had it since the handler sweep): a declarative upload carries none and the
+   * wire omits the key; present, it rides as the `"<closure>"` sentinel. An
+   * upload with no handler reads its selection and runs nothing — the host that
+   * wants the files declares the handler.
+   */
+  readonly onSelect?: (files: readonly FileSelection[]) => Action<TMsg>;
   /**
    * Optional bound disabled-state (Phase 130 — the interactive-state class-fix
    * generalising `ButtonSpec.disabled`). Absent (the default) leaves the upload

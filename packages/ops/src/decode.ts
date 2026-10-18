@@ -5039,10 +5039,9 @@ const decodeFormFieldKind = (
         'SegmentedChoice options binding',
         decodeBindingSelectOptions,
       );
-      // Lenient AI-ingest omitted-when-default (WIRE_FORMAT.md §3.6 family):
-      // absent segmented `orientation` restores the language default
-      // `Horizontal`. Decode-only — the encoder still always emits it.
-      // Mirror of the F# decoder.
+      // An absent segmented `orientation` restores the declared default
+      // `Horizontal`; since Phase 2300 that omitted form is the canonical one
+      // and the encoder omits it too. Mirror of the F# decoder.
       const orientationJ = tryField(f, 'orientation');
       const orientation =
         orientationJ === undefined
@@ -5418,7 +5417,8 @@ const decodeFormField = (w: Walk, path: string, j: JsonAst): R<FormField<unknown
     (fieldId) => (w2, p, v) => decodeFormFieldKind(w2, { kind: 'form', id: fieldId }, p, v),
   );
   const label = reqField(w, path, f, 'label', 'field label TextSource', decodeTextSource);
-  const required = reqField(w, path, f, 'required', 'required bool', requireBool);
+  // Phase 2300 — `required` is omitted at its declared default `false`.
+  const required = andThen(optField(w, path, f, 'required', requireBool), (v) => ok(v ?? false));
   const help = optField(w, path, f, 'help', decodeTextSource);
   // Phase 864 — the near-miss check runs BEFORE the rule decode, so a field
   // carrying both `validation` and a well-formed `rule` still names the ignored
@@ -5465,33 +5465,59 @@ const decodeFilterSpec = (w: Walk, path: string, j: JsonAst): R<FilterSpec<unkno
 
 const decodeButtonSpec = specDecoder('Button');
 
-const decodeSelectSpec = specDecoder<'Select', SelectSpec<unknown>>('Select', {
-  source: { aliases: ['options', 'data'] },
-  // An unselected control is a `Static` binding carrying no value (Phase 677).
-  value: { dec: decodeBindingStringOpt },
-  // Phase 426: a present `"<closure>"` sentinel → the inert placeholder; an
-  // absent key → omitted, arming the renderer's write-back default against
-  // `value` / `values`.
-  onChange: { placeholder: onChangePlaceholder },
-  onChangeMulti: { placeholder: onChangePlaceholder },
-});
-
-const decodeFileUploadSpec = specDecoder(
-  'FileUpload',
+const decodeSelectSpec = specDecoder<'Select', SelectSpec<unknown>>(
+  'Select',
   {
-    destination: {
-      dec: (w, p, j) =>
-        andThen(requireString(w, p, j), (id) =>
-          id === '' ? wrongType(p, 'a non-empty host-registered destination id') : ok(id),
-        ),
-    },
-    maxBytes: { dec: positiveInt('a positive integer ceiling') },
-    maxFiles: { dec: positiveInt('a positive integer ceiling') },
+    source: { aliases: ['options', 'data'] },
+    // An unselected control is a `Static` binding carrying no value (Phase 677).
+    value: { dec: decodeBindingStringOpt },
+    // Phase 426: a present `"<closure>"` sentinel → the inert placeholder; an
+    // absent key → omitted, arming the renderer's write-back default against
+    // `value` / `values`.
+    onChange: { placeholder: onChangePlaceholder },
+    onChangeMulti: { placeholder: onChangePlaceholder },
   },
-  // `onSelect` is always present on this host's spec (the closure slot is
-  // required here); an absent sentinel still decodes to the inert placeholder.
-  (spec) => ok<FileUploadSpec<unknown>>({ ...spec, onSelect: closurePlaceholder }),
+  // Phase 1962 — the `value` rule (WIRE_FORMAT §3.2), a relation between two
+  // sibling keys the per-field table cannot state (the IDL marks `value`
+  // optional): a single-select (`multiple` absent or `false`) REQUIRES `value`
+  // — `MISSING_FIELD` at `<select>.value`; a multi-select carries `values` and
+  // no `value`, so a `value` beside `"multiple":true` — the empty-`Static`
+  // placeholder every pre-1962 document carried, or a binding a stored document
+  // wrote there — is decoded by the table (a MALFORMED one still refuses as any
+  // malformed binding does) and then DROPPED, a §16 lenient accept normalised to
+  // absent. A malformed `multiple` is its own defect, reported by the table, so
+  // the presence rule is not layered over it.
+  (spec, w, path, f) => {
+    if (spec.multiple === true) {
+      if (spec.value === undefined) return ok(spec as SelectSpec<unknown>);
+      const { value, ...clean } = spec;
+      void value;
+      return ok(clean as SelectSpec<unknown>);
+    }
+    const multipleKnown =
+      tryField(f, 'multiple') === undefined || typeof spec.multiple === 'boolean';
+    if (spec.value === undefined && multipleKnown) {
+      const missing = reqField(w, path, f, 'value', 'Select value binding', decodeBindingStringOpt);
+      if (!missing.ok) return missing;
+    }
+    return ok(spec as SelectSpec<unknown>);
+  },
 );
+
+const decodeFileUploadSpec = specDecoder('FileUpload', {
+  destination: {
+    dec: (w, p, j) =>
+      andThen(requireString(w, p, j), (id) =>
+        id === '' ? wrongType(p, 'a non-empty host-registered destination id') : ok(id),
+      ),
+  },
+  maxBytes: { dec: positiveInt('a positive integer ceiling') },
+  maxFiles: { dec: positiveInt('a positive integer ceiling') },
+  // Phase 1962 — `onSelect` is the optional closure slot the IDL declares: a
+  // present `"<closure>"` sentinel decodes to the inert placeholder and an
+  // absent key stays absent (a declarative upload carries no handler).
+  onSelect: { placeholder: closurePlaceholder },
+});
 
 const INPUT_KINDS: FamilyArms<'Input', InputKind<unknown>> = {
   Form: (w, path, j) =>
@@ -5949,7 +5975,8 @@ const decodeBoxLayout = (w: Walk, path: string, j: JsonAst): R<BoxLayout> => {
   switch (d.value) {
     case 'Flex': {
       const direction = reqField(w, path, f, 'direction', 'Orientation', decodeOrientation);
-      const wrap = reqField(w, path, f, 'wrap', 'wrap bool', requireBool);
+      // Phase 2300 — `wrap` is omitted at its declared default `false`.
+      const wrap = andThen(optField(w, path, f, 'wrap', requireBool), (v) => ok(v ?? false));
       const gap = optField(w, path, f, 'gap', requireInt);
       if (!direction.ok || !wrap.ok || !gap.ok) return failed(direction, wrap, gap);
       return ok({
@@ -6060,9 +6087,10 @@ const decodeTabHeader = (w: Walk, path: string, j: JsonAst): R<TabHeader> => {
 
 const decodeTabsSpec = specDecoder('Tabs');
 
-const decodeStepperSpec = specDecoder('Stepper', {}, (spec) =>
-  ok<StepperSpec<unknown>>({ ...spec, onSelect: closurePlaceholder }),
-);
+// Phase 1962 — `onSelect` is the optional closure slot the IDL declares: a
+// present `"<closure>"` sentinel decodes to the inert placeholder (the table's
+// closure rule) and an absent key stays absent, arming the write-back default.
+const decodeStepperSpec = specDecoder('Stepper', { onSelect: { placeholder: closurePlaceholder } });
 
 const decodeSummaryListSpec = specDecoder('SummaryList', { heading: { aliases: ['title'] } });
 
