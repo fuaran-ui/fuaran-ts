@@ -55,7 +55,10 @@ const isEmptyDeclaration = (value: unknown): boolean => {
 };
 
 const oracleSeeds = <TMsg>(tree: Node<TMsg>): Record<string, unknown> => {
-  const seeds: Record<string, unknown> = {};
+  // Null-prototype, as the walk under test is (Phase 1931): on a `{}` literal a
+  // document's `__proto__` state key would hit the prototype setter and vanish,
+  // so the oracle would disagree with a correct walk (`proto-safe-keys`).
+  const seeds = Object.create(null) as Record<string, unknown>;
   const seen = new Set<unknown>();
   const visit = (
     value: unknown,
