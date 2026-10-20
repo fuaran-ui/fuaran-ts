@@ -6485,11 +6485,17 @@ const decodeFragmentRefSpec = specDecoder(
       args: spec.args ?? wireKeyedRecord<FragmentArg<unknown>>(),
     }),
 );
-const decodeMountSpec = specDecoder('Mount', { inputs: { dec: fragmentArgMap } }, (spec) =>
-  ok<MountSpec<unknown>>({
-    ...spec,
-    inputs: spec.inputs ?? wireKeyedRecord<FragmentArg<unknown>>(),
-  }),
+// Phase 2328 — `onBubble` is the optional closure slot the IDL declares: a present
+// `"<closure>"` sentinel decodes to the inert placeholder and an absent key stays
+// absent (a Mount that declares no bubble handler).
+const decodeMountSpec = specDecoder(
+  'Mount',
+  { inputs: { dec: fragmentArgMap }, onBubble: { placeholder: closurePlaceholder } },
+  (spec) =>
+    ok<MountSpec<unknown>>({
+      ...spec,
+      inputs: spec.inputs ?? wireKeyedRecord<FragmentArg<unknown>>(),
+    }),
 );
 
 const NODE_KIND_FAMILIES: KindArms<NodeKind<unknown>> = {

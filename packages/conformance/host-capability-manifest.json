@@ -32,6 +32,7 @@
       "pending": "this host's suite does not yet run the skeleton-apply vectors"
     },
     "apply/styleNormaliseApply": "covered",
+    "chain": "covered",
     "contract-card-reject": "covered",
     "contract-card-round-trip": "covered",
     "dag": "covered",
@@ -61,6 +62,9 @@
     },
     "laws/decimal": "covered",
     "laws/fieldLaws": {
+      "pending": "this host's suite does not yet run this law family's vectors"
+    },
+    "laws/propagationLaws": {
       "pending": "this host's suite does not yet run this law family's vectors"
     },
     "laws/transformLaws": "covered",

@@ -1293,8 +1293,9 @@ export type CapabilityTag = string;
 
 /**
  * The isolation/embedding boundary spec (Phase 265, §4o). `onBubble` (the host
- * handler for a guest-bubbled `Action<obj>`) is a closure — the `"<closure>"`
- * sentinel on the wire — so it is not carried structurally on this typed shape.
+ * handler for a guest-bubbled `Action<obj>`) is an optional closure: present, it
+ * rides the wire as the `"<closure>"` sentinel; absent, the key is omitted
+ * (Phase 2328).
  */
 export interface MountSpec<TMsg> extends IdlSpec<'Mount', TMsg> {
   /** Optional on the wire; always present here — an absent `inputs` decodes to the empty map. */

@@ -2262,10 +2262,11 @@ const fragmentRefSpec = specEncoder('FragmentRef', {
 });
 /** A `Mount`'s guest channel (Phase 1021). */
 const guestChannel = recordEncoder('GuestChannel');
+// Phase 2328 — `onBubble` is the optional closure slot the IDL declares: a Mount
+// carrying a bubble handler writes the sentinel, and one with none writes no key
+// (`mount-no-onbubble`), as `Stepper.onSelect` and `FileUpload.onSelect` do.
 const mountSpec = specEncoder('Mount', {
   inputs: { enc: nonEmptyMap(fragmentArg as Enc) },
-  // The guest's bubble handler is host-side only; the sentinel always rides (byte-stable since Phase 265).
-  onBubble: { enc: () => CLOSURE },
 });
 /** A static read-only table's rows (Phase 393; sort intent Phase 801). */
 const staticRows = recordEncoder('StaticRows');

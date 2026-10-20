@@ -74,6 +74,7 @@ export const HOST_CORPUS_FAMILIES = {
   'apply/limitsApply': 'covered', // packages/ops/test/limits-apply-corpus.test.ts
   'apply/styleNormaliseApply': 'covered', // packages/ops/test/style-normalise-apply-corpus.test.ts
   'apply/skeletonApply': pending("this host's suite does not yet run the skeleton-apply vectors"),
+  chain: 'covered', // packages/op-stream/test/parity.test.ts
   dag: 'covered', // packages/ops/test/dag.test.ts
   'decode-policy': 'covered', // packages/ops/test/decodePolicy.test.ts
   'design-seam-reject': notApplicable(NO_DESIGN_SEAM),
@@ -88,6 +89,7 @@ export const HOST_CORPUS_FAMILIES = {
   ),
   'laws/decimal': 'covered', // packages/ops/test/decimalLaws.test.ts
   'laws/fieldLaws': pending(LAW_UNRUN),
+  'laws/propagationLaws': pending(LAW_UNRUN),
   'laws/transformLaws': 'covered', // packages/ops/test/transformLaws.test.ts
   'lowers-to': pending("this host's suite does not yet run the lowers-to vectors"),
   'merge-conformance': 'covered', // packages/ops/test/merge.test.ts
