@@ -11,6 +11,7 @@
 // @fuaran-ui/schema (a peer dependency).
 
 export { encodeNode, encodeOp } from './encode.js';
+export { encodeRows, RowCellRefusedError, type RowCellRefusalCode } from './encode.js';
 export { encodeDataSource, encodeCell, encodeColExpr, encodePipeline } from './encode.js';
 export {
   evalPipeline,
@@ -29,6 +30,7 @@ export {
 } from './dataframe.js';
 export {
   decodeNode,
+  decodeNodeFromAst,
   decodeNodeWithDefects,
   orderDefects,
   decodeOp,
@@ -81,7 +83,7 @@ export {
   type ApplyResult,
   type OpApplyTelemetryRecord,
 } from './apply.js';
-export type { TreeOp } from './treeOp.js';
+export type { StyleDelta, TreeOp } from './treeOp.js';
 export {
   // The one child enumeration (Phase 2046): what a node's children are, with
   // the reach a walker means stated explicitly.

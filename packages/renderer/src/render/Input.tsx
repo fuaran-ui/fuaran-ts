@@ -167,7 +167,9 @@ const renderSelect = <TMsg,>(ctx: RenderContext<TMsg>, spec: SelectSpec<TMsg>): 
     );
   }
 
-  const selected = tryResolve(ctx.sources, spec.value) ?? '';
+  // Phase 1962: `value` is optional on the model (a multi-select omits it).
+  const value = spec.value;
+  const selected = (value !== undefined ? tryResolve(ctx.sources, value) : undefined) ?? '';
   const onChange = spec.onChange;
   return (
     <label className="fuaran-select">
@@ -182,7 +184,7 @@ const renderSelect = <TMsg,>(ctx: RenderContext<TMsg>, spec: SelectSpec<TMsg>): 
           // the slot).
           const chosen = e.target.value === '' ? undefined : e.target.value;
           if (onChange !== undefined) runAction(ctx, onChange(chosen));
-          else writeBackTo(ctx, spec.value, chosen);
+          else if (value !== undefined) writeBackTo(ctx, value, chosen);
         }}
       >
         {spec.placeholder !== undefined && (
@@ -1499,7 +1501,9 @@ const renderFileUpload = <TMsg,>(
             );
             return;
           }
-          runAction(ctx, spec.onSelect(selections));
+          // Phase 1962: a declarative upload (no handler) reads its selection
+          // and runs nothing — there is no write-back slot for a file list.
+          if (spec.onSelect !== undefined) runAction(ctx, spec.onSelect(selections));
         }}
       />
     </>

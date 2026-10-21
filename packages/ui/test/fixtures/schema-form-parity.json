@@ -5,217 +5,217 @@
       "name": "string-text",
       "schema": "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"name\",\"kind\":{\"$type\":\"Text\"},\"label\":\"name\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"name\",\"kind\":{\"$type\":\"Text\"},\"label\":\"name\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "string-textarea-past-threshold",
       "schema": "{\"type\":\"object\",\"properties\":{\"bio\":{\"type\":\"string\",\"maxLength\":201}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"bio\",\"kind\":{\"$type\":\"TextArea\",\"rows\":4},\"label\":\"bio\",\"required\":false,\"rule\":{\"maxLength\":201}}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"bio\",\"kind\":{\"$type\":\"TextArea\",\"rows\":4},\"label\":\"bio\",\"rule\":{\"maxLength\":201}}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "string-text-at-threshold",
       "schema": "{\"type\":\"object\",\"properties\":{\"bio\":{\"type\":\"string\",\"maxLength\":200}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"bio\",\"kind\":{\"$type\":\"Text\"},\"label\":\"bio\",\"required\":false,\"rule\":{\"maxLength\":200}}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"bio\",\"kind\":{\"$type\":\"Text\"},\"label\":\"bio\",\"rule\":{\"maxLength\":200}}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "string-format-date",
       "schema": "{\"type\":\"object\",\"properties\":{\"d\":{\"type\":\"string\",\"format\":\"date\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"d\",\"kind\":{\"$type\":\"DateTime\",\"variant\":\"Date\"},\"label\":\"d\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"d\",\"kind\":{\"$type\":\"DateTime\",\"variant\":\"Date\"},\"label\":\"d\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "string-format-time",
       "schema": "{\"type\":\"object\",\"properties\":{\"t\":{\"type\":\"string\",\"format\":\"time\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"t\",\"kind\":{\"$type\":\"DateTime\",\"variant\":\"Time\"},\"label\":\"t\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"t\",\"kind\":{\"$type\":\"DateTime\",\"variant\":\"Time\"},\"label\":\"t\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "string-format-date-time",
       "schema": "{\"type\":\"object\",\"properties\":{\"dt\":{\"type\":\"string\",\"format\":\"date-time\",\"default\":\"2026-01-02T03:04\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"dt\",\"kind\":{\"$type\":\"DateTime\",\"value\":{\"$type\":\"State\",\"defaultValue\":\"2026-01-02T03:04\",\"key\":\"dt\"},\"variant\":\"DateTime\"},\"label\":\"dt\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"dt\",\"kind\":{\"$type\":\"DateTime\",\"value\":{\"$type\":\"State\",\"defaultValue\":\"2026-01-02T03:04\",\"key\":\"dt\"},\"variant\":\"DateTime\"},\"label\":\"dt\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "string-format-color",
       "schema": "{\"type\":\"object\",\"properties\":{\"c\":{\"type\":\"string\",\"format\":\"color\",\"default\":\"#AbCdEf\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"c\",\"kind\":{\"$type\":\"Color\",\"value\":{\"$type\":\"State\",\"defaultValue\":\"#AbCdEf\",\"key\":\"c\"}},\"label\":\"c\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"c\",\"kind\":{\"$type\":\"Color\",\"value\":{\"$type\":\"State\",\"defaultValue\":\"#AbCdEf\",\"key\":\"c\"}},\"label\":\"c\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "string-format-email",
       "schema": "{\"type\":\"object\",\"properties\":{\"e\":{\"type\":\"string\",\"format\":\"email\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"e\",\"kind\":{\"$type\":\"Text\"},\"label\":\"e\",\"required\":false,\"rule\":{\"format\":\"email\"}}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"e\",\"kind\":{\"$type\":\"Text\"},\"label\":\"e\",\"rule\":{\"format\":\"email\"}}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "string-format-uri-long-stays-text",
       "schema": "{\"type\":\"object\",\"properties\":{\"u\":{\"type\":\"string\",\"format\":\"uri\",\"maxLength\":500}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"u\",\"kind\":{\"$type\":\"Text\"},\"label\":\"u\",\"required\":false,\"rule\":{\"format\":\"url\",\"maxLength\":500}}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"u\",\"kind\":{\"$type\":\"Text\"},\"label\":\"u\",\"rule\":{\"format\":\"url\",\"maxLength\":500}}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "string-rule-slots",
       "schema": "{\"type\":\"object\",\"properties\":{\"code\":{\"type\":\"string\",\"minLength\":2,\"maxLength\":8,\"pattern\":\"^[A-Z]+$\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"code\",\"kind\":{\"$type\":\"Text\"},\"label\":\"code\",\"required\":false,\"rule\":{\"maxLength\":8,\"minLength\":2,\"pattern\":\"^[A-Z]+$\"}}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"code\",\"kind\":{\"$type\":\"Text\"},\"label\":\"code\",\"rule\":{\"maxLength\":8,\"minLength\":2,\"pattern\":\"^[A-Z]+$\"}}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "number-unbounded",
       "schema": "{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"number\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"n\",\"kind\":{\"$type\":\"Number\"},\"label\":\"n\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"n\",\"kind\":{\"$type\":\"Number\"},\"label\":\"n\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "number-min-only",
       "schema": "{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"number\",\"minimum\":0.5}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"n\",\"kind\":{\"$type\":\"RangedNumber\",\"min\":0.5},\"label\":\"n\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"n\",\"kind\":{\"$type\":\"RangedNumber\",\"min\":0.5},\"label\":\"n\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "number-max-and-multipleOf",
       "schema": "{\"type\":\"object\",\"properties\":{\"n\":{\"type\":\"number\",\"maximum\":10,\"multipleOf\":0.25,\"default\":2.5}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"n\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":10,\"step\":0.25,\"value\":{\"$type\":\"State\",\"defaultValue\":2.5,\"key\":\"n\"}},\"label\":\"n\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"n\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":10,\"step\":0.25,\"value\":{\"$type\":\"State\",\"defaultValue\":2.5,\"key\":\"n\"}},\"label\":\"n\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "integer-unbounded-steps-by-one",
       "schema": "{\"type\":\"object\",\"properties\":{\"i\":{\"type\":\"integer\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"i\",\"kind\":{\"$type\":\"RangedNumber\",\"step\":1},\"label\":\"i\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"i\",\"kind\":{\"$type\":\"RangedNumber\",\"step\":1},\"label\":\"i\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "integer-multipleOf",
       "schema": "{\"type\":\"object\",\"properties\":{\"i\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":100,\"multipleOf\":5,\"default\":20}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"i\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":100,\"min\":0,\"step\":5,\"value\":{\"$type\":\"State\",\"defaultValue\":20,\"key\":\"i\"}},\"label\":\"i\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"i\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":100,\"min\":0,\"step\":5,\"value\":{\"$type\":\"State\",\"defaultValue\":20,\"key\":\"i\"}},\"label\":\"i\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "integer-exclusive-bounds",
       "schema": "{\"type\":\"object\",\"properties\":{\"i\":{\"type\":\"integer\",\"exclusiveMinimum\":0,\"exclusiveMaximum\":10.5}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"i\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":10,\"min\":1,\"step\":1},\"label\":\"i\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"i\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":10,\"min\":1,\"step\":1},\"label\":\"i\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "integer-exclusive-and-inclusive-tightest-wins",
       "schema": "{\"type\":\"object\",\"properties\":{\"i\":{\"type\":\"integer\",\"minimum\":3,\"exclusiveMinimum\":1,\"maximum\":7,\"exclusiveMaximum\":9}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"i\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":7,\"min\":3,\"step\":1},\"label\":\"i\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"i\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":7,\"min\":3,\"step\":1},\"label\":\"i\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "boolean-checkbox",
       "schema": "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\",\"default\":true}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"ok\",\"kind\":{\"$type\":\"Checkbox\",\"value\":{\"$type\":\"State\",\"defaultValue\":true,\"key\":\"ok\"}},\"label\":\"ok\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"ok\",\"kind\":{\"$type\":\"Checkbox\",\"value\":{\"$type\":\"State\",\"defaultValue\":true,\"key\":\"ok\"}},\"label\":\"ok\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "enum-segmented-at-max",
       "schema": "{\"type\":\"object\",\"properties\":{\"s\":{\"enum\":[\"a\",\"b\",\"c\",\"d\"],\"default\":\"b\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"s\",\"kind\":{\"$type\":\"SegmentedChoice\",\"options\":{\"$type\":\"Static\",\"value\":[{\"label\":\"a\",\"value\":\"a\"},{\"label\":\"b\",\"value\":\"b\"},{\"label\":\"c\",\"value\":\"c\"},{\"label\":\"d\",\"value\":\"d\"}]},\"orientation\":\"Horizontal\",\"value\":{\"$type\":\"State\",\"defaultValue\":\"b\",\"key\":\"s\"}},\"label\":\"s\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"s\",\"kind\":{\"$type\":\"SegmentedChoice\",\"options\":{\"$type\":\"Static\",\"value\":[{\"label\":\"a\",\"value\":\"a\"},{\"label\":\"b\",\"value\":\"b\"},{\"label\":\"c\",\"value\":\"c\"},{\"label\":\"d\",\"value\":\"d\"}]},\"value\":{\"$type\":\"State\",\"defaultValue\":\"b\",\"key\":\"s\"}},\"label\":\"s\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "enum-choice",
       "schema": "{\"type\":\"object\",\"properties\":{\"s\":{\"type\":\"string\",\"enum\":[\"a\",\"b\",\"c\",\"d\",\"e\"]}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"s\",\"kind\":{\"$type\":\"Choice\",\"options\":{\"$type\":\"Static\",\"value\":[{\"label\":\"a\",\"value\":\"a\"},{\"label\":\"b\",\"value\":\"b\"},{\"label\":\"c\",\"value\":\"c\"},{\"label\":\"d\",\"value\":\"d\"},{\"label\":\"e\",\"value\":\"e\"}]}},\"label\":\"s\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"s\",\"kind\":{\"$type\":\"Choice\",\"options\":{\"$type\":\"Static\",\"value\":[{\"label\":\"a\",\"value\":\"a\"},{\"label\":\"b\",\"value\":\"b\"},{\"label\":\"c\",\"value\":\"c\"},{\"label\":\"d\",\"value\":\"d\"},{\"label\":\"e\",\"value\":\"e\"}]}},\"label\":\"s\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "enum-choice-at-max",
       "schema": "{\"type\":\"object\",\"properties\":{\"s\":{\"type\":\"string\",\"enum\":[\"0\",\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\",\"10\",\"11\"]}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"s\",\"kind\":{\"$type\":\"Choice\",\"options\":{\"$type\":\"Static\",\"value\":[{\"label\":\"0\",\"value\":\"0\"},{\"label\":\"1\",\"value\":\"1\"},{\"label\":\"2\",\"value\":\"2\"},{\"label\":\"3\",\"value\":\"3\"},{\"label\":\"4\",\"value\":\"4\"},{\"label\":\"5\",\"value\":\"5\"},{\"label\":\"6\",\"value\":\"6\"},{\"label\":\"7\",\"value\":\"7\"},{\"label\":\"8\",\"value\":\"8\"},{\"label\":\"9\",\"value\":\"9\"},{\"label\":\"10\",\"value\":\"10\"},{\"label\":\"11\",\"value\":\"11\"}]}},\"label\":\"s\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"s\",\"kind\":{\"$type\":\"Choice\",\"options\":{\"$type\":\"Static\",\"value\":[{\"label\":\"0\",\"value\":\"0\"},{\"label\":\"1\",\"value\":\"1\"},{\"label\":\"2\",\"value\":\"2\"},{\"label\":\"3\",\"value\":\"3\"},{\"label\":\"4\",\"value\":\"4\"},{\"label\":\"5\",\"value\":\"5\"},{\"label\":\"6\",\"value\":\"6\"},{\"label\":\"7\",\"value\":\"7\"},{\"label\":\"8\",\"value\":\"8\"},{\"label\":\"9\",\"value\":\"9\"},{\"label\":\"10\",\"value\":\"10\"},{\"label\":\"11\",\"value\":\"11\"}]}},\"label\":\"s\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "enum-combobox",
       "schema": "{\"type\":\"object\",\"properties\":{\"s\":{\"type\":\"string\",\"enum\":[\"0\",\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\",\"10\",\"11\",\"12\"]}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"s\",\"kind\":{\"$type\":\"Combobox\",\"options\":{\"$type\":\"Static\",\"value\":[{\"label\":\"0\",\"value\":\"0\"},{\"label\":\"1\",\"value\":\"1\"},{\"label\":\"2\",\"value\":\"2\"},{\"label\":\"3\",\"value\":\"3\"},{\"label\":\"4\",\"value\":\"4\"},{\"label\":\"5\",\"value\":\"5\"},{\"label\":\"6\",\"value\":\"6\"},{\"label\":\"7\",\"value\":\"7\"},{\"label\":\"8\",\"value\":\"8\"},{\"label\":\"9\",\"value\":\"9\"},{\"label\":\"10\",\"value\":\"10\"},{\"label\":\"11\",\"value\":\"11\"},{\"label\":\"12\",\"value\":\"12\"}]}},\"label\":\"s\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"s\",\"kind\":{\"$type\":\"Combobox\",\"options\":{\"$type\":\"Static\",\"value\":[{\"label\":\"0\",\"value\":\"0\"},{\"label\":\"1\",\"value\":\"1\"},{\"label\":\"2\",\"value\":\"2\"},{\"label\":\"3\",\"value\":\"3\"},{\"label\":\"4\",\"value\":\"4\"},{\"label\":\"5\",\"value\":\"5\"},{\"label\":\"6\",\"value\":\"6\"},{\"label\":\"7\",\"value\":\"7\"},{\"label\":\"8\",\"value\":\"8\"},{\"label\":\"9\",\"value\":\"9\"},{\"label\":\"10\",\"value\":\"10\"},{\"label\":\"11\",\"value\":\"11\"},{\"label\":\"12\",\"value\":\"12\"}]}},\"label\":\"s\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "array-of-enum-tokens",
       "schema": "{\"type\":\"object\",\"properties\":{\"tags\":{\"type\":\"array\",\"uniqueItems\":true,\"items\":{\"type\":\"string\",\"enum\":[\"x\",\"y\",\"z\"]},\"default\":[\"z\",\"x\"]}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"tags\",\"kind\":{\"$type\":\"Tokens\",\"allowFreeText\":false,\"suggestions\":{\"$type\":\"Static\",\"value\":[{\"label\":\"x\",\"value\":\"x\"},{\"label\":\"y\",\"value\":\"y\"},{\"label\":\"z\",\"value\":\"z\"}]},\"value\":{\"$type\":\"State\",\"defaultValue\":[\"z\",\"x\"],\"key\":\"tags\"}},\"label\":\"tags\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"tags\",\"kind\":{\"$type\":\"Tokens\",\"allowFreeText\":false,\"suggestions\":{\"$type\":\"Static\",\"value\":[{\"label\":\"x\",\"value\":\"x\"},{\"label\":\"y\",\"value\":\"y\"},{\"label\":\"z\",\"value\":\"z\"}]},\"value\":{\"$type\":\"State\",\"defaultValue\":[\"z\",\"x\"],\"key\":\"tags\"}},\"label\":\"tags\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "nested-object-group",
       "schema": "{\"type\":\"object\",\"required\":[\"addr\"],\"properties\":{\"addr\":{\"type\":\"object\",\"title\":\"Address\",\"required\":[\"city\"],\"properties\":{\"city\":{\"type\":\"string\",\"title\":\"City\"},\"zip\":{\"type\":\"string\"}}}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"addr.city\",\"kind\":{\"$type\":\"Text\"},\"label\":\"Address: City\",\"required\":true},{\"id\":\"addr.zip\",\"kind\":{\"$type\":\"Text\"},\"label\":\"Address: zip\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"addr.city\",\"kind\":{\"$type\":\"Text\"},\"label\":\"Address: City\",\"required\":true},{\"id\":\"addr.zip\",\"kind\":{\"$type\":\"Text\"},\"label\":\"Address: zip\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "nested-object-optional-no-required",
       "schema": "{\"type\":\"object\",\"properties\":{\"opt\":{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"boolean\"}}}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"opt.a\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"opt: a\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"opt.a\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"opt: a\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "required-title-description",
       "schema": "{\"type\":\"object\",\"required\":[\"name\"],\"properties\":{\"name\":{\"type\":\"string\",\"title\":\"Full name\",\"description\":\"As on your passport\"},\"nick\":{\"type\":\"string\",\"title\":\"\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"help\":\"As on your passport\",\"id\":\"name\",\"kind\":{\"$type\":\"Text\"},\"label\":\"Full name\",\"required\":true},{\"id\":\"nick\",\"kind\":{\"$type\":\"Text\"},\"label\":\"nick\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"help\":\"As on your passport\",\"id\":\"name\",\"kind\":{\"$type\":\"Text\"},\"label\":\"Full name\",\"required\":true},{\"id\":\"nick\",\"kind\":{\"$type\":\"Text\"},\"label\":\"nick\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "ref-local-sibling-title-wins",
       "schema": "{\"type\":\"object\",\"$defs\":{\"Qty\":{\"type\":\"integer\",\"minimum\":1,\"title\":\"Quantity\"}},\"properties\":{\"q\":{\"$ref\":\"#/$defs/Qty\",\"title\":\"How many\"},\"r\":{\"$ref\":\"#/$defs/Qty\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"q\",\"kind\":{\"$type\":\"RangedNumber\",\"min\":1,\"step\":1},\"label\":\"How many\",\"required\":false},{\"id\":\"r\",\"kind\":{\"$type\":\"RangedNumber\",\"min\":1,\"step\":1},\"label\":\"Quantity\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"q\",\"kind\":{\"$type\":\"RangedNumber\",\"min\":1,\"step\":1},\"label\":\"How many\"},{\"id\":\"r\",\"kind\":{\"$type\":\"RangedNumber\",\"min\":1,\"step\":1},\"label\":\"Quantity\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "ref-chained-and-definitions",
       "schema": "{\"type\":\"object\",\"definitions\":{\"A\":{\"$ref\":\"#/definitions/B\"},\"B\":{\"type\":\"boolean\"}},\"properties\":{\"a\":{\"$ref\":\"#/definitions/A\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"a\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"a\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"a\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"a\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "root-ref",
       "schema": "{\"$ref\":\"#/$defs/Root\",\"$defs\":{\"Root\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"string\"}}}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"x\",\"kind\":{\"$type\":\"Text\"},\"label\":\"x\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"x\",\"kind\":{\"$type\":\"Text\"},\"label\":\"x\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "nullable-type-union",
       "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":[\"string\",\"null\"]},\"b\":{\"type\":[\"null\",\"integer\"]}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"a\",\"kind\":{\"$type\":\"Text\"},\"label\":\"a\",\"required\":false},{\"id\":\"b\",\"kind\":{\"$type\":\"RangedNumber\",\"step\":1},\"label\":\"b\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"a\",\"kind\":{\"$type\":\"Text\"},\"label\":\"a\"},{\"id\":\"b\",\"kind\":{\"$type\":\"RangedNumber\",\"step\":1},\"label\":\"b\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "additional-properties-accepted",
       "schema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"o\":{\"type\":\"object\",\"additionalProperties\":true,\"properties\":{\"x\":{\"type\":\"number\"}}}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"o.x\",\"kind\":{\"$type\":\"Number\"},\"label\":\"o: x\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"o.x\",\"kind\":{\"$type\":\"Number\"},\"label\":\"o: x\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "annotations-read-not-rendered",
       "schema": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"$id\":\"urn:x\",\"$comment\":\"c\",\"title\":\"T\",\"description\":\"D\",\"examples\":[{}],\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"string\",\"examples\":[\"e\"],\"$comment\":\"k\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"x\",\"kind\":{\"$type\":\"Text\"},\"label\":\"x\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"x\",\"kind\":{\"$type\":\"Text\"},\"label\":\"x\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "null-member-is-absence",
       "schema": "{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"string\",\"default\":null,\"title\":null}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"x\",\"kind\":{\"$type\":\"Text\"},\"label\":\"x\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"x\",\"kind\":{\"$type\":\"Text\"},\"label\":\"x\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "mixed-order-preserved",
       "schema": "{\"type\":\"object\",\"properties\":{\"z\":{\"type\":\"boolean\"},\"a\":{\"type\":\"number\"},\"m\":{\"type\":\"string\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"z\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"z\",\"required\":false},{\"id\":\"a\",\"kind\":{\"$type\":\"Number\"},\"label\":\"a\",\"required\":false},{\"id\":\"m\",\"kind\":{\"$type\":\"Text\"},\"label\":\"m\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"z\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"z\"},{\"id\":\"a\",\"kind\":{\"$type\":\"Number\"},\"label\":\"a\"},{\"id\":\"m\",\"kind\":{\"$type\":\"Text\"},\"label\":\"m\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "escapes-in-labels",
       "schema": "{\"type\":\"object\",\"properties\":{\"q\\\"uote\":{\"type\":\"string\",\"title\":\"Tab\\there \\\"q\\\" \\\\ é\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"q\\\"uote\",\"kind\":{\"$type\":\"Text\"},\"label\":\"Tab\\u0009here \\\"q\\\" \\\\ é\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"q\\\"uote\",\"kind\":{\"$type\":\"Text\"},\"label\":\"Tab\\u0009here \\\"q\\\" \\\\ é\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "defaults-equal-to-placeholders",
       "schema": "{\"type\":\"object\",\"properties\":{\"s\":{\"type\":\"string\",\"default\":\"\"},\"b\":{\"type\":\"boolean\",\"default\":false},\"n\":{\"type\":\"number\",\"default\":0},\"i\":{\"type\":\"integer\",\"default\":0},\"t\":{\"type\":\"array\",\"items\":{\"enum\":[\"a\"]},\"default\":[]},\"c\":{\"type\":\"string\",\"format\":\"color\",\"default\":\"#000000\"},\"d\":{\"type\":\"string\",\"format\":\"date\",\"default\":\"\"},\"a\":{\"type\":\"string\",\"maxLength\":999,\"default\":\"\"},\"e\":{\"enum\":[\"x\",\"y\"],\"default\":\"x\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"s\",\"kind\":{\"$type\":\"Text\"},\"label\":\"s\",\"required\":false},{\"id\":\"b\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"b\",\"required\":false},{\"id\":\"n\",\"kind\":{\"$type\":\"Number\"},\"label\":\"n\",\"required\":false},{\"id\":\"i\",\"kind\":{\"$type\":\"RangedNumber\",\"step\":1},\"label\":\"i\",\"required\":false},{\"id\":\"t\",\"kind\":{\"$type\":\"Tokens\",\"allowFreeText\":false,\"suggestions\":{\"$type\":\"Static\",\"value\":[{\"label\":\"a\",\"value\":\"a\"}]}},\"label\":\"t\",\"required\":false},{\"id\":\"c\",\"kind\":{\"$type\":\"Color\"},\"label\":\"c\",\"required\":false},{\"id\":\"d\",\"kind\":{\"$type\":\"DateTime\",\"variant\":\"Date\"},\"label\":\"d\",\"required\":false},{\"id\":\"a\",\"kind\":{\"$type\":\"TextArea\",\"rows\":4},\"label\":\"a\",\"required\":false,\"rule\":{\"maxLength\":999}},{\"id\":\"e\",\"kind\":{\"$type\":\"SegmentedChoice\",\"options\":{\"$type\":\"Static\",\"value\":[{\"label\":\"x\",\"value\":\"x\"},{\"label\":\"y\",\"value\":\"y\"}]},\"orientation\":\"Horizontal\",\"value\":{\"$type\":\"State\",\"defaultValue\":\"x\",\"key\":\"e\"}},\"label\":\"e\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"s\",\"kind\":{\"$type\":\"Text\"},\"label\":\"s\"},{\"id\":\"b\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"b\"},{\"id\":\"n\",\"kind\":{\"$type\":\"Number\"},\"label\":\"n\"},{\"id\":\"i\",\"kind\":{\"$type\":\"RangedNumber\",\"step\":1},\"label\":\"i\"},{\"id\":\"t\",\"kind\":{\"$type\":\"Tokens\",\"allowFreeText\":false,\"suggestions\":{\"$type\":\"Static\",\"value\":[{\"label\":\"a\",\"value\":\"a\"}]}},\"label\":\"t\"},{\"id\":\"c\",\"kind\":{\"$type\":\"Color\"},\"label\":\"c\"},{\"id\":\"d\",\"kind\":{\"$type\":\"DateTime\",\"variant\":\"Date\"},\"label\":\"d\"},{\"id\":\"a\",\"kind\":{\"$type\":\"TextArea\",\"rows\":4},\"label\":\"a\",\"rule\":{\"maxLength\":999}},{\"id\":\"e\",\"kind\":{\"$type\":\"SegmentedChoice\",\"options\":{\"$type\":\"Static\",\"value\":[{\"label\":\"x\",\"value\":\"x\"},{\"label\":\"y\",\"value\":\"y\"}]},\"value\":{\"$type\":\"State\",\"defaultValue\":\"x\",\"key\":\"e\"}},\"label\":\"e\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "text-whole-float-default-and-float-count",
@@ -227,25 +227,25 @@
       "name": "text-integer-like-keys-keep-document-order",
       "schema": "{\"type\":\"object\",\"properties\":{\"b\":{\"type\":\"string\"},\"10\":{\"type\":\"string\"},\"2\":{\"type\":\"boolean\"}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"b\",\"kind\":{\"$type\":\"Text\"},\"label\":\"b\",\"required\":false},{\"id\":\"10\",\"kind\":{\"$type\":\"Text\"},\"label\":\"10\",\"required\":false},{\"id\":\"2\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"2\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"b\",\"kind\":{\"$type\":\"Text\"},\"label\":\"b\"},{\"id\":\"10\",\"kind\":{\"$type\":\"Text\"},\"label\":\"10\"},{\"id\":\"2\",\"kind\":{\"$type\":\"Checkbox\"},\"label\":\"2\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
-      "name": "text-duplicate-keys-are-kept",
+      "name": "text-duplicate-keys-are-refused",
       "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"string\"},\"a\":{\"type\":\"number\"}}}",
       "outcome": "refused",
-      "wire": "{\"refusals\":[{\"code\":\"duplicate-field-id\",\"message\":\"two properties derive to field id 'a'\",\"path\":\"\"}]}"
+      "wire": "{\"refusals\":[{\"code\":\"schema-not-json\",\"message\":\"the schema is not JSON: not valid JSON: repeated member name in one object at position 53\",\"path\":\"\"}]}"
     },
     {
       "name": "text-escapes-and-whitespace",
       "schema": " {\t\"type\" : \"object\",\r\n \"properties\":{\"ké\\n\":{\"type\":\"string\",\"title\":\"a\\/b\\u0001\uD83D\uDE00\"}}} ",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"ké\\u000a\",\"kind\":{\"$type\":\"Text\"},\"label\":\"a/b\\u0001\uD83D\uDE00\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"ké\\u000a\",\"kind\":{\"$type\":\"Text\"},\"label\":\"a/b\\u0001\uD83D\uDE00\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "int32-edge-and-negative-zero",
       "schema": "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"integer\",\"minimum\":-2147483648,\"maximum\":2147483648},\"b\":{\"type\":\"number\",\"minimum\":-0,\"maximum\":1.5e-7}}}",
       "outcome": "form",
-      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"a\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":2147483648,\"min\":-2147483648,\"step\":1},\"label\":\"a\",\"required\":false},{\"id\":\"b\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":1.5E-07,\"min\":0},\"label\":\"b\",\"required\":false}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
+      "wire": "{\"accessibility\":{\"role\":\"form\"},\"id\":\"schema-form\",\"kind\":{\"$type\":\"Form\",\"fields\":[{\"id\":\"a\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":2147483648,\"min\":-2147483648,\"step\":1},\"label\":\"a\"},{\"id\":\"b\",\"kind\":{\"$type\":\"RangedNumber\",\"max\":1.5E-07,\"min\":0},\"label\":\"b\"}],\"onSubmit\":{\"$type\":\"Chain\",\"ops\":[]},\"submitLabel\":\"Submit\"}}"
     },
     {
       "name": "refuse-schema-not-json",

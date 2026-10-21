@@ -174,7 +174,10 @@ const isEmptyDeclaration = (value: unknown): boolean => {
 export const collectStateSeeds = <TMsg>(tree: Node<TMsg>): Readonly<Record<string, unknown>> => {
   const cached = seedCache.get(tree);
   if (cached !== undefined) return cached;
-  const seeds: Record<string, unknown> = {};
+  // Phase 1931 — null-prototype, so a document may seed the key `__proto__`
+  // (on a `{}` literal the assignment hit the prototype setter and vanished) and
+  // no key reads as already seeded because `Object` happens to define it.
+  const seeds = Object.create(null) as Record<string, unknown>;
   const seen = new Set<unknown>();
 
   const visit = (
@@ -202,7 +205,7 @@ export const collectStateSeeds = <TMsg>(tree: Node<TMsg>): Readonly<Record<strin
       const key = obj.key;
       const shouldSkip =
         isHostReserved(key) ||
-        Object.prototype.hasOwnProperty.call(seeds, key) ||
+        Object.hasOwn(seeds, key) ||
         isEmptyDeclaration(obj.defaultValue) ||
         (autoBindFieldId !== undefined && isAutoBoundFieldValue(obj, autoBindFieldId));
 
@@ -265,5 +268,6 @@ export const withStateSeeds = <
 ): S => {
   const seeds = collectStateSeeds(tree);
   if (Object.keys(seeds).length === 0) return sources;
-  return { ...sources, state: { ...seeds, ...(sources.state ?? {}) } };
+  const state = Object.assign(Object.create(null) as Record<string, unknown>, seeds, sources.state);
+  return { ...sources, state };
 };

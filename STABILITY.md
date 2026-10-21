@@ -370,7 +370,7 @@ The **rule coverage** (which F#-tier codes are ported) is explicitly a **growing
 A small, typed client over the Fuaran generation endpoint – a paid, stateless, bring-your-own-key (BYOK) HTTPS surface that takes a prompt (+ an optional current tree) and returns a new canonical wire-format tree. The endpoint URL + the paid access token are the commercial gate; this package is a thin, **OSS-safe HTTPS + types layer** over it. Its **contract authority** is the generation endpoint's own published surface contract: the request/response _types_ here mirror that surface field-for-field and are kept **in lockstep** – a field added at the surface is added here in the same change, and `wire.ts` pins how each maps onto the HTTP envelope. So the client's stability contract is _faithful mirroring of the surface version it is built against_, the same posture the codec packages take toward the shared `wire-format-fixtures/` corpus. This covers:
 
 - The **`TurnResult`** three-case discriminated union ([`packages/client/src/contract.ts`](packages/client/src/contract.ts)), discriminated on `kind` (`produced` / `accessDenied` / `turnFailed`) – the HTTP status selects the case (see `wire.ts`). Re-meaning a case, or changing which status maps to it, is a breaking change.
-- **`AppliedOp`** (`opId` + `opJson`) – `opId` is a stable dedup discriminant carried by equality; `opJson` is canonical wire JSON, decoded with `@fuaran-ui/ops` `decodeOp`. **`RecoverableError`** (`stage` + `code` + `message`) – `code` is a stable discriminant a caller's retry/recovery loop pattern-matches, and `TurnStage` (`access-token` / `provider` / `parse` / `apply`) is a stable enum. These mirror the surface's applied-op + recoverable-error records; changing a discriminant string is a breaking change, adding a case is minor.
+- **`AppliedOp`** (`opId` + `opJson`) – `opId` is a stable dedup discriminant carried by equality; `opJson` is canonical wire JSON, decoded with `@fuaran-ui/ops` `decodeOp`. **`RecoverableError`** (`stage` + `code` + `message`) – `code` is a stable discriminant a caller's retry/recovery loop pattern-matches, and `TurnStage` is a stable enum of four known labels (`access-token` / `provider` / `parse` / `apply`, the `KnownTurnStage` type) plus the unknown case, a label the client does not know kept exactly as sent (`isKnownTurnStage` tells them apart; from 0.13.0, Phase 2134). These mirror the surface's applied-op + recoverable-error records; changing a discriminant string is a breaking change, adding a case is minor.
 - **`SURFACE_VERSION`** + **`isSurfaceVersionCompatible`** – the surface-version echo + the shared-major compatibility check. A produced result echoes the live surface version (`Produced.version`); a differing major signals a breaking surface revision the client predates. The compatibility _semantics_ (major-equality) are stable; the version _string_ moves with the surface.
 - The **`FuaranClient`** (`generate` + `FuaranClientConfig`) and **`FuaranSession`** turn-loop helper (holds the tree so the next prompt is a repair diff) – the public API shape is stable as of Phase 215. The `@fuaran-ui/client/render` subpath (decode + mount glue, pulling in React + `@fuaran-ui/renderer`) and the low-level `toWireBody` / `parseTurnResponse` wire mapping (for advanced hosts driving their own transport) are exported; the core entry is dependency-light so it runs in a server-proxy (Node) context.
 
@@ -1103,6 +1103,69 @@ type changes: `'DuplicateNodeId'` was already a case.
 (`duplicateIdsApply`), run by `packages/ops/test/duplicate-ids-apply-corpus.test.ts`, and this host's
 own cases in `packages/ops/test/apply-duplicate-ids.test.ts`. Both failed on the previous engine.
 
+### Recorded breaking change — `@fuaran-ui/ops` 0.31.0, `PatchStyle`, the field-level style edit (Phase 2291)
+
+_Unreleased: ahead of the newest tag, `v0.30.0`, which published ops 0.30.0._
+
+**What changed.** `TreeOp` gains `{ kind: 'PatchStyle', target, style: StyleDelta }` (WIRE_FORMAT.md §3.4).
+`StyleDelta` (exported) carries the six `SemanticStyle` members, each optional: an absent member leaves the
+node's field as it is, a present one sets it, a default token included, so the encoder emits every member the
+delta sets. The decoder reuses the `SemanticStyle` token decoders and refuses a delta naming no field
+(`WRONG_TYPE` at `$.style`). `apply` patches over the node's current style; like `UpdateStyle` it carries no
+node, so the tree limits do not measure it.
+
+**Why.** `UpdateStyle` writes the whole record, so a one-field edit resets the other five and two edits of
+different fields on one node always overlap. A patch names only what moved.
+
+**What it costs a consumer.** An exhaustive `switch` over `TreeOp['kind']` under a `default: never` pattern
+gains a case. Pre-1.0 that is a minor advance.
+
+**What certifies it.** The corpus fixtures `ops/op-patchstyle*.json` and `reject/reject-op-patchstyle-*.json`,
+run by `packages/ops/test/corpus.test.ts`; the apply and codec cases in `packages/ops/test/apply.test.ts`; and the
+generator arm in `packages/ops/test/arbitraries.ts`.
+
+**Release-consistency patches.** Each of these declares `@fuaran-ui/ops` as a `workspace:^` peer, which
+`v0.30.0` published as `^0.30.0`, a range that excludes 0.31.0. Nothing in the packages moved; the repack writes
+`^0.31.0`: `@fuaran-ui/ai-tools` 0.14.0 → 0.14.1, `@fuaran-ui/charts` 0.14.4 → 0.14.5, `@fuaran-ui/op-stream`
+0.11.4 → 0.11.5, `@fuaran-ui/renderer-server` 0.25.0 → 0.25.1, `@fuaran-ui/theme-manifest` 0.12.2 → 0.12.3. The
+other dependents (`client`, `mcp`, `renderer`) are already on untagged slots ahead of the tag.
+
+### Recorded breaking change — `@fuaran-ui/ops` 0.31.0, a `$profile` that does not parse is `FOREIGN_PROFILE` (Phase 1938)
+
+_Unreleased: rides the 0.31.0 draft slot above._
+
+**What changed.** `decodeEnvelope` refuses a `$profile` that is not `<name>@<major>.<minor>` with
+`FOREIGN_PROFILE` at `$.$profile`, where it raised `MALFORMED_PROFILE`; `EnvelopeErrorCode` loses the
+`'MALFORMED_PROFILE'` member.
+
+**Why.** WIRE_FORMAT.md §15.2 now rules that a profile that does not parse is `Foreign`, and the Go, Python and
+Rust hosts already refused it so. `MALFORMED_PROFILE` was a code in neither the specification nor any other host.
+
+**What it costs a consumer.** The input was refused before and is refused now; only the code differs. A caller
+matching `'MALFORMED_PROFILE'` no longer compiles against the narrowed type, which is the point: it now reads the
+same code every host reports.
+
+**What certifies it.** `packages/ops/test/versioning.test.ts`, which pins the code and the path.
+
+### Recorded breaking change — `@fuaran-ui/ops` 0.31.0, a row cell outside ±2^53 is refused at encode (Phase 1960)
+
+_Unreleased: rides the 0.31.0 draft slot above._
+
+**What changed.** A row feed's (DataGrid / Chart `source`) `bigint` cell is rule 11's 64-bit integer. Inside ±2^53
+it encodes as an integer, exactly; past either bound `encodeNode` and the new `encodeRows` throw
+`RowCellRefusedError` (exported, with `code: 'ROW_CELL_INEXACT_INTEGER'`, `row` and `key`) naming the cell. Before,
+a `bigint` cell fell to the `"<opaque>"` sentinel. Every other cell encodes exactly as before.
+
+**Why.** WIRE_FORMAT.md §5 "The two encode refusals": a 64-bit integer past 2^53 has no JSON number that holds it,
+and widening it to a double writes a different number no reader can detect. Every codec host now refuses it. The
+other refusal, a date-time naming no instant, cannot arise here: a `Date` always names one.
+
+**What it costs a consumer.** A feed carrying a `bigint` cell encodes differently: a number in range where it was
+`"<opaque>"`, and a throw past the bound. Carry an integer that can leave ±2^53 as a string.
+
+**What certifies it.** The `row-encode/` corpus family, run by `packages/ops/test/rowEncode.test.ts`, which names
+the one vector this host cannot express and fails on any other skip.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:
@@ -1118,7 +1181,7 @@ Per-release semver bump. Pre-1.0: plain `0.x.y` versions, no prerelease suffix (
 
 **A change to a published surface advances that package's version in the same commit; a change that rides an already-advanced, not-yet-tagged version says so.** The second half is what keeps a release honest under several concurrent changes: once a package's version is ahead of the newest tag it is a DRAFT, and an additive or same-class change rides it rather than minting a number nobody will ever install. A change of a HIGHER class than the draft already carries advances it again, because the number is what tells a consumer what adopting it costs.
 
-**The first half is checked offline in the ordinary gate (Phase 2216).** `dev-scripts/check-release-advances.mjs`, run by the root `pnpm test`, compares every publishable package with the newest `v*` tag reachable from HEAD. It fails when the package's sources moved while its version still equals the one that tag released, and when its version is below the tag's. "Sources" means every file under the package directory except tests, Markdown, and `package.json` changes confined to `version`, `scripts` and `devDependencies`. A shipped data directory such as the conformance corpus counts. A workspace-internal package bundled into `dist` moves every package that bundles it. The check cannot judge a CLASS: a draft advanced a patch and then given a breaking change still passes, so the class stays this document's call. A shallow clone with no tags reports NOT CHECKED with the remedy (a full-history checkout) rather than passing. The registry probe stays a release-time step in the publish workflow.
+**The first half is checked offline in the ordinary gate (Phase 2216).** `dev-scripts/check-release-advances.mjs`, run by the root `pnpm test`, compares every publishable package with the newest `v*` tag reachable from HEAD. It fails when the package's sources moved while its version still equals the one that tag released, and when its version is below the tag's. "Sources" means every file under the package directory except tests, Markdown, and `package.json` changes confined to `version`, `scripts` and `devDependencies`. A shipped data directory such as the conformance corpus counts. A workspace-internal package bundled into `dist` moves every package that bundles it. A second clause (Phase 2237) judges a package that did NOT advance: the `workspace:` ranges the tag published for it must still admit each sibling's current version, or it fails as `LEFT BEHIND BY <sibling>`. The check cannot judge a CLASS: a draft advanced a patch and then given a breaking change still passes, so the class stays this document's call. A shallow clone with no tags reports NOT CHECKED with the remedy (a full-history checkout) rather than passing. The registry probe stays a release-time step in the publish workflow.
 
 **What proves a release, as opposed to a build.** Every suite in `ci.yml` runs inside this workspace, against linked packages and built `dist/` — the right lane for "does the code agree with itself", and structurally blind to the two ways a release fails a newcomer: a package that does not install at all, and two hosts whose PUBLISHED bytes disagree while their sources do not. The clean-machine install smoke ([`.github/workflows/install-smoke.yml`](.github/workflows/install-smoke.yml), fixtures in [`dev-scripts/install-smoke/`](dev-scripts/install-smoke/)) installs the current release from npm and restores it from nuget.org with every local source cleared, authors one tree through each tier's own surface, and requires the canonical bytes to match. It runs after a successful publish, weekly, and on demand — its inputs are the registries, not this branch.
 
@@ -1289,14 +1352,215 @@ runs in the root `pnpm test`. It fails when a publishable package's sources diff
 reachable `v*` tag while its version equals the one that tag released (see the versioning policy
 below).
 
-### Recorded change — `@fuaran-ui/schema` 0.27.0, `@fuaran-ui/ops` 0.31.0, `@fuaran-ui/conformance` 0.28.0, `@fuaran-ui/ui` 0.25.0, the column wire carries a timestamp unit (Phase 2206)
+### Recorded breaking change — `@fuaran-ui/client` 0.13.0, an unknown turn stage keeps its label (Phase 2134)
+
+_Unreleased: ahead of the newest tag, `v0.30.0`, which published client 0.12.4._
+
+**An unrecognised stage label no longer reads as `provider`.** Phase 2077 made the stage parser read the retired
+PascalCase spellings, but a label in neither spelling still fell back to `provider`, which the repair loop treats
+as terminal. So an endpoint newer than the client, sending a stage the client had never heard of, was reported as
+a provider failure: the caller could not tell the two apart, and nothing said the client was out of date. The F#
+client, `Fuaran.UI.Client`, made the same change in the same change-set, and read only the canonical labels until
+then.
+
+**The stage semantics, recorded in the same words by both clients:**
+
+- A stage label that matches a known stage, ignoring case, `-`, `_`, space, tab, CR and LF (ASCII only), reads as
+  that stage in its canonical spelling: `access-token`, `provider`, `parse` or `apply`. The retired PascalCase
+  spellings `AccessToken`, `Provider`, `Parse` and `Apply` are among them.
+- Any other label, the empty one included, is the unknown stage, and it carries the label exactly as the endpoint
+  sent it. It is never read as a known stage, `provider` included. Until this change both clients read it as
+  `provider`.
+- A refusal with no stage label (the member absent, or not a string) keeps the `provider` fallback, as before.
+- The repair loop does not retry an unknown stage: `isRepairable` answers false. An unknown stage is evidence the
+  endpoint is newer than the client, so the client cannot know whether a re-emission fixes it, and every retry is
+  a paid turn. The failure is surfaced with the endpoint's own label, so a caller that knows the newer stage can
+  retry it itself. The loop's behaviour for such a label is therefore unchanged; what changes is that the caller
+  can see it.
+- Each client's suite holds the same label-to-stage table, row for row, including the unknown and PascalCase
+  rows (`packages/client/test/turnStage.test.ts` in the TypeScript client,
+  `src/Fuaran.UI.Client.Tests/TurnStageTests.fs` in the F# client). A row changed in one is changed in the other
+  in the same change-set.
+
+**What changes for a consumer.** `TurnStage` is now `KnownTurnStage | (string & {})`: the four known labels, or
+the unknown case, which is the label itself. A `RecoverableError.stage` stays a string, so code that prints it,
+compares it with a known label, or forwards it keeps working, and now shows the endpoint's own label where it
+showed `provider`. Two things break, deliberately: a `switch` over `TurnStage` that returns a value from its four
+cases no longer covers the type, and a `TurnStage` no longer assigns to a variable typed with the four literals.
+Narrow with the new `isKnownTurnStage` guard. New exports: `KnownTurnStage` and `isKnownTurnStage`.
+
+**Version.** `@fuaran-ui/client` was released at 0.12.4 in `v0.30.0`, so it advances to **0.13.0**: a minor,
+because the union gaining a member is a compile break for an exhaustive consumer, and pre-1.0 a breaking change is
+a minor. `@fuaran-ui/cli`, `@fuaran-ui/mcp` and `@fuaran-ui/react` declare `@fuaran-ui/client` as `workspace:^`,
+which `v0.30.0` published as `^0.12.4`, a range that excludes 0.13.0. None of their sources moves here, so each
+needs a release-consistency advance before the next tag, as the 0.27.0 set recorded above.
+
+**Certified by** `packages/client/test/turnStage.test.ts`, which reads every row of the table through
+`parseTurnResponse` at a 422 and at a 500.
+
+### Recorded release-consistency bumps — the dependents of `@fuaran-ui/client` 0.13.0 (Phase 2237)
 
 _Unreleased: every version below is ahead of the newest tag, `v0.30.0`._
 
+The Phase 2134 note above said these three packages needed an advance before the next tag. Nothing enforced
+it: the release-advance check judged only a package whose own sources moved, and none of these did. Each is
+advanced here, and the check now judges the case (below).
+
+| Package            | From → to       | Class | What moved                                                                                                                                                            |
+| ------------------ | --------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@fuaran-ui/cli`   | 0.11.3 → 0.11.4 | patch | Nothing in the package. `v0.30.0` published `@fuaran-ui/client` as `^0.12.4`; the repack writes `^0.13.0`.                                                            |
+| `@fuaran-ui/mcp`   | 0.14.1 → 0.14.2 | patch | Nothing in the package. The same `@fuaran-ui/client` range moves from `^0.12.4` to `^0.13.0`.                                                                         |
+| `@fuaran-ui/react` | 0.13.0 → 0.13.1 | patch | Nothing in the package. The `@fuaran-ui/client` **peer** range moves from `^0.12.4` to `^0.13.0`, which is what lets a consumer on client 0.13.0 install it unwarned. |
+
+The registry confirmed the premise: `cli@0.11.3`, `mcp@0.14.1` and `react@0.13.0` each declare
+`@fuaran-ui/client` `^0.12.4`, a range that excludes 0.13.0 under 0.x semver, and `check-peer-ranges.mjs`
+against the registry refused the set before the advance (it names the same three).
+
+**`@fuaran-ui/mock` does not advance, and the reason is recorded rather than assumed.** Its `workspace:*` pin
+on `@fuaran-ui/client` is in `devDependencies`, which `pnpm pack` rewrites to the exact `0.12.4` (the
+published `mock@0.12.1` carries it) but which npm never installs for a consumer. Only the package's
+integration test imports the client; its `src/` imports nothing from the family. An exact published pin is the
+stricter case of the same class as the three ranges above, but only where a consumer's install resolves it,
+and a development dependency is not resolved.
+
+**The check now judges this class (Phase 2237).** `dev-scripts/check-release-advances.mjs` has a second
+clause. For every publishable package whose version equals the tag's, it resolves each `@fuaran-ui/*`
+`workspace:` dependency, peer dependency and optional dependency the way `pnpm pack` did at the tag
+(`workspace:^` to `^<tag-time sibling>`, `~` to `~`, `*` to the exact version), from the tag-time manifests, and
+fails as `LEFT BEHIND BY <sibling>` when that range excludes the sibling's current workspace version. The
+message names the advance that fixes it. It stays offline. It does not judge `devDependencies`, a literal
+range, or a package that has itself advanced; `check-peer-ranges.mjs` keeps the registry-side verdict and the
+literal ranges. A range shape it cannot read is a finding, not a pass.
+
+### `@fuaran-ui/client` 0.13.0 — a canonical member of the wrong type is malformed, on both clients (Phase 2239)
+
+_Unreleased: rides the 0.13.0 slot Phase 2134 opened, ahead of the newest tag, `v0.30.0`, which published client
+0.12.4. No version moves here._
+
+**This client's behaviour does not change.** `pick(obj, canonical, alias)` already returned
+`obj[canonical] ?? obj[alias]`: the alias is read only when the canonical member is missing or `null`, so a canonical
+member that is present and mistyped is returned, `asString` turns it into `undefined`, and the field reads as absent.
+The F# client, `Fuaran.UI.Client`, did the opposite for a string field (it read the alias whenever the canonical
+member was not a string), so `{"state":7,"State":"done"}` read as no state here and as `done` there. The F# client
+moved to this client's rule in the same change-set. What this entry adds is the rule written down, and the table
+that holds both clients to it.
+
+**The rule, recorded in the same words by both clients.** An alternate spelling is a fallback for an ABSENT
+canonical member, never a type fallback:
+
+- A canonical member that is missing, or JSON `null`, is absent, so the alias is read.
+- A canonical member that is present and not `null` is the answer, whatever its type. When the caller wants another
+  type the field reads as absent: the alias is not consulted, and the caller's existing absent-field handling
+  applies (a string field's documented default, an op count that falls back to the length of the op list).
+
+It governs every field the helper serves: `provider`, `servedModel`, the snapshot's members, an applied op's `opId`
+and `opJson`, the version echo, the tree, a refusal's `code`, `message` and `stage`, and a 401's `Reason`. A wrongly
+typed `error` member is malformed too, so the body is read as the envelope.
+
+**Why no version advance.** The published surface is unchanged: the only edit to `src/` is the helper's doc
+comment. `@fuaran-ui/client` is already ahead of the newest tag at 0.13.0 on an unreleased slot, so the release
+check passes without a further advance, and moving the number for a doc comment would tell a consumer that
+adopting it costs something.
+
+**Certified by** `packages/client/test/wireMember.test.ts`, which reads every row of the parity table through
+`parseTurnResponse` and `parseProducedDetail`. The F# client holds the same table, row for row, in
+`src/Fuaran.UI.Client.Tests/WireMemberTests.fs`. A row changed in one is changed in the other in the same
+change-set.
+
+### `@fuaran-ui/schema` 0.26.1 and `@fuaran-ui/renderer` 0.27.1 — a doc-comment names the right handler slot (Phase 2245)
+
+Patch advances for comment text only. The shipped `.d.ts` / JS doc text of `FormFieldKind` (schema) and of the `setFilter` seam (renderer) named `FilterKind.onChange`, a type the filters unification removed; they now name `FormFieldKind.onChange`. No type, field, default or runtime behaviour moves, so under the pre-1.0 rules this is a patch.
+
+### Where the release notes live
+
+**This file is the changelog.** There is no `CHANGELOG.md` in this repository, and adding one would split the record in two: the reason a version moved and the surface it moved are the same paragraph, and that paragraph belongs beside the surface it describes.
+
+### `@fuaran-ui/conformance` 0.27.1 — the sync script can check the specification's remote `main` (Phase 2238)
+
+`scripts/sync-corpus.mjs` gains `--check-distance --remote`, which compares the bundled snapshot's recorded authority commit with the specification's `main` as its remote reports it now, instead of a local clone's HEAD (exit 0 current, 2 behind, 1 could not ask). **No shipped file changed**: the package's `files` are `dist`, `corpus` and `README.md`, and the script is a repository tool that is not packed, so a consumer installs byte-identical contents. The patch number exists because the release-advance guard counts any non-test, non-Markdown file under the package directory as moved sources. Unreleased: ahead of the newest tag.
+
+**Phase 2250 rides this draft slot.** The bundled snapshot is re-synced from the specification's `main` (`bb71e77` to `f6ad000`, eight authority commits behind). Only `corpus/snapshot.json` changed: no fixture payload moved, so the corpus a consumer installs differs only by its recorded authority commit. The slot is untagged and publicly unpinned (the newest tag, `v0.30.0`, carries 0.27.0), and the change is additive, so the number does not move.
+
+**Phase 2291 rides this draft slot too.** The snapshot is re-synced to the specification commit that admits `PatchStyle` (`9b65b4b`): three `ops/op-patchstyle*.json` round-trips and four `reject/reject-op-patchstyle-*.json` refusals join the corpus, and `manifest.json` and `schema.json` gain their entries. Additive, so the number does not move.
+
+### `@fuaran-ui/schema` 0.26.1 — the vocabulary is a projection of `idl.json`; `@fuaran-ui/ops` 0.31.0, `@fuaran-ui/ui` 0.24.1, `@fuaran-ui/renderer` 0.27.1 and `@fuaran-ui/ai-tools` 0.14.1 read it (Phase 2073)
+
+The specification corpus publishes `idl.json`, the language-neutral data rendering of the wire vocabulary. This host now keeps **one** copy of that vocabulary: `packages/schema/src/generated.ts`, written by this repository's own generator (`dev-scripts/generate-idl.mjs`) from the corpus's bytes and checked against them by the schema suite — the recorded `IDL_SHA256` against the corpus, a regeneration against the committed module, and a go-red proof. Every structural table the packages used to keep by hand is a projection of it. **Additive.** Every public type keeps its shape; what a consumer can observe differs in the four places named below, each of which is this host catching up with the specification.
+
+**What `@fuaran-ui/schema` exports now.** The tables: `ENUM_CASES` (every bare-string enum's cases, `as const`), `NODE_KINDS` / `KIND_CATEGORY` / `KINDS_BY_CATEGORY`, `KIND_FIELDS` / `RECORD_FIELDS` / `UNION_CASES` / `OP_FIELDS` / `NODE_FIELDS` (each member's name, optionality, IDL type and declared default), `HARDEN`, and the derived `CHILD_SLOTS` and `BINDING_SLOTS`, with `IDL_SHA256` and `IDL_VERSION`. The types over them: `IdlType` / `FieldRow` / `Optionality` / `IdlDefault` (the IDL's own vocabulary), `EnumCase<N>`, `NodeKindName`, `KindCategory`, `RecordName`, `UnionName`, and `Infer` / `IdlSpec<K>` / `IdlRecord<N>`, which read a field table back as the object type it describes. The host's representation, declared once: `RecordTypes` and `UnionTypes` (the TypeScript type behind each IDL record and union name — typed over every name the IDL declares, so a record or union the IDL gains fails to compile until this host names its shape) and `FieldOverlay` (the members this host spells differently from their IDL type: the two `hosted` row payloads, the `Accessibility.role` vocabulary, the four `IconSource` icons and the two `FragmentId` names). The helpers: `defaultValue` (an IDL default as this host's value), `withDefaults` (a spec with its omit-at-default members filled from the table), `wireRows`, `idlKindName` and `kindSpec` (the wire kind name and the spec record a `NodeKind` carries), and the newly named `StaticRows` interface for the `GridSpec.staticRows` shape that was spelt inline.
+
+**How the existing types derive.** Every bare-string enum alias is `EnumCase<'Name'>` over the table (**`Motion` gains `CrossFade` and `SlideBetween`**, the two cases the specification declares and this host had fallen behind on — additive; the renderer's motion class map gains them too). `NODE_KIND_GROUPS` and `FORM_FIELD_KIND_NAMES` project from the kind rows, and each kind's spec interface **extends `IdlSpec<'Kind'>`**, keeping as re-declarations only the members it documents, its closure members, and the three spellings this host keeps for itself (`SelectSpec.value` is `Binding<string | undefined>`; `FragmentRefSpec.args` and `MountSpec.inputs` are always present). So a member the IDL gains reaches the type, the decoder, the encoder and the constructors on regeneration, and a member the hand interface spells differently from the IDL fails to compile at the interface. The structural pin is the type checker; the drift pin is the suite.
+
+**`@fuaran-ui/ops`, riding its draft slot.** Every kind spec decoder and encoder is one field table folded by `specDecoder` / `specEncoder` (the §29 defect walk and its mirror); a spec declares only its behaviour beside its name — a lenient alias table, a limit, a didactic rewrite, a whole-spec check, the members the table does not carry. `ErrorBoundary`, `FragmentDecl`, `FragmentRef` and `Mount` join the tables; `Switch` keeps its `on` / `stateKey` fold and `Custom` its exposed ids. The corpus is byte-stable. Two observable differences, both diagnostic prose and neither pinned by the corpus (§29.4): a `MISSING_FIELD` message's expected shape is now spelt from the member's IDL type (`Binding<string>`, `TextSource`, `string array`), not per spec by hand; and the `WRONG_NODE_KIND` hint lists each family's kinds in IDL order, which is the order the sibling hosts' generated hints already used — the "byte-identical to the F# and Rust hosts" claim the previous hint carried had been false since those hosts regenerated. The members of one spec are also decoded in IDL order, so where one object carries two defects the single-error op decoder's head follows the specification's member order rather than the hand decoder's.
+
+**`@fuaran-ui/ui` 0.24.1.** The smart constructors fill a spec's omit-at-default members through `withDefaults` from the table instead of a literal per member; a constructed spec is byte-identical to before. A constructor's own authoring default that differs from the wire default (`fuaran.callout`'s `Info` tone, `fuaran.toast`'s non-dismissable default) is kept as the authoring choice it is. The `defaults.*` field set is untouched and remains the second place a wire default is written in this package.
+
+**`@fuaran-ui/renderer` 0.27.1 and `@fuaran-ui/ai-tools` 0.14.1, riding their draft slots.** `declaredSlots`, `extractBindingSlots` and `bindingForSlot` read `BINDING_SLOTS` — every `Binding<…>` member of every kind — instead of three hand-kept tables. Those three tables agreed with each other and all omitted the same **nine** slots the specification declares: `Modal.Open`, `Toast.Open`, `Embed.Src`, `Switch.On`, `Link.Href`, `Image.Src`, `Media.Src`, `DataGrid.RowTotal` and `Select.Values`. They are reported now (additive: a consumer reading a node's bindings sees more of them; `getBindingState` on the debug global answers "declared, unbound" rather than "no such slot" for them). `packages/schema/test/generated.test.ts` names them. The `ReplaceBinding` slot dispatch in `@fuaran-ui/ops`'s apply engine is still a hand table and does not yet reach the nine; it is recorded, not changed here.
+
+**`SwitchSpec.autoAdvanceMs`** is decoded, encoded, typed and documented, and neither renderer acts on it; that is recorded with this phase rather than implemented beside it.
+
+The convention, shared with the other producers in this family so a reader crossing between them meets one shape:
+
+- One `###` section per notable change, headed `<package> <version> — <what changed> (<citation>)`, or `Recorded breaking change — <package> <version>, <what changed> (<citation>)` when a consumer must act.
+- The section says what moved, **why**, what it costs a consumer, and what certifies it (the fixture, vector or suite). A line that only names the change is not a release note.
+- The citation is the bare phase ordinal (`Phase NNN` / `fuaran#NNN`) that carried it — a searchable trail rather than a link that rots.
+- A section for a version that is ahead of the newest tag states that it is unreleased, so a reader can tell a shipped change from a queued one.
+- The git tag is the release marker; release notes for a tag are the sections naming versions that tag first published.
+
+### Recorded breaking change — `@fuaran-ui/ui` 0.25.0 and `@fuaran-ui/ops` 0.31.0, a slot hole IS its constraint (Phase 2329)
+
+_Unreleased: ahead of the newest tag, `v0.30.0`._ The reference's capability codec changed at Core 0.37.0 (fuaran-core Phase 409), and this host now matches the release the reference host pins (0.38.1). A `slot` signature entry carries its `slotKind` constraint and **no space**: `encodeCapabilityDeclaration` no longer writes a `space` on a slot entry, and `decodeCapabilityDeclaration` reads a slot entry's `space` (a malformed one is still refused) and drops it, so the pre-0.37.0 encoding still reads and re-encodes to the new canonical bytes. `validateArgs` checks a slot argument against the tree space of the slot's own constraint, whatever space the entry carries: **a `Text` tree bound to a `Layout` slot is now `ArgOutOfSpace`**, where an explicit `slotTree` space on the entry used to admit any tree. A non-slot hole's explicit `slotTree` space is unchanged. What a consumer must do: a capability that relied on a slot admitting a tree of another kind declares the slot with that kind, or as a `value` hole over a `slotTree` space. Certified by `packages/ops/test/capabilityDeclSlotTree.test.ts`, re-derived from the reference host's own declaration and verdicts (the canonical form, the pre-0.37.0 form re-encoding to it, and seven verdicts). `@fuaran-ui/ui` advances from its 0.24.1 draft to 0.25.0 because the refusal is of the breaking class; `@fuaran-ui/ops` rides its 0.31.0 draft, already of that class.
+
+### `@fuaran-ui/ops` 0.31.0 and `@fuaran-ui/schema` 0.26.1 — the remaining hand tables read the generated layer (Phase 2329)
+
+_Unreleased: riding the draft slots ahead of `v0.30.0`._
+
+- **`apply`'s `ReplaceBinding` reads `BINDING_SLOTS`.** Its slot dispatch was a fourth hand-kept slot table, and it had fallen further behind than the other three: besides the nine slots Phase 2073 found missing everywhere (`Modal.Open`, `Toast.Open`, `Embed.Src`, `Switch.On`, `Link.Href`, `Image.Src`, `Media.Src`, `DataGrid.RowTotal`, `Select.Values`), it also refused `Disclosure.Open`, `Select.Source`, `Select.Value`, `Tabs.ActiveIndex` and `Tabs.ActiveTag`. Every slot the IDL declares is now replaceable, and a slot it does not declare is still `SlotNotFound` — additive. Certified by `packages/ops/test/replace-binding-slots.test.ts`, which walks every declared slot.
+- **`defaults.*` writes no wire default.** Each kind default fills its `omitDefault` members through `withDefaults` from the table, and `defaults.style` is the `SemanticStyle` record's declared defaults. The values are unchanged, with one addition: `defaults.grid()` now carries the four `DataGrid` members the IDL defaults that it used to leave absent (`reorderable`, `keepRowsTogether`, `repeatHeader`, `exportable`, each `false`), so it agrees with a decoded grid; the encoder omits all four at their defaults, so the bytes do not move. `defaults.callout`'s `Info` tone stays the authoring default it is. The `defaults` aggregate keeps every name and shape.
+- **The decoder's four family dispatch tables are keyed by `KINDS_BY_CATEGORY`.** A kind the IDL gains, moves or drops fails to compile in `decode.ts` until its arm follows. The per-family `unknownDuCase` hints went with the inner re-dispatch that carried them: a family decoder was reached only through the node-level table, built from the same arms, so an unknown tag never reached it, and those hint strings (Display's without `Icon`, Visualisation's naming a `Table` kind that does not exist) were never emitted. The one hint an unknown kind reports is `WRONG_NODE_KIND`'s, already projected from the IDL rows. No fixture pinned the removed strings.
+
+### Recorded breaking change — `@fuaran-ui/schema` 0.27.0, `@fuaran-ui/ops` 0.31.0, `@fuaran-ui/ui` 0.25.0, the exact decimal and the derived-column typing rule (Phase 2001)
+
+_Unreleased: ahead of the newest tag, `v0.30.0`._ The dataframe model gains the **exact decimal** (fuaran-core Phases 276/277) and this host's evaluator adopts the reference's **derived-column typing rule** (fuaran-core Phase 338), certified against `Fuaran.Compute` 0.40.0's re-emitted transform-law draw.
+
+- **`@fuaran-ui/schema` — four closed unions gain cases, which is the breaking class.** `ColumnType` gains `'decimal'` (and `COLUMN_TYPES` gains it, last, in the reference's encode order); `Cell` gains `{ kind: 'Decimal'; value: string }`, a decimal carried as its CANONICAL text and never as a JS number; `ColExpr` gains `quotient` (exact division, correctly rounded once) and `rounded` (an exact value brought to a scale); `Transform` gains `intersect` and `except` (the multiset set-ops); `AggFn` gains `countDistinct`. New: `RoundingMode` (the seven modes, as their wire spellings), `ROUNDING_MODES` and `Rounding` (`{ mode, scale }`). What a consumer must do: an exhaustive `switch` over any of these unions gains the new arms, or fails to compile. The number advances from the 0.26.1 draft, which carried only a patch and additive changes, to 0.27.0; the starter template's pin and the lockfile follow in this change-set.
+- **`@fuaran-ui/ops`, riding its 0.31.0 draft (already of the breaking class).** The codec reads and writes a decimal column as JSON strings of decimal text, canonicalised on read; an integer token within ±2^53 is read exactly, and a fractional token or a whole one past 2^53 is refused. The `Decimal` literal cell, `cast` to `decimal`, `quotient` / `rounded` with the rounding object `{"mode":…,"scale":…}` (an unknown mode is refused naming the seven), `intersect` / `except` and the `countDistinct` aggregate decode and encode. The evaluator computes over decimals exactly (add, sub, mul, the truncating `mod`, negation, `abs`, comparison against a decimal or an int), rounds only through `quotient` / `rounded` — and `round` / `floor` / `ceil` over a decimal, their scale-0 forms — under all seven modes, and refuses by name a decimal `div` (it names `quotient`), a decimal beside a float (it names the cast) and a scale outside `0..1000`. Aggregates over a decimal column are the reference's: `sum` exact, `min` / `max` exact, `mean` / `median` / `stddev` at each value's nearest double. **Behaviour that moves for non-decimal pipelines**: a derived or unpivoted column whose type the schema decides carries that type on every frame — an empty frame's `v + 1` is `int`, an all-null `v / 0` is `float`, an int and a float value column melt into a `float` column — where the first present cell used to decide (and an all-null column was `string`); a column whose cells span two types no widening relates is refused by name; and the float order puts NaN one value above every other. Certified by `packages/ops/test/transformLaws.test.ts`, now comparing the canonical encoding of every result to `expected.table` byte for byte, and by the new `packages/ops/test/decimalLaws.test.ts` over the corpus's `laws/decimal` family; the capability manifest declares both families `covered`.
+- **`@fuaran-ui/ui`, riding its 0.25.0 draft.** The static schema walk types a `derive` by the same rule (a decided type is known, an undecidable expression stays untyped), types an `unpivot`'s value column by the widening join of the value columns' declared types, a decimal running total as `decimal`, and passes `intersect` / `except` through. `packages/ui/test/schemaWalk.test.ts` pins the new rule.
+- **`@fuaran-ui/renderer` 0.27.1 and `@fuaran-ui/renderer-server` 0.25.1, riding their drafts.** A decimal cell renders in a text slot and a grid row as its canonical text, reads into a numeric slot as its nearest double (refused past the float range), and is refused in a boolean slot as every numeric cell is. Additive.
+
+### Recorded breaking change — `@fuaran-ui/schema` 0.27.0, `@fuaran-ui/ops` 0.31.0 and `@fuaran-ui/ui` 0.25.0, the capability twin mirrors Core 0.39.0 (Phase 2001)
+
+_Unreleased: ahead of the newest tag, `v0.30.0`._ The shared corpus's capability-law vectors are stamped for Core 0.39.0, and this host's capability twin mirrored 0.32.0, so the capability leg reported the gap and asserted nothing. The twin now mirrors the reference's capability semantics from Core 0.33.0 to 0.39.0, and the leg certifies all 72 vectors (`mirroredCoreVersion` is `0.39.0`).
+
+**What moved, for a consumer.**
+
+- **The determinism axis is a set of factors (`retype`, Core 0.33.0).** `Capability.determinism` and a capability signature's `effect.determinism` are a `DeterminismSet` (`ReadonlySet<DeterminismFactor>`, the factors `ClockFactor` / `RandomFactor` / `NetworkFactor`); a capability signature's `effect` is the new `CapabilityEffectClass`. The UI wire's fragment `EffectClass` and its `DeterminismSource` enum are untouched. The wire label is the set's canonical spelling: `deterministic` for the empty set, otherwise its factors in the order clock, random, network joined by `+`. The four single-token labels are byte-identical, so a single-factor declaration does not move; a composed one (`clock+random`) now decodes where it was refused, and a non-canonical one (`random+clock`) is refused. New in `@fuaran-ui/ui`: `determinismOf`, `tryDeterminismOfTag`, `joinDeterminism`, `coversDeterminism`. Migration: `'Deterministic'` is `determinismOf()`, `'Clock'` is `determinismOf('ClockFactor')`, and so on.
+- **Arguments are read by the reference's invariant readers and keyed by their canonical spelling (behavioural, Core 0.34.0).** An integer argument is `-?digits` within 32 bits and a number `-?digits(.digits)?([eE][+-]?digits)?`: a padded, `+`-signed, `.5` or `1.` argument that was accepted is `ArgOutOfSpace`. `invocationKey` hashes each value's canonical spelling in its hole's space, so `05` and `5` share a replay key; a capture journalled under a non-canonical spelling replays as a miss. New: `canonicalValue`.
+- **Refusals the twin did not make (`union-widening` of `InvokeError`, Core 0.35.1).** `validateArgs` refuses an address given twice `DuplicateArg`, first. `register` runs the reference's admission gate: `NonTotalCapability` for a repeat over no count space (a capped, non-negative `IntRange`), `IllFormedCapability` with a `DeclarationFault` for an empty or non-finite space or two holes at one address. New: `admissionOf`, `DeclarationFault`.
+- **The declaration reader is stricter (behavioural, Core 0.35.1 and 0.37.0).** `decodeCapabilityDeclaration` refuses a document with no `"$type"`, a `value` or `repeat` entry with no `space`, and a declaration the admission gate refuses.
+
+**Not mirrored, and named rather than implied:** the registry's policy gate (Core 0.35.1, fuaran-core Phase 318) and the `action` hole kind, which this host's signature entry does not carry; a declaration with one is still refused by name.
+
+**The leg reads sources, not a build.** It printed `mirrors Core undefined` once because it loaded the twin through its package name, which resolves to the twin's build output, and that output predated the version pin. `packages/ops/vitest.config.ts` resolves the workspace-internal twin to its sources, the leg imports the runtime from the twin rather than from `@fuaran-ui/ui`'s `dist`, and a new pin fails the leg when the twin's version is not a version.
+
+**Versions.** `@fuaran-ui/schema` advances from its 0.26.1 draft to 0.27.0, the retype being of the breaking class; `@fuaran-ui/ops` rides its 0.31.0 draft and `@fuaran-ui/ui` its 0.25.0 draft, both already of that class. Certified by `packages/ops/test/capabilityLaws.test.ts` (the 72 vectors), `packages/ops/test/capabilityDecl.test.ts` (the reader) and `packages/core-twins/test/capability.test.ts` (the label bijection, the readers, the replay key and the admission gate).
+
+### Recorded breaking change — `@fuaran-ui/ops` 0.31.0, `@fuaran-ui/schema` 0.27.0 and `@fuaran-ui/ui` 0.25.0, a field at its declared default leaves the canonical form (Phase 2300, rule 1)
+
+_Unreleased: ahead of the newest tag, `v0.30.0`._ Fifteen fields the specification moved to omit-at-default are omitted by `encodeNode` when they hold their declared default, and restored by `decodeNode` when absent: `Flex.wrap`, `Link.download`, `List.ordered`, `CodeBlock.lineNumbers`, `FormField.required`, `FileUpload.multiple` (`false`); `CodeBlock.copyable`, `Modal.dismissable` (`true`); `CodeBlock.highlightLines` (`[]`); `Heading.variant` (`Standard`), `Image.variant` (`Default`), `Badge.variant` (`Neutral`), `Button.variant` (`Secondary`), `SegmentedChoice.orientation` (`Horizontal`); `Stepper.activeStep` (`Static 0`). Twelve of them are read from the regenerated `KIND_FIELDS` rows by the table encoder and decoder; `Flex.wrap`, `FormField.required` and `SegmentedChoice.orientation` are hand-coded positions and move by hand. **The bytes a consumer pins move**: a tree carrying any of the fifteen at its default encodes shorter, and a content hash over such a tree changes. An explicit default on the wire is still read and normalises to the omitted form (`lenient-2300-declared-default-{booleans,enums,bindings}`). No `SelectSpec`-style type moves for this rule; the `@fuaran-ui/ui` constructors are unchanged. Certified by the regenerated corpus snapshot (`packages/conformance/corpus`), the `author-direction` leg and the renderer corpus snapshot. Rules 2 and 3 of Phase 2300 are a later phase and not here. Every package rides its open draft slot (`ops` 0.31.0, `schema` 0.27.0 and `ui` 0.25.0 are already of the breaking class); no number moves.
+
+### Recorded breaking change — `@fuaran-ui/schema` 0.27.0, `@fuaran-ui/ops` 0.31.0, `@fuaran-ui/ui` 0.25.0 and `@fuaran-ui/renderer` 0.27.1, a multi-select carries `values` and no `value` (Phase 1962)
+
+_Unreleased: ahead of the newest tag, `v0.30.0`._ `SelectSpec.value` is optional: a single-select carries it, a multi-select carries `values` and no `value`, so the placeholder `"value":{"$type":"Static"}` leaves a multi-select's wire. `decodeNode` refuses a single-select without `value` (`MISSING_FIELD` at `$.kind.value`, `reject-1962-select-missing-value`) and drops a decoded multi-select `value` (`lenient-1962-multiselect-value-dropped`); a malformed `multiple` leaves `value` decoded if present and not demanded. `Select.multiple` is an ordinary optional member, encoded as authored (`nodes/select-multiple-false.json`). `fuaran.select` passes no `value` when `multiple` is set; `preEmitValidate`'s `INERT_CONTROL` check for `Select` reads the optional `value`. `StepperSpec.onSelect` and `FileUploadSpec.onSelect` are optional closure markers written only when present, so `defaults.stepper()` / `defaults.fileUpload()` no longer carry them and the renderer arms the write-back default when absent. What a consumer must do: read `spec.value` as possibly `undefined`; build a multi-select without `value`. Every package rides its open draft slot; no number moves. Certified by `packages/ops/test/select-value-rule.test.ts` and the corpus families named.
+
+### Recorded breaking change — `@fuaran-ui/schema` 0.27.0, `@fuaran-ui/ops` 0.31.0, `@fuaran-ui/ui` 0.25.0, the column wire carries a timestamp unit (Phase 2206)
+
+_Unreleased: every package rides its open draft slot, ahead of the newest tag, `v0.30.0`. No number moves._
+
 **A timestamp column declares the resolution it holds its instants at** (`WIRE_FORMAT.md` §3.6.25, after
-fuaran-core#422). `ColumnType` and `COLUMN_TYPES` gain `timestamp_ms`, `timestamp_us` and `timestamp_ns` after
-`timestamp`. `TIMESTAMP_UNIT_DIGITS` and `isTimestampType` name the family. A timestamp cell stays one canonical
-instant text whatever the unit, so `Cell` does not change.
+fuaran-core#422). `ColumnType` and `COLUMN_TYPES` gain `timestamp_ms`, `timestamp_us` and `timestamp_ns`, after
+`decimal` in the reference's encode order. `TIMESTAMP_UNIT_DIGITS` and `isTimestampType` name the family. A
+timestamp cell stays one canonical instant text whatever the unit, so `Cell` does not change.
 
 **The decoder reads every timestamp column strictly, `timestamp` included.** A string is read only as the
 canonical instant text, with a fraction no finer than the column's unit. An epoch number is read in a sub-second
@@ -1306,29 +1570,17 @@ number unread. The reference host has refused the same text since its Phase 299,
 and does not open one. A `timestamp` column of whole-second canonical text, which is every one the corpus has
 pinned, decodes and encodes byte-for-byte as before.
 
-| Package                  | From → to       | Class     | What moved                                                                                                                                                                                            |
-| ------------------------ | --------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@fuaran-ui/schema`      | 0.26.0 → 0.27.0 | **minor** | `ColumnType` widens by three members. An exhaustive `switch` over it with no `default` no longer type-checks, so this is the breaking class (pre-1.0, a minor).                                       |
-| `@fuaran-ui/ops`         | 0.30.0 → 0.31.0 | **minor** | The column decoder admits the three tags and reads a timestamp of every unit strictly (above). Its private copy of the column-type list is gone; it reads `COLUMN_TYPES`.                             |
-| `@fuaran-ui/conformance` | 0.27.0 → 0.28.0 | **minor** | The bundled corpus gains thirteen files: round-trips per unit, the widening vector, the epoch reading per unit, and six refusals an adapter must now honour. It is re-synced to its authority commit. |
-| `@fuaran-ui/ui`          | 0.24.0 → 0.25.0 | **minor** | It `export *`s `@fuaran-ui/schema`, so the union widening reaches its author surface. FUARAN097 accepts a temporal x-axis over a timestamp of any unit. The starter's pins follow.                    |
-| `@fuaran-ui/charts`      | 0.14.4 → 0.14.5 | patch     | The bundled workspace-internal `core-twins` module casts to any timestamp unit.                                                                                                                       |
-| `@fuaran-ui/op-stream`   | 0.11.4 → 0.11.5 | patch     | The same bundled module.                                                                                                                                                                              |
+| Package                  | Draft  | What moved                                                                                                                                                                                            |
+| ------------------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@fuaran-ui/schema`      | 0.27.0 | `ColumnType` widens by three members, the breaking class (pre-1.0, a minor), which the 0.27.0 draft already carries.                                                                                  |
+| `@fuaran-ui/ops`         | 0.31.0 | The column decoder admits the three tags and reads a timestamp of every unit strictly (above). Its private copy of the column-type list is gone; it reads `COLUMN_TYPES`.                             |
+| `@fuaran-ui/conformance` | 0.27.1 | The bundled corpus gains thirteen files: round-trips per unit, the widening vector, the epoch reading per unit, and six refusals an adapter must now honour. It is re-synced to its authority commit. |
+| `@fuaran-ui/ui`          | 0.25.0 | It `export *`s `@fuaran-ui/schema`, so the union widening reaches its author surface. FUARAN097 accepts a temporal x-axis over a timestamp of any unit.                                               |
+| `@fuaran-ui/charts`      | 0.14.5 | The bundled workspace-internal `core-twins` module casts to any timestamp unit.                                                                                                                       |
+| `@fuaran-ui/op-stream`   | 0.11.5 | The same bundled module.                                                                                                                                                                              |
 
 The Go, Rust and Python hosts take the same tags against the same vectors in the same change-set. The .NET host
 reads them through the Fuaran.Core codec once it is on Core 1.0.0.
-
-### Where the release notes live
-
-**This file is the changelog.** There is no `CHANGELOG.md` in this repository, and adding one would split the record in two: the reason a version moved and the surface it moved are the same paragraph, and that paragraph belongs beside the surface it describes.
-
-The convention, shared with the other producers in this family so a reader crossing between them meets one shape:
-
-- One `###` section per notable change, headed `<package> <version> — <what changed> (<citation>)`, or `Recorded breaking change — <package> <version>, <what changed> (<citation>)` when a consumer must act.
-- The section says what moved, **why**, what it costs a consumer, and what certifies it (the fixture, vector or suite). A line that only names the change is not a release note.
-- The citation is the bare phase ordinal (`Phase NNN` / `fuaran#NNN`) that carried it — a searchable trail rather than a link that rots.
-- A section for a version that is ahead of the newest tag states that it is unreleased, so a reader can tell a shipped change from a queued one.
-- The git tag is the release marker; release notes for a tag are the sections naming versions that tag first published.
 
 ## Re-confirmation gate before public exposure
 

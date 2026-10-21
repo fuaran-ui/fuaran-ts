@@ -314,7 +314,7 @@ export interface FuaranRuntime {
   readonly setState?: (key: string, value: JsonValue) => void;
   /**
    * Phase 423 — the declarative filter write seam, the Filter-channel twin of `setState`. A chip
-   * whose `FilterKind.onChange` is omitted (the AI-authored shape) writes `$filters.<name>` here on
+   * whose `FormFieldKind.onChange` is omitted (the AI-authored shape) writes `$filters.<name>` here on
    * change; the host updates its filter state + re-renders (the TS renderer is host-driven, so it
    * has no built-in reactive store — the same model as `setState`). `value === undefined` clears the
    * key (a cleared `ChoiceFilter` choice). Unwired ⇒ the write warns and is dropped.

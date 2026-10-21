@@ -15,12 +15,16 @@ import { describe, expect, it } from 'vitest';
 
 import type { Capability, InvokeArg } from '@fuaran-ui/schema';
 
-import { canonicalFields, invocationKey } from '../src/capability.js';
+import { canonicalFields, determinismOf, invocationKey } from '../src/capability.js';
 
 const cap = (id: string): Capability => ({
   id,
-  signature: { name: id, holes: [], effect: { hostEffect: 'Pure', determinism: 'Random' } },
-  determinism: 'Random',
+  signature: {
+    name: id,
+    holes: [],
+    effect: { hostEffect: 'Pure', determinism: determinismOf('RandomFactor') },
+  },
+  determinism: determinismOf('RandomFactor'),
   placement: { kind: 'Server' },
 });
 

@@ -19,9 +19,9 @@
 //  the envelope + tolerance rules are cross-host, not host-private.
 // ============================================================================
 
-import type { DecodePolicy, Node, Result } from '@fuaran-ui/schema';
+import { NODE_KIND_NAMES, type DecodePolicy, type Node, type Result } from '@fuaran-ui/schema';
 
-import { decodeNode, type DecodeError, type DecodeErrorCode } from './decode.js';
+import { decodeNodeFromAst, type DecodeError, type DecodeErrorCode } from './decode.js';
 import { encodeNode, renderAstCanonical } from './encode.js';
 import { type JsonAst, parse } from './parse.js';
 
@@ -123,13 +123,17 @@ export const REQUIRED_PROFILE_KEY = 'requiredProfile';
 // ─── Versioning error surface ────────────────────────────────────────────────
 
 /**
- * A versioning-layer failure. Extends the six canonical `DecodeErrorCode`s with
- * two envelope-specific codes, kept OUT of the core `DecodeErrorCode` set (the
- * six-code AI-recovery surface stays unpolluted — WIRE_FORMAT.md §6):
- *   - `FOREIGN_PROFILE` — negotiate returned `Foreign`; the artifact is refused.
- *   - `MALFORMED_PROFILE` — the `$profile` value is not a `<name>@<major>.<minor>`.
+ * A versioning-layer failure. Extends the canonical `DecodeErrorCode`s with one
+ * envelope-specific code, kept OUT of the core `DecodeErrorCode` set (the
+ * AI-recovery surface stays unpolluted — WIRE_FORMAT.md §6):
+ *   - `FOREIGN_PROFILE` — negotiate returned `Foreign`, or the `$profile` value is
+ *     not a `<name>@<major>.<minor>` at all; either way the artifact is refused.
+ *     A profile that does not parse names no capability set this consumer could
+ *     be compatible with, so WIRE_FORMAT.md §15.2 refuses it as Foreign — one
+ *     code on every host (Phase 1938; this host spelled it `MALFORMED_PROFILE`
+ *     until then, a code in neither the spec nor any other host).
  */
-export type EnvelopeErrorCode = DecodeErrorCode | 'FOREIGN_PROFILE' | 'MALFORMED_PROFILE';
+export type EnvelopeErrorCode = DecodeErrorCode | 'FOREIGN_PROFILE';
 
 export interface EnvelopeError {
   readonly code: EnvelopeErrorCode;
@@ -190,7 +194,7 @@ export const decodeEnvelopeAst = (ast: JsonAst): Result<Envelope, EnvelopeError>
   }
   const profile = tryParseProfile(profileJ.value);
   if (!profile.ok) {
-    return { ok: false, error: envErr('MALFORMED_PROFILE', `$.${PROFILE_KEY}`, profile.error) };
+    return { ok: false, error: envErr('FOREIGN_PROFILE', `$.${PROFILE_KEY}`, profile.error) };
   }
   const payload = ast.fields.get(PAYLOAD_KEY);
   if (payload === undefined) {
@@ -316,17 +320,15 @@ const nodeTagOf = (ast: JsonAst): Result<string, EnvelopeError> => {
 };
 
 /**
- * Whether the real decoder knows how to route a node kind — probed against
- * `decodeNode` itself, so it is **zero-drift** with the decoder's kind set: an
- * unknown top-level kind fails with `WRONG_NODE_KIND` at `$.kind.$type`; a known
- * kind (even one missing required fields) fails with some *other* code, or
- * succeeds. This is the TS analogue of F# `isKnown` over `knownTags`, without a
- * parallel kind list to maintain.
+ * Whether the decoder knows how to route a node kind: membership of the ONE
+ * kind list (`NODE_KIND_NAMES`), the list the decoder's own `WRONG_NODE_KIND`
+ * is projected from — so there is no parallel kind list to maintain and no
+ * probe decode to run (Phase 2072 retired the probe, which decoded a synthetic
+ * document to ask a question a list answers). The TS analogue of F# `isKnown`
+ * over `knownTags`.
  */
-const isKnownNodeKind = (tag: string): boolean => {
-  const probe = decodeNode(`{"id":"_probe_kind","kind":{"$type":${JSON.stringify(tag)}}}`);
-  return probe.ok || probe.error.code !== 'WRONG_NODE_KIND';
-};
+const isKnownNodeKind = (tag: string): boolean =>
+  (NODE_KIND_NAMES as readonly string[]).includes(tag);
 
 /** Adapt the six-code `DecodeError` into the versioning error surface. */
 const liftDecodeError = (e: DecodeError): EnvelopeError => ({
@@ -336,7 +338,7 @@ const liftDecodeError = (e: DecodeError): EnvelopeError => ({
 });
 
 const decodeKnownNode = (ast: JsonAst): Result<Node<unknown>, EnvelopeError> => {
-  const r = decodeNode(renderAstCanonical(ast));
+  const r = decodeNodeFromAst(ast);
   return r.ok ? r : { ok: false, error: liftDecodeError(r.error) };
 };
 
@@ -376,7 +378,7 @@ export type BehindView<TMsg> =
  * Lift the author-declared `fallback` out of an `Unknown`'s preserved payload
  * WITHOUT removing it from the bytes: `undefined` when the producer authored
  * none; otherwise the fallback decoded through the SAME policy-gated node
- * decoder a top-level node meets (`decodeNode`), so a `DecodePolicy` that
+ * decoder a top-level node meets (`decodeNodeFromAst`), so a `DecodePolicy` that
  * refuses a kind refuses it inside a fallback exactly as at the root, and an
  * authored fallback that does not decode is a refusal the caller turns into
  * the placeholder. `u.payload` is never edited — `reencodeNode` still
@@ -389,7 +391,7 @@ export const liftFallback = (
   if (u.payload.kind !== 'JObject') return undefined;
   const fb = u.payload.fields.get('fallback');
   if (fb === undefined) return undefined;
-  return decodeNode(renderAstCanonical(fb), policy);
+  return decodeNodeFromAst(fb, policy);
 };
 
 /** The behind reader's decision for one tolerant decode — see `BehindView`. */

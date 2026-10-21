@@ -26,13 +26,22 @@
 //
 //  Decoding is TOTAL — a named refusal in the `{ ok: false, error }` envelope,
 //  never a throw — matching `liveValueToTable` and the decoder's own posture.
+//  It admits what the reference's reader admits at the Core version the
+//  capability twin mirrors (`mirroredCoreVersion`): a document whose `$type` is
+//  `capability`, a determinism set in its canonical label, entries read as
+//  their hole kind, and a signature the registry's admission gate admits.
 // ============================================================================
 
+import {
+  admissionOf,
+  describeInvokeError,
+  determinismTag,
+  tryDeterminismOfTag,
+} from '@fuaran-ui/core-twins';
 import type {
   Capability,
   CapabilitySigEntry,
   CapabilitySignature,
-  DeterminismSource,
   HostEffect,
   IslandKind,
   Placement,
@@ -57,13 +66,6 @@ const HOST_WIRE: Record<HostEffect, string> = {
   Pure: 'pure',
   ReadsHost: 'readsHost',
   WritesHost: 'writesHost',
-};
-
-const DETERMINISM_WIRE: Record<DeterminismSource, string> = {
-  Deterministic: 'deterministic',
-  Clock: 'clock',
-  Random: 'random',
-  Network: 'network',
 };
 
 const PLACEMENT_WIRE: Record<Placement['kind'], string> = {
@@ -92,7 +94,6 @@ const invert = <K extends string>(m: Record<K, string>): Record<string, K> =>
   Object.fromEntries(Object.entries(m).map(([k, v]) => [v as string, k as K])) as Record<string, K>;
 
 const HOST_OF = invert(HOST_WIRE);
-const DETERMINISM_OF = invert(DETERMINISM_WIRE);
 const PLACEMENT_OF = invert(PLACEMENT_WIRE);
 const SPACE_OF = invert(SPACE_WIRE);
 
@@ -136,8 +137,10 @@ const entryJson = (e: CapabilitySigEntry): string => {
     ['kind', str(e.kind)],
     ['required', bool(e.required)],
   ];
-  // Option fields are OMITTED when absent, never `null` (WIRE_FORMAT.md §2).
-  if (e.space !== undefined) fields.push(['space', spaceJson(e.space)]);
+  // Option fields are OMITTED when absent, never `null` (WIRE_FORMAT.md §2). A
+  // slot entry writes its constraint and NO space (Core 0.37.0, fuaran-core
+  // Phase 409): its space is the tree space of that constraint, never its own.
+  if (e.space !== undefined && e.kind !== 'slot') fields.push(['space', spaceJson(e.space)]);
   if (e.slotKind !== undefined) fields.push(['slotKind', str(e.slotKind)]);
   return jObject(fields);
 };
@@ -154,7 +157,7 @@ const signatureJson = (sg: CapabilitySignature): string =>
       'effect',
       jObject([
         ['host', str(HOST_WIRE[sg.effect.hostEffect])],
-        ['determinism', str(DETERMINISM_WIRE[sg.effect.determinism])],
+        ['determinism', str(determinismTag(sg.effect.determinism))],
       ]),
     ],
     ['holes', jArray(sg.holes.map(entryJson))],
@@ -168,7 +171,7 @@ export const encodeCapabilityDeclaration = (cap: Capability): string =>
   caseObj('capability', [
     ['id', str(cap.id)],
     ['signature', signatureJson(cap.signature)],
-    ['determinism', str(DETERMINISM_WIRE[cap.determinism])],
+    ['determinism', str(determinismTag(cap.determinism))],
     ['placement', placementJson(cap.placement)],
   ]);
 
@@ -249,12 +252,21 @@ const entryOf = (raw: unknown): CapabilitySigEntry => {
     fail(`unknown hole kind: ${kind}; expected one of: value, slot, repeat`);
   const required = o['required'];
   if (typeof required !== 'boolean') fail('missing or non-boolean field: required');
+  const addr = strAt(o, 'addr');
+  const name = strAt(o, 'name');
+  // The entry is read as its hole kind (Core 0.37.0, fuaran-core Phase 409): a
+  // value or repeat entry without the `space` its kind needs is refused, and a
+  // slot entry is its constraint — a `space` it still carries (the pre-0.37.0
+  // encoding wrote one) is read, so a malformed one is refused as before, and is
+  // not part of the entry.
+  const space = 'space' in o ? spaceOf(o['space']) : undefined;
+  if (space === undefined && kind !== 'slot') fail('missing field: space');
   return {
-    addr: strAt(o, 'addr'),
-    name: strAt(o, 'name'),
+    addr,
+    name,
     kind,
     required,
-    ...('space' in o ? { space: spaceOf(o['space']) } : {}),
+    ...(space !== undefined && kind !== 'slot' ? { space } : {}),
     ...('slotKind' in o ? { slotKind: strAt(o, 'slotKind') } : {}),
   };
 };
@@ -282,9 +294,11 @@ const declarationOf = (json: string): Capability => {
     return fail('capability declaration is not well-formed JSON');
   }
   const o = asObject(parsed, 'capability declaration');
+  // A capability document says so (Core 0.35.1, fuaran-core Phase 307): an
+  // absent `$type` is refused as a missing field, never read as a capability.
   const tag = o['$type'];
-  if (tag !== undefined && tag !== 'capability')
-    fail(`not a capability declaration: $type '${String(tag)}'`);
+  if (tag === undefined) fail('missing field: $type');
+  if (tag !== 'capability') fail(`not a capability declaration: $type '${String(tag)}'`);
 
   const sigObj = asObject(o['signature'], 'signature');
   const effectObj = asObject(sigObj['effect'], 'effect');
@@ -295,12 +309,11 @@ const declarationOf = (json: string): Capability => {
     fail(
       `unknown host effect: ${hostTag}; expected one of: ${Object.values(HOST_WIRE).join(', ')}`,
     );
+  // The determinism set, read from its canonical label only (Core 0.33.0,
+  // fuaran-core Phase 319): `clock+random` is a set, `random+clock` is not a
+  // label, so a set has one wire spelling.
   const detTag = strAt(effectObj, 'determinism');
-  const determinism = DETERMINISM_OF[detTag];
-  if (determinism === undefined)
-    fail(
-      `unknown determinism: ${detTag}; expected one of: ${Object.values(DETERMINISM_WIRE).join(', ')}`,
-    );
+  const determinism = tryDeterminismOfTag(detTag) ?? fail(`unknown determinism: ${detTag}`);
 
   const holes = sigObj['holes'];
   if (!Array.isArray(holes)) fail('missing or non-array field: holes');
@@ -311,20 +324,27 @@ const declarationOf = (json: string): Capability => {
     effect: { hostEffect, determinism },
   };
 
+  // The registry's admission gate runs over the signature just read, so a
+  // declaration that decodes is one `register` admits, and a refused one is
+  // refused with the registry's own error.
+  const id = strAt(o, 'id');
+  const refused = admissionOf(id, signature);
+  if (refused !== undefined) fail(`signature.holes: ${describeInvokeError(refused)}`);
+
   // The capability's determinism is derivable from its signature's effect, so a
   // disagreement is a tampered or divergent payload rather than a spelling
   // difference — refuse it by name instead of silently preferring one side,
   // which would key the replay seam under a determinism the declaration does
   // not declare.
   const wireTag = strAt(o, 'determinism');
-  const expectedTag = DETERMINISM_WIRE[determinism];
+  const expectedTag = detTag;
   if (wireTag !== expectedTag)
     fail(
       `capability determinism disagrees with signature effect: wire '${wireTag}' vs signature '${expectedTag}'`,
     );
 
   return {
-    id: strAt(o, 'id'),
+    id,
     signature,
     determinism,
     placement: placementOf(o['placement']),

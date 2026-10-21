@@ -139,7 +139,9 @@ const reauthorI18nArgs = (
   args: Readonly<Record<string, Binding<JsonValue>>>,
   tally: ReauthorTally,
 ): Readonly<Record<string, Binding<JsonValue>>> => {
-  const out: Record<string, Binding<JsonValue>> = {};
+  // Null-prototype (Phase 1931): a wire key such as `__proto__` is data, and on a
+  // `{}` literal assigning it would hit the prototype setter and vanish.
+  const out = Object.create(null) as Record<string, Binding<JsonValue>>;
   for (const [name, arg] of Object.entries(args)) out[name] = reauthorBinding(arg, tally);
   return out;
 };
@@ -386,7 +388,8 @@ const walk = (v: unknown, tally: ReauthorTally): unknown => {
   const rebuilt = reauthorValue(v, tally);
   if (rebuilt !== undefined) return rebuilt;
 
-  const out: Obj = {};
+  // Null-prototype for the reason `reauthorI18nArgs` gives (`proto-safe-keys`).
+  const out = Object.create(null) as Obj;
   for (const [k, val] of Object.entries(v)) out[k] = walk(val, tally);
   return out;
 };

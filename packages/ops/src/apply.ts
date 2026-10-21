@@ -20,6 +20,8 @@
 
 import type {
   Binding,
+  DisplayKind,
+  InputKind,
   LayoutKind,
   Node,
   NodeId,
@@ -27,8 +29,9 @@ import type {
   Result,
   SemanticStyle,
   StateBehaviour,
+  VisKind,
 } from '@fuaran-ui/schema';
-import { MAX_NODES, MAX_NODE_DEPTH } from '@fuaran-ui/schema';
+import { BINDING_SLOTS, MAX_NODES, MAX_NODE_DEPTH, idlKindName } from '@fuaran-ui/schema';
 
 import {
   children,
@@ -827,100 +830,64 @@ const updateNested = (
 
 // ─── ReplaceBinding slot dispatch ────────────────────────────────────────────
 
+/**
+ * The kind with one member of its spec record replaced. The four primitive
+ * families wrap the spec one level down; the structural kinds carry it
+ * directly. `Custom` and `Filters` carry no spec record, and declare no slot.
+ */
+const withSpecMember = (
+  kind: NodeKind<unknown>,
+  field: string,
+  value: unknown,
+): NodeKind<unknown> => {
+  const set = <S extends object>(spec: S): S => ({ ...spec, [field]: value });
+  switch (kind.kind) {
+    case 'Layout':
+      return {
+        kind: 'Layout',
+        layout: { ...kind.layout, spec: set(kind.layout.spec) } as LayoutKind<unknown>,
+      };
+    case 'Display':
+      return {
+        kind: 'Display',
+        display: { ...kind.display, spec: set(kind.display.spec) } as DisplayKind,
+      };
+    case 'Input':
+      return kind.input.kind === 'Filters'
+        ? kind
+        : {
+            kind: 'Input',
+            input: { ...kind.input, spec: set(kind.input.spec) } as InputKind<unknown>,
+          };
+    case 'Visualisation':
+      return {
+        kind: 'Visualisation',
+        visualisation: {
+          ...kind.visualisation,
+          spec: set(kind.visualisation.spec),
+        } as VisKind<unknown>,
+      };
+    case 'Custom':
+      return kind;
+    default:
+      return { ...kind, spec: set(kind.spec) } as NodeKind<unknown>;
+  }
+};
+
+/**
+ * Replace the binding a slot names. The slot set is the IDL's (`BINDING_SLOTS`,
+ * Phase 2329): every `Binding<…>` member of the kind, under its PascalCase slot
+ * name — the one table introspection and the renderer's declared slots read,
+ * so a binding member the IDL gains is replaceable on regeneration. A slot the
+ * kind does not declare is `undefined` (the op's `SlotNotFound`).
+ */
 const replaceBinding = (
   slot: string,
   b: Binding<unknown>,
   kind: NodeKind<unknown>,
 ): NodeKind<unknown> | undefined => {
-  if (kind.kind === 'Display') {
-    const d = kind.display;
-    if (d.kind === 'Metric' && slot === 'Value')
-      return {
-        kind: 'Display',
-        display: { kind: 'Metric', spec: { ...d.spec, value: b as Binding<number> } },
-      };
-    if (d.kind === 'Metric' && slot === 'Trend')
-      return {
-        kind: 'Display',
-        display: { kind: 'Metric', spec: { ...d.spec, trend: b as Binding<number> } },
-      };
-    if (d.kind === 'Sparkline' && slot === 'Source')
-      return {
-        kind: 'Display',
-        display: { kind: 'Sparkline', spec: { source: b as Binding<readonly number[]> } },
-      };
-    if (d.kind === 'Progress' && slot === 'Fraction')
-      return {
-        kind: 'Display',
-        display: { kind: 'Progress', spec: { ...d.spec, fraction: b as Binding<number> } },
-      };
-    if (d.kind === 'LabelValueRow' && slot === 'Value')
-      return {
-        kind: 'Display',
-        display: { kind: 'LabelValueRow', spec: { ...d.spec, value: b as Binding<number> } },
-      };
-  } else if (kind.kind === 'Layout') {
-    const l = kind.layout;
-    if (l.kind === 'Stepper' && slot === 'ActiveStep')
-      return {
-        kind: 'Layout',
-        layout: { kind: 'Stepper', spec: { ...l.spec, activeStep: b as Binding<number> } },
-      };
-  } else if (kind.kind === 'Input') {
-    const i = kind.input;
-    // Phase 129: Button's optional bound disabled-state slot.
-    if (i.kind === 'Button' && slot === 'Disabled')
-      return {
-        kind: 'Input',
-        input: { kind: 'Button', spec: { ...i.spec, disabled: b as Binding<boolean> } },
-      };
-    // Phase 130: Select / Form / FileUpload optional bound disabled-state slot.
-    if (i.kind === 'Select' && slot === 'Disabled')
-      return {
-        kind: 'Input',
-        input: { kind: 'Select', spec: { ...i.spec, disabled: b as Binding<boolean> } },
-      };
-    if (i.kind === 'Form' && slot === 'Disabled')
-      return {
-        kind: 'Input',
-        input: { kind: 'Form', spec: { ...i.spec, disabled: b as Binding<boolean> } },
-      };
-    if (i.kind === 'FileUpload' && slot === 'Disabled')
-      return {
-        kind: 'Input',
-        input: { kind: 'FileUpload', spec: { ...i.spec, disabled: b as Binding<boolean> } },
-      };
-  } else if (kind.kind === 'Visualisation') {
-    const v = kind.visualisation;
-    if (v.kind === 'Grid' && slot === 'Source')
-      return {
-        kind: 'Visualisation',
-        visualisation: {
-          kind: 'Grid',
-          spec: { ...v.spec, source: b as Binding<readonly unknown[]> },
-        },
-      };
-    if (v.kind === 'Chart' && slot === 'Source')
-      return {
-        kind: 'Visualisation',
-        visualisation: {
-          kind: 'Chart',
-          spec: { ...v.spec, source: b as Binding<readonly unknown[]> },
-        },
-      };
-    if (v.kind === 'Map' && slot === 'Source')
-      return {
-        kind: 'Visualisation',
-        visualisation: {
-          kind: 'Map',
-          spec: {
-            ...v.spec,
-            source: b as Binding<readonly import('@fuaran-ui/schema').MapMarker[]>,
-          },
-        },
-      };
-  }
-  return undefined;
+  const entry = BINDING_SLOTS[idlKindName(kind)].find((s) => s.slot === slot);
+  return entry === undefined ? undefined : withSpecMember(kind, entry.field, b);
 };
 
 // ─── Single-op apply ─────────────────────────────────────────────────────────
@@ -1023,6 +990,21 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
       if (newTree === undefined)
         return fail('NodeNotFound', `Node '${op.target}' not found in tree.`);
       telem.push({ op: 'UpdateStyle', targetId: op.target });
+      return ok(newTree);
+    }
+    case 'PatchStyle': {
+      // Phase 2291 — a patch over the node's CURRENT style: every field the
+      // delta sets replaces the node's, every other field is carried through.
+      // No normalisation beyond UpdateStyle's: the style slot is always present
+      // in this model, and an all-default result encodes as the absent slot.
+      const newTree = mapNode(
+        op.target,
+        (n) => ({ ...n, style: { ...n.style, ...op.style } }),
+        root,
+      );
+      if (newTree === undefined)
+        return fail('NodeNotFound', `Node '${op.target}' not found in tree.`);
+      telem.push({ op: 'PatchStyle', targetId: op.target });
       return ok(newTree);
     }
     case 'UpdateState': {
@@ -1211,6 +1193,7 @@ const insertedNodes = (op: TreeOp<unknown>): readonly N[] => {
     case 'UpdateProp':
     case 'ReplaceBinding':
     case 'UpdateStyle':
+    case 'PatchStyle':
     case 'RemoveNode':
     case 'MoveNode':
     case 'ReorderChildren':
@@ -1231,9 +1214,10 @@ const insertedNodes = (op: TreeOp<unknown>): readonly N[] => {
  * passed. A root over two branches each half the limit deep is legal, and
  * moving one branch under the other's leaf nests past `MAX_NODE_DEPTH`.
  *
- * Everything else cannot grow the tree: `UpdateProp`, `ReplaceBinding` and
- * `UpdateStyle` carry no node (`UpdateProp` refuses every node-valued field),
- * `RemoveNode` shrinks, and `ReorderChildren` permutes children in place.
+ * Everything else cannot grow the tree: `UpdateProp`, `ReplaceBinding`,
+ * `UpdateStyle` and `PatchStyle` carry no node (`UpdateProp` refuses every
+ * node-valued field), `RemoveNode` shrinks, and `ReorderChildren` permutes
+ * children in place.
  */
 const opCanGrow = (op: TreeOp<unknown>): boolean => {
   switch (op.kind) {

@@ -435,8 +435,14 @@ export const renderLayout = <TMsg,>(
       const activeIndex = tryResolve(ctx.sources, layout.spec.activeStep) ?? 0;
       const children = layout.spec.children;
       const activeChild = children[activeIndex];
-      // A step-header click fires `onSelect(i)` (default no-op `Chain []`),
-      // mirroring tabs.
+      // A step-header click fires `onSelect(i)` when a handler is present;
+      // omitted (Phase 1962), it writes the clicked index back to a writable
+      // `activeStep` binding — the write-back default, mirroring tabs.
+      const stepperSpec = layout.spec;
+      const dispatchStep = (i: number): void => {
+        if (stepperSpec.onSelect !== undefined) runAction(ctx, stepperSpec.onSelect(i));
+        else writeBackTo(ctx, stepperSpec.activeStep, i);
+      };
       return (
         <div className="fuaran-layout-stepper">
           <ol className="fuaran-stepper-numbers">
@@ -448,7 +454,7 @@ export const renderLayout = <TMsg,>(
                     ? 'fuaran-stepper-step fuaran-stepper-step-active'
                     : 'fuaran-stepper-step'
                 }
-                onClick={() => runAction(ctx, layout.spec.onSelect(i))}
+                onClick={() => dispatchStep(i)}
               >
                 {i + 1}
               </li>

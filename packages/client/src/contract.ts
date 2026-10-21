@@ -95,10 +95,32 @@ export interface AppliedOp {
   readonly opJson: string;
 }
 
-/** The loop stage at which a turn failed — distinguishes a rejected access
- *  token (no provider call made) from a provider/transport failure from an
- *  emission the endpoint refused to apply (the default-deny-by-shape gate). */
-export type TurnStage = 'access-token' | 'provider' | 'parse' | 'apply';
+/** The four loop stages this client knows — a rejected access token (no
+ *  provider call made), a provider/transport failure, a malformed emission, and
+ *  an emission the endpoint refused to apply (the default-deny-by-shape gate). */
+export type KnownTurnStage = 'access-token' | 'provider' | 'parse' | 'apply';
+
+/** The loop stage at which a turn failed: one of the four {@link KnownTurnStage}
+ *  labels, or the UNKNOWN case — a label this client does not know, kept exactly
+ *  as the endpoint sent it (the empty label included). An unknown label is never
+ *  read as a known stage: it is evidence the endpoint is newer than this client,
+ *  and {@link isKnownTurnStage} tells the two apart. The F# client's
+ *  `TurnStage.Unknown` carries the same label, and its `TurnStage.label` returns
+ *  the string this type holds. */
+export type TurnStage = KnownTurnStage | (string & {});
+
+const KNOWN_TURN_STAGES: ReadonlySet<string> = new Set<KnownTurnStage>([
+  'access-token',
+  'provider',
+  'parse',
+  'apply',
+]);
+
+/** True when `stage` is one of the four stages this client knows, in its
+ *  canonical spelling; false for the unknown case. */
+export function isKnownTurnStage(stage: TurnStage): stage is KnownTurnStage {
+  return KNOWN_TURN_STAGES.has(stage);
+}
 
 /** A recoverable failure surfaced by a turn. `code` is a stable discriminant;
  *  `message` is model-facing — for the `apply` stage it carries the apply-error

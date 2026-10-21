@@ -6,8 +6,9 @@
 //  corpus (when present), so the published kit and the live corpus agree.
 // ============================================================================
 
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 
 import {
   decodeElicitation,
@@ -71,6 +72,33 @@ const tsHostAdapter: ConformanceAdapter = {
 
 const implementation = { name: '@fuaran-ui/ops', version: '0.1.0' };
 
+/**
+ * A corpus root holding exactly one fixture of the bundled snapshot, so a run
+ * through it times that fixture alone (plus the schema compile every run pays).
+ */
+const singleFixtureCorpus = (fixtureId: string): { root: string; dispose: () => void } => {
+  const bundled = loadCorpus();
+  const fixture = bundled.fixtures.find((f) => f.id === fixtureId);
+  if (fixture === undefined) throw new Error(`the bundled corpus has no fixture '${fixtureId}'`);
+
+  const root = mkdtempSync(join(tmpdir(), 'fuaran-conformance-single-'));
+  const copy = (relPath: string): void => {
+    mkdirSync(dirname(join(root, relPath)), { recursive: true });
+    writeFileSync(join(root, relPath), bundled.read(relPath));
+  };
+  const manifest = {
+    version: bundled.manifestVersion,
+    schema: 'schema.json',
+    description: fixtureId,
+    fixtures: [fixture],
+  };
+  writeFileSync(join(root, 'manifest.json'), JSON.stringify(manifest));
+  copy('schema.json');
+  copy(fixture.inputFile);
+  if (fixture.expectedFile !== undefined) copy(fixture.expectedFile);
+  return { root, dispose: () => rmSync(root, { recursive: true, force: true }) };
+};
+
 const expectFullyConformant = (corpusRoot?: string): void => {
   const report = runConformance(tsHostAdapter, {
     implementation,
@@ -120,15 +148,60 @@ describe('self-certification — @fuaran-ui/ops through the public kit', () => {
     // so the corpus now carries `limit-node-depth-at-max` and this kit has to be
     // able to validate it.
     //
-    // The budget is deliberately loose. It is not measuring performance — it is
-    // separating "sub-second" from "exponential", and those differ by orders of
-    // magnitude, so a slow machine cannot make this flake.
-    const started = Date.now();
-    const report = runConformance(tsHostAdapter, { implementation });
-    const elapsed = Date.now() - started;
+    // WHAT IS MEASURED, and why it is a RATIO. The old assertion was a bare
+    // `elapsed < 60_000` over a whole-corpus run: it measured the machine as much
+    // as the schema leg (the same run took 5.7 s and 22.6 s on one loaded
+    // machine, minutes apart), so a busy host could breach it with the code
+    // unchanged. Instead each certification below is of ONE fixture, run through
+    // the same `runConformance` path, in two corpora that differ only in which
+    // fixture they hold: the 24-deep tree, and a comparably sized shallow one.
+    // They are timed back to back, interleaved, and compared on their fastest of
+    // a few passes, so load that scales both sides cancels and a spike that
+    // lands on one pass is dropped. The exponential defect is a factor of
+    // thousands at this depth; a legal deep tree validating in about the time of
+    // a shallow one is the property, and `RATIO_CEILING` leaves headroom over it.
+    //
+    // The absolute `HANG_BOUND_MS` stays only as an outer bound that names a
+    // hang; it is minutes, not seconds, because the ratio is what judges speed.
+    const RATIO_CEILING = 25;
+    const HANG_BOUND_MS = 300_000;
+    const PASSES = 2;
 
-    expect(report.legs.find((l) => l.leg === 'schema-validation')!.status).toBe('pass');
-    expect(elapsed).toBeLessThan(60_000);
+    const deep = singleFixtureCorpus('limit-node-depth-at-max');
+    const shallow = singleFixtureCorpus('master-detail-preselected-second-row');
+    try {
+      const certify = (corpusRoot: string): number => {
+        const started = performance.now();
+        const report = runConformance(tsHostAdapter, { implementation, corpusRoot });
+        const elapsed = performance.now() - started;
+        expect(
+          report.legs.find((l) => l.leg === 'schema-validation')!.status,
+          formatReport(report),
+        ).toBe('pass');
+        return elapsed;
+      };
+
+      let fastestDeep = Infinity;
+      let fastestShallow = Infinity;
+      for (let pass = 0; pass < PASSES; pass++) {
+        fastestShallow = Math.min(fastestShallow, certify(shallow.root));
+        fastestDeep = Math.min(fastestDeep, certify(deep.root));
+      }
+
+      const ratio = fastestDeep / fastestShallow;
+      expect(
+        ratio,
+        `the 24-deep tree took ${fastestDeep.toFixed(0)} ms against ${fastestShallow.toFixed(0)} ms ` +
+          `for a shallow one (fastest of ${PASSES}): ${ratio.toFixed(1)}x, ceiling ${RATIO_CEILING}x`,
+      ).toBeLessThan(RATIO_CEILING);
+      expect(
+        fastestDeep,
+        'the deep certification only ever returns if it is not hung',
+      ).toBeLessThan(HANG_BOUND_MS);
+    } finally {
+      deep.dispose();
+      shallow.dispose();
+    }
   });
 
   it('exercises every accept fixture through byte-identity + schema validation', () => {
@@ -155,7 +228,7 @@ describe('self-certification — @fuaran-ui/ops through the public kit', () => {
     expect(elicitationCount).toBeGreaterThan(0);
     expect(cardCount).toBeGreaterThan(0);
 
-    // Two families are exercised by NO leg here, and naming them is what keeps
+    // Three families are exercised by NO leg here, and naming them is what keeps
     // the guarantee above total rather than approximate.
     //
     // `teleport-decode` / `teleport-reject` (WIRE_FORMAT.md §17.6) need an
@@ -176,10 +249,23 @@ describe('self-certification — @fuaran-ui/ops through the public kit', () => {
     // snapshot's payload is derived from the manifest, and a snapshot listing
     // files it does not hold is worse than one carrying files it does not read.
     //
+    // `design-seam-round-trip` / `design-seam-reject` (DESIGN_SEAM.md, Phase
+    // 2295) are style-observer's case: the design-provider seam's records are
+    // read by a design-tool integration, and no package here carries one, so
+    // there is no codec for a leg to run. The host manifest declares the family
+    // notApplicable for the same reason; it is bundled because the snapshot's
+    // payload is derived from the manifest.
+    //
     // The exclusion is COMPUTED and pinned to exactly these kinds, so a future
     // family that no leg covers still trips this assertion — which is the whole
     // point of the accounting. Widening this set is a decision, never a repair.
-    const notExercisedHere = ['teleport-decode', 'teleport-reject', 'style-observer'];
+    const notExercisedHere = [
+      'teleport-decode',
+      'teleport-reject',
+      'style-observer',
+      'design-seam-round-trip',
+      'design-seam-reject',
+    ];
     const corpus = loadCorpus();
     const unexercised = corpus.fixtures.filter((f) => notExercisedHere.includes(f.kind));
     expect(new Set(unexercised.map((f) => f.kind))).toEqual(new Set(notExercisedHere));

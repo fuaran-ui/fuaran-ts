@@ -11,7 +11,9 @@
 //
 // ─── What it checks ─────────────────────────────────────────────────────────
 //
-// The base is the newest `v*` tag reachable from HEAD. Each package's version
+// The base is the newest `v*` tag reachable from HEAD (a tag pointing AT HEAD is the
+// release being cut and is skipped, so the publish job, which runs on it, compares with
+// the one before). Each package's version
 // AT THAT TAG stands for the version that release published — the offline
 // proxy for "a version the registry serves" (the registry itself is consulted
 // at release time, by `check-peer-ranges.mjs` in the publish workflow). For
@@ -34,20 +36,51 @@
 // placeholder (a `-placeholder.N` version) is never re-released for a metadata
 // change and is exempt.
 //
-// What counts as "sources moved" — every changed or untracked file under the
-// package directory EXCEPT:
+// What counts as "sources moved" — a changed or untracked file under the
+// package directory that the package SHIPS or that is an INPUT to what it ships
+// (operator decision 2026-10-15, Phase 2249; before it, every file counted, so
+// Phase 2238's change to the conformance package's unshipped
+// `scripts/sync-corpus.mjs` demanded a release it did not need):
 //
-//   * tests: a `test/`, `tests/` or `__tests__/` directory, `*.test.*`,
-//     `*.spec.*`, `vitest.config.*`, `tsconfig.test.json`;
-//   * Markdown (`*.md`): documentation does not alter what a consumer
-//     installs or runs;
-//   * a `package.json` change confined to `version`, `scripts` and
-//     `devDependencies` (a bundled private dependency is followed through the
-//     rule above instead).
+//   * shipped: a path the manifest's `files` allowlist names (a directory entry
+//     ships everything beneath it; globs and `!` exclusions are honoured), a
+//     `main`/`bin` target, and a LICENSE/NOTICE file;
+//   * a build input: a path the package's `tsconfig.json` compiles into the
+//     shipped output (its `include` globs and `rootDir`, READ from each package,
+//     never hard-coded), plus the build configuration itself (`tsconfig.json`,
+//     `tsup*.config.*`);
+//   * a `package.json` change outside `version`, `scripts` and `devDependencies`
+//     (a bundled private dependency is followed through the rule above instead).
 //
-// Everything else counts, including a shipped data directory such as the
-// conformance package's bundled `corpus/` — the rule is deliberately an
-// exclusion list, so a build input added later is covered without editing it.
+// Never counted, for any package: tests (a `test/`, `tests/` or `__tests__/`
+// directory, `*.test.*`, `*.spec.*`, `vitest.config.*`, `tsconfig.test.json`) and
+// Markdown (`*.md`: documentation does not alter what a consumer installs or runs).
+//
+// A package WITHOUT a `files` list ships its whole directory, so for it the old
+// rule stands unchanged: everything but tests and Markdown counts. The same holds
+// for an entry the caller gives no layout.
+//
+// ─── The second clause: a range a sibling's advance leaves behind (Phase 2237) ─
+//
+// A package that is NOT advanced is not republished, so consumers keep the
+// manifest the tag published, and `pnpm pack` wrote that manifest's
+// `workspace:` ranges against the sibling versions that stood AT THE TAG
+// (`workspace:^` becomes `^<tag-time sibling>`, `~` becomes `~…`, `*` becomes
+// the exact version). When the sibling then advances out of that range (pre-1.0,
+// any minor does), the unadvanced package's published range excludes it and the
+// registry holds a set no consumer can satisfy. So for every publishable package
+// whose version equals the tag's, each `@fuaran-ui/*` `workspace:` dependency,
+// peer dependency and optional dependency is resolved the way the tag's pack did
+// (from the tag-time manifests, via `git show`; no network), and a range that
+// excludes the sibling's CURRENT workspace version fails as `LEFT BEHIND BY
+// <sibling>`, naming the advance that fixes it.
+//
+// `devDependencies` are not judged: npm never installs a dependency's own
+// devDependencies, so a stale exact pin there (the mock's `workspace:*` on the
+// client, which only its tests import) constrains no consumer. A literal
+// (non-`workspace:`) range, and the registry-side verdict, belong to
+// `check-peer-ranges.mjs`, which is not imported here: its module body runs the
+// registry lookup on import.
 //
 // ─── Modes ──────────────────────────────────────────────────────────────────
 //
@@ -101,15 +134,62 @@ const isPlaceholder = (version) => /-placeholder(\.|$)/.test(String(version));
 
 // ─── Classification ─────────────────────────────────────────────────────────
 
-/** Whether `relPath` (relative to the package directory) is a source of what the package ships. */
-export const isSourcePath = (relPath) => {
+/** A glob (`*`, `**`, `?`) as an anchored RegExp over a slash-separated relative path. */
+const globToRegExp = (glob) => {
+  let out = '';
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === '*' && glob[i + 1] === '*') {
+      const slash = glob[i + 2] === '/';
+      out += slash ? '(?:.*/)?' : '.*';
+      i += slash ? 2 : 1;
+    } else if (c === '*') out += '[^/]*';
+    else if (c === '?') out += '[^/]';
+    else out += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${out}$`);
+};
+
+const normaliseGlob = (g) => g.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+
+/** Whether `path` is what `entry` names, or lies beneath it (an entry naming a directory ships all of it). */
+const underGlob = (path, entry) => {
+  const re = globToRegExp(normaliseGlob(entry));
+  const parts = path.split('/');
+  return parts.some((_, i) => re.test(parts.slice(0, i + 1).join('/')));
+};
+
+/** The package's build configuration: what turns its inputs into the files it ships. */
+const isBuildConfig = (p) => p === 'tsconfig.json' || /^tsup(\.[^/]+)?\.config\.[^/]+$/.test(p);
+
+/**
+ * Whether `p` ships, or builds something that ships, under `layout`: `files` the manifest's
+ * `files` allowlist (`null` when it has none) and `inputs` the globs its tsconfig compiles
+ * into the shipped `dist`.
+ */
+const reachesConsumer = (p, layout) => {
+  const listed = layout.files ?? [];
+  const shipped = listed.filter((f) => !f.startsWith('!'));
+  const excluded = listed.filter((f) => f.startsWith('!')).map((f) => f.slice(1));
+  if (shipped.some((f) => underGlob(p, f)) && !excluded.some((f) => underGlob(p, f))) return true;
+  if (/^(license|licence|notice)(\.[^/]*)?$/i.test(p)) return true;
+  return isBuildConfig(p) || layout.inputs.some((g) => underGlob(p, g));
+};
+
+/**
+ * Whether `relPath` (relative to the package directory) is a source of what the package ships.
+ * `layout` is omitted, or its `files` is `null`, for a package that declares no `files` list:
+ * it ships everything, so everything but tests and Markdown counts.
+ */
+export const isSourcePath = (relPath, layout) => {
   const p = relPath.replace(/\\/g, '/');
   if (/(^|\/)(test|tests|__tests__)\//.test(p)) return false;
   const base = p.slice(p.lastIndexOf('/') + 1);
   if (/\.(test|spec)\.[^/]+$/.test(base)) return false;
   if (/^vitest\.config\./.test(base) || base === 'tsconfig.test.json') return false;
   if (/\.md$/i.test(base)) return false;
-  return true;
+  if (layout === undefined || layout.files === null) return true;
+  return reachesConsumer(p, layout);
 };
 
 const MANIFEST_INERT_KEYS = ['version', 'scripts', 'devDependencies'];
@@ -131,19 +211,96 @@ export const manifestMoved = (base, head) => {
   return canonical(strip(base)) !== canonical(strip(head));
 };
 
+// ─── Published ranges, as `pnpm pack` wrote them ────────────────────────────
+
+/** The manifest sections whose ranges a consumer's install resolves. */
+const CONSUMER_EDGES = ['dependencies', 'peerDependencies', 'optionalDependencies'];
+
+/**
+ * The range `pnpm pack` writes for a `workspace:` spec when the sibling stands at
+ * `siblingVersion`, or `null` for a literal range, which pack leaves alone.
+ */
+export const packedRange = (spec, siblingVersion) => {
+  if (!spec.startsWith('workspace:')) return null;
+  const rest = spec.slice('workspace:'.length);
+  if (rest === '^' || rest === '~') return `${rest}${siblingVersion}`;
+  if (rest === '*' || rest === '') return siblingVersion;
+  return rest;
+};
+
+/**
+ * Whether `version` satisfies `range`, for the three shapes a pack produces: `^x.y.z`,
+ * `~x.y.z` and an exact version. Anything else throws rather than being guessed at,
+ * so a range this cannot read is a finding and never a quiet pass.
+ */
+export const satisfiesRange = (version, range) => {
+  const r = range.trim();
+  const op = r[0] === '^' || r[0] === '~' ? r[0] : '';
+  const base = parseVersion(op === '' ? r : r.slice(1));
+  const v = parseVersion(version);
+  if (op === '') return compareVersions(version, r) === 0;
+  const [a, b, c] = base.core;
+  const ceiling =
+    op === '~' ? [a, b + 1, 0] : a > 0 ? [a + 1, 0, 0] : b > 0 ? [0, b + 1, 0] : [0, 0, c + 1];
+  // npm: a prerelease satisfies only a range naming a prerelease on the same x.y.z.
+  const preOk =
+    v.pre.length === 0 || (base.pre.length > 0 && v.core.every((n, i) => n === base.core[i]));
+  return (
+    preOk &&
+    compareVersions(version, r.slice(1)) >= 0 &&
+    compareVersions(version, `${ceiling.join('.')}-0`) < 0
+  );
+};
+
+/** The range violations of one UNADVANCED package against the tag-time and current sibling versions. */
+const leftBehind = (p, siblings) => {
+  const found = [];
+  const { name, version } = p.head;
+  for (const section of CONSUMER_EDGES) {
+    for (const [dep, spec] of Object.entries(p.base[section] ?? {})) {
+      const sibling = siblings.get(dep);
+      if (sibling === undefined || sibling.base === null || sibling.base.private === true) continue;
+      const published = packedRange(spec, sibling.base.version);
+      if (published === null) continue;
+      const current = sibling.head.version;
+      let satisfied;
+      try {
+        satisfied = satisfiesRange(current, published);
+      } catch (e) {
+        found.push(
+          `${name}@${version}: the tag published ${dep} "${published}" (${section}), which this ` +
+            `check cannot read (${e.message}) — refusing rather than guessing.`,
+        );
+        continue;
+      }
+      if (satisfied) continue;
+      const [x, y, z] = parseVersion(version).core;
+      found.push(
+        `${name}@${version} LEFT BEHIND BY ${dep}@${current}: the tag published ${name} with ${dep} ` +
+          `"${published}" (${section}, from ${spec}), a range that excludes ${current} — the release ` +
+          `would SKIP ${name} and the registry would serve an uninstallable set. Advance ${name} to ` +
+          `${x}.${y}.${z + 1} (a release-consistency patch; the next pack then writes ` +
+          `"${packedRange(spec, current)}") and record it in STABILITY.md.`,
+      );
+    }
+  }
+  return found;
+};
+
 // ─── The verdict, over data ─────────────────────────────────────────────────
 
 /**
- * `packages`: [{ dir, head, base, changed }] — `head` the working-tree manifest,
+ * `packages`: [{ dir, head, base, changed, layout }] — `head` the working-tree manifest,
  * `base` the manifest at the tag (or `null` when absent there), `changed` the
- * package-relative paths that differ from the tag (manifest included).
+ * package-relative paths that differ from the tag (manifest included), `layout` what the
+ * package ships (see `isSourcePath`; omitted means the old everything-counts rule).
  *
  * Returns { violations, judged, exempt }.
  */
 export const judgeSet = (packages) => {
   const own = new Map();
   for (const p of packages) {
-    const reasons = p.changed.filter((f) => f !== 'package.json' && isSourcePath(f));
+    const reasons = p.changed.filter((f) => f !== 'package.json' && isSourcePath(f, p.layout));
     if (p.base !== null && p.changed.includes('package.json') && manifestMoved(p.base, p.head)) {
       reasons.push('package.json');
     }
@@ -152,6 +309,8 @@ export const judgeSet = (packages) => {
   const privateNames = new Set(
     packages.filter((p) => p.head.private === true).map((p) => p.head.name),
   );
+
+  const siblings = new Map(packages.map((p) => [p.head.name, p]));
 
   const violations = [];
   const exempt = [];
@@ -183,6 +342,8 @@ export const judgeSet = (packages) => {
           `the release would SKIP it. Advance it per STABILITY.md (pre-1.0: breaking or additive ` +
           `is a minor, a fix a patch) and record the change there.`,
       );
+    } else if (order === 0) {
+      violations.push(...leftBehind(p, siblings));
     }
   }
   return { violations, judged, exempt };
@@ -210,6 +371,21 @@ const workspaceDirs = () =>
     )
     .map((e) => e.name);
 
+const binTargets = (m) => (typeof m.bin === 'string' ? [m.bin] : Object.values(m.bin ?? {}));
+
+/** What the package at `dir` ships: its `files` allowlist and the globs its tsconfig compiles. */
+const readLayout = (dir, head) => {
+  const tsconfig = join(repoRoot, 'packages', dir, 'tsconfig.json');
+  const compiled = existsSync(tsconfig) ? readJson(tsconfig) : {};
+  const rootDir = compiled.compilerOptions?.rootDir;
+  return {
+    files: Array.isArray(head.files)
+      ? [...head.files, head.main, ...binTargets(head)].filter(Boolean)
+      : null,
+    inputs: [...(compiled.include ?? []), ...(rootDir === undefined ? [] : [rootDir])],
+  };
+};
+
 const readPackages = (tag) => {
   const listed = [
     ...git('diff', '--name-only', tag, '--', 'packages').split('\n'),
@@ -218,9 +394,11 @@ const readPackages = (tag) => {
   return workspaceDirs().map((dir) => {
     const prefix = `packages/${dir}/`;
     const atTag = tryGit('show', `${tag}:${prefix}package.json`);
+    const head = readJson(join(repoRoot, 'packages', dir, 'package.json'));
     return {
       dir,
-      head: readJson(join(repoRoot, 'packages', dir, 'package.json')),
+      head,
+      layout: readLayout(dir, head),
       base: atTag === null ? null : JSON.parse(atTag),
       changed: listed.filter((l) => l.startsWith(prefix)).map((l) => l.slice(prefix.length)),
     };
@@ -266,7 +444,7 @@ const selfTest = () => {
   expect('key order is not a change', manifestMoved({ a: 1, b: 2 }, { b: 2, a: 1 }), false);
 
   const pkg = (name, version, extra = {}) => ({ name, version, ...extra });
-  const entry = (head, base, changed) => ({ dir: head.name, head, base, changed });
+  const entry = (head, base, changed, layout) => ({ dir: head.name, head, base, changed, layout });
   const verdict = (set) => judgeSet(set).violations.length;
 
   // RED direction — each must be refused.
@@ -336,6 +514,159 @@ const selfTest = () => {
     0,
   );
 
+  // What a package SHIPS (Phase 2249). A package with a `files` list is judged by what
+  // that list ships plus what its tsconfig compiles; each class is its own case.
+  const layout = { files: ['dist', 'corpus', 'README.md'], inputs: ['src/**/*'] };
+  const shippedMoved = (path, lay = layout) =>
+    verdict([entry(pkg('@x/a', '0.1.0'), pkg('@x/a', '0.1.0'), [path], lay)]);
+  // RED direction.
+  expect('shipped data file moved', shippedMoved('corpus/nodes/form-1.json'), 1);
+  expect('build input moved', shippedMoved('src/wire.ts'), 1);
+  expect('build config moved', shippedMoved('tsup.config.ts'), 1);
+  expect('tsconfig moved', shippedMoved('tsconfig.json'), 1);
+  expect(
+    'an input named by a non-src include',
+    shippedMoved('gen/a.ts', { files: ['dist'], inputs: ['src/**/*', 'gen/**/*'] }),
+    1,
+  );
+  expect(
+    'a file named by a files glob',
+    shippedMoved('css/theme.css', { files: ['dist', 'css/*.css'], inputs: ['src/**/*'] }),
+    1,
+  );
+  expect(
+    'a package without a files list: a repository tool counts',
+    shippedMoved('scripts/sync-corpus.mjs', { files: null, inputs: ['src/**/*'] }),
+    1,
+  );
+  expect(
+    'no layout at all: the old rule',
+    verdict([entry(pkg('@x/a', '0.1.0'), pkg('@x/a', '0.1.0'), ['scripts/x.mjs'])]),
+    1,
+  );
+  // GREEN direction.
+  expect('unshipped repository tool', shippedMoved('scripts/sync-corpus.mjs'), 0);
+  expect('unshipped examples directory', shippedMoved('examples/a.json'), 0);
+  expect(
+    'a files entry is a whole directory, not a prefix',
+    shippedMoved('corpus-notes/a.json'),
+    0,
+  );
+  expect('a test under a shipped directory', shippedMoved('corpus/test/a.test.ts'), 0);
+  expect('a test of the build input', shippedMoved('src/wire.test.ts'), 0);
+  expect('Markdown under a shipped directory', shippedMoved('corpus/NOTES.md'), 0);
+  expect('Markdown at the root', shippedMoved('README.md'), 0);
+  expect(
+    'a negated files entry is not shipped',
+    shippedMoved('corpus/skip/a.json', { files: ['corpus', '!corpus/skip'], inputs: [] }),
+    0,
+  );
+  expect(
+    'the test directory of a no-files package',
+    shippedMoved('test/a.test.ts', { files: null, inputs: [] }),
+    0,
+  );
+
+  // Packed ranges and their satisfier (second clause).
+  expect('pack ^', packedRange('workspace:^', '0.12.4'), '^0.12.4');
+  expect('pack ~', packedRange('workspace:~', '0.12.4'), '~0.12.4');
+  expect('pack *', packedRange('workspace:*', '0.12.4'), '0.12.4');
+  expect('pack explicit range', packedRange('workspace:^0.3.0', '0.12.4'), '^0.3.0');
+  expect('pack leaves a literal range', packedRange('^0.3.0', '0.12.4'), null);
+  expect('0.x caret excludes the next minor', satisfiesRange('0.13.0', '^0.12.4'), false);
+  expect('0.x caret includes a later patch', satisfiesRange('0.12.9', '^0.12.4'), true);
+  expect('0.x caret excludes an earlier patch', satisfiesRange('0.12.3', '^0.12.4'), false);
+  expect('1.x caret includes a later minor', satisfiesRange('1.9.0', '^1.2.0'), true);
+  expect('1.x caret excludes the next major', satisfiesRange('2.0.0', '^1.2.0'), false);
+  expect('0.0.x caret is exact', satisfiesRange('0.0.4', '^0.0.3'), false);
+  expect('tilde includes a later patch', satisfiesRange('0.12.9', '~0.12.4'), true);
+  expect('tilde excludes the next minor', satisfiesRange('0.13.0', '~0.12.4'), false);
+  expect('exact range excludes a later patch', satisfiesRange('0.12.5', '0.12.4'), false);
+  expect('exact range includes itself', satisfiesRange('0.12.4', '0.12.4'), true);
+  expect('prerelease is outside a plain caret', satisfiesRange('0.12.5-rc.1', '^0.12.4'), false);
+  expect(
+    'unreadable range throws',
+    (() => {
+      try {
+        satisfiesRange('1.0.0', '>=1');
+        return false;
+      } catch {
+        return true;
+      }
+    })(),
+    true,
+  );
+
+  // The second clause, over a synthetic dependent/sibling pair. `dep` stood at the
+  // tag with `@x/s` at 0.12.4 and `spec` on it; `@x/s` now stands at `now`.
+  const edge = (
+    spec,
+    now,
+    { section = 'dependencies', dependentNow = '0.1.0', sibPrivate } = {},
+  ) => [
+    entry(
+      pkg('@x/d', dependentNow, { [section]: { '@x/s': spec } }),
+      pkg('@x/d', '0.1.0', { [section]: { '@x/s': spec } }),
+      [],
+    ),
+    entry(
+      pkg('@x/s', now),
+      pkg('@x/s', '0.12.4', sibPrivate === true ? { private: true } : {}),
+      now === '0.12.4' ? [] : ['src/s.ts'],
+    ),
+  ];
+  const messages = (set) => judgeSet(set).violations.join('\n');
+
+  // RED direction — each must be refused.
+  expect('caret dependency left behind by a minor', verdict(edge('workspace:^', '0.13.0')), 1);
+  expect(
+    'the refusal names the sibling and the advance',
+    /LEFT BEHIND BY @x\/s@0\.13\.0.*"\^0\.12\.4".*Advance @x\/d to 0\.1\.1.*"\^0\.13\.0"/.test(
+      messages(edge('workspace:^', '0.13.0')),
+    ),
+    true,
+  );
+  expect(
+    'peer dependency left behind',
+    verdict(edge('workspace:^', '0.13.0', { section: 'peerDependencies' })),
+    1,
+  );
+  expect(
+    'optional dependency left behind',
+    verdict(edge('workspace:^', '0.13.0', { section: 'optionalDependencies' })),
+    1,
+  );
+  expect('exact pin left behind by a patch', verdict(edge('workspace:*', '0.12.5')), 1);
+  expect('tilde left behind by a minor', verdict(edge('workspace:~', '0.13.0')), 1);
+  expect('a range the check cannot read is refused', verdict(edge('workspace:>=0.1', '0.13.0')), 1);
+
+  // GREEN direction — each must pass.
+  expect('caret holds across a patch', verdict(edge('workspace:^', '0.12.9')), 0);
+  expect('sibling unmoved', verdict(edge('workspace:^', '0.12.4')), 0);
+  expect(
+    'dependent advanced since the tag',
+    verdict(edge('workspace:^', '0.13.0', { dependentNow: '0.1.1' })),
+    0,
+  );
+  expect(
+    'devDependencies constrain no consumer',
+    verdict(edge('workspace:*', '0.13.0', { section: 'devDependencies' })),
+    0,
+  );
+  expect('literal range is not this check', verdict(edge('^0.12.4', '0.13.0')), 0);
+  expect(
+    'private sibling at the tag is not a range',
+    verdict(edge('workspace:^', '0.13.0', { sibPrivate: true })),
+    0,
+  );
+
+  expect('no tag at HEAD: plain describe', describeArgs([]).includes('--exclude'), false);
+  expect(
+    'a tag at HEAD is the release being cut, not the base',
+    describeArgs(['v0.31.0']).join(' '),
+    'describe --tags --abbrev=0 --match v* --exclude v0.31.0 HEAD',
+  );
+
   if (failures.length > 0) {
     console.error('Release-advance check self-test FAILED:\n');
     for (const f of failures) console.error(`  - ${f}`);
@@ -343,6 +674,21 @@ const selfTest = () => {
   }
   console.log('Release-advance check self-test OK (classification + verdict, both directions).');
 };
+
+/**
+ * The `git describe` arguments naming the release to compare with. The publish workflow
+ * runs ON the new tag, so a `v*` tag pointing at HEAD is the release being cut, not the
+ * one it is compared with: it is excluded, and the base is the newest tag before it.
+ */
+export const describeArgs = (tagsAtHead) => [
+  'describe',
+  '--tags',
+  '--abbrev=0',
+  '--match',
+  'v*',
+  ...tagsAtHead.flatMap((t) => ['--exclude', t]),
+  'HEAD',
+];
 
 // ─── Entry point ────────────────────────────────────────────────────────────
 
@@ -352,7 +698,10 @@ const main = () => {
     return;
   }
 
-  const tag = tryGit('describe', '--tags', '--abbrev=0', '--match', 'v*', 'HEAD')?.trim();
+  const atHead = (tryGit('tag', '--points-at', 'HEAD', '--list', 'v*') ?? '')
+    .split('\n')
+    .filter(Boolean);
+  const tag = tryGit(...describeArgs(atHead))?.trim();
   if (tag === undefined || tag === '') {
     if (tryGit('rev-parse', '--is-shallow-repository')?.trim() === 'true') {
       console.log(

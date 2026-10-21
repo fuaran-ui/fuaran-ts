@@ -30,7 +30,11 @@ jobs:
       # OIDC token issuance for the npm trusted-publishing exchange.
       id-token: write
     steps:
+      # Full history and tags: the release-advance check below compares each package
+      # with the newest `v*` tag, and a shallow checkout carries neither.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
       # No registry-url here: setup-node's registry-url writes an .npmrc that
@@ -99,6 +103,29 @@ jobs:
       # always-green lookup.
       - name: Check the @fuaran-ui/* peer ranges against the set this run produces
         run: node dev-scripts/check-peer-ranges.mjs
+
+      # BEFORE anything is packed: the bundled corpus snapshot must record the
+      # specification's `main` as its remote reports it NOW. The checkout carries no
+      # specification clone, so the check asks the published repository itself
+      # (`git ls-remote`); a snapshot that is behind refuses the tag here, in seconds,
+      # naming the re-sync command, rather than shipping a corpus the specification has
+      # moved past. The same check runs before tagging as `pnpm run release-check`.
+      - name: Refuse a corpus snapshot behind the specification
+        run: |
+          node packages/conformance/scripts/sync-corpus.mjs --check-distance --remote || {
+            echo "::error::The bundled corpus snapshot is not the specification's main (exit 2: behind; exit 1: the remote could not be asked). This tag cannot publish: withdraw it, pull the specification clone, re-sync (pnpm --filter @fuaran-ui/conformance sync-corpus) and commit, then tag a NEW version. Next time run the pre-tag check BEFORE tagging: pnpm run release-check."
+            exit 1
+          }
+
+      # BEFORE anything is packed: the publish loop below SKIPS a package whose version
+      # the registry already serves, so a package whose shipped files (or the sources
+      # they are built from) moved since the last `v*` tag without its version moving
+      # is silently left out of the release. A refusal here names the package and the
+      # advance it needs, in seconds. The same check runs in the ordinary gate and
+      # before tagging (`pnpm run release-check`); this is the step that cannot be
+      # skipped by tagging from a machine that never ran either.
+      - name: Refuse a package that moved without advancing its version
+        run: node dev-scripts/check-release-advances.mjs
 
       - name: Build
         run: pnpm build

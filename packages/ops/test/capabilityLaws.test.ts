@@ -16,11 +16,16 @@
 //    - declarationRoundTrip — decode-then-encode returns the REFERENCE's bytes.
 //    - registryEnumerate    — id-sorted enumeration, whatever the insertion order.
 //
-//  WHERE THE CODEC LIVES. Every case now runs against SHIPPED surfaces. The
-//  three runtime cases run against `@fuaran-ui/ui`'s ports (`validateArgs`,
-//  `invocationKey`, `capabilityDeterminismTag`, `registryOf` + `enumerate`),
-//  and `declarationRoundTrip` against `@fuaran-ui/ops`'s
-//  `decodeCapabilityDeclaration` / `encodeCapabilityDeclaration`.
+//  WHERE THE CODEC LIVES. Every case runs against SOURCE, never a build. The
+//  three runtime cases run against the capability twin in
+//  `@fuaran-ui/core-twins` (`validateArgs`, `invocationKey`,
+//  `capabilityDeterminismTag`, `registryOf` + `enumerate`), which
+//  `@fuaran-ui/ui` re-exports name for name and bundles, and
+//  `declarationRoundTrip` against this package's
+//  `decodeCapabilityDeclaration` / `encodeCapabilityDeclaration`. This
+//  package's vitest config resolves the twin to its sources: by its package
+//  name it would load the twin's build output, and the leg once reported the
+//  twin as mirroring Core `undefined` because that output predated the pin.
 //
 //  That last one used to be a HARNESS-LOCAL codec, because the types were in
 //  `@fuaran-ui/ui` and the canonical renderer in `@fuaran-ui/ops` and neither
@@ -57,37 +62,24 @@
 // ============================================================================
 
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-// The capability ports under test live in the sibling `@fuaran-ui/ui` package
-// and are imported from its BUILT output by path rather than by package name,
-// deliberately, for two reasons. Naming the package would add a dev dependency,
-// and adding any dependency to a manifest in this workspace forces pnpm to
-// re-resolve the whole lockfile — which currently fails on an unrelated
-// auto-installed peer in `templates/ts-starter`, so a manifest edit here would
-// take the install down with it. And reaching into the sibling's `src/` instead
-// would put a file outside this project's `rootDir` (TS6059). `dist/` is what
-// the package publishes and what every other cross-package import in this
-// workspace resolves, so this reads exactly the surface a consumer would —
-// which does mean `pnpm build` must have run, as it must for the corpus legs.
 import {
   capabilityDeterminismTag,
   enumerate,
   invocationKey,
+  mirroredCoreVersion,
   registryOf,
   validateArgs,
-} from '../../ui/dist/index.js';
-import { mirroredCoreVersion } from '@fuaran-ui/core-twins';
+} from '@fuaran-ui/core-twins';
 import type { Capability, InvokeArg } from '@fuaran-ui/schema';
 
 import { decodeCapabilityDeclaration, encodeCapabilityDeclaration } from '../src/capabilityDecl.js';
 
 import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const corpusRoot = wireCorpusRoot();
 const lawsRoot = join(corpusRoot, 'laws');
 
@@ -192,6 +184,13 @@ describe('capabilityLaws vectors (shared corpus laws/ family)', () => {
     it.skip('law-vector family not present in this corpus checkout', () => {});
     return;
   }
+
+  // The pin the window compares against must BE a version: a twin read from a
+  // stale or partial build answers `undefined`, which would report as a window
+  // rather than as the defect it is.
+  it('the twin declares the Core version it mirrors', () => {
+    expect(mirroredCoreVersion).toMatch(/^\d+\.\d+\.\d+$/);
+  });
 
   // Present corpus, so the family is required: a missing family, vector file or
   // stamp fails here — it is never a skip.

@@ -13,6 +13,7 @@ import type { Binding, Node, NodeId, SemanticStyle, StateBehaviour } from '@fuar
 
 import {
   bindingExpression,
+  bindingForSlot,
   extractBindingSlots,
   slotDependencies,
   findNode,
@@ -209,6 +210,51 @@ describe('extractBindingSlots — the per-kind table', () => {
     ).toEqual([
       { slot: 'Disabled', expression: '$state.busy', source: 'State', dependsOn: ['state:busy'] },
     ]);
+  });
+});
+
+// Phase 2073 — the slot table is the IDL's `BINDING_SLOTS`, not a hand-kept
+// mirror. The three mirrors this host carried all omitted the slots below, each
+// a `Binding<…>` member the specification declares on its kind.
+describe('the slot table is derived from the IDL (Phase 2073)', () => {
+  const shown: Binding<boolean> = { kind: 'State', key: 'shown', defaultValue: false };
+  const modal: Node<unknown> = {
+    id: nid('md'),
+    kind: {
+      kind: 'Layout',
+      layout: {
+        kind: 'Modal',
+        spec: { open: shown, dismissable: false, children: [], modality: 'Modal' },
+      },
+    },
+    state: emptyState,
+    style: defaultStyle,
+  };
+  const link: Node<unknown> = {
+    id: nid('l'),
+    kind: {
+      kind: 'Display',
+      display: {
+        kind: 'Link',
+        spec: {
+          href: { kind: 'Static', value: 'https://example.test/' },
+          label: { kind: 'Literal', value: 'L' },
+          download: false,
+        },
+      },
+    },
+    state: emptyState,
+    style: defaultStyle,
+  };
+  it('reports and resolves the slots the hand-kept tables omitted', () => {
+    expect(extractBindingSlots(modal.kind).map((s) => s.slot)).toEqual(['Open']);
+    expect(bindingForSlot(modal.kind, 'Open')).toEqual(shown);
+    expect(extractBindingSlots(link.kind).map((s) => s.slot)).toEqual(['Href']);
+    expect(bindingForSlot(link.kind, 'Href')).toEqual({
+      kind: 'Static',
+      value: 'https://example.test/',
+    });
+    expect(bindingForSlot(link.kind, 'Label')).toBeUndefined();
   });
 });
 

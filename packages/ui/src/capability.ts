@@ -52,8 +52,11 @@ import {
 
 export type {
   Capability,
+  CapabilityEffectClass,
   CapabilitySigEntry,
   CapabilitySignature,
+  DeterminismFactor,
+  DeterminismSet,
   IslandKind,
   Placement,
 } from '@fuaran-ui/schema';
@@ -67,21 +70,28 @@ export type {
 // surface of this package is unchanged; the build bundles it into this dist.
 
 export {
+  admissionOf,
+  canonicalValue,
   capabilityDeterminismTag,
+  coversDeterminism,
   createCapability,
   describeInvokeError,
+  determinismOf,
   determinismTag,
   emptyRegistry,
   enumerate,
   fnv1a,
   invocationKey,
+  joinDeterminism,
   register,
   registryOf,
   spaceValidate,
   toJsonSchema,
+  tryDeterminismOfTag,
   tryFind,
   validateArgs,
   type CapabilityRegistry,
+  type DeclarationFault,
   type InvokeError,
 } from '@fuaran-ui/core-twins';
 

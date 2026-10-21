@@ -102,9 +102,10 @@ describe('versioned envelope (§15.1)', () => {
       ok: false,
       error: { code: 'MISSING_FIELD' },
     });
+    // WIRE_FORMAT.md §15.2: a profile that does not parse is Foreign (Phase 1938).
     expect(decodeEnvelope(enveloped(knownNode, 'garbage'))).toMatchObject({
       ok: false,
-      error: { code: 'MALFORMED_PROFILE' },
+      error: { code: 'FOREIGN_PROFILE', path: '$.$profile' },
     });
   });
 });

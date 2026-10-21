@@ -13,6 +13,15 @@
 //  (and avoid colliding with the @fuaran-ui/ui `column` / `fuaran` namespaces).
 //  Generic-over-`TMsg` defaults are nullary generic functions (a const object
 //  literal cannot carry its own type parameter); non-generic ones are values.
+//
+//  A WIRE default is never written here (Phase 2329). Every default an IDL kind
+//  or record declares is filled from the generated table — kinds through
+//  `withDefaults`, records through `recordDefaults` — so `defaults.X` agrees
+//  with a decoded spec by construction, and a member the IDL gains with a
+//  default reaches it on regeneration. What remains here is the AUTHORING
+//  half: placeholders for required members, the not-provided sentinel, the
+//  author-facing shapes the wire consolidated (`stack`, `card`, …), and the
+//  accessibility and motion presets, none of which the IDL declares.
 // ============================================================================
 
 import type {
@@ -69,6 +78,8 @@ import type {
   TabsSpec,
   TextSource,
 } from './types.js';
+import { RECORD_FIELDS, type RecordName } from './generated.js';
+import { defaultValue, withDefaults, type FieldRow } from './idl.js';
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
@@ -129,16 +140,18 @@ const noBinding = <T>(): Binding<T> => ({
   },
 });
 
+/** A record's declared defaults: each `omitDefault` member of its IDL table, at its default. */
+const recordDefaults = (name: RecordName): Readonly<Record<string, unknown>> =>
+  Object.fromEntries(
+    (RECORD_FIELDS[name] as readonly FieldRow[]).flatMap((r) =>
+      r.dflt === undefined ? [] : [[r.name, defaultValue(r.dflt)] as const],
+    ),
+  );
+
 // ─── Cross-cutting defaults ──────────────────────────────────────────────────
 
-const style: SemanticStyle = {
-  tone: 'Default',
-  weight: 'Standard',
-  emphasis: 'Normal',
-  role: 'None',
-  voice: 'Default',
-  direction: 'auto',
-};
+/** The all-default style: every member of `SemanticStyle` is `omitDefault` in the IDL. */
+const style = recordDefaults('SemanticStyle') as unknown as SemanticStyle;
 
 const stateBehaviour = <TMsg>(): StateBehaviour<TMsg> => ({});
 
@@ -165,20 +178,17 @@ const splitPanel = <TMsg>(): SplitPanelSpec<TMsg> => ({ weight: 0.5, children: [
 
 // `onSelect` omitted (Phase 426): the declarative floor — a State/Filter-bound
 // `activeIndex` gets the clicked index written back by the renderer.
-const tabs = <TMsg>(): TabsSpec<TMsg> => ({
-  orientation: 'Horizontal',
-  children: [],
-  activeIndex: staticBinding(0),
-});
+const tabs = <TMsg>(): TabsSpec<TMsg> => withDefaults('Tabs', { children: [] });
 
 const tabHeader: TabHeader = { label: emptyLiteral };
 
 const card = <TMsg>(): CardSpec<TMsg> => ({ children: [] });
 
+// `onSelect` omitted (Phase 1962): the declarative floor — a State/Filter-bound
+// `activeStep` gets the clicked index written back by the renderer, as `tabs`.
 const stepper = <TMsg>(): StepperSpec<TMsg> => ({
   activeStep: staticBinding(0),
   children: [],
-  onSelect: () => noActions<TMsg>(),
 });
 
 const summaryList = <TMsg>(): SummaryListSpec<TMsg> => ({ children: [] });
@@ -196,31 +206,19 @@ const disclosure = <TMsg>(): DisclosureSpec<TMsg> => ({
 
 const heading: HeadingSpec = { level: 2, text: emptyLiteral, variant: 'Standard' };
 
-const labelValueRow: LabelValueRowSpec = {
+const labelValueRow: LabelValueRowSpec = withDefaults('LabelValueRow', {
   label: emptyLiteral,
   value: noBinding<number>(),
-  format: { kind: 'None' },
-  emphasis: false,
-};
+});
 
-const fact: FactSpec = {
-  label: emptyLiteral,
-  value: emptyLiteral,
-  tone: 'Default',
-  emphasis: false,
-};
+const fact: FactSpec = withDefaults('Fact', { label: emptyLiteral, value: emptyLiteral });
 
 const markdown: MarkdownSpec = { text: emptyLiteral };
 
-const metric: MetricSpec = {
+const metric: MetricSpec = withDefaults('Metric', {
   label: emptyLiteral,
   value: noBinding<number>(),
-  format: { kind: 'None' },
-  tone: 'Default',
-  weight: 'Standard',
-  emphasis: 'Normal',
-  trendPolarity: 'HigherIsBetter',
-};
+});
 
 const badge: BadgeSpec = { label: emptyLiteral, variant: 'Neutral' };
 
@@ -229,19 +227,13 @@ const sparkline: SparklineSpec = { source: noBinding<readonly number[]>() };
 const skeleton: SkeletonSpec = { rows: 3 };
 
 // Phase 821 — decorative by default (no label ⇒ aria-hidden).
-const icon: IconSpec = { icon: '', size: 'Medium', tone: 'Default' };
+const icon: IconSpec = withDefaults('Icon', { icon: '' });
 
-const callout: CalloutSpec = {
-  tone: 'Info',
-  body: emptyLiteral,
-  dismissable: false,
-};
+// `tone: 'Info'` is the AUTHORING default, deliberately not the wire default
+// (`Default`): an unstyled callout reads as information.
+const callout: CalloutSpec = withDefaults('Callout', { tone: 'Info', body: emptyLiteral });
 
-const progress: ProgressSpec = {
-  fraction: staticBinding(0),
-  indeterminate: false,
-  tone: 'Default',
-};
+const progress: ProgressSpec = withDefaults('Progress', { fraction: staticBinding(0) });
 
 // ─── Input defaults ────────────────────────────────────────────────────────
 
@@ -284,26 +276,26 @@ const filter = <TMsg>(): FilterSpec<TMsg> => ({
   field: { kind: 'Text', value: staticBinding(''), onChange: () => noActions<TMsg>() },
 });
 
-const fileUpload = <TMsg>(): FileUploadSpec<TMsg> => ({
-  label: emptyLiteral,
-  accept: [],
-  multiple: false,
-  onSelect: () => noActions<TMsg>(),
-  // Phase 1115 — both gestures off by default, which IS the wire identity: a
-  // default upload encodes to exactly the bytes it always did.
-  dropTarget: false,
-  acceptPaste: false,
-});
+// Phase 1115 — both gestures (`dropTarget`, `acceptPaste`) are off by default,
+// which IS the wire identity: a default upload encodes to the bytes it always did.
+// `onSelect` omitted (Phase 1962): a declarative upload carries no handler and
+// the wire omits the key.
+const fileUpload = <TMsg>(): FileUploadSpec<TMsg> =>
+  withDefaults('FileUpload', {
+    label: emptyLiteral,
+    accept: [],
+    multiple: false,
+  });
 
 // ─── Visualisation defaults ──────────────────────────────────────────────────
 
-const chart = <TMsg>(): ChartSpec<TMsg> => ({
-  source: noBinding<readonly unknown[]>(),
-  kind: 'Line',
-  xField: '',
-  yFields: [],
-  stacked: false,
-});
+const chart = <TMsg>(): ChartSpec<TMsg> =>
+  withDefaults('Chart', {
+    source: noBinding<readonly unknown[]>(),
+    kind: 'Line',
+    xField: '',
+    yFields: [],
+  });
 
 const table = <TMsg>(): TableSpec<TMsg> => ({ headers: [], rows: [] });
 
@@ -315,10 +307,12 @@ const map = <TMsg>(): MapSpec<TMsg> => ({
 });
 
 const grid = <TRow, TMsg>(): GridSpecOf<TRow, TMsg> => ({
+  // The table fills the wire defaults; the row-typed members are this host's
+  // author-facing typing of the same placeholders.
+  ...withDefaults('DataGrid', { source: noBinding<readonly unknown[]>(), columns: [] }),
   source: noBinding<readonly TRow[]>(),
   rowKey: () => '',
   columns: [],
-  editable: false,
 });
 
 const column = <TRow, TMsg>(): Column<TRow, TMsg> => ({
@@ -356,12 +350,11 @@ const switchSpec = <TMsg>(): SwitchSpec<TMsg> => ({
   default: placeholderNode<TMsg>('fuaran-switch-placeholder'),
 });
 
-const fragmentDecl = <TMsg>(): FragmentDeclSpec<TMsg> => ({
-  name: '' as FragmentId,
-  body: placeholderNode<TMsg>('fuaran-fragment-placeholder'),
-  holes: [],
-  effect: { hostEffect: 'Pure', determinism: 'Deterministic' },
-});
+const fragmentDecl = <TMsg>(): FragmentDeclSpec<TMsg> =>
+  withDefaults('FragmentDecl', {
+    name: '' as FragmentId,
+    body: placeholderNode<TMsg>('fuaran-fragment-placeholder'),
+  });
 
 const fragmentRef = <TMsg>(): FragmentRefSpec<TMsg> => ({ name: '' as FragmentId, args: {} });
 

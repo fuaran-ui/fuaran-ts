@@ -72,7 +72,10 @@ describe('Phase 1889 — schemaWalk', () => {
     });
   });
 
-  it('derive is typed only where the expression alone decides it: strings, or no present value', () => {
+  // Phase 2001 — the reference's derived-column rule (fuaran-core Phase 338), which the evaluator
+  // applies too: a type the schema decides IS the column's type on every frame, so it is known
+  // here; no present value is `string`; only an undecidable expression stays untyped.
+  it('derive is typed wherever the schema decides it; an undecidable expression stays untyped', () => {
     const k = ofPipeline(table, [
       { kind: 'derive', name: 'label', expr: { kind: 'apply', fn: 'upper', args: [col('dept')] } },
       {
@@ -81,17 +84,28 @@ describe('Phase 1889 — schemaWalk', () => {
         expr: { kind: 'binary', op: 'mul', left: col('amount'), right: col('amount') },
       },
       { kind: 'derive', name: 'nothing', expr: { kind: 'lit', cell: { kind: 'Null' } } },
+      // An int arm beside a float arm: the exact typer keeps them apart, so the cells decide.
+      {
+        kind: 'derive',
+        name: 'mixed',
+        expr: {
+          kind: 'case',
+          cases: [{ when: { kind: 'isNull', expr: col('dept') }, then: col('amount') }],
+          else: { kind: 'lit', cell: { kind: 'Float', value: 1.5 } },
+        },
+      },
       // Retypes in place, position kept.
       { kind: 'derive', name: 'dept', expr: { kind: 'cast', type: 'int', expr: col('dept') } },
     ]);
     expect(k.kind).toBe('Closed');
     expect(k.columns).toEqual([
-      { name: 'dept' },
+      { name: 'dept', type: 'int' },
       { name: 'amount', type: 'int' },
       { name: 'day', type: 'date' },
       { name: 'label', type: 'string' },
-      { name: 'double' },
+      { name: 'double', type: 'int' },
       { name: 'nothing', type: 'string' },
+      { name: 'mixed' },
     ]);
   });
 

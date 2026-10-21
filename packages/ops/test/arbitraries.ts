@@ -46,7 +46,7 @@ import type {
   VisKind,
 } from '@fuaran-ui/schema';
 import { apiEndpoint, fragmentId, iconSource, nodeId } from '@fuaran-ui/schema';
-import type { TreeOp } from '../src/treeOp.js';
+import type { StyleDelta, TreeOp } from '../src/treeOp.js';
 
 type N = Node<unknown>;
 
@@ -289,6 +289,22 @@ const semanticStyleArb: fc.Arbitrary<SemanticStyle> = fc.record({
   role: styleRoleArb,
   voice: fontVoiceArb,
 }) as fc.Arbitrary<SemanticStyle>;
+
+// Phase 2291 — a `PatchStyle` delta: every member optional, at least one set
+// (an empty delta is refused at decode, so it never round-trips).
+const styleDeltaArb: fc.Arbitrary<StyleDelta> = fc
+  .record(
+    {
+      direction: fc.constantFrom('auto', 'ltr', 'rtl'),
+      emphasis: emphasisArb,
+      role: styleRoleArb,
+      tone: toneArb,
+      voice: fontVoiceArb,
+      weight: weightArb,
+    },
+    { requiredKeys: [] },
+  )
+  .filter((d) => Object.keys(d).length > 0) as fc.Arbitrary<StyleDelta>;
 
 const accessibilityArb: fc.Arbitrary<Accessibility> = fc.record(
   {
@@ -989,6 +1005,9 @@ function opArbAt(depth: number): fc.Arbitrary<TreeOp<unknown>> {
     fc
       .tuple(nodeIdArb, semanticStyleArb)
       .map(([target, style]) => ({ kind: 'UpdateStyle', target, style }) as TreeOp<unknown>),
+    fc
+      .tuple(nodeIdArb, styleDeltaArb)
+      .map(([target, style]) => ({ kind: 'PatchStyle', target, style }) as TreeOp<unknown>),
     fc
       .tuple(nodeIdArb, stateBehaviourArb(1))
       .map(([target, state]) => ({ kind: 'UpdateState', target, state }) as TreeOp<unknown>),

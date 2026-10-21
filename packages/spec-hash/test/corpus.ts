@@ -1,10 +1,20 @@
 // ============================================================================
 //  Locating the specification's conformance corpus.
 //
-//  The corpus is the SPECIFICATION's, not this repository's. It is reached by
-//  relative path from the repository root, which is how every host in this
-//  estate consumes a shared corpus: the DIRECTORY name is the interface, and a
-//  specification that moves to a different home is checked out to the same path.
+//  The corpus is the SPECIFICATION's, not this repository's. It is located the
+//  way every other corpus leg here locates its corpus (Phase 2329): a variable
+//  naming it FIRST, so a checkout that is not beside the specification — a
+//  worktree, a CI layout of its own — runs against the corpus it was told to;
+//  then the relative path from the repository root, where the DIRECTORY name is
+//  the interface and a specification that moves home is checked out to the same
+//  path.
+//
+//  The variable is `FUARAN_MODEL_EXECUTION_FIXTURES`, NOT `FUARAN_WIRE_FIXTURES`:
+//  that one names the UI wire-format corpus, a different specification with a
+//  different manifest, and a shell that sets it for the other legs would point
+//  this suite at the wrong corpus. The manifest's own `specification` field is
+//  checked, so a variable naming the wrong corpus fails loudly rather than
+//  certifying against fixtures that are not this specification's.
 //
 //  ABSENCE IS A FAILURE, LOUDLY. There is no skip here and there must never be
 //  one. A gate that quietly does nothing when it cannot find what it is checking
@@ -17,25 +27,35 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+/** The variable that names the corpus directory, read before the sibling path. */
+export const CORPUS_ROOT_ENV = 'FUARAN_MODEL_EXECUTION_FIXTURES';
+
+/** The `specification` this corpus's manifest declares. */
+export const SPECIFICATION = 'model-execution-wire';
+
 /** packages/spec-hash/test → the repository's parent → the specification checkout. */
 export const CORPUS_RELATIVE_PATH = '../fuaran-model-execution-spec/wire-fixtures';
 
-export const corpusRoot = join(
-  here,
-  '..',
-  '..',
-  '..',
-  '..',
-  'fuaran-model-execution-spec',
-  'wire-fixtures',
-);
+const fromEnv = process.env[CORPUS_ROOT_ENV];
+
+export const corpusRoot =
+  fromEnv !== undefined && fromEnv !== ''
+    ? fromEnv
+    : join(here, '..', '..', '..', '..', 'fuaran-model-execution-spec', 'wire-fixtures');
+
+/** Where the corpus was looked for, for the absence message. */
+const lookedFor =
+  fromEnv !== undefined && fromEnv !== ''
+    ? `${CORPUS_ROOT_ENV}=${fromEnv}`
+    : `the sibling path '${CORPUS_RELATIVE_PATH}' (${CORPUS_ROOT_ENV} unset)`;
 
 const missing = (what: string, path: string): never => {
   throw new Error(
     `the conformance corpus is not present: ${what} was expected at '${path}'. ` +
       "This suite certifies this tier against the specification's own fixtures, so it CANNOT pass " +
       `without them. Check the specification repository (Fuaran-Data/fuaran-model-execution-spec) out ` +
-      `beside this repository at '${CORPUS_RELATIVE_PATH}' — do not disable this suite, which would ` +
+      `beside this repository at '${CORPUS_RELATIVE_PATH}', or name it with ${CORPUS_ROOT_ENV} ` +
+      `(looked for: ${lookedFor}) — do not disable this suite, which would ` +
       'leave the implementation unpinned while the build stayed green.',
   );
 };
@@ -69,7 +89,13 @@ export interface Manifest {
 export const manifest = (): Manifest => {
   const path = join(corpusRoot, 'manifest.json');
   if (!existsSync(path)) missing('manifest.json', path);
-  return JSON.parse(readFileSync(path, 'utf8')) as Manifest;
+  const m = JSON.parse(readFileSync(path, 'utf8')) as Manifest;
+  if (m.specification !== SPECIFICATION)
+    throw new Error(
+      `the corpus at '${corpusRoot}' is not the ${SPECIFICATION} corpus: its manifest declares ` +
+        `specification ${JSON.stringify(m.specification)} (looked for: ${lookedFor}).`,
+    );
+  return m;
 };
 
 /** The document a vector names, exactly as committed. */

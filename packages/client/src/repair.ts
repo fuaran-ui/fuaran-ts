@@ -24,7 +24,13 @@ export const HINT_MARKER = '[repair]';
  *  default-deny gate) and the `parse` stage (a malformed emission). An
  *  `access-token` failure (bad credential) and a `provider` failure (transport /
  *  provider error) are terminal — retrying the same call will not help, so the
- *  loop surfaces them immediately. */
+ *  loop surfaces them immediately.
+ *
+ *  An UNKNOWN stage is terminal too, deliberately, and the F# client answers the
+ *  same. It says the endpoint is newer than this client, so this client cannot
+ *  know whether a re-emission fixes it, and every retry is a paid turn. The
+ *  failure is surfaced with the endpoint's own label, so a caller that knows the
+ *  newer stage can retry it itself. */
 export function isRepairable(stage: TurnStage): boolean {
   return stage === 'apply' || stage === 'parse';
 }

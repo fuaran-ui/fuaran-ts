@@ -58,7 +58,7 @@ describe.skipIf(!present)('render-fidelity manifest (generated artefact)', () =>
   it('declares a posture for every kind this host emits, and no kind it does not', () => {
     const manifest = load();
     const declared = new Set(manifest.kinds.map((r) => r.kind));
-    const host = new Set(NODE_KIND_NAMES);
+    const host = new Set<string>(NODE_KIND_NAMES);
 
     const missing = [...host].filter((k) => !declared.has(k)).sort();
     const extra = [...declared].filter((k) => !host.has(k)).sort();

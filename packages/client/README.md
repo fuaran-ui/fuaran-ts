@@ -158,9 +158,13 @@ to an origin you never named.
 - `isSecureEndpoint(url)` — the same rule the client applies, so a host can
   check a URL it is about to configure rather than discovering it on the first
   turn.
+- `isKnownTurnStage(stage)` — true for the four stages this client knows
+  (`access-token`, `provider`, `parse`, `apply`); false for a stage label the
+  endpoint sent that the client does not know, which is kept exactly as sent
+  rather than read as `provider`, and which the repair loop does not retry.
 - Types: `TurnResult` (`Produced` | `AccessDenied` | `TurnFailed`),
   `GenerateArgs`, `AppliedOp`, `RecoverableError`, `TurnStage`,
-  `ProducedDetail`, `SnapshotState`.
+  `KnownTurnStage`, `ProducedDetail`, `SnapshotState`.
 
 ## License
 

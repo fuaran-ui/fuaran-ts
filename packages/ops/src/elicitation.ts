@@ -27,7 +27,7 @@
 import type { Node, Result } from '@fuaran-ui/schema';
 
 import { allNodeIds } from './apply.js';
-import { decodeNode, type DecodeError, type DecodeErrorCode } from './decode.js';
+import { decodeNodeFromAst, type DecodeError, type DecodeErrorCode } from './decode.js';
 import { encodeNode, renderAstCanonical } from './encode.js';
 import { type JsonAst, parse } from './parse.js';
 
@@ -686,7 +686,7 @@ export const decodeElicitation = (json: string): Result<ElicitationEnvelope, Eli
   const treeJ = root.fields.get('tree');
   if (treeJ === undefined)
     return { ok: false, error: elErr('MISSING_FIELD', '$.tree', "missing required field 'tree'") };
-  const tree = decodeNode(renderAstCanonical(treeJ));
+  const tree = decodeNodeFromAst(treeJ);
   if (!tree.ok) return { ok: false, error: rePath('$.tree', tree.error) };
 
   const ids = new Set(allNodeIds(tree.value));

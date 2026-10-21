@@ -29,7 +29,7 @@ import {
   encodeOp,
   type TreeOp,
 } from '@fuaran-ui/ops';
-import type { HashStrictness, Node, NodeKind } from '@fuaran-ui/schema';
+import type { DecodePolicy, HashStrictness, Node, NodeKind } from '@fuaran-ui/schema';
 import type { DenyTelemetry, FuaranTelemetrySink } from '@fuaran-ui/telemetry';
 import {
   bindingExpression,
@@ -238,6 +238,15 @@ export interface DebugGlobalOptions<TMsg> {
    * Omitted, the two methods say so rather than reporting an empty graph.
    */
   readonly wiring?: () => unknown;
+  /**
+   * The §23 `DecodePolicy` an `apply`'s op is decoded under (Phase 1931). The
+   * console and the DevTools relay are a THIRD way an op reaches the tree, so a
+   * closed kind profile the host decodes its trees under must bind them too —
+   * otherwise a kind the page refuses on every other path could be pasted in.
+   * `<FuaranRenderer debug>` supplies the policy the renderer was given; omitted,
+   * every recognised kind is admitted, exactly as before.
+   */
+  readonly decodePolicy?: DecodePolicy;
 }
 
 /** Where a console-driven apply's outcomes go.
@@ -493,7 +502,7 @@ const buildApplyEnvelope = <TMsg>(
   // Only a genuinely applied op is durable: a decode failure never produced a
   // TreeOp and a rejected one changed no tree, so journalling either would put
   // an op in the stream that never happened.
-  const decoded = decodeOp(opJson);
+  const decoded = decodeOp(opJson, options.decodePolicy);
   if (!decoded.ok)
     return {
       ok: false,

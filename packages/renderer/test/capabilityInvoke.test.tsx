@@ -19,6 +19,7 @@ import {
   type CapabilitySignature,
   binding,
   createCapability,
+  determinismOf,
   fuaran,
   makeCapabilityInvoker,
   node,
@@ -41,7 +42,7 @@ const doubleSig: CapabilitySignature = {
       required: true,
     },
   ],
-  effect: { hostEffect: 'ReadsHost', determinism: 'Random' },
+  effect: { hostEffect: 'ReadsHost', determinism: determinismOf('RandomFactor') },
 };
 const doubleCap = createCapability('compute.double', doubleSig, {
   kind: 'ClientIsland',

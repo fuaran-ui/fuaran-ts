@@ -22,7 +22,7 @@ import {
   useRef,
 } from 'react';
 
-import type { HashStrictness, Node } from '@fuaran-ui/schema';
+import type { DecodePolicy, HashStrictness, Node } from '@fuaran-ui/schema';
 
 // Phase 1075 — the `Binding.State` seeding pass. One definition, shared with
 // the server renderer, so the two tiers cannot drift on the charter's §4/§5.
@@ -127,6 +127,14 @@ export interface FuaranRendererProps<TMsg = unknown> {
    * See {@link DebugGlobalOptions.wiring}; omitted, both say no DTO was given.
    */
   readonly wiring?: unknown;
+  /**
+   * The §23 `DecodePolicy` the host decoded `tree` under (alongside `debug`).
+   * The renderer is handed a decoded tree, so it decodes nothing itself; this is
+   * the policy the debug surface's `apply` — and the DevTools relay behind it —
+   * decodes a pasted op under, so a closed kind profile cannot be bypassed from
+   * the console (Phase 1931). See {@link DebugGlobalOptions.decodePolicy}.
+   */
+  readonly decodePolicy?: DecodePolicy;
 }
 
 const noopDispatch = (): void => {};
@@ -159,6 +167,7 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
       customHashFloor: customHashFloorOf(props),
       // Phase 1844 — the wiring DTO is the host's to supply; read per call.
       ...(props.wiring !== undefined ? { wiring: () => props.wiring } : {}),
+      ...(props.decodePolicy !== undefined ? { decodePolicy: props.decodePolicy } : {}),
     };
     const tree = props.tree;
     const sources = props.sources ?? {};
@@ -194,6 +203,7 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
     props.validate,
     props.customHashFloor,
     props.wiring,
+    props.decodePolicy,
   ]);
 
   // The relay peer is installed separately and NOT torn down on every tree

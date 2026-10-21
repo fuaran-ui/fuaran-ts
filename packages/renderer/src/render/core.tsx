@@ -19,6 +19,7 @@ import type { Node, NodeKind, StateBehaviour } from '@fuaran-ui/schema';
 
 import {
   isNodeVisible,
+  readState,
   renderText,
   resolve,
   selectSwitchCase,
@@ -115,7 +116,7 @@ export const renderKind = <TMsg,>(
       const on = kind.spec.on;
       let raw: unknown;
       if (on.kind === 'State') {
-        raw = ctx.sources.state?.[on.key];
+        raw = readState(ctx.sources, on.key);
         if (raw === undefined) raw = on.defaultValue;
       } else {
         // Phase 1535 — the SCALAR resolver. `resolve`'s `Transform` arm is
