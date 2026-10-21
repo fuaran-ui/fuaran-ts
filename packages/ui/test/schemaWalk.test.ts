@@ -109,6 +109,44 @@ describe('Phase 1889 — schemaWalk', () => {
     ]);
   });
 
+  // Phase 2206 — the timestamp unit: a literal is typed by the unit its text spells, timestamps
+  // compare across units, and a coarser unit widens into a finer one, as the evaluator reads them.
+  it('timestamp units: literal unit, cross-unit comparison, unpivot widening', () => {
+    const stamps: DataSource = {
+      kind: 'Embedded',
+      table: {
+        schema: [
+          { name: 'id', type: 'string' },
+          { name: 'at', type: 'timestamp' },
+          { name: 'atMs', type: 'timestamp_ms' },
+        ],
+        columns: [],
+      },
+    };
+    const k = ofPipeline(stamps, [
+      {
+        kind: 'derive',
+        name: 'lit',
+        expr: { kind: 'lit', cell: { kind: 'Timestamp', value: '2026-01-01T00:00:00.000001Z' } },
+      },
+      {
+        kind: 'derive',
+        name: 'later',
+        expr: { kind: 'binary', op: 'lt', left: col('at'), right: col('atMs') },
+      },
+    ]);
+    expect(k.columns.slice(3)).toEqual([
+      { name: 'lit', type: 'timestamp_us' },
+      { name: 'later', type: 'bool' },
+    ]);
+    const u = ofPipeline(stamps, [{ kind: 'unpivot', idVars: ['id'], valueVars: ['at', 'atMs'] }]);
+    expect(u.columns).toEqual([
+      { name: 'id', type: 'string' },
+      { name: 'variable', type: 'string' },
+      { name: 'value', type: 'timestamp_ms' },
+    ]);
+  });
+
   it('window appends, typed by its function', () => {
     const k = ofPipeline(table, [
       {

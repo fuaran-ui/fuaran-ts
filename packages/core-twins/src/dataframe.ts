@@ -31,6 +31,12 @@ import type {
 import type { Result } from '@fuaran-ui/schema';
 
 import { num } from './canonFloat.js';
+import {
+  columnTypeWidens,
+  compareInstantText,
+  timestampDigits,
+  timestampTypeOfText,
+} from './columnType.js';
 import { daysFromCivil } from './civil.js';
 import {
   MAX_DECIMAL_SCALE,
@@ -175,8 +181,8 @@ const compareCells = (a: Cell, b: Cell): number | undefined => {
     return a.value < b.value ? -1 : a.value > b.value ? 1 : 0;
   if (a.kind === 'Date' && b.kind === 'Date')
     return a.value < b.value ? -1 : a.value > b.value ? 1 : 0;
-  if (a.kind === 'Timestamp' && b.kind === 'Timestamp')
-    return a.value < b.value ? -1 : a.value > b.value ? 1 : 0;
+  // Phase 2206 — by the instant, not the text: a fraction breaks the byte order.
+  if (a.kind === 'Timestamp' && b.kind === 'Timestamp') return compareInstantText(a.value, b.value);
   return undefined;
 };
 
@@ -407,7 +413,12 @@ const castCell = (ty: ColumnType, c: Cell): DR<Cell> => {
       if (c.kind === 'Date') return dok(c);
       if (c.kind === 'Str') return dok({ kind: 'Date', value: c.value });
       return derr(typeError('cannot cast to date'));
+    // Phase 2206 — a cast to any timestamp unit keeps the instant's one
+    // canonical text; the unit is a statement about the column, not the cell.
     case 'timestamp':
+    case 'timestamp_ms':
+    case 'timestamp_us':
+    case 'timestamp_ns':
       if (c.kind === 'Timestamp') return dok(c);
       if (c.kind === 'Str') return dok({ kind: 'Timestamp', value: c.value });
       return derr(typeError('cannot cast to timestamp'));
@@ -802,8 +813,9 @@ const cellTypeOf = (c: Cell): ColumnType | undefined => {
       return 'string';
     case 'Date':
       return 'date';
+    // Phase 2206 — the unit the instant text's fraction spells.
     case 'Timestamp':
-      return 'timestamp';
+      return timestampTypeOfText(c.value);
     case 'Decimal':
       return 'decimal';
     case 'Null':
@@ -811,12 +823,8 @@ const cellTypeOf = (c: Cell): ColumnType | undefined => {
   }
 };
 
-/**
- * The widening lattice: a type widens into itself, and an int into a float or
- * a decimal (losslessly). A float and a decimal never widen into each other.
- */
-const widens = (from: ColumnType, to: ColumnType): boolean =>
-  from === to || (from === 'int' && (to === 'float' || to === 'decimal'));
+/** The widening lattice (`columnType.ts`): int into float or decimal, a coarser timestamp unit into a finer one. */
+const widens = columnTypeWidens;
 
 /** The least type two types both widen into, or `undefined` (a float beside a decimal included). */
 const joinColumnType = (a: ColumnType, b: ColumnType): ColumnType | undefined =>
@@ -893,6 +901,8 @@ const tJoinAll = (ts: readonly Typing[]): Typing => ts.reduce<Typing>(tJoin, 'ab
 
 const isExact = (t: Typing): boolean => t === 'int' || t === 'decimal';
 const isNumeric = (t: Typing): boolean => t === 'int' || t === 'float';
+const isTimestamp = (t: Typing): boolean =>
+  t !== 'absent' && t !== 'unknown' && timestampDigits(t) !== undefined;
 
 const binaryTyping = (op: string, a: Typing, b: Typing): Typing => {
   const nullPropagating = (decide: () => Typing): Typing =>
@@ -927,7 +937,9 @@ const binaryTyping = (op: string, a: Typing, b: Typing): Typing => {
       return nullPropagating(() =>
         (isNumeric(a) && isNumeric(b)) ||
         (isExact(a) && isExact(b)) ||
-        (a === b && (a === 'string' || a === 'date' || a === 'timestamp' || a === 'bool'))
+        (a === b && (a === 'string' || a === 'date' || a === 'bool')) ||
+        // Phase 2206 — timestamps compare across units, as the reference's typer reads them.
+        (isTimestamp(a) && isTimestamp(b))
           ? 'bool'
           : 'unknown',
       );

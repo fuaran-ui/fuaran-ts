@@ -1553,6 +1553,45 @@ _Unreleased: ahead of the newest tag, `v0.30.0`._ Fifteen fields the specificati
 
 _Unreleased: ahead of the newest tag, `v0.30.0`._ `SelectSpec.value` is optional: a single-select carries it, a multi-select carries `values` and no `value`, so the placeholder `"value":{"$type":"Static"}` leaves a multi-select's wire. `decodeNode` refuses a single-select without `value` (`MISSING_FIELD` at `$.kind.value`, `reject-1962-select-missing-value`) and drops a decoded multi-select `value` (`lenient-1962-multiselect-value-dropped`); a malformed `multiple` leaves `value` decoded if present and not demanded. `Select.multiple` is an ordinary optional member, encoded as authored (`nodes/select-multiple-false.json`). `fuaran.select` passes no `value` when `multiple` is set; `preEmitValidate`'s `INERT_CONTROL` check for `Select` reads the optional `value`. `StepperSpec.onSelect` and `FileUploadSpec.onSelect` are optional closure markers written only when present, so `defaults.stepper()` / `defaults.fileUpload()` no longer carry them and the renderer arms the write-back default when absent. What a consumer must do: read `spec.value` as possibly `undefined`; build a multi-select without `value`. Every package rides its open draft slot; no number moves. Certified by `packages/ops/test/select-value-rule.test.ts` and the corpus families named.
 
+### Recorded breaking change — `@fuaran-ui/schema` 0.27.0, `@fuaran-ui/ops` 0.31.0, `@fuaran-ui/ui` 0.25.0, the column wire carries a timestamp unit (Phase 2206)
+
+_Unreleased: every package rides its open draft slot, ahead of the newest tag, `v0.30.0`. No number moves._
+
+**A timestamp column declares the resolution it holds its instants at** (`WIRE_FORMAT.md` §3.6.25, after
+fuaran-core#422). `ColumnType` and `COLUMN_TYPES` gain `timestamp_ms`, `timestamp_us` and `timestamp_ns`, after
+`decimal` in the reference's encode order. `TIMESTAMP_UNIT_DIGITS` and `isTimestampType` name the family. A
+timestamp cell stays one canonical instant text whatever the unit, so `Cell` does not change.
+
+**The decoder reads every timestamp column strictly, `timestamp` included.** A string is read only as the
+canonical instant text, with a fraction no finer than the column's unit. An epoch number is read in a sub-second
+column in its own unit, and in a `timestamp` column by magnitude as before. In every unit an instant outside
+the years 0000–9999 is refused. Before this change a `timestamp` column took any string and any in-bound epoch
+number unread. The reference host has refused the same text since its Phase 299, so this closes a divergence
+and does not open one. A `timestamp` column of whole-second canonical text, which is every one the corpus has
+pinned, decodes and encodes byte-for-byte as before.
+
+| Package                  | Draft  | What moved                                                                                                                                                                                            |
+| ------------------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@fuaran-ui/schema`      | 0.27.0 | `ColumnType` widens by three members, the breaking class (pre-1.0, a minor), which the 0.27.0 draft already carries.                                                                                  |
+| `@fuaran-ui/ops`         | 0.31.0 | The column decoder admits the three tags and reads a timestamp of every unit strictly (above). Its private copy of the column-type list is gone; it reads `COLUMN_TYPES`.                             |
+| `@fuaran-ui/conformance` | 0.27.1 | The bundled corpus gains thirteen files: round-trips per unit, the widening vector, the epoch reading per unit, and six refusals an adapter must now honour. It is re-synced to its authority commit. |
+| `@fuaran-ui/ui`          | 0.25.0 | It `export *`s `@fuaran-ui/schema`, so the union widening reaches its author surface. FUARAN097 accepts a temporal x-axis over a timestamp of any unit.                                               |
+| `@fuaran-ui/charts`      | 0.14.5 | The bundled workspace-internal `core-twins` module casts to any timestamp unit.                                                                                                                       |
+| `@fuaran-ui/op-stream`   | 0.11.5 | The same bundled module.                                                                                                                                                                              |
+
+The Go, Rust and Python hosts take the same tags against the same vectors in the same change-set. The .NET host
+reads them through the Fuaran.Core codec once it is on Core 1.0.0.
+
+**The evaluator and the schema walk read the unit too.** Phase 2001's derived-column typing rule landed beside
+this change, so both twins of the reference typer (`core-twins`, bundled into `ops`, `ui`, `charts` and
+`op-stream`, and `ui`'s static schema walk) now read the lattice the reference does: a timestamp cell is typed
+by the unit its text's fraction spells (`TemporalText.unitOf`), a coarser unit widens into a finer one, so a
+derived or unpivoted column of mixed units takes the finest, and two timestamps compare to `bool` whatever their
+units. The evaluator also orders timestamps by the instant rather than by their text, which a fraction breaks
+(`…:00Z` sorted after `…:00.5Z`). The lattice lives in one workspace-internal module (`core-twins/src/columnType.ts`),
+which the schema walk's own copy of the widening rule now reads. Certified by `packages/core-twins/test/columnType.test.ts`
+and `packages/ui/test/schemaWalk.test.ts`. No number moves.
+
 ## Re-confirmation gate before public exposure
 
 Before this repo flips public (public GitHub repository, published-to-npm package, or marketing surface), the licensing posture declared in [`LICENSE`](LICENSE) must be re-confirmed by Diametrical Ltd.

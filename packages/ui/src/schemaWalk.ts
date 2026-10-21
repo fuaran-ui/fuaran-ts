@@ -30,6 +30,8 @@ import type {
   WindowSpec,
 } from '@fuaran-ui/schema';
 
+import { columnTypeWidens, timestampDigits, timestampTypeOfText } from '@fuaran-ui/core-twins';
+
 /** One column the walk can name. `type` is absent where it is data-dependent. */
 export interface ColumnKnowledge {
   readonly name: string;
@@ -111,8 +113,9 @@ const ofCell = (c: Cell): Typing => {
       return of('string');
     case 'Date':
       return of('date');
+    // Phase 2206 — the unit the instant text's fraction spells.
     case 'Timestamp':
-      return of('timestamp');
+      return of(timestampTypeOfText(c.value));
     case 'Decimal':
       return of('decimal');
     case 'Null':
@@ -160,6 +163,14 @@ const binary = (op: BinOp, a: Typing, b: Typing): Typing => {
         if (numeric(a) && numeric(b)) return of('bool');
         if (exact(a) && exact(b)) return of('bool');
         if (a.t === 'of' && b.t === 'of' && a.ty === b.ty && a.ty !== 'int' && a.ty !== 'float')
+          return of('bool');
+        // Phase 2206 — timestamps compare across units, as the reference's typer reads them.
+        if (
+          a.t === 'of' &&
+          b.t === 'of' &&
+          timestampDigits(a.ty) !== undefined &&
+          timestampDigits(b.ty) !== undefined
+        )
           return of('bool');
         return UNKNOWN;
       });
@@ -371,10 +382,9 @@ export const ofTransform = (input: SchemaKnowledge, step: Transform): SchemaKnow
     case 'unpivot': {
       // The evaluator's rule over the value columns' declared types: decided where every value
       // column's type is known and they join under the widening lattice (an int into a float or a
-      // decimal), unknown where one is not known, a pair does not join, or a float meets a decimal.
+      // decimal, a coarser timestamp unit into a finer one), unknown where one is not known, a pair does not join, or a float meets a decimal.
       const types = step.valueVars.map((n) => schemaTypeOf(n, input));
-      const widens = (from: ColumnType, to: ColumnType): boolean =>
-        from === to || (from === 'int' && (to === 'float' || to === 'decimal'));
+      const widens = columnTypeWidens;
       let valueType: ColumnType | undefined = types.length === 0 ? 'string' : types[0];
       for (const t of types.slice(1)) {
         valueType =
