@@ -30,6 +30,13 @@ export {
 } from './civil.js';
 
 export {
+  columnTypeWidens,
+  compareInstantText,
+  timestampDigits,
+  timestampTypeOfText,
+} from './columnType.js';
+
+export {
   decimalAdd,
   decimalCanonical,
   decimalCompare,

@@ -1582,6 +1582,16 @@ pinned, decodes and encodes byte-for-byte as before.
 The Go, Rust and Python hosts take the same tags against the same vectors in the same change-set. The .NET host
 reads them through the Fuaran.Core codec once it is on Core 1.0.0.
 
+**The evaluator and the schema walk read the unit too.** Phase 2001's derived-column typing rule landed beside
+this change, so both twins of the reference typer (`core-twins`, bundled into `ops`, `ui`, `charts` and
+`op-stream`, and `ui`'s static schema walk) now read the lattice the reference does: a timestamp cell is typed
+by the unit its text's fraction spells (`TemporalText.unitOf`), a coarser unit widens into a finer one, so a
+derived or unpivoted column of mixed units takes the finest, and two timestamps compare to `bool` whatever their
+units. The evaluator also orders timestamps by the instant rather than by their text, which a fraction breaks
+(`…:00Z` sorted after `…:00.5Z`). The lattice lives in one workspace-internal module (`core-twins/src/columnType.ts`),
+which the schema walk's own copy of the widening rule now reads. Certified by `packages/core-twins/test/columnType.test.ts`
+and `packages/ui/test/schemaWalk.test.ts`. No number moves.
+
 ## Re-confirmation gate before public exposure
 
 Before this repo flips public (public GitHub repository, published-to-npm package, or marketing surface), the licensing posture declared in [`LICENSE`](LICENSE) must be re-confirmed by Diametrical Ltd.
