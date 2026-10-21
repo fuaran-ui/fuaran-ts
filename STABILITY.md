@@ -1475,7 +1475,12 @@ Patch advances for comment text only. The shipped `.d.ts` / JS doc text of `Form
 
 **This file is the changelog.** There is no `CHANGELOG.md` in this repository, and adding one would split the record in two: the reason a version moved and the surface it moved are the same paragraph, and that paragraph belongs beside the surface it describes.
 
-### `@fuaran-ui/conformance` 0.27.1 — the sync script can check the specification's remote `main` (Phase 2238)
+### `@fuaran-ui/conformance` 0.28.0 — the sync script can check the specification's remote `main` (Phase 2238)
+
+**The draft advances from 0.27.1 to 0.28.0 (2026-10-21).** It was opened as a patch slot. Phase 2206 then gave the
+bundled corpus six refusals an adapter must now honour. That is the class the 0.26.0 → 0.27.0 advance named minor: the
+bundled corpus moves under every adapter. The draft was never tagged or published, so the entries below ride 0.28.0
+unchanged.
 
 `scripts/sync-corpus.mjs` gains `--check-distance --remote`, which compares the bundled snapshot's recorded authority commit with the specification's `main` as its remote reports it now, instead of a local clone's HEAD (exit 0 current, 2 behind, 1 could not ask). **No shipped file changed**: the package's `files` are `dist`, `corpus` and `README.md`, and the script is a repository tool that is not packed, so a consumer installs byte-identical contents. The patch number exists because the release-advance guard counts any non-test, non-Markdown file under the package directory as moved sources. Unreleased: ahead of the newest tag.
 
@@ -1570,14 +1575,14 @@ number unread. The reference host has refused the same text since its Phase 299,
 and does not open one. A `timestamp` column of whole-second canonical text, which is every one the corpus has
 pinned, decodes and encodes byte-for-byte as before.
 
-| Package                  | Draft  | What moved                                                                                                                                                                                            |
-| ------------------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@fuaran-ui/schema`      | 0.27.0 | `ColumnType` widens by three members, the breaking class (pre-1.0, a minor), which the 0.27.0 draft already carries.                                                                                  |
-| `@fuaran-ui/ops`         | 0.31.0 | The column decoder admits the three tags and reads a timestamp of every unit strictly (above). Its private copy of the column-type list is gone; it reads `COLUMN_TYPES`.                             |
-| `@fuaran-ui/conformance` | 0.27.1 | The bundled corpus gains thirteen files: round-trips per unit, the widening vector, the epoch reading per unit, and six refusals an adapter must now honour. It is re-synced to its authority commit. |
-| `@fuaran-ui/ui`          | 0.25.0 | It `export *`s `@fuaran-ui/schema`, so the union widening reaches its author surface. FUARAN097 accepts a temporal x-axis over a timestamp of any unit.                                               |
-| `@fuaran-ui/charts`      | 0.14.5 | The bundled workspace-internal `core-twins` module casts to any timestamp unit.                                                                                                                       |
-| `@fuaran-ui/op-stream`   | 0.11.5 | The same bundled module.                                                                                                                                                                              |
+| Package                  | Draft  | What moved                                                                                                                                                                                                                                                                                        |
+| ------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@fuaran-ui/schema`      | 0.27.0 | `ColumnType` widens by three members, the breaking class (pre-1.0, a minor), which the 0.27.0 draft already carries.                                                                                                                                                                              |
+| `@fuaran-ui/ops`         | 0.31.0 | The column decoder admits the three tags and reads a timestamp of every unit strictly (above). Its private copy of the column-type list is gone; it reads `COLUMN_TYPES`.                                                                                                                         |
+| `@fuaran-ui/conformance` | 0.28.0 | The draft advances from 0.27.1: the six refusals are the breaking class (pre-1.0, a minor). The bundled corpus gains thirteen files: round-trips per unit, the widening vector, the epoch reading per unit, and six refusals an adapter must now honour. It is re-synced to its authority commit. |
+| `@fuaran-ui/ui`          | 0.25.0 | It `export *`s `@fuaran-ui/schema`, so the union widening reaches its author surface. FUARAN097 accepts a temporal x-axis over a timestamp of any unit.                                                                                                                                           |
+| `@fuaran-ui/charts`      | 0.14.5 | The bundled workspace-internal `core-twins` module casts to any timestamp unit.                                                                                                                                                                                                                   |
+| `@fuaran-ui/op-stream`   | 0.11.5 | The same bundled module.                                                                                                                                                                                                                                                                          |
 
 The Go, Rust and Python hosts take the same tags against the same vectors in the same change-set. The .NET host
 reads them through the Fuaran.Core codec once it is on Core 1.0.0.
