@@ -18,7 +18,9 @@
 // ============================================================================
 
 import {
+  COLUMN_TYPES,
   ENUM_CASES,
+  TIMESTAMP_UNIT_DIGITS,
   FORM_FIELD_KIND_NAMES,
   KIND_FIELDS,
   KINDS_BY_CATEGORY,
@@ -1457,15 +1459,6 @@ type CR<T> =
 const cok = <T>(value: T): CR<T> => ({ ok: true, value });
 const cerr = (error: string): CR<never> => ({ ok: false, error });
 
-const COMPUTE_COLUMN_TYPES: readonly ColumnType[] = [
-  'int',
-  'float',
-  'bool',
-  'string',
-  'date',
-  'timestamp',
-  'decimal',
-];
 const BIN_OPS = [
   'add',
   'sub',
@@ -1672,11 +1665,8 @@ const isoOfEpochSeconds = (secs: number): string => {
 /**
  * One present column cell decoded against its declared type — port of F#
  * `decodeCell`. A float column accepts an integer JSON token (lossless
- * widening); a timestamp column accepts a whole-valued epoch number
- * (fuaran-core#94 — models emit epoch instants against their own correct
- * `"timestamp"` schema; unit by magnitude: ≥ 1e11 ⇒ milliseconds, else
- * seconds — epoch-seconds stay below 1e11 until year 5138). Every other type
- * requires its exact JSON kind.
+ * widening); a timestamp column of any unit reads through `decodeInstant`.
+ * Every other type requires its exact JSON kind.
  */
 const decodeColumnCell = (colName: string, ty: ColumnType, v: JsonAst): CR<Cell> => {
   const mismatch = cerr(`column '${colName}': expected ${ty} value, got ${astKind(v)}`);
@@ -1691,21 +1681,113 @@ const decodeColumnCell = (colName: string, ty: ColumnType, v: JsonAst): CR<Cell>
       return v.kind === 'JString' ? cok({ kind: 'Str', value: v.value }) : mismatch;
     case 'date':
       return v.kind === 'JString' ? cok({ kind: 'Date', value: v.value }) : mismatch;
-    case 'timestamp': {
-      if (v.kind === 'JString') return cok({ kind: 'Timestamp', value: v.value });
-      // Whole-valued epoch number (the F# JInt path + the whole-JFloat path,
-      // unified — TS has one number kind); |x| ≥ 9e15 stays a mismatch.
-      if (v.kind === 'JNumber' && v.value === Math.floor(v.value) && Math.abs(v.value) < 9e15) {
-        const secs = Math.abs(v.value) >= 100_000_000_000 ? Math.trunc(v.value / 1000) : v.value;
-        return cok({ kind: 'Timestamp', value: isoOfEpochSeconds(secs) });
-      }
-      return mismatch;
-    }
+    case 'timestamp':
+    case 'timestamp_ms':
+    case 'timestamp_us':
+    case 'timestamp_ns':
+      return decodeInstant(colName, ty, TIMESTAMP_UNIT_DIGITS[ty] ?? 0, v, mismatch);
     case 'decimal':
       return decodeDecimalColumnCell(colName, v);
     default:
       return mismatch;
   }
+};
+
+// Phase 2206 — the timestamp unit (fuaran-core#422; WIRE_FORMAT §3.6.25).
+// The epoch seconds the canonical instant text spells: 0000-01-01T00:00:00Z
+// and 9999-12-31T23:59:59Z.
+const MIN_EPOCH_SECOND = -62_167_219_200;
+const MAX_EPOCH_SECOND = 253_402_300_799;
+
+const timestampTagOfDigits = (d: number): ColumnType =>
+  d === 0 ? 'timestamp' : d <= 3 ? 'timestamp_ms' : d <= 6 ? 'timestamp_us' : 'timestamp_ns';
+
+/**
+ * The fraction digits of a CANONICAL instant text (`YYYY-MM-DDThh:mm:ssZ`, or
+ * `YYYY-MM-DDThh:mm:ss.FZ` with one to nine digits and no trailing zero,
+ * naming a moment that exists), or `undefined` for any other text.
+ */
+const instantFractionDigits = (s: string): number | undefined => {
+  if (s.length < 20 || s[10] !== 'T' || s[13] !== ':' || s[16] !== ':') return undefined;
+  if (parseIsoDay(s) === undefined) return undefined;
+  const two = (at: number): number | undefined => {
+    const a = s.charCodeAt(at) - 48;
+    const b = s.charCodeAt(at + 1) - 48;
+    return a >= 0 && a <= 9 && b >= 0 && b <= 9 ? a * 10 + b : undefined;
+  };
+  const h = two(11);
+  const mi = two(14);
+  const se = two(17);
+  if (h === undefined || mi === undefined || se === undefined || h > 23 || mi > 59 || se > 59)
+    return undefined;
+  if (s.length === 20) return s[19] === 'Z' ? 0 : undefined;
+  if (s.length > 30 || s[19] !== '.' || s[s.length - 1] !== 'Z' || s[s.length - 2] === '0')
+    return undefined;
+  for (let k = 20; k < s.length - 1; k += 1) {
+    const c = s.charCodeAt(k);
+    if (c < 48 || c > 57) return undefined;
+  }
+  return s.length - 21;
+};
+
+/**
+ * A timestamp column's cell at a unit holding `digits` fraction digits. TEXT is
+ * read only in its canonical form, with a fraction no finer than the unit (a
+ * coarser instant widens in unchanged — one instant has one text). An EPOCH
+ * NUMBER (whole-valued, |x| < 9e15) is read in a `timestamp` column by
+ * magnitude, as fuaran-core#94 pinned it (≥ 1e11 ⇒ milliseconds, truncated to
+ * the second), and in a sub-second column in its own unit with no guess; either
+ * way it must name an instant in the years 0000–9999.
+ */
+const decodeInstant = (
+  colName: string,
+  ty: ColumnType,
+  digits: number,
+  v: JsonAst,
+  mismatch: CR<Cell>,
+): CR<Cell> => {
+  if (v.kind === 'JString') {
+    const n = instantFractionDigits(v.value);
+    if (n === undefined)
+      return cerr(
+        `malformed: ${colName}: a ${ty} value must be canonical ISO-8601 text, YYYY-MM-DDThh:mm:ssZ or YYYY-MM-DDThh:mm:ss.FZ, naming a moment that exists`,
+      );
+    if (n > digits)
+      return cerr(
+        `malformed: ${colName}: a ${ty} value's fraction is finer than the column's unit holds: ${timestampTagOfDigits(n)} or finer is needed`,
+      );
+    return cok({ kind: 'Timestamp', value: v.value });
+  }
+  // The F# JInt path and its whole-JFloat path, unified — TS has one number kind.
+  if (v.kind !== 'JNumber' || v.value !== Math.floor(v.value) || Math.abs(v.value) >= 9e15)
+    return mismatch;
+  let second: number;
+  let fraction = 0;
+  if (digits === 0) {
+    second = Math.abs(v.value) >= 100_000_000_000 ? Math.trunc(v.value / 1000) : v.value;
+  } else {
+    // Floor division in exact integers: |v| < 9e15, so every product is exact.
+    const scale = 10 ** digits;
+    second = Math.floor(v.value / scale);
+    fraction = v.value - second * scale;
+    if (fraction < 0) {
+      second -= 1;
+      fraction += scale;
+    } else if (fraction >= scale) {
+      second += 1;
+      fraction -= scale;
+    }
+  }
+  if (second < MIN_EPOCH_SECOND || second > MAX_EPOCH_SECOND)
+    return cerr(
+      `malformed: ${colName}: the epoch ${v.value} names an instant outside the years 0000-9999 the canonical timestamp spells`,
+    );
+  const whole = isoOfEpochSeconds(second);
+  const text =
+    fraction === 0
+      ? whole
+      : `${whole.slice(0, 19)}.${String(fraction).padStart(digits, '0').replace(/0+$/, '')}Z`;
+  return cok({ kind: 'Timestamp', value: text });
 };
 
 const decodeColSchema = (j: JsonAst): CR<SchemaEntry[]> => {
@@ -1718,10 +1800,8 @@ const decodeColSchema = (j: JsonAst): CR<SchemaEntry[]> => {
     if (!name.ok) return name;
     const ty = cStrField(fo.value, 'type');
     if (!ty.ok) return ty;
-    if (!COMPUTE_COLUMN_TYPES.includes(ty.value as ColumnType)) {
-      return cerr(
-        `unknown column type '${ty.value}'; expected one of: ${COMPUTE_COLUMN_TYPES.join(', ')}`,
-      );
+    if (!COLUMN_TYPES.includes(ty.value as ColumnType)) {
+      return cerr(`unknown column type '${ty.value}'; expected one of: ${COLUMN_TYPES.join(', ')}`);
     }
     return cok<SchemaEntry>({ name: name.value, type: ty.value as ColumnType });
   });
@@ -1973,9 +2053,9 @@ const decodeColExprCore = (j: JsonAst): CR<ColExpr> => {
     case 'cast': {
       const ty = cStrField(f, 'type');
       if (!ty.ok) return ty;
-      if (!COMPUTE_COLUMN_TYPES.includes(ty.value as ColumnType)) {
+      if (!COLUMN_TYPES.includes(ty.value as ColumnType)) {
         return cerr(
-          `unknown column type '${ty.value}'; expected one of: ${COMPUTE_COLUMN_TYPES.join(', ')}`,
+          `unknown column type '${ty.value}'; expected one of: ${COLUMN_TYPES.join(', ')}`,
         );
       }
       const ej = cField(f, 'expr');

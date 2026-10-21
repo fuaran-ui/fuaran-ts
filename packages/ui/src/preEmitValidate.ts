@@ -25,7 +25,7 @@ import type {
   TextSource,
 } from '@fuaran-ui/schema';
 import type { ChartSpec, ColumnErased, ColumnType, GridSpec, Result } from '@fuaran-ui/schema';
-import { defaults } from '@fuaran-ui/schema';
+import { defaults, isTimestampType } from '@fuaran-ui/schema';
 
 import {
   ofPipeline,
@@ -357,7 +357,7 @@ function runPreEmit<TMsg>(
     } else {
       const t = schemaTypeOf(spec.xField, produced);
       if (t !== undefined) {
-        if (temporalX && t !== 'date' && t !== 'timestamp')
+        if (temporalX && t !== 'date' && !isTimestampType(t))
           defects.push({
             code: 'CHART_TEMPORAL_X_NOT_DATE',
             nodeId,
