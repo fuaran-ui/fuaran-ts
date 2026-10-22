@@ -1597,6 +1597,37 @@ units. The evaluator also orders timestamps by the instant rather than by their 
 which the schema walk's own copy of the widening rule now reads. Certified by `packages/core-twins/test/columnType.test.ts`
 and `packages/ui/test/schemaWalk.test.ts`. No number moves.
 
+### Recorded breaking change — `@fuaran-ui/ops` 0.31.0 and `@fuaran-ui/conformance` 0.28.0, two number tokens are refused and a depth breach names its path (Phase 2286)
+
+_Unreleased: rides the `@fuaran-ui/ops` 0.31.0 and `@fuaran-ui/conformance` 0.28.0 draft slots above._
+
+**What changed.** The decoder's JSON parser refuses two number tokens it used to read, both as `INVALID_JSON`:
+
+- an **overflowing exponent** (`1e999`, `-1e999`), which decoded to an infinity (WIRE_FORMAT.md §20.2 row 7,
+  amended). An underflowing one (`1e-999`) is still read, as zero;
+- an **integer token past 2^53** that is not the canonical float layout of the double it reads as
+  (`9007199254740993`, a 19-digit identifier), which decoded to the nearest double (§2 rule 5, amended). A token
+  past 2^53 that IS a canonical layout (`10000000000000000`) is still read.
+
+A JSON-depth breach is `LIMIT_EXCEEDED` at the **breach's path** (`$[0][0]…`, the container that would have nested
+one level too deep) rather than at `$`, as §21.2 rule 2 has `Path` name it. The bundled corpus snapshot moves with
+the corpus: `lenient-1521-payload-integer-beyond-int53` leaves, `reject-json-number-overflow-exponent` and
+`reject-json-integer-beyond-int53` arrive.
+
+**Why.** The reference host now parses through the substrate's token reader (Phase 2286), whose grammar refuses
+both tokens: the wire has no non-finite float, and an integer past 2^53 that is not a canonical layout has no
+representation every host holds exactly, so admitting it rounded one document to different bytes on different
+hosts. Neither token can be written by a conformant encoder, so the narrowing costs no conformant document. Every
+codec host moved in the same change-set.
+
+**What it costs a consumer.** A document carrying either token is refused where it decoded. Write an infinity as
+the quoted sentinel `"Infinity"` and an integer that can leave ±2^53 as a string. A caller matching a depth breach
+on `path === '$'` should match the code instead.
+
+**What certifies it.** The two `reject/` corpus fixtures, run by `packages/ops/test/corpus.test.ts`; the
+`repair-limit-exceeded` case of the `repair/` family (`packages/ops/test/repair.test.ts`); and the row 7 and §2
+rule 5 cases of `packages/ops/test/decode-determinism.test.ts`.
+
 ## Re-confirmation gate before public exposure
 
 Before this repo flips public (public GitHub repository, published-to-npm package, or marketing surface), the licensing posture declared in [`LICENSE`](LICENSE) must be re-confirmed by Diametrical Ltd.

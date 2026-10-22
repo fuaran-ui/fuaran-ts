@@ -7365,9 +7365,18 @@ const nodeWalk = (
   return r.ok ? r : { ok: false, error: defectList(r.error) };
 };
 
-const parseFailure = (e: { readonly message: string; readonly limit?: boolean }): R<never> =>
+const parseFailure = (e: {
+  readonly message: string;
+  readonly limit?: boolean;
+  readonly path?: string;
+}): R<never> =>
   e.limit === true
-    ? makeError('LIMIT_EXCEEDED', '$', e.message, 'a document within the WIRE_FORMAT §21 limits')
+    ? makeError(
+        'LIMIT_EXCEEDED',
+        e.path ?? '$',
+        e.message,
+        'a document within the WIRE_FORMAT §21 limits',
+      )
     : invalidJson(e.message);
 
 /**

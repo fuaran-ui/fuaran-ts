@@ -111,13 +111,37 @@ describe('§20.2 row 3 — the RFC 8259 number grammar', () => {
     },
   );
 
-  it('row 7 — an overflowing exponent is an infinity, not a refusal', () => {
-    // Ratified as-is: all five hosts already agreed, so the row was unspecified
-    // rather than divergent. It sits deliberately beside row 4, which refuses
-    // the same value written as a bare `Infinity` literal.
-    const r = decodeNode(metric('1e999'));
-    expect(r.ok).toBe(true);
+  it.each(['1e999', '-1e999', '1E+400'])(
+    'row 7 — refuses the overflowing exponent %j (amended by Phase 2286)',
+    (token) => {
+      // The value is outside the finite double range and the wire has no
+      // non-finite float; §7's quoted sentinel is the one spelling of an infinity.
+      expectRefused(metric(token), 'INVALID_JSON');
+    },
+  );
+
+  it('row 7 — an underflowing exponent is a finite zero, and is read', () => {
+    expectDecodes(metric('1e-999'));
   });
+});
+
+describe('§2 rule 5 — an integer token past 2^53 (amended by Phase 2286)', () => {
+  const payload = (token: string): string =>
+    `{"id":"c","kind":{"$type":"Custom","componentId":"c","moduleId":"m","props":{"n":${token}}}}`;
+
+  it.each(['9007199254740993', '-9007199254740993', '12345678901234567890', '100000000000000000'])(
+    'refuses the non-canonical token %j',
+    (token) => {
+      expectRefused(payload(token), 'INVALID_JSON');
+    },
+  );
+
+  it.each(['9007199254740991', '9007199254740992', '9007199254740994', '10000000000000000'])(
+    'reads %j, the canonical float layout of its double',
+    (token) => {
+      expectDecodes(payload(token));
+    },
+  );
 });
 
 describe('§20.2 row 5 — a raw C0 control character in a string', () => {

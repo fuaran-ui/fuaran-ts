@@ -27,6 +27,7 @@ import {
   MAX_STRING_LENGTH,
   type Result,
 } from '@fuaran-ui/schema';
+import { formatFiniteDouble } from '@fuaran-ui/core-twins';
 
 /** Local JSON AST. Shape-for-shape port of the F# decoder's private `Json` DU. */
 export type JsonAst =
@@ -50,6 +51,12 @@ export interface ParseError {
    * this flag to choose between `INVALID_JSON` and `LIMIT_EXCEEDED`.
    */
   readonly limit?: boolean;
+  /**
+   * The breach's path (`$`, `.key`, `[i]`) for a §21 depth breach: the position
+   * of the container that would have nested one level too deep, which §21.2
+   * rule 2 has `Path` name (Phase 2286). Absent on every other failure.
+   */
+  readonly path?: string;
 }
 
 // ─── Mutable cursor over the source text ─────────────────────────────────────
@@ -65,7 +72,22 @@ interface ParseState {
    * exists to refuse, and on a host with a hard stack limit it never runs.
    */
   depth: number;
+  /**
+   * The position being read at each nesting level: `path[k]` is the item index
+   * or member key inside the container at depth `k + 1`. Only the first `depth`
+   * entries are live; a deeper stale entry is overwritten before it is read.
+   */
+  path: (string | number)[];
 }
+
+/** The live path, in the decoder's spelling. */
+const renderPath = (s: ParseState): string =>
+  s.path
+    .slice(0, s.depth)
+    .reduce<string>(
+      (acc, seg) => (typeof seg === 'number' ? `${acc}[${seg}]` : `${acc}.${seg}`),
+      '$',
+    );
 
 const peek = (s: ParseState): string => (s.pos < s.text.length ? s.text[s.pos]! : ' ');
 
@@ -89,9 +111,12 @@ const skipWs = (s: ParseState): void => {
  * `limit` flag, which is what stops the breach being reported as a syntax
  * error two layers up.
  */
-const failLimit = (s: ParseState, message: string): Result<never, ParseError> => ({
+const failLimit = (s: ParseState, message: string, path?: string): Result<never, ParseError> => ({
   ok: false,
-  error: { message, offset: s.pos, limit: true },
+  error:
+    path === undefined
+      ? { message, offset: s.pos, limit: true }
+      : { message, offset: s.pos, limit: true, path },
 });
 
 const fail = (s: ParseState, message: string): Result<never, ParseError> => ({
@@ -328,6 +353,29 @@ const parseNumberRaw = (s: ParseState): Result<number, ParseError> => {
   if (Number.isNaN(n)) {
     return fail(s, `invalid number '${slice}'`);
   }
+  // WIRE_FORMAT §20.2 row 7 (amended by Phase 2286): a value outside the finite
+  // double range is refused. The wire has no non-finite float, and `1e999` is a
+  // token no conformant encoder writes.
+  if (!Number.isFinite(n)) {
+    return fail(
+      s,
+      `number outside the finite double range; it cannot round-trip on the wire: ${slice}`,
+    );
+  }
+  // WIRE_FORMAT §2 rule 5 (amended by Phase 2286): an integer token past 2^53 is
+  // read only when it is the canonical float layout of the double it reads as.
+  // Judged on the TOKEN: 2^53 + 1 reads as 2^53, so a range check on `n` would
+  // admit it.
+  if (!/[.eE]/.test(slice)) {
+    const digits = slice.startsWith('-') ? slice.substring(1) : slice;
+    const int53Safe = digits.length < 16 || (digits.length === 16 && digits <= '9007199254740992');
+    if (!int53Safe && formatFiniteDouble(n) !== slice) {
+      return fail(
+        s,
+        `integer literal outside the int53 safe range (|n| > 2^53); it cannot round-trip without precision loss: ${slice}`,
+      );
+    }
+  }
   return { ok: true, value: n };
 };
 
@@ -376,6 +424,7 @@ const parseObjectValue = (s: ParseState): Result<JsonAst, ParseError> => {
     return failLimit(
       s,
       `JSON nesting deeper than the wire limit MAX_JSON_DEPTH = ${MAX_JSON_DEPTH}`,
+      renderPath(s),
     );
   }
   const open = expectChar(s, '{');
@@ -404,6 +453,7 @@ const parseObjectValue = (s: ParseState): Result<JsonAst, ParseError> => {
       s.depth -= 1;
       return colon;
     }
+    s.path[s.depth - 1] = keyR.value;
     const valR = parseValue(s);
     if (!valR.ok) {
       s.depth -= 1;
@@ -450,6 +500,7 @@ const parseArrayValue = (s: ParseState): Result<JsonAst, ParseError> => {
     return failLimit(
       s,
       `JSON nesting deeper than the wire limit MAX_JSON_DEPTH = ${MAX_JSON_DEPTH}`,
+      renderPath(s),
     );
   }
   const open = expectChar(s, '[');
@@ -465,6 +516,7 @@ const parseArrayValue = (s: ParseState): Result<JsonAst, ParseError> => {
   s.depth += 1;
 
   for (;;) {
+    s.path[s.depth - 1] = items.length;
     const valR = parseValue(s);
     if (!valR.ok) {
       s.depth -= 1;
@@ -550,7 +602,7 @@ export const parse = (input: string): Result<JsonAst, ParseError> => {
     };
   }
 
-  const s: ParseState = { text: input, pos: 0, depth: 0 };
+  const s: ParseState = { text: input, pos: 0, depth: 0, path: [] };
   skipWs(s);
   if (s.pos >= s.text.length) {
     return { ok: false, error: { message: 'input is empty', offset: 0 } };
