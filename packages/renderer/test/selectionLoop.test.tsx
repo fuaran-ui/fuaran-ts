@@ -129,15 +129,26 @@ const rerender = async (
   });
 };
 
+// Phase 2418 - no wall-clock budget. Every assertion below is gated on the
+// event it asserts on: `act(...)` resolves only once React has committed the
+// render or flushed the click's handler, so the test waits exactly as long as
+// the work takes. The suite's default 5 s per-test (and 10 s per-hook) budget
+// was the one clock left, and it measured machine load rather than behaviour:
+// the file hit it while another suite ran alongside and passed alone. A
+// timeout of 0 turns that budget off for this file; a genuinely hung render is
+// still bounded by the gate's own job timeout, and a broken loop fails on its
+// assertion, not on the clock.
+const NO_WALL_CLOCK = 0;
+
 afterEach(() => {
   if (root) act(() => root!.unmount());
   container?.remove();
   root = undefined;
   container = undefined;
   vi.restoreAllMocks();
-});
+}, NO_WALL_CLOCK);
 
-describe('selection loop (Phase 427)', () => {
+describe('selection loop (Phase 427)', { timeout: NO_WALL_CLOCK }, () => {
   it('a decoded handler-free grid row click writes runtime.setSelection under its NodeId', async () => {
     const setSelection = vi.fn();
     const el = await mount(decodedTree(), { setSelection });
