@@ -268,6 +268,48 @@ export type PreEmitDefect =
     };
 
 /**
+ * Phase 2418 — the canonical pre-emit defect code each finding carries, as a
+ * VALUE. A finding's `code` is this host's discriminant (what an exhaustive
+ * `switch` reads); the FUARAN code is the cross-host identity the
+ * specification's defect vocabulary enumerates. The table is typed over every
+ * discriminant, so a defect added without its code does not compile, and
+ * `validator-coverage.json`'s `implemented` list is checked against these
+ * values by this package's suite. Two discriminants share FUARAN114 (the grid
+ * field and the TonedPill field), exactly as the vocabulary lists both cases
+ * under it.
+ */
+export const PRE_EMIT_FUARAN_CODES = {
+  EMPTY_NODE_ID: 'FUARAN-EMPTY-ID',
+  DUPLICATE_NODE_ID: 'FUARAN-DUP-ID',
+  EMPTY_CUSTOM_KIND_IDENTIFIER: 'FUARAN-EMPTY-CUSTOM',
+  TAB_HEADER_COUNT_MISMATCH: 'FUARAN047',
+  TAB_TAG_COUNT_MISMATCH: 'FUARAN048',
+  TAB_ACTIVE_TAG_WITHOUT_TAGS: 'FUARAN049',
+  INERT_CONTROL: 'FUARAN069',
+  DUPLICATE_SWITCH_MATCH: 'FUARAN082',
+  SWITCH_CASE_SELECTOR_SHAPE: 'FUARAN147',
+  UNGROUNDED_SWITCH_STATE_KEY: 'FUARAN083',
+  INERT_EDITABLE_GRID: 'FUARAN090',
+  INTERACTIVE_WITHOUT_ACCESSIBLE_NAME: 'FUARAN109',
+  DANGLING_ACCESSIBILITY_REFERENCE: 'FUARAN110',
+  EMPTY_ACCESSIBILITY_DECLARATION: 'FUARAN111',
+  DANGLING_FILTER_REFERENCE: 'FUARAN075',
+  CHART_FIELD_UNGROUNDED: 'FUARAN086',
+  CHART_FIELD_TYPE_MISMATCH: 'FUARAN087',
+  CHART_TEMPORAL_X_NOT_DATE: 'FUARAN097',
+  GRID_FIELD_UNGROUNDED: 'FUARAN114',
+  GRID_PILL_FIELD_UNGROUNDED: 'FUARAN114',
+  ACTION_COLUMN_FIELD: 'FUARAN163',
+} as const satisfies { readonly [K in PreEmitDefect['code']]: `FUARAN${string}` };
+
+/** A canonical pre-emit defect code this host raises (Phase 2418). */
+export type PreEmitFuaranCode = (typeof PRE_EMIT_FUARAN_CODES)[PreEmitDefect['code']];
+
+/** The canonical FUARAN code of a pre-emit finding (Phase 2418). */
+export const fuaranCodeOf = (defect: PreEmitDefect): PreEmitFuaranCode =>
+  PRE_EMIT_FUARAN_CODES[defect.code];
+
+/**
  * Phase 1909 — an ACTION column: cell kind `Button` or `ButtonGroup`. Its cell
  * never displays the column's `field`, so no rule grounds that field, and sort
  * and export ignore it (the renderer's `Visualisation.tsx` reads the same kind

@@ -1628,6 +1628,12 @@ on `path === '$'` should match the code instead.
 `repair-limit-exceeded` case of the `repair/` family (`packages/ops/test/repair.test.ts`); and the row 7 and §2
 rule 5 cases of `packages/ops/test/decode-determinism.test.ts`.
 
+### `@fuaran-ui/ui` 0.25.0 — a pre-emit finding's FUARAN code is a value (Phase 2418)
+
+**Additive.** `@fuaran-ui/ui` exports `PRE_EMIT_FUARAN_CODES`, which maps every `PreEmitDefect` discriminant to the canonical defect code the specification's vocabulary enumerates (`EMPTY_NODE_ID` to `FUARAN-EMPTY-ID`, `TAB_HEADER_COUNT_MISMATCH` to `FUARAN047`, and so on; `GRID_FIELD_UNGROUNDED` and `GRID_PILL_FIELD_UNGROUNDED` share `FUARAN114`, as the vocabulary lists both cases under it), the type `PreEmitFuaranCode`, and `fuaranCodeOf(defect)`. The table is typed over the whole union, so a defect added without its code does not compile. No finding changes shape and no discriminant is renamed: a consumer's exhaustive `switch` on `code` reads exactly as before.
+
+**Why.** The codes were only in doc comments, so `validator-coverage.json` could not be checked against what the validator raises, and the specification's coverage matrix reported this host "machine-checked: no". The declaration now says `machineChecked: true`, and `packages/ui/test/validatorCoverage.test.ts` holds it to the table in both directions. Doing so found three codes this host always raised and never declared (`FUARAN-EMPTY-ID`, `FUARAN-DUP-ID`, `FUARAN-EMPTY-CUSTOM`); they join `implemented`. The slot is not advanced: the change is additive and rides the standing draft.
+
 ## Re-confirmation gate before public exposure
 
 Before this repo flips public (public GitHub repository, published-to-npm package, or marketing surface), the licensing posture declared in [`LICENSE`](LICENSE) must be re-confirmed by Diametrical Ltd.
