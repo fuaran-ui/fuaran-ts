@@ -1471,6 +1471,13 @@ change-set.
 
 Patch advances for comment text only. The shipped `.d.ts` / JS doc text of `FormFieldKind` (schema) and of the `setFilter` seam (renderer) named `FilterKind.onChange`, a type the filters unification removed; they now name `FormFieldKind.onChange`. No type, field, default or runtime behaviour moves, so under the pre-1.0 rules this is a patch.
 
+
+**`@fuaran-ui/renderer`'s draft advances from 0.27.1 to 0.28.0 (2026-10-23, Phase 2418).** 0.27.1 was opened as a
+patch slot for comment text only, and was never tagged or published (npm serves 0.27.0). Later work rode the same
+untagged slot at a higher class: the server-renderer parity and the debug surface decoding under the mount's
+policy (Phase 1931), the defaults and slot tables generated from the field tables (Phase 2073), and the 1962 + 2300
+rule-1 encoder change it inherits. A number that says "patch" over that set would be false, so the next release of
+this package is 0.28.0. The schema half of Phase 2245 stays 0.26.1.
 ### Where the release notes live
 
 **This file is the changelog.** There is no `CHANGELOG.md` in this repository, and adding one would split the record in two: the reason a version moved and the surface it moved are the same paragraph, and that paragraph belongs beside the surface it describes.
