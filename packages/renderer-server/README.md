@@ -12,7 +12,7 @@ npm install @fuaran-ui/renderer-server
 
 `@fuaran-ui/schema` and `@fuaran-ui/renderer` are peer dependencies (the latter for its React-free `/sanitize` and `/markdown` subpaths + the packaged reference CSS). `react` / `react-dom` are **not** required at runtime, and this package now has **no runtime dependencies of its own** — markdown renders through the same deterministic renderer the client uses, so the server and the client cannot disagree about a markdown body.
 
-`@fuaran-ui/charts` is an **optional** peer. A host that renders `Chart` or `Sparkline` pictures installs it and registers it once with `registerCharts` from `@fuaran-ui/renderer` (see that package's README); without it, both kinds render their placeholder elements below.
+`@fuaran-ui/charts` is an **optional** peer. A host that renders `Chart` or `Sparkline` pictures installs it and registers it once with `registerCharts` from `@fuaran-ui/renderer` (see that package's README); without it, both kinds render their placeholder elements below. Upgrading from an earlier version: see [`docs/migrations/2434-charts-registration.md`](../../docs/migrations/2434-charts-registration.md).
 
 ## Server semantics
 

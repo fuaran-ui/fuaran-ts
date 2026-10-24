@@ -38,7 +38,8 @@ registerCharts(charts);
 With nothing registered, a `Chart` renders the placeholder an unlowered chart kind
 renders (`fuaran-chart-placeholder`) and a `Sparkline` the em-dash element
 (`fuaran-sparkline-empty`), identically on the client and the server, so the page
-still renders and hydrates. The standalone browser bundle registers charts itself.
+still renders and hydrates. The standalone browser bundle registers charts itself. Upgrading from an earlier
+version: see [`docs/migrations/2434-charts-registration.md`](../../docs/migrations/2434-charts-registration.md).
 
 ## Custom-renderer registry
 
