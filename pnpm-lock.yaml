@@ -630,13 +630,13 @@ importers:
   templates/ts-starter:
     dependencies:
       '@fuaran-ui/renderer':
-        specifier: ^0.28.0
+        specifier: ^0.28.1
         version: link:../../packages/renderer
       '@fuaran-ui/schema':
-        specifier: ^0.27.0
+        specifier: ^0.28.0
         version: link:../../packages/schema
       '@fuaran-ui/ui':
-        specifier: ^0.25.0
+        specifier: ^0.26.0
         version: link:../../packages/ui
       react:
         specifier: ^19.0.0

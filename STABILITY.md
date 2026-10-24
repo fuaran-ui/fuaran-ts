@@ -1641,6 +1641,46 @@ rule 5 cases of `packages/ops/test/decode-determinism.test.ts`.
 
 **Why.** The codes were only in doc comments, so `validator-coverage.json` could not be checked against what the validator raises, and the specification's coverage matrix reported this host "machine-checked: no". The declaration now says `machineChecked: true`, and `packages/ui/test/validatorCoverage.test.ts` holds it to the table in both directions. Doing so found three codes this host always raised and never declared (`FUARAN-EMPTY-ID`, `FUARAN-DUP-ID`, `FUARAN-EMPTY-CUSTOM`); they join `implemented`. The slot is not advanced: the change is additive and rides the standing draft.
 
+### Recorded breaking change — `@fuaran-ui/schema` 0.28.0, `@fuaran-ui/ops` 0.32.0, `@fuaran-ui/ui` 0.26.0, `@fuaran-ui/charts` 0.15.0 and `@fuaran-ui/op-stream` 0.12.0, the power functions (Phase 2400)
+
+_Unreleased: ahead of the newest tag, `v0.31.0`, which published every one of these packages at its previous
+number, so each advances rather than riding a draft._
+
+**`ScalarFn` gains `'pow'`, `'exp'`, `'ln'` and `'log10'`** (the reference's D43). A closed union gaining cases is
+the breaking class, pre-1.0 a minor: an exhaustive `switch` over `ScalarFn` in a consumer stops compiling until it
+handles the four. The codec decodes and encodes the four tags; the evaluator answers them:
+
+- **An integer exponent is exact on every host.** One pinned routine — binary exponentiation over IEEE-754
+  multiplication, the accumulator empty until the first set bit, one reciprocal for a negative exponent (null where
+  that power is zero) — so `x^2` is `x*x` and `x^3` is `x*(x*x)` bit for bit. An int base under a non-negative int
+  exponent answers an int, refused when a product leaves the int32 band.
+- **A float exponent, `exp`, `ln` and `log10` are host-rounded.** A special-value table answers first (a NaN
+  propagates, a zero exponent and a base of one answer 1, `pow(-1, ±Infinity)` is 1, out-of-domain input is null,
+  `exp` saturates at its two edges, `ln 1` is exactly 0), then `Math`. Across hosts the answers agree within
+  2 ulp.
+- **Typing.** The transcendentals answer a float. A power over an int base under a literal int exponent is an int
+  at or above zero and a float below; an int pair otherwise is decided by the cells; every other pair is a float.
+  The evaluator's typer and `@fuaran-ui/ui`'s static schema walk read the same rule.
+
+**`project`, `groupBy`, `unpivot` and `pivot` refuse an output that names a column twice** (the reference's D35),
+through one check, before any row is read. A table cannot hold two columns of one name; before this change the
+evaluator answered one.
+
+**What certifies it.** The shared corpus's `transformLaws` family at kit version 0.41.0: four `repeat-*-refused`
+vectors and eight `power-*` vectors. The law runner reads `expected.tolerance` and compares a named column cell by
+cell within its bound in ulps (a zero, a sign and a non-finite value exactly) and the rest of the table byte for
+byte. Measured under Node: 0 ulp on every transcendental vector. The NaN and infinity rows, which the wire cannot
+carry, are pinned by the suite beside the leg.
+
+`@fuaran-ui/charts` and `@fuaran-ui/op-stream` bundle the workspace-internal evaluator twin, so they advance with
+it; nothing else in them moves. The starter template's pins follow `@fuaran-ui/schema`, `@fuaran-ui/ui` and `@fuaran-ui/renderer`.
+
+**Release-consistency patches, no surface moves:** `@fuaran-ui/renderer` 0.28.1, `@fuaran-ui/renderer-server` 0.25.2,
+`@fuaran-ui/client` 0.13.1, `@fuaran-ui/react` 0.13.2, `@fuaran-ui/ai-tools` 0.14.2, `@fuaran-ui/mcp` 0.14.3 and
+`@fuaran-ui/theme-manifest` 0.12.4. Each was published at `v0.31.0` with a `workspace:^` peer range that excludes
+the advanced `schema`, `ops`, `ui` or `charts`; the patch is what makes the next pack write the range that admits
+them.
+
 ## Re-confirmation gate before public exposure
 
 Before this repo flips public (public GitHub repository, published-to-npm package, or marketing surface), the licensing posture declared in [`LICENSE`](LICENSE) must be re-confirmed by Diametrical Ltd.

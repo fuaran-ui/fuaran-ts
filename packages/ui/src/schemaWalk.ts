@@ -218,8 +218,23 @@ const applyFn = (fn: ScalarFn, args: readonly Typing[]): Typing => {
       return !arity(3) || anyAbsent ? ABSENT : of('string');
     case 'dateDiffDays':
       return !arity(2) || anyAbsent ? ABSENT : of('int');
+    // Phase 2400 (the reference's D43): the transcendentals answer a float. A power over an int
+    // base and an int exponent is decided by the exponent's SIGN, which a typing does not carry —
+    // `powLit` reads a literal exponent, and otherwise the cells decide; every other pair a float.
+    case 'exp':
+    case 'ln':
+    case 'log10':
+      return unary(() => of('float'));
+    case 'pow':
+      if (!arity(2) || anyAbsent) return ABSENT;
+      if (isOf(args[0]!, 'int') && isOf(args[1]!, 'int')) return UNKNOWN;
+      return args.some((t) => t.t === 'unknown') ? UNKNOWN : of('float');
   }
 };
+
+/** A power under a LITERAL integer exponent: an int base is an int at or above zero, else a float. */
+const powLit = (n: number, b: Typing): Typing =>
+  b.t === 'absent' || b.t === 'unknown' ? b : isOf(b, 'int') && n >= 0 ? of('int') : of('float');
 
 const typing = (cols: readonly ColumnKnowledge[], e: ColExpr): Typing => {
   const go = (x: ColExpr): Typing => typing(cols, x);
@@ -246,8 +261,17 @@ const typing = (cols: readonly ColumnKnowledge[], e: ColExpr): Typing => {
       return joinAll([go(e.else), ...e.cases.map((c) => go(c.then))]);
     case 'cast':
       return go(e.expr).t === 'absent' ? ABSENT : of(e.type);
-    case 'apply':
+    case 'apply': {
+      const [base, exponent] = e.args;
+      if (
+        e.fn === 'pow' &&
+        e.args.length === 2 &&
+        exponent!.kind === 'lit' &&
+        exponent!.cell.kind === 'Int'
+      )
+        return powLit(exponent!.cell.value, go(base!));
       return applyFn(e.fn, e.args.map(go));
+    }
     case 'in':
     case 'inParam':
       return go(e.expr).t === 'absent' ? ABSENT : of('bool');

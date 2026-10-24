@@ -481,6 +481,146 @@ const quotientCell = (mode: DecimalRoundingMode, scale: number, a: Cell, b: Cell
 /** Round half away from zero — host-independent (not banker's rounding). */
 const roundHalfAway = (x: number): number => (x >= 0 ? Math.floor(x + 0.5) : Math.ceil(x - 0.5));
 
+// ─── Phase 2400: the power functions (the reference's D43) ───────────────────
+//
+// Two guarantees, stated per function. An INTEGER exponent is EXACT on every host: one pinned
+// product tree over IEEE-754 multiplication, which every host rounds the same way, so the tree and
+// not the host decides the bits. A float exponent, `exp`, `ln` and `log10` are HOST-ROUNDED: the
+// special-value table below answers every input the hosts' libraries disagree on BEFORE `Math` is
+// called, and what remains is this host's answer — within the bound the transform laws compare in
+// (`expected.tolerance`, in ulps).
+
+/**
+ * Binary exponentiation, the accumulator empty until the first set bit, so a power takes exactly
+ * the multiplies its bits name: `x^1` is `x`, `x^2` is `x*x`, `x^3` is `x*(x*x)`, `x^4` is
+ * `(x*x)*(x*x)`. `k > 0` is the exponent's magnitude.
+ */
+const powGo = (base: number, k: number): number => {
+  let b = base;
+  let acc: number | undefined;
+  for (;;) {
+    if (k % 2 === 1) acc = acc === undefined ? b : acc * b;
+    k = Math.floor(k / 2);
+    if (k === 0) return acc ?? 1;
+    b = b * b;
+  }
+};
+
+/**
+ * A float base under an integer exponent: `x^0` is 1 with no multiply; a negative exponent is one
+ * reciprocal of the positive power, null where that power is zero (a zero base, or a power that
+ * underflowed), exactly as a division by zero is null. The caller has answered a NaN base.
+ */
+const powIntFloat = (x: number, n: number): Cell => {
+  if (n === 0) return { kind: 'Float', value: 1 };
+  if (n > 0) return { kind: 'Float', value: powGo(x, n) };
+  const p = powGo(x, -n);
+  return p === 0 ? NULL : { kind: 'Float', value: 1 / p };
+};
+
+const INT32_MIN = -2147483648;
+const INT32_MAX = 2147483647;
+
+/**
+ * An int base under a non-negative int exponent: the same product tree, every product that leaves
+ * the int32 band refused by name — a base square that leaves it with exponent bits still to take
+ * included, since every value it would still multiply into is at least as large.
+ */
+const powIntExact = (x: number, n: number): DR<Cell> => {
+  if (n === 0) return dok({ kind: 'Int', value: 1 });
+  const inBand = (v: number): boolean => v >= INT32_MIN && v <= INT32_MAX;
+  const overflow = (v: number): DR<never> => derr(typeError('pow overflowed int32: ' + String(v)));
+  let acc: number | undefined;
+  let b = x;
+  let k = n;
+  for (;;) {
+    if (k % 2 === 1) {
+      acc = acc === undefined ? b : acc * b;
+      if (!inBand(acc)) return overflow(acc);
+    }
+    k = Math.floor(k / 2);
+    if (k === 0) return dok({ kind: 'Int', value: acc ?? 1 });
+    const b2 = b * b;
+    if (!inBand(b2)) return overflow(b2);
+    b = b2;
+  }
+};
+
+/**
+ * A float exponent: the special-value table, then `Math.pow`. A NaN operand propagates (`pow(1,
+ * NaN)` and `pow(NaN, 0)` included — JavaScript answers 1 for neither and NaN for the first, which
+ * is why the table answers before it); a zero exponent and a base of one answer 1, and so does a base
+ * of minus one under an infinite exponent (JavaScript says NaN); a zero base under a negative
+ * exponent and a finite negative base under a finite non-integer exponent answer null.
+ */
+const powFloat = (x: number, y: number): Cell => {
+  if (Number.isNaN(x) || Number.isNaN(y)) return { kind: 'Float', value: NaN };
+  if (y === 0 || x === 1) return { kind: 'Float', value: 1 };
+  if (x === 0 && y < 0) return NULL;
+  if (x === -1 && !Number.isFinite(y)) return { kind: 'Float', value: 1 };
+  if (x < 0 && Number.isFinite(x) && Number.isFinite(y) && y !== Math.floor(y)) return NULL;
+  return { kind: 'Float', value: Math.pow(x, y) };
+};
+
+/**
+ * `exp`'s table: a NaN propagates; above the natural log of the largest double the answer is +Inf
+ * and below the natural log of half the smallest subnormal it is 0 — the two edges where a host's
+ * last-ulp rounding decides between a finite value and the limit; between them `Math.exp`.
+ */
+const expHost = (x: number): number =>
+  Number.isNaN(x) ? x : x > 709.782712893384 ? Infinity : x < -745.1332191019412 ? 0 : Math.exp(x);
+
+/**
+ * `ln`'s and `log10`'s table over a host logarithm: a NaN propagates, zero and below is null, one is
+ * exactly 0 and +Inf is +Inf; in between the host answers.
+ */
+const logHost = (log: (v: number) => number, x: number): Cell =>
+  Number.isNaN(x)
+    ? { kind: 'Float', value: x }
+    : x <= 0
+      ? NULL
+      : x === 1
+        ? { kind: 'Float', value: 0 }
+        : x === Infinity
+          ? { kind: 'Float', value: x }
+          : { kind: 'Float', value: log(x) };
+
+const SPELLED: Readonly<Record<string, string>> = { exp: 'Exp', ln: 'Ln', log10: 'Log10' };
+
+const applyPower = (fn: string, args: readonly Cell[]): DR<Cell> => {
+  if (fn === 'pow') {
+    if (args.length !== 2) return derr(arityError(fn, 2, args.length));
+    const x = args[0]!;
+    const y = args[1]!;
+    if (x.kind === 'Null' || y.kind === 'Null') return dok(NULL);
+    if (x.kind === 'Decimal' || y.kind === 'Decimal')
+      return derr(typeError('pow of a decimal is not exact: write Pow(Cast(float, x), n)'));
+    if (x.kind === 'Int' && y.kind === 'Int')
+      return y.value >= 0 ? powIntExact(x.value, y.value) : dok(powIntFloat(x.value, y.value));
+    if (y.kind === 'Int') {
+      const f = asNum(x);
+      if (f === undefined) return derr(typeError('pow of a non-numeric'));
+      return dok(Number.isNaN(f) ? { kind: 'Float', value: f } : powIntFloat(f, y.value));
+    }
+    const f = asNum(x);
+    const g = asNum(y);
+    return f === undefined || g === undefined
+      ? derr(typeError('pow of a non-numeric'))
+      : dok(powFloat(f, g));
+  }
+  if (args.length !== 1) return derr(arityError(fn, 1, args.length));
+  const c = args[0]!;
+  if (c.kind === 'Null') return dok(NULL);
+  if (c.kind === 'Decimal')
+    return derr(
+      typeError(fn + ' of a decimal is not exact: write ' + SPELLED[fn] + '(Cast(float, x))'),
+    );
+  const f = asNum(c);
+  if (f === undefined) return derr(typeError(fn + ' of a non-numeric'));
+  if (fn === 'exp') return dok({ kind: 'Float', value: expHost(f) });
+  return dok(logHost(fn === 'ln' ? Math.log : Math.log10, f));
+};
+
 const applyScalar = (fn: string, args: readonly Cell[]): DR<Cell> => {
   const arity = (n: number): DR<undefined> =>
     args.length === n ? dok(undefined) : derr(arityError(fn, n, args.length));
@@ -491,6 +631,11 @@ const applyScalar = (fn: string, args: readonly Cell[]): DR<Cell> => {
     return c.kind === 'Null' ? dok(NULL) : g(c);
   };
   switch (fn) {
+    case 'pow':
+    case 'exp':
+    case 'ln':
+    case 'log10':
+      return applyPower(fn, args);
     case 'abs':
       return unary((c) =>
         c.kind === 'Int'
@@ -989,10 +1134,26 @@ const applyTyping = (fn: string, args: readonly Typing[]): Typing => {
       return !arity(3) || anyAbsent ? 'absent' : 'string';
     case 'dateDiffDays':
       return !arity(2) || anyAbsent ? 'absent' : 'int';
+    // Phase 2400 (the reference's D43): the transcendentals answer a float, as a root does. A power
+    // over an int base and an int exponent is decided by the exponent's SIGN, which a typing does
+    // not carry — `powLitTyping` reads a literal exponent, and otherwise the cells decide; an
+    // undecided operand may be that pair, so it is undecided too; every other pair is a float.
+    case 'exp':
+    case 'ln':
+    case 'log10':
+      return unary(() => 'float');
+    case 'pow':
+      if (!arity(2) || anyAbsent) return 'absent';
+      if (args[0] === 'int' && args[1] === 'int') return 'unknown';
+      return args.includes('unknown') ? 'unknown' : 'float';
     default:
       return 'unknown';
   }
 };
+
+/** A power under a LITERAL integer exponent: an int base is an int at or above zero, else a float. */
+const powLitTyping = (n: number, b: Typing): Typing =>
+  b === 'absent' || b === 'unknown' ? b : b === 'int' && n >= 0 ? 'int' : 'float';
 
 /** The static typing of an expression over a schema, with no env (a param is unknown). */
 const typing = (cols: readonly SchemaEntry[], e: ColExpr): Typing => {
@@ -1016,8 +1177,17 @@ const typing = (cols: readonly SchemaEntry[], e: ColExpr): Typing => {
       return tJoinAll([go(e.else), ...e.cases.map((br) => go(br.then))]);
     case 'cast':
       return go(e.expr) === 'absent' ? 'absent' : e.type;
-    case 'apply':
+    case 'apply': {
+      const [base, exponent] = e.args;
+      if (
+        e.fn === 'pow' &&
+        e.args.length === 2 &&
+        exponent!.kind === 'lit' &&
+        exponent!.cell.kind === 'Int'
+      )
+        return powLitTyping(exponent!.cell.value, go(base!));
       return applyTyping(e.fn, e.args.map(go));
+    }
     case 'in':
     case 'inParam':
       return go(e.expr) === 'absent' ? 'absent' : 'bool';
@@ -1373,6 +1543,37 @@ const evalFilter = (f: Frame, pred: ColExpr, env: EvalEnv = EMPTY_ENV): DR<Frame
   return dok({ ...f, rows: out });
 };
 
+/**
+ * Each output column's name beside what produced it, in output order: the first name an earlier
+ * output already took is refused — a table cannot hold two columns of one name (the reference's D35,
+ * Phase 468: project, groupBy, unpivot and pivot ask this one check, after every name the verb
+ * resolves and before any row is read).
+ */
+const repeatedOutput = (
+  verb: string,
+  outs: readonly (readonly [string, string])[],
+): DR<undefined> => {
+  const seen = new Map<string, string>();
+  for (const [name, by] of outs) {
+    const first = seen.get(name);
+    if (first !== undefined)
+      return derr(
+        typeError(
+          verb +
+            " output '" +
+            name +
+            "' is named twice, by " +
+            first +
+            ' and by ' +
+            by +
+            '; give each output a name of its own',
+        ),
+      );
+    seen.set(name, by);
+  }
+  return dok(undefined);
+};
+
 const evalProject = (f: Frame, pairs: readonly { a: string; b: string }[]): DR<Frame> => {
   const resolved: { out: string; type: ColumnType; index: number }[] = [];
   for (const { a, b } of pairs) {
@@ -1380,6 +1581,11 @@ const evalProject = (f: Frame, pairs: readonly { a: string; b: string }[]): DR<F
     if (i < 0) return derr(unknownColumn(a, available(f.cols)));
     resolved.push({ out: b, type: f.cols[i]!.type, index: i });
   }
+  const repeat = repeatedOutput(
+    'project',
+    pairs.map(({ a, b }) => [b, "the projection of '" + a + "'"] as const),
+  );
+  if (!repeat.ok) return repeat;
   return dok({
     cols: resolved.map((r) => ({ name: r.out, type: r.type })),
     rows: f.rows.map((row) => resolved.map((r) => row[r.index]!)),
@@ -1441,6 +1647,11 @@ const evalGroupBy = (f: Frame, keys: readonly string[], aggs: readonly Agg[]): D
     if (ty === undefined) return derr(unknownColumn(a.of, available(f.cols)));
     resolvedAggs.push({ agg: a, type: ty, index: colIndex(f.cols, a.of) });
   }
+  const repeat = repeatedOutput('groupBy', [
+    ...keys.map((k) => [k, "the key '" + k + "'"] as const),
+    ...aggs.map((a) => [a.name, "the aggregate over '" + a.of + "'"] as const),
+  ]);
+  if (!repeat.ok) return repeat;
 
   const keyCols: SchemaEntry[] = keys.map((k) => ({ name: k, type: colType(f.cols, k)! }));
   const aggCols: SchemaEntry[] = resolvedAggs.map((r) => ({
@@ -1725,6 +1936,14 @@ const evalPivot = (f: Frame, spec: PivotSpecLike): DR<Frame> => {
     const sb = cellString(b);
     return sa < sb ? -1 : sa > sb ? 1 : 0;
   });
+  const repeat = repeatedOutput('pivot', [
+    ...spec.index.map((n) => [n, "the index column '" + n + "'"] as const),
+    ...onValues.map((ov) => {
+      const t = cellString(ov);
+      return [t, "the column for the on value '" + t + "'"] as const;
+    }),
+  ]);
+  if (!repeat.ok) return repeat;
 
   // index groups, first-appearance order
   const order: Cell[][] = [];
@@ -1779,6 +1998,12 @@ const evalUnpivot = (
     if (i < 0) return derr(unknownColumn(n, available(f.cols)));
     valIdx.push(i);
   }
+  const repeat = repeatedOutput('unpivot', [
+    ...idVars.map((n) => [n, "the id column '" + n + "'"] as const),
+    ['variable', "the unpivot's variable column"],
+    ['value', "the unpivot's value column"],
+  ]);
+  if (!repeat.ok) return repeat;
   const idCols: SchemaEntry[] = idVars.map((n) => ({ name: n, type: colType(f.cols, n)! }));
   // The value column is typed by the one derived-column rule, the value columns being its arms:
   // their declared types' join where the schema decides it — over an empty frame too — and the

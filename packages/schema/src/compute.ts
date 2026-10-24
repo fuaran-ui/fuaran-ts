@@ -176,7 +176,13 @@ export type ScalarFn =
   | 'concat'
   | 'trim'
   | 'replace'
-  | 'dateDiffDays';
+  | 'dateDiffDays'
+  // Phase 2400 — the power functions (the reference's D43): an integer exponent is exact on every
+  // host, a float exponent, `exp`, `ln` and `log10` are host-rounded within a stated ulp bound.
+  | 'pow'
+  | 'exp'
+  | 'ln'
+  | 'log10';
 
 /** A group/window aggregate function — its canonical wire tag. */
 export type AggFn =

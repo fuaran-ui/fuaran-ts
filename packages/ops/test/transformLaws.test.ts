@@ -25,6 +25,17 @@
 //  is compared too, so a vector this host's decoder cannot round-trip is named
 //  as such rather than reported as an evaluator divergence.
 //
+//  A TOLERANCE IS THE VECTOR'S OWN (Phase 2400). A vector carrying
+//  `expected.tolerance` names the columns the reference marks host-rounded,
+//  each with a bound in ulps. Those columns are compared cell by cell — one
+//  type, one length, null in the same rows, two present nonzero finite floats
+//  of one sign within the bound (the distance being the difference of their
+//  IEEE-754 binary64 bit patterns), every other cell (a zero of either sign, a
+//  non-finite float, a non-float) exactly — and the rest of the table byte for
+//  byte: this host's answer with every named column replaced by the recorded
+//  one must encode to `expected.table` exactly. The worst distance per named
+//  column is reported, so a host drifting toward the bound is visible.
+//
 //  A REFUSAL IS COMPARED AS A REFUSAL, never as a class. The family carries no
 //  error name, so gating on one would be gating on something the corpus does
 //  not claim. Both sides must refuse; which refusal is each host's own business.
@@ -51,7 +62,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import type { DataSource, Table, Transform } from '@fuaran-ui/schema';
+import type { Cell, DataSource, Table, Transform } from '@fuaran-ui/schema';
 
 import { decodeDataSource, decodePipelineCore } from '../src/decode.js';
 import { encodeDataSource } from '../src/encode.js';
@@ -89,6 +100,7 @@ interface TransformVector {
   readonly expected: {
     readonly verdict?: string;
     readonly table?: string;
+    readonly tolerance?: Readonly<Record<string, number>>;
   };
 }
 
@@ -180,6 +192,80 @@ const decodePipelineOrReason = (
   if (!ast.ok) return { reason: 'input.pipeline is not well-formed JSON' };
   const decoded = decodePipelineCore(ast.value);
   return decoded.ok ? { pipeline: decoded.value } : { reason: decoded.error };
+};
+
+// ─── the tolerance rule (Phase 2400) ─────────────────────────────────────────
+
+/** The distance between two doubles of one sign: their binary64 bit patterns' difference. */
+const ulpDistance = (a: number, b: number): bigint => {
+  const bits = (x: number): bigint => {
+    const view = new DataView(new ArrayBuffer(8));
+    view.setFloat64(0, x);
+    return view.getBigInt64(0);
+  };
+  const d = bits(a) - bits(b);
+  return d < 0n ? -d : d;
+};
+
+const sameBits = (a: number, b: number): boolean =>
+  (Number.isNaN(a) && Number.isNaN(b)) || Object.is(a, b);
+
+/**
+ * Compares the tolerance-named columns of `answer` with `expected` and returns `answer` with each
+ * named column replaced by the recorded one (so the caller's byte comparison covers everything
+ * else), and the worst distance seen per named column.
+ */
+const withinTolerance = (
+  id: string,
+  tolerance: Readonly<Record<string, number>>,
+  answer: Table,
+  expected: Table,
+): { readonly replaced: Table; readonly worst: Readonly<Record<string, number>> } => {
+  const worst: Record<string, number> = {};
+  const columns = [...answer.columns];
+  for (const [name, bound] of Object.entries(tolerance).sort(([a], [b]) => (a < b ? -1 : 1))) {
+    const w = expected.columns.find((c) => c.name === name);
+    const at = columns.findIndex((c) => c.name === name);
+    if (w === undefined || at < 0)
+      throw new Error(`vector ${id}: tolerance column ${name} is absent`);
+    const g = columns[at]!;
+    if (w.type !== g.type || w.cells.length !== g.cells.length)
+      throw new Error(`vector ${id}: tolerance column ${name} differs in type or length`);
+    let columnWorst = 0n;
+    w.cells.forEach((wc, r) => {
+      const gc = g.cells[r]!;
+      if ((wc.kind === 'Null') !== (gc.kind === 'Null'))
+        throw new Error(`vector ${id}: ${name} row ${r} is null in one table only`);
+      if (wc.kind === 'Float' && gc.kind === 'Float') {
+        const [a, b] = [wc.value, gc.value];
+        if (
+          a !== 0 &&
+          b !== 0 &&
+          Number.isFinite(a) &&
+          Number.isFinite(b) &&
+          Math.sign(a) === Math.sign(b)
+        ) {
+          const d = ulpDistance(a, b);
+          if (d > columnWorst) columnWorst = d;
+          if (d > BigInt(bound))
+            throw new Error(
+              `vector ${id}: ${name} row ${r}: ${b} is ${d} ulp from the recorded ${a}; the bound is ${bound}`,
+            );
+          return;
+        }
+        if (!sameBits(a, b))
+          throw new Error(
+            `vector ${id}: ${name} row ${r}: ${b} differs from ${a} (compared exactly)`,
+          );
+        return;
+      }
+      if (JSON.stringify(wc) !== JSON.stringify(gc))
+        throw new Error(`vector ${id}: ${name} row ${r} differs from the recorded cell`);
+    });
+    worst[name] = Number(columnWorst);
+    columns[at] = w;
+  }
+  return { replaced: { ...answer, columns }, worst };
 };
 
 // ─── the not-run report, at collection ───────────────────────────────────────
@@ -325,9 +411,76 @@ describe('transformLaws vectors (shared corpus laws/ family)', () => {
         canonical(expectedTable.table),
         `vector ${v.id}: this host's codec does not round-trip expected.table`,
       ).toBe(v.expected.table);
-      expect(canonical(result.value), `vector ${v.id}: evaluated table diverges`).toBe(
-        v.expected.table,
-      );
+      const tolerance = v.expected.tolerance ?? {};
+      const answer =
+        Object.keys(tolerance).length === 0
+          ? result.value
+          : (() => {
+              const { replaced, worst } = withinTolerance(
+                v.id,
+                tolerance,
+                result.value,
+                expectedTable.table,
+              );
+              console.warn(
+                `transformLaws tolerance: ${v.id} worst ulp per column ${JSON.stringify(worst)}`,
+              );
+              return replaced;
+            })();
+      expect(canonical(answer), `vector ${v.id}: evaluated table diverges`).toBe(v.expected.table);
     });
   }
+});
+
+// The special-value rows over a NaN or an infinity, which the wire carries neither of (so the law
+// file cannot), the pinned product tree past the cube, and the int32 band an int power stays inside
+// (Phase 2400). Run through the evaluator: a table may hold a NaN or an infinity in memory.
+describe('the power functions off the wire', () => {
+  const one = (fn: 'pow' | 'exp' | 'ln' | 'log10', args: readonly Cell[]) => {
+    const table: Table = {
+      schema: [{ name: 'k', type: 'int' }],
+      columns: [{ name: 'k', type: 'int', cells: [{ kind: 'Int', value: 0 }] }],
+    };
+    const r = evalPipeline(
+      [
+        {
+          kind: 'derive',
+          name: 'out',
+          expr: { kind: 'apply', fn, args: args.map((cell) => ({ kind: 'lit', cell })) },
+        },
+      ],
+      table,
+    );
+    if (!r.ok) return r;
+    return { ok: true as const, cell: r.value.columns.find((c) => c.name === 'out')!.cells[0]! };
+  };
+  const f = (value: number): Cell => ({ kind: 'Float', value });
+  const i = (value: number): Cell => ({ kind: 'Int', value });
+  const valueOf = (r: ReturnType<typeof one>): number | string =>
+    r.ok
+      ? r.cell.kind === 'Float' || r.cell.kind === 'Int'
+        ? r.cell.value
+        : r.cell.kind
+      : 'refused';
+
+  it('answers the table rows a host library disagrees on', () => {
+    expect(valueOf(one('pow', [f(1), f(NaN)]))).toBeNaN();
+    expect(valueOf(one('pow', [f(NaN), f(0)]))).toBeNaN();
+    expect(valueOf(one('pow', [f(-1), f(Infinity)]))).toBe(1);
+    expect(valueOf(one('pow', [f(-1), f(-Infinity)]))).toBe(1);
+    expect(valueOf(one('exp', [f(NaN)]))).toBeNaN();
+    expect(valueOf(one('exp', [f(709.8)]))).toBe(Infinity);
+    expect(valueOf(one('ln', [f(Infinity)]))).toBe(Infinity);
+    expect(valueOf(one('log10', [f(NaN)]))).toBeNaN();
+    expect(valueOf(one('pow', [f(NaN), i(0)]))).toBeNaN();
+    expect(valueOf(one('pow', [f(1e-300), i(-2)]))).toBe('Null');
+  });
+
+  it('runs the squaring tree past the cube and keeps an int power inside the int32 band', () => {
+    const x = 1.1;
+    expect(valueOf(one('pow', [f(x), i(4)]))).toBe(x * x * (x * x));
+    expect(valueOf(one('pow', [f(x), i(5)]))).toBe(x * (x * x * (x * x)));
+    expect(valueOf(one('pow', [i(46341), i(2)]))).toBe('refused');
+    expect(valueOf(one('pow', [i(-2), i(31)]))).toBe(-2147483648);
+  });
 });

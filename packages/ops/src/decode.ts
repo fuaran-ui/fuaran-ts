@@ -1491,6 +1491,10 @@ const SCALAR_FNS = [
   'trim',
   'replace',
   'dateDiffDays',
+  'pow',
+  'exp',
+  'ln',
+  'log10',
 ] as const;
 const AGG_FNS = [
   'sum',
