@@ -1681,6 +1681,51 @@ it; nothing else in them moves. The starter template's pins follow `@fuaran-ui/s
 the advanced `schema`, `ops`, `ui` or `charts`; the patch is what makes the next pack write the range that admits
 them.
 
+### Recorded behaviour change — `@fuaran-ui/renderer` 0.29.0 and `@fuaran-ui/renderer-server` 0.26.0, `@fuaran-ui/charts` is an optional peer the host registers (Phase 2434)
+
+_Unreleased: ahead of the newest tag, `v0.31.0`, which published renderer 0.28.0 and renderer-server 0.25.1. Both
+standing drafts (renderer 0.28.1, renderer-server 0.25.2) were release-consistency patches; this change is of a
+higher class, so each advances to the next minor rather than riding its draft. The starter template's renderer pin
+follows._
+
+**What changed.** Neither package's entry point imports `@fuaran-ui/charts` any more; the built `dist` of each
+holds no charts import or require, and `peerDependenciesMeta` marks charts optional in both. A host that never
+charts no longer needs it installed. A host that charts installs it and registers it once, before the first render:
+
+```ts
+import * as charts from '@fuaran-ui/charts';
+import { registerCharts } from '@fuaran-ui/renderer';
+
+registerCharts(charts);
+```
+
+The one registration serves both renderers: `@fuaran-ui/renderer-server` reads it through `@fuaran-ui/renderer`,
+which it already peers on. `registeredCharts()` reads it back and `registerCharts(null)` clears it. The type
+`ChartLowering` names the three functions the renderers call (`isLowered`, `lower`, `tryLowerSparkline`); the
+charts module satisfies it. The standalone browser bundle inlines charts and registers it itself, so its consumers
+are unchanged.
+
+**The fallback, with nothing registered.** A `Chart` renders the placeholder an unlowered chart kind always has
+(`fuaran-chart` holding `fuaran-chart-placeholder`), and a `Sparkline` renders the em-dash element
+(`fuaran-sparkline fuaran-sparkline-empty`). Both tiers emit the same bytes, so a server-rendered page hydrates. No
+render path throws. `packages/renderer/test/chartsAbsent.test.tsx` and
+`packages/renderer-server/test/chartsAbsent.test.ts` prove it twice: from source with the charts module made to
+throw on load, and from the built ESM and CJS entries in a Node process whose resolver refuses charts.
+
+**What a host can observe.** A host that charts and does not register sees placeholders where it saw pictures. That
+is the cost of this change, and it is why the class is above additive. The register-before-first-render rule
+matters on the client: the React renderer memoises nodes (Phase 2074), so a registration made after a chart has
+rendered is not picked up until that node re-renders. The declaration files still name charts' types (`ChartRow`,
+`ChartLowerSpec`, `ChartLowering`); a TypeScript consumer without charts installed and without `skipLibCheck` sees
+those references unresolved, while the JavaScript is unaffected.
+
+**Why registration, and not a lazy import.** Three shapes were weighed. A dynamic `import()` behind the chart arm
+makes the arm asynchronous, and `renderToHtml` returns a string synchronously, so it would change the public render
+API; a bundler also resolves an `import('@fuaran-ui/charts')` literal at build time, so a browser host without charts
+would fail to build. A guarded `require` does not exist in an ES module, and a bundler resolves it the same way. An
+injected lowering keeps both render APIs unchanged and leaves the built output with no charts reference, which is
+what lets the peer be optional for a bundled browser host as well as for Node.
+
 ## Re-confirmation gate before public exposure
 
 Before this repo flips public (public GitHub repository, published-to-npm package, or marketing surface), the licensing posture declared in [`LICENSE`](LICENSE) must be re-confirmed by Diametrical Ltd.

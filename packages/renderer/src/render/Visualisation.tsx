@@ -28,7 +28,6 @@ import type {
   VisKind,
 } from '@fuaran-ui/schema';
 import type { ChartRow } from '@fuaran-ui/charts';
-import { isLowered, lower } from '@fuaran-ui/charts';
 
 import {
   asArray,
@@ -41,6 +40,7 @@ import {
   tryResolve,
   type BindingSources,
 } from '../bindings.js';
+import { registeredCharts } from '../chartLowering.js';
 import { chartLowerSpecOf } from '../chartLowerSpec.js';
 import { gridPrintBreakClasses, gridRowInteractiveClass, toneVar } from '../classNames.js';
 import type { RenderContext } from '../context.js';
@@ -1362,12 +1362,14 @@ const renderChart = <TMsg,>(
   // lowers to a canonical `Drawing` subtree via `@fuaran-ui/charts` and renders as real
   // inline SVG (the TS twin of the Python `render.py` `_chart` first-party path + a byte
   // sibling of the existing `Display.Drawing` arm). Anything unresolved / not-yet-lowered
-  // falls through to the client-hydration placeholder below.
-  if (isLowered(spec.kind) && rows.length > 0 && rows.every(isChartRow)) {
+  // falls through to the client-hydration placeholder below, and so does every chart when
+  // the host registered no chart lowering (Phase 2434, `chartLowering.ts`).
+  const charts = registeredCharts();
+  if (charts !== null && charts.isLowered(spec.kind) && rows.length > 0 && rows.every(isChartRow)) {
     // Every declared semantic field crosses the bridge — see `chartLowerSpec.ts`,
     // which is the ONE place that decision is made (the server twin reads the
     // same helper) and which states the Literal-only `TextSource` rule.
-    const drawing = lower(chartLowerSpecOf(spec), rows as readonly ChartRow[]);
+    const drawing = charts.lower(chartLowerSpecOf(spec), rows as readonly ChartRow[]);
     return (
       <div dangerouslySetInnerHTML={{ __html: trustedHtml(drawingSvg(ctx.sources, drawing)) }} />
     );

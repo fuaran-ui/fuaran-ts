@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fuaran-ui/charts": "workspace:*",
     "@fuaran-ui/ops": "workspace:*",
     "@fuaran-ui/renderer": "workspace:*",
     "@fuaran-ui/schema": "workspace:*",

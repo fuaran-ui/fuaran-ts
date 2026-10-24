@@ -530,6 +530,9 @@ importers:
 
   samples/demo:
     dependencies:
+      '@fuaran-ui/charts':
+        specifier: workspace:*
+        version: link:../../packages/charts
       '@fuaran-ui/ops':
         specifier: workspace:*
         version: link:../../packages/ops
@@ -630,7 +633,7 @@ importers:
   templates/ts-starter:
     dependencies:
       '@fuaran-ui/renderer':
-        specifier: ^0.28.1
+        specifier: ^0.29.0
         version: link:../../packages/renderer
       '@fuaran-ui/schema':
         specifier: ^0.28.0

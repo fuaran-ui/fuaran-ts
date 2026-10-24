@@ -124,13 +124,16 @@ import {
   gridWindow,
   mathMl,
   namespaceNode,
+  registeredCharts,
   windowRowCount,
   windowRowIndex,
 } from '@fuaran-ui/renderer';
 // Phase 1075 — the `Binding.State` seeding pass. One definition, shared with
 // the client renderer, so the two tiers cannot drift on the charter's §4/§5.
 import { type BehindView, withStateSeeds } from '@fuaran-ui/ops';
-import { isLowered, lower, tryLowerSparkline, type ChartRow } from '@fuaran-ui/charts';
+// Phase 2434 — types only, erased from the build: `@fuaran-ui/charts` is an
+// optional peer, and the lowering comes from the host's `registerCharts`.
+import type { ChartRow } from '@fuaran-ui/charts';
 
 import {
   gridPrintBreakClasses,
@@ -1779,6 +1782,8 @@ const renderLabelValueRow = (
 // builder's `fuaran-drawing` root. The em-dash branch survives for the
 // UNRESOLVED or EMPTY series only: a readable, deterministic stand-in rather
 // than a blank, exactly as before.
+// Phase 2434 — and for every sparkline when the host registered no chart
+// lowering, the same element the client tier renders then.
 const renderSparkline = (
   ctx: ServerContext,
   spec: Extract<DisplayKind, { kind: 'Sparkline' }>['spec'],
@@ -1786,7 +1791,11 @@ const renderSparkline = (
   // Phase 1704 — `floatSeries` rather than `asArray<number>`: §24.7 reads a
   // host-fed series ELEMENT-WISE against a closed accept set, where the type
   // assertion let JavaScript's own coercion decide what a string element meant.
-  const drawing = tryLowerSparkline(floatSeries(tryResolve(ctx.sources, spec.source)));
+  const charts = registeredCharts();
+  const drawing =
+    charts === null
+      ? null
+      : charts.tryLowerSparkline(floatSeries(tryResolve(ctx.sources, spec.source)));
   if (drawing === null) {
     return textEl('div', [['class', 'fuaran-sparkline fuaran-sparkline-empty']], EM_DASH);
   }
@@ -3073,14 +3082,16 @@ const renderChart = (
   // client renderer: a lowerable chart with resolved row objects lowers to a
   // canonical `Drawing` subtree via `@fuaran-ui/charts` and renders as the
   // SAME inline SVG string the client emits. Anything unresolved /
-  // not-yet-lowered falls through to the placeholder below.
-  if (isLowered(spec.kind) && rows.length > 0 && rows.every(isChartRow)) {
+  // not-yet-lowered falls through to the placeholder below, as does every chart
+  // when the host registered no chart lowering (Phase 2434).
+  const charts = registeredCharts();
+  if (charts !== null && charts.isLowered(spec.kind) && rows.length > 0 && rows.every(isChartRow)) {
     // Parity by construction rather than by copying: the SAME bridge the client
     // renderer uses decides which declared fields cross into the lowering, and
     // carries the Literal-only `TextSource` rule. This arm threaded `title` +
     // `valueFormat` and dropped the other five semantic fields; the client arm
     // dropped six. Two copies, two different answers — hence one helper.
-    const drawing = lower(chartLowerSpecOf(spec), rows as readonly ChartRow[]);
+    const drawing = charts.lower(chartLowerSpecOf(spec), rows as readonly ChartRow[]);
     return el('div', [], drawingSvg(ctx.sources, drawing));
   }
 

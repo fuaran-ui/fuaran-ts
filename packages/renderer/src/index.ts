@@ -182,6 +182,9 @@ export {
 // fields this renderer does, and a second copy of that decision is how the two
 // surfaces come to draw different pictures from one tree.
 export { chartLowerSpecOf } from './chartLowerSpec.js';
+// Phase 2434 — `@fuaran-ui/charts` is an optional peer: the host registers it
+// once, and both renderers read the one slot.
+export { registerCharts, registeredCharts, type ChartLowering } from './chartLowering.js';
 // Phase 1892 — the grid's row-window rule. Exported for the same reason: the
 // string server renderer slices a windowed grid from the seeded State through
 // the SAME functions, so the two surfaces cannot present different rows.

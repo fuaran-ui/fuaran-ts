@@ -21,6 +21,25 @@ const tree = node('root', fuaran.heading({ level: 1, text: { kind: 'Literal', va
 export const App = () => <FuaranRenderer tree={tree} />;
 ```
 
+## Charts — an optional peer
+
+`Chart` and `Sparkline` draw through `@fuaran-ui/charts`, which is an **optional**
+peer: neither this package nor `@fuaran-ui/renderer-server` imports it, so a host that
+never charts need not install it. A host that charts installs it and registers it
+once, before the first render; the one registration serves both renderers:
+
+```ts
+import * as charts from '@fuaran-ui/charts';
+import { registerCharts } from '@fuaran-ui/renderer';
+
+registerCharts(charts);
+```
+
+With nothing registered, a `Chart` renders the placeholder an unlowered chart kind
+renders (`fuaran-chart-placeholder`) and a `Sparkline` the em-dash element
+(`fuaran-sparkline-empty`), identically on the client and the server, so the page
+still renders and hydrates. The standalone browser bundle registers charts itself.
+
 ## Custom-renderer registry
 
 `NodeKind.Custom` is the bounded escape hatch. Registries are **per-instance**

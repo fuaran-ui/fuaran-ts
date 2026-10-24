@@ -15,8 +15,10 @@ import { createRoot, type Root } from 'react-dom/client';
 
 import { apply, decodeNode, decodeOps, type TreeOp } from '@fuaran-ui/ops';
 import type { DecodePolicy, HashStrictness, Node } from '@fuaran-ui/schema';
+import * as charts from '@fuaran-ui/charts';
 
 import { FuaranRenderer } from './Renderer.js';
+import { registerCharts } from './chartLowering.js';
 import type { BindingSources } from './bindings.js';
 import type { FuaranRuntime } from './customRegistry.js';
 import type { EgressPolicy } from './egress.js';
@@ -159,6 +161,11 @@ export function mount<TMsg = unknown>(
   treeOrJson: string | Node<TMsg>,
   options?: MountOptions<TMsg>,
 ): MountHandle<TMsg> {
+  // Phase 2434 — the package entry leaves `@fuaran-ui/charts` to the host, as an
+  // optional peer. This bundle has no host to ask and inlines every dependency, so
+  // it registers the lowering itself, before it renders, and charts draw as they
+  // always have.
+  registerCharts(charts);
   const root: Root = createRoot(el);
   let currentTree: Node<TMsg> | undefined;
 

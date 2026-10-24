@@ -38,7 +38,7 @@ import {
   tryResolve,
   tryResolveScalarFloat,
 } from '../bindings.js';
-import { tryLowerSparkline } from '@fuaran-ui/charts';
+import { registeredCharts } from '../chartLowering.js';
 import { trustedHtml } from '../trustedTypes.js';
 
 import { imageAspectClass, toneVar, trendSentiment } from '../classNames.js';
@@ -911,13 +911,19 @@ const renderLabelValueRow = <TMsg,>(
 // An unresolved or empty series keeps the em-dash element, unchanged: it is a
 // host element rather than a `Shape`, so `tryLowerSparkline` reports it in the
 // return type rather than lowering an empty canvas nobody can read.
+// Phase 2434 — with no chart lowering registered (`chartLowering.ts`), every
+// sparkline takes that em-dash element too, on this tier and the server's.
 const renderSparkline = <TMsg,>(ctx: RenderContext<TMsg>, spec: SparklineSpec): ReactElement => {
   // Phase 1704 — `floatSeries` rather than `asArray<number>`: §24.7 reads a
   // host-fed series ELEMENT-WISE against a closed accept set, where the type
   // assertion let JavaScript's own coercion decide what a string element meant.
   // Both tiers move together — this one and the server's emit the same bytes by
   // construction, and a hydration mismatch is what a one-sided change buys.
-  const drawing = tryLowerSparkline(floatSeries(tryResolve(ctx.sources, spec.source)));
+  const charts = registeredCharts();
+  const drawing =
+    charts === null
+      ? null
+      : charts.tryLowerSparkline(floatSeries(tryResolve(ctx.sources, spec.source)));
   if (drawing === null) {
     return <div className="fuaran-sparkline fuaran-sparkline-empty">—</div>;
   }

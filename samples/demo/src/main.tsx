@@ -7,10 +7,16 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
+import * as charts from '@fuaran-ui/charts';
+import { registerCharts } from '@fuaran-ui/renderer';
 import '@fuaran-ui/renderer/css';
 
 import { App } from './App';
 import './index.css';
+
+// `@fuaran-ui/charts` is an optional peer of the renderer: a host that charts
+// registers it once, before the first render.
+registerCharts(charts);
 
 const container = document.getElementById('fuaran-demo-root');
 if (container === null) {
