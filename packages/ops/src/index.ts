@@ -27,7 +27,10 @@ export {
   substituteListParams,
   type SourceResolver,
   type EvalEnv,
+  decimalCompare,
 } from './dataframe.js';
+// Phase 2006 — a row's exact decimal formats from its digits.
+export { formatDecimal } from './decimalFormat.js';
 export {
   decodeNode,
   decodeNodeFromAst,

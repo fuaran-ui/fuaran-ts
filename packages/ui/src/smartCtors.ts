@@ -136,6 +136,8 @@ const cellValueToText = (cv: CellValue): TextSource => {
       return { kind: 'Literal', value: cv.value ? 'true' : 'false' };
     case 'Date':
       return { kind: 'Literal', value: cv.value.toISOString().slice(0, 10) };
+    case 'Decimal':
+      return { kind: 'Literal', value: cv.value };
     case 'Empty':
       return { kind: 'Literal', value: '' };
   }

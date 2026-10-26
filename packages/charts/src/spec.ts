@@ -14,6 +14,9 @@ import type {
   TextSource,
 } from '@fuaran-ui/schema';
 
+import { decimalToFloat } from '@fuaran-ui/core-twins';
+import { isDecimalCell } from '@fuaran-ui/schema';
+
 import { formatNum } from './layout.js';
 import type { ChartAxisUnitMode } from './numberFormat.js';
 
@@ -146,6 +149,11 @@ export const numericOf = (row: ChartRow, field: string): number => {
   // never be non-finite (the canonical-float codec rejects it), so this covers
   // only host-side rows — coerced to the same 0.0 the non-numeric posture uses.
   if (typeof v === 'number') return Number.isFinite(v) ? v : 0.0;
+  // Phase 2006 — THE one place an exact decimal becomes a number. A chart maps a value to a screen
+  // coordinate, which is a display projection of the number, not the number: the nearest double is
+  // exact to far below a pixel. Nothing else in the lowering reads a decimal numerically, and the
+  // row it came from is untouched. A text past the float range takes the non-numeric 0.0.
+  if (isDecimalCell(v)) return decimalToFloat(v.text) ?? 0.0;
   return 0.0;
 };
 

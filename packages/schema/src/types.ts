@@ -802,12 +802,48 @@ export type TextSource =
 
 // ─── Cell value / format / width (§4k Q3.2 / Q3.3) ───────────────────────────
 
+/**
+ * Phase 2006 — `Decimal` is an EXACT number carried as the canonical decimal
+ * text (never a JS number, which would round it): it sorts by numeric order,
+ * formats from its digits, and becomes a number only where a chart maps it to a
+ * screen coordinate.
+ */
 export type CellValue =
   | { readonly kind: 'Numeric'; readonly value: number }
   | { readonly kind: 'Text'; readonly value: string }
   | { readonly kind: 'Bool'; readonly value: boolean }
   | { readonly kind: 'Date'; readonly value: Date }
+  | { readonly kind: 'Decimal'; readonly value: string }
   | { readonly kind: 'Empty' };
+
+const DECIMAL_CELL = Symbol.for('@fuaran-ui/schema.DecimalCell');
+
+/**
+ * An exact decimal as a ROW carries it (Phase 2006): the value a typed
+ * row-producing path (a `Transform` over a decimal column) puts in a row's
+ * cell, so the row projection can tell an exact number from text. `text` is
+ * the canonical decimal text, the same text the cell crosses the wire as: the
+ * row encoder writes it as that string, and its string form (`String(v)`,
+ * `JSON.stringify`) IS that text, so a reader that only wants the cell's text
+ * reads exactly what it read before. Recognise one with `isDecimalCell`, which
+ * holds across two copies of this package; never `instanceof`.
+ */
+export class DecimalCell {
+  readonly [DECIMAL_CELL] = true;
+  constructor(readonly text: string) {}
+  toString(): string {
+    return this.text;
+  }
+  toJSON(): string {
+    return this.text;
+  }
+}
+
+/** True when `v` is a row's `DecimalCell` (Phase 2006). */
+export const isDecimalCell = (v: unknown): v is DecimalCell =>
+  typeof v === 'object' &&
+  v !== null &&
+  (v as { readonly [DECIMAL_CELL]?: unknown })[DECIMAL_CELL] === true;
 
 /** Duration grain for `CellFormat.Duration` / `Format.Duration` (Phase 819) —
  * the numeric source counts this unit (Seconds = 1, Minutes = 60, Hours = 3600). */

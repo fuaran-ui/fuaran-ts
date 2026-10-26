@@ -66,7 +66,12 @@ import type {
   VisKind,
 } from '@fuaran-ui/schema';
 
-import { cardVerdictMarker, controlValueDefaults, describeFromCard } from '@fuaran-ui/schema';
+import {
+  cardVerdictMarker,
+  controlValueDefaults,
+  describeFromCard,
+  isDecimalCell,
+} from '@fuaran-ui/schema';
 
 import {
   accessibilityAttributes,
@@ -130,7 +135,7 @@ import {
 } from '@fuaran-ui/renderer';
 // Phase 1075 — the `Binding.State` seeding pass. One definition, shared with
 // the client renderer, so the two tiers cannot drift on the charter's §4/§5.
-import { type BehindView, withStateSeeds } from '@fuaran-ui/ops';
+import { type BehindView, decimalCompare, withStateSeeds } from '@fuaran-ui/ops';
 // Phase 2434 — types only, erased from the build: `@fuaran-ui/charts` is an
 // optional peer, and the lowering comes from the host's `registerCharts`.
 import type { ChartRow } from '@fuaran-ui/charts';
@@ -2821,24 +2826,33 @@ const sliceRowsToPage = (
   return rows.slice(start, start + pageSize);
 };
 
+// A decimal ranks beside the numbers, after them: a column is one type in practice, and ordering
+// the two populations against each other would need a number, which is the one thing a decimal's
+// order must never go through (Phase 2006; parity with the reference host).
 const cellSortRank = (v: CellValue): number => {
   switch (v.kind) {
     case 'Numeric':
       return 0;
-    case 'Bool':
+    case 'Decimal':
       return 1;
-    case 'Date':
+    case 'Bool':
       return 2;
-    case 'Text':
+    case 'Date':
       return 3;
-    case 'Empty':
+    case 'Text':
       return 4;
+    case 'Empty':
+      return 5;
   }
 };
 
 const compareCells = (a: CellValue, b: CellValue): number => {
   if (a.kind === 'Numeric' && b.kind === 'Numeric')
     return a.value < b.value ? -1 : a.value > b.value ? 1 : 0;
+  // Phase 2006 — exact numeric order over the canonical text: never lexical ('10' after '9'),
+  // never via a number. A text outside the decimal grammar orders by code unit rather than throwing.
+  if (a.kind === 'Decimal' && b.kind === 'Decimal')
+    return decimalCompare(a.value, b.value) ?? (a.value < b.value ? -1 : a.value > b.value ? 1 : 0);
   if (a.kind === 'Bool' && b.kind === 'Bool') return Number(a.value) - Number(b.value);
   if (a.kind === 'Date' && b.kind === 'Date') return a.value.getTime() - b.value.getTime();
   if (a.kind === 'Text' && b.kind === 'Text') {
@@ -2875,6 +2889,8 @@ const projectRowFieldValue = (row: unknown, field: string): CellValue => {
   if (row === null || typeof row !== 'object') return { kind: 'Empty' };
   const v = (row as Record<string, unknown>)[field];
   if (v === null || v === undefined) return { kind: 'Empty' };
+  // Phase 2006 — the typed path put an exact decimal there; a bare string stays Text, never guessed at.
+  if (isDecimalCell(v)) return { kind: 'Decimal', value: v.text };
   if (typeof v === 'string') return { kind: 'Text', value: v };
   if (typeof v === 'boolean') return { kind: 'Bool', value: v };
   if (typeof v === 'number') return { kind: 'Numeric', value: v };
@@ -2893,6 +2909,8 @@ const projectRowFieldString = (row: unknown, field: string): string => {
       return v.value ? 'true' : 'false';
     case 'Date':
       return v.value.toISOString();
+    case 'Decimal':
+      return v.value;
     case 'Empty':
       return '';
   }

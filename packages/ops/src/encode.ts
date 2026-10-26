@@ -24,6 +24,7 @@ import {
   RECORD_FIELDS,
   controlValueDefaults,
   defaultValue,
+  isDecimalCell,
   stateDefaultDeclared,
   wireRows,
 } from '@fuaran-ui/schema';
@@ -1888,6 +1889,9 @@ const rowCell = (v: unknown, row: number, key: string): string => {
     }
     return num(Number(v));
   }
+  // Phase 2006 — an exact decimal crosses as its canonical text: the bytes the bare string it
+  // replaced in a Transform row wrote. A decoded row reads it back as text.
+  if (isDecimalCell(v)) return str(v.text);
   return objValue(v);
 };
 

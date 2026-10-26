@@ -37,6 +37,7 @@ import type {
   TreeItem,
 } from '@fuaran-ui/schema';
 import {
+  DecimalCell,
   epochSecondsOfInstant,
   sinceUnitAndCount,
   stateDefaultDeclared,
@@ -49,6 +50,7 @@ import {
   stepParams,
   substituteListParams,
   type SourceResolver,
+  formatDecimal,
 } from '@fuaran-ui/ops';
 
 /**
@@ -462,13 +464,22 @@ export const cellToJsValue = (c: Cell): unknown => {
   }
 };
 
+/**
+ * One `Cell` as a ROW carries it. Phase 2006: the Transform schema typed this
+ * column decimal, so the row keeps that type as a `DecimalCell` rather than a
+ * bare string, and the grid, the formatter and the chart read an exact number
+ * where they used to read text. Every other cell is `cellToJsValue`'s.
+ */
+const cellToRowValue = (c: Cell): unknown =>
+  c.kind === 'Decimal' ? new DecimalCell(c.value) : cellToJsValue(c);
+
 /** Project an evaluated columnar `Table` into plain row objects (`Null` ⇒ `null`). */
 export const tableToRows = (t: Table): Record<string, unknown>[] => {
   const n = t.columns.length > 0 ? t.columns[0]!.cells.length : 0;
   const rows: Record<string, unknown>[] = [];
   for (let i = 0; i < n; i += 1) {
     const row = nullProtoRecord<unknown>();
-    for (const col of t.columns) row[col.name] = cellToJsValue(col.cells[i]!);
+    for (const col of t.columns) row[col.name] = cellToRowValue(col.cells[i]!);
     rows.push(row);
   }
   return rows;
@@ -1043,6 +1054,9 @@ export const renderCellValue = (format: CellFormat, value: CellValue): string =>
   switch (value.kind) {
     case 'Numeric':
       return formatNumber(format, value.value);
+    // Phase 2006 — from the digits, never through a number.
+    case 'Decimal':
+      return formatDecimal(format, value.value);
     case 'Text':
       return value.value;
     case 'Bool':

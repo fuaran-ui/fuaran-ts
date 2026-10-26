@@ -23,4 +23,6 @@ export {
   substituteListParams,
   type EvalEnv,
   type SourceResolver,
+  // Phase 2006 — the exact decimal's order, for the renderers' grid sort.
+  decimalCompare,
 } from '@fuaran-ui/core-twins';

@@ -1726,6 +1726,40 @@ would fail to build. A guarded `require` does not exist in an ES module, and a b
 injected lowering keeps both render APIs unchanged and leaves the built output with no charts reference, which is
 what lets the peer be optional for a bundled browser host as well as for Node.
 
+### Recorded breaking change — `@fuaran-ui/schema` 0.28.0, `@fuaran-ui/ops` 0.32.0, `@fuaran-ui/ui` 0.26.0, `@fuaran-ui/charts` 0.15.0, `@fuaran-ui/renderer` 0.29.0 and `@fuaran-ui/renderer-server` 0.26.0, the row value gains an exact decimal (Phase 2006)
+
+_Unreleased: rides the untagged drafts. Every one of these packages is already ahead of `v0.31.0` at a minor number
+(Phases 2400 and 2434), which is where a pre-1.0 breaking change goes, so no number moves._
+
+**`CellValue` gains `{ kind: 'Decimal'; value: string }`**, carrying the canonical decimal text, never a JS number. A
+closed union gaining a case is the breaking class: an exhaustive `switch` over `CellValue` in a consumer (a column
+`value` closure, a `Custom` cell format, an `Editable` handler) stops compiling until it handles the case. Twin of
+the reference host's `CellValue.Decimal`; both hosts pin the same fixture bytes.
+
+- **Added: `DecimalCell` and `isDecimalCell`** (`@fuaran-ui/schema`). A `Transform` row now carries a decimal column
+  as a `DecimalCell` instead of a bare string, so the row projection can tell an exact number from text. Before this,
+  the column read as `Text`: it sorted `'10'` before `'9'` and plotted as `0`. Its `String()` and `JSON.stringify`
+  forms are the text, so a reader that wanted the text still gets it. Recognise one with `isDecimalCell` (it holds
+  across two copies of the package), never `instanceof`. A bare string in a host-fed or decoded row stays `Text`.
+- **Grid sort** (both renderers) orders `Decimal` cells exactly, through the core twin's `decimalCompare`: never
+  lexically, never through a number. A decimal ranks after the numbers and before the booleans in a mixed column.
+- **Added: `formatDecimal`** (`@fuaran-ui/ops`), and both renderers' `renderCellValue` call it: `Number`, `Currency`,
+  `Percent` and `SignificantDigits` round half up at the declared place from the digits, so `12345678901234567.895`
+  to two places is `12345678901234567.90`. Where the number is exact the bytes equal `formatNumber`'s. `None`,
+  `Number` without `decimals` and `DateTime` give the canonical text; so do `Duration` and `RelativeTime`, because
+  each reads its value through number arithmetic. **Added: `decimalCompare`** re-exported from `@fuaran-ui/ops`.
+- **Charts** plot a decimal series: `numericOf` (`@fuaran-ui/charts`) is the ONE place a decimal becomes a number, a
+  screen coordinate.
+- **The row encoder** (`encodeRows`) writes a `DecimalCell` as its text: no wire byte moves.
+
+**What a consumer does.** Add a `'Decimal'` arm to any exhaustive `switch` over `CellValue`. Code that read a decimal
+`Transform` column with `typeof v === 'string'` now sees a `DecimalCell`; read its `text`, or `String(v)`.
+
+**Certified by** `packages/renderer/test/decimalCell.test.ts` (the sorted order and the formatted text pinned byte
+for byte, the float-parity sweep, the encoder's unchanged bytes), `packages/renderer-server/test/decimalCell.test.ts`
+(the static tier's grid order and formatting) and `packages/charts/test/decimal-series.test.ts` (a decimal chart
+lowers to the float chart of the same values).
+
 ## Re-confirmation gate before public exposure
 
 Before this repo flips public (public GitHub repository, published-to-npm package, or marketing surface), the licensing posture declared in [`LICENSE`](LICENSE) must be re-confirmed by Diametrical Ltd.
