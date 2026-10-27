@@ -1760,6 +1760,17 @@ for byte, the float-parity sweep, the encoder's unchanged bytes), `packages/rend
 (the static tier's grid order and formatting) and `packages/charts/test/decimal-series.test.ts` (a decimal chart
 lowers to the float chart of the same values).
 
+### `@fuaran-ui/conformance` 0.29.0 — the kpi-strip and filter-bar fragments gain holes (Phase 2471)
+
+The bundled snapshot is re-synced to the specification commit `90b68a1`. The `frag-stdlib-kpi-strip` and
+`frag-stdlib-filter-bar` declarations gain optional holes: per-figure format, trend and polarity, and up to four choice
+filters. Their template bodies keep their bytes. Two new round-trip fixtures bind those holes:
+`frag-stdlib-kpi-strip-ref-figures` and `frag-stdlib-filter-bar-ref-choices`. `manifest.json` gains their entries. No
+refusal moves and no fixture leaves. **Additive.** 0.28.0 is in tag `v0.31.0`, so the number advances. Under the
+pre-1.0 rules an additive change is a minor, so the next release is 0.29.0. An adapter certifying against the corpus
+must decode a `HoleValueSpace.Enum`, which the IDL already carried and which these declarations are the first node
+fixtures to exercise.
+
 ## Re-confirmation gate before public exposure
 
 Before this repo flips public (public GitHub repository, published-to-npm package, or marketing surface), the licensing posture declared in [`LICENSE`](LICENSE) must be re-confirmed by Diametrical Ltd.
