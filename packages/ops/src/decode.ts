@@ -4282,6 +4282,7 @@ const dialect = (() => {
         FilterSpec: decodeFilterSpec,
         FormField: decodeFormField,
         GuestChannel: decodeGuestChannel,
+        MetricComparison: decodeMetricComparison,
         SrcSetEntry: decodeSrcSetEntry,
         StaticRows: decodeStaticRows,
         TabHeader: decodeTabHeader,
@@ -6502,6 +6503,9 @@ const fragmentArgMap: Decoder<Record<string, FragmentArg<unknown>>> = (w, path, 
 
 /** A `Mount`'s guest channel (Phase 1021): the direction, and the message shape it declares. */
 const decodeGuestChannel = recordDecoder('GuestChannel');
+
+/** One further comparison on a `Metric` (Phase 2472): label and value required, format and polarity omitted at their defaults. */
+const decodeMetricComparison = recordDecoder('MetricComparison');
 
 const decodeEffectClass = (w: Walk, path: string, j: JsonAst): R<EffectClass> => {
   const fo = requireObject(w, path, j);

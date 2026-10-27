@@ -1579,6 +1579,21 @@ export interface MetricSpec extends IdlSpec<'Metric'> {
   readonly value: Binding<number>;
 }
 
+/**
+ * Phase 2472 — one further comparison on a `MetricSpec`: a figure measured
+ * against a second (or third) period at once, rendered as one more trend line
+ * under `trend` with its own glyph, sentiment and label. `label` and `value` are
+ * required; `format` omits at `None` and `polarity` at `HigherIsBetter`, so a
+ * decoder restores both. The list itself (`MetricSpec.comparisons`) is omitted
+ * when empty.
+ */
+export interface MetricComparison {
+  readonly label: TextSource;
+  readonly value: Binding<number>;
+  readonly format: CellFormat;
+  readonly polarity: TrendPolarity;
+}
+
 export interface BadgeSpec extends IdlSpec<'Badge'> {}
 
 // A crawlable hyperlink primitive (Phase 139). Renders a real `<a href>` in
@@ -3076,6 +3091,7 @@ export interface RecordTypes<TMsg> {
   readonly GuestChannel: GuestChannel;
   readonly InvokeArg: InvokeArg;
   readonly MapMarker: MapMarker;
+  readonly MetricComparison: MetricComparison;
   /** Spelt as the `[low, high]` pair `FormFieldKind.Range` carries. */
   readonly RangePair: readonly [number, number];
   readonly SelectOption: SelectOption;

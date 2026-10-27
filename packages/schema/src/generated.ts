@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = 'e9ff0a22d727111d3d847a689655149081bdd1203f66ea2417905e13cd1791c7';
+export const IDL_SHA256 = 'c78f383ca50dc36dc5d158d63052aa202e70d2a1bdee77a30c629354247f76d4';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -174,6 +174,14 @@ const T_list_record_TrackEntry = {
 const T_enum_StyleWeight = { $type: 'enum', name: 'StyleWeight' } as const satisfies IdlType;
 const T_enum_Emphasis = { $type: 'enum', name: 'Emphasis' } as const satisfies IdlType;
 const T_enum_TrendPolarity = { $type: 'enum', name: 'TrendPolarity' } as const satisfies IdlType;
+const T_record_MetricComparison = {
+  $type: 'record',
+  name: 'MetricComparison',
+} as const satisfies IdlType;
+const T_list_record_MetricComparison = {
+  $type: 'list',
+  of: T_record_MetricComparison,
+} as const satisfies IdlType;
 const T_enum_ModalityKind = { $type: 'enum', name: 'ModalityKind' } as const satisfies IdlType;
 const T_record_GuestChannel = { $type: 'record', name: 'GuestChannel' } as const satisfies IdlType;
 const T_enum_ScrollOrientation = {
@@ -962,6 +970,12 @@ export const KIND_FIELDS = {
       type: T_enum_TrendPolarity,
       dflt: { $type: 'enum', case: 'HigherIsBetter' },
     },
+    {
+      name: 'comparisons',
+      opt: 'omitDefault',
+      type: T_list_record_MetricComparison,
+      dflt: { $type: 'list', items: [] },
+    },
     { name: 'icon', opt: 'optional', type: T_str },
     { name: 'subtext', opt: 'optional', type: T_union_TextSource },
   ],
@@ -1214,6 +1228,22 @@ export const RECORD_FIELDS = {
     { name: 'label', opt: 'required', type: T_str },
     { name: 'latitude', opt: 'required', type: T_float },
     { name: 'longitude', opt: 'required', type: T_float },
+  ],
+  MetricComparison: [
+    { name: 'label', opt: 'required', type: T_union_TextSource },
+    { name: 'value', opt: 'required', type: T_union_Binding_float },
+    {
+      name: 'format',
+      opt: 'omitDefault',
+      type: T_union_CellFormat,
+      dflt: { $type: 'union', tag: 'None', fields: [] },
+    },
+    {
+      name: 'polarity',
+      opt: 'omitDefault',
+      type: T_enum_TrendPolarity,
+      dflt: { $type: 'enum', case: 'HigherIsBetter' },
+    },
   ],
   RangePair: [
     { name: 'max', opt: 'required', type: T_float },

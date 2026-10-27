@@ -814,6 +814,26 @@ const renderMetric = <TMsg,>(
             </div>
           );
         })()}
+      {spec.comparisons.map((c, i) => {
+        // Phase 2472 — each further comparison is one more trend line, under its
+        // own polarity, with its label after the figure. Mirrors the server
+        // renderer and the F# element plan byte for byte.
+        const v = tryResolveScalarFloat(ctx.sources, c.value);
+        if (v === undefined)
+          return <div key={`comparison-${i}`} className="fuaran-metric-trend"></div>;
+        const [sentiment, glyph] = trendSentiment(c.polarity, v);
+        return (
+          <div
+            key={`comparison-${i}`}
+            className={`fuaran-metric-trend fuaran-metric-trend-${sentiment}`}
+          >
+            <span className="fuaran-metric-trend-glyph" role="img" aria-label={sentiment}>
+              {glyph}
+            </span>
+            {`${formatNumber(c.format, v)} ${renderText(ctx.sources, c.label)}`}
+          </div>
+        );
+      })}
       {spec.subtext !== undefined && (
         <div className="fuaran-metric-subtext">{renderText(ctx.sources, spec.subtext)}</div>
       )}

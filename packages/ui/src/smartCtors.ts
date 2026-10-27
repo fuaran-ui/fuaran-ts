@@ -105,6 +105,7 @@ import type {
   ToneVariant,
   TrendPolarity,
   Transform,
+  MetricComparison,
 } from '@fuaran-ui/schema';
 
 // ─── Ergonomic input coercions ───────────────────────────────────────────────
@@ -1206,8 +1207,23 @@ export interface MetricOptions {
   readonly trendFormat?: CellFormat;
   /** Phase 867 - which direction of this quantity is GOOD; defaults to `HigherIsBetter`. */
   readonly trendPolarity?: TrendPolarity;
+  /**
+   * Phase 2472 - further comparisons, each one more trend line under `trend` with
+   * its own label, glyph and polarity (a figure against last week AND last year).
+   */
+  readonly comparisons?: readonly MetricComparisonOptions[];
   readonly icon?: string;
   readonly subtext?: TextInput;
+}
+
+/** Phase 2472 - one further comparison on a metric. */
+export interface MetricComparisonOptions {
+  readonly label: TextInput;
+  readonly value: NumberInput;
+  /** Omitted on the wire at `None`. */
+  readonly format?: CellFormat;
+  /** Defaults to `HigherIsBetter`, omitted on the wire. */
+  readonly polarity?: TrendPolarity;
 }
 
 export interface HeadingOptions {
@@ -1990,6 +2006,18 @@ export const fuaran = {
       ...(o.trend !== undefined ? { trend: numberBinding(o.trend) } : {}),
       ...(o.trendFormat !== undefined ? { trendFormat: o.trendFormat } : {}),
       ...(o.trendPolarity !== undefined ? { trendPolarity: o.trendPolarity } : {}),
+      ...(o.comparisons !== undefined
+        ? {
+            comparisons: o.comparisons.map(
+              (c): MetricComparison => ({
+                label: text(c.label),
+                value: numberBinding(c.value),
+                format: c.format ?? { kind: 'None' },
+                polarity: c.polarity ?? 'HigherIsBetter',
+              }),
+            ),
+          }
+        : {}),
       ...(o.icon !== undefined ? { icon: iconSource(o.icon) } : {}),
       ...(o.subtext !== undefined ? { subtext: text(o.subtext) } : {}),
     };

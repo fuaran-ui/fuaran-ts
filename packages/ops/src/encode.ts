@@ -1089,6 +1089,7 @@ const encDialect = (() => {
         FormField: formField as Enc,
         GuestChannel: guestChannel as Enc,
         MapMarker: mapMarker as Enc,
+        MetricComparison: metricComparison as Enc,
         SelectOption: selectOption as Enc,
         SrcSetEntry: srcSetEntry as Enc,
         StaticRows: staticRows as Enc,
@@ -2266,6 +2267,8 @@ const fragmentRefSpec = specEncoder('FragmentRef', {
 });
 /** A `Mount`'s guest channel (Phase 1021). */
 const guestChannel = recordEncoder('GuestChannel');
+/** One further comparison on a `Metric` (Phase 2472). */
+const metricComparison = recordEncoder('MetricComparison');
 // Phase 2328 — `onBubble` is the optional closure slot the IDL declares: a Mount
 // carrying a bubble handler writes the sentinel, and one with none writes no key
 // (`mount-no-onbubble`), as `Stepper.onSelect` and `FileUpload.onSelect` do.

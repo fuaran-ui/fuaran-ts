@@ -1648,6 +1648,31 @@ const renderMetric = (
       );
     }
   }
+  // Phase 2472 — each further comparison is one more trend line, under its own
+  // polarity, with its label after the figure (mirrors the client renderer).
+  for (const c of spec.comparisons) {
+    const v = tryResolveScalarFloat(ctx.sources, c.value);
+    if (v === undefined) {
+      parts.push(textEl('div', [['class', 'fuaran-metric-trend']], ''));
+      continue;
+    }
+    const [sentiment, glyph] = trendSentiment(c.polarity, v);
+    parts.push(
+      el(
+        'div',
+        [['class', `fuaran-metric-trend fuaran-metric-trend-${sentiment}`]],
+        textEl(
+          'span',
+          [
+            ['class', 'fuaran-metric-trend-glyph'],
+            ['role', 'img'],
+            ['aria-label', sentiment],
+          ],
+          glyph,
+        ) + escapeText(`${formatNumber(c.format, v)} ${renderText(ctx.sources, c.label)}`),
+      ),
+    );
+  }
   if (spec.subtext !== undefined) {
     parts.push(
       textEl('div', [['class', 'fuaran-metric-subtext']], renderText(ctx.sources, spec.subtext)),
