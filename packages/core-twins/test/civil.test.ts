@@ -14,7 +14,9 @@ import {
   isLeapYear,
   parseIsoDay,
 } from '../src/civil.js';
+import { cellAt } from '../src/column.js';
 import { evalPipeline } from '../src/dataframe.js';
+import { col } from './tables.js';
 
 /** Days since the epoch by the host's own date type — an INDEPENDENT oracle for
  * the test only; the module under test never reads one. Years 0–99 are set
@@ -154,7 +156,7 @@ describe('civil — dateDiffDays keeps the reference spelling on unvalidated mon
   // the twin uses.
   const one: Table = {
     schema: [{ name: 'k', type: 'int' }],
-    columns: [{ name: 'k', type: 'int', cells: [{ kind: 'Int', value: 0 }] }],
+    columns: [col('k', 'int', [{ kind: 'Int', value: 0 }])],
   };
   const diff = (from: string, to: string): Cell | undefined => {
     const r = evalPipeline(
@@ -175,7 +177,8 @@ describe('civil — dateDiffDays keeps the reference spelling on unvalidated mon
       one,
     );
     if (!r.ok) throw new Error(`eval failed: ${JSON.stringify(r.error)}`);
-    return r.value.columns.find((c) => c.name === 'x')?.cells[0];
+    const x = r.value.columns.find((c) => c.name === 'x');
+    return x === undefined ? undefined : cellAt(x, 0);
   };
 
   it('a real month matches the calendar', () => {

@@ -35,6 +35,8 @@ import type {
   WindowSpec,
 } from '@fuaran-ui/schema';
 
+import { columnOfCells } from '@fuaran-ui/core-twins';
+
 // ─── Cell constructors ───────────────────────────────────────────────────────
 
 /** Typed scalar-cell constructors (the columnar `Cell` cases). */
@@ -111,17 +113,23 @@ export const expr = {
 
 // ─── DataSource builders ─────────────────────────────────────────────────────
 
-/** Build a typed `Table` from a schema and per-column cell arrays. */
+/**
+ * Build a typed `Table` from a schema and per-column cell arrays. Each column is
+ * held as typed vectors (Phase 2205), so a cell its column type cannot hold — a
+ * string in an int column, an int outside 32 bits, a date that is not canonical
+ * `YYYY-MM-DD` text — throws a `TypeError` naming the column: a table that
+ * cannot exist is an authoring error, reported where it is written.
+ */
 export const buildTable = (
   schema: readonly [string, ColumnType][],
   columns: Readonly<Record<string, readonly Cell[]>>,
 ): Table => {
   const entries: SchemaEntry[] = schema.map(([name, type]) => ({ name, type }));
-  const cols: DataColumn[] = entries.map((e) => ({
-    name: e.name,
-    type: e.type,
-    cells: columns[e.name] ?? [],
-  }));
+  const cols: DataColumn[] = entries.map((e) => {
+    const c = columnOfCells(e.name, e.type, columns[e.name] ?? []);
+    if (!c.ok) throw new TypeError(`buildTable: ${c.error}`);
+    return c.value;
+  });
   return { schema: entries, columns: cols };
 };
 

@@ -66,7 +66,7 @@ import type { Cell, DataSource, Table, Transform } from '@fuaran-ui/schema';
 
 import { decodeDataSource, decodePipelineCore } from '../src/decode.js';
 import { encodeDataSource } from '../src/encode.js';
-import { evalPipeline } from '../src/dataframe.js';
+import { cellAt, columnCells, evalPipeline } from '../src/dataframe.js';
 import { parse } from '../src/parse.js';
 
 import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
@@ -229,11 +229,13 @@ const withinTolerance = (
     if (w === undefined || at < 0)
       throw new Error(`vector ${id}: tolerance column ${name} is absent`);
     const g = columns[at]!;
-    if (w.type !== g.type || w.cells.length !== g.cells.length)
+    const wCells = columnCells(w);
+    const gCells = columnCells(g);
+    if (w.type !== g.type || wCells.length !== gCells.length)
       throw new Error(`vector ${id}: tolerance column ${name} differs in type or length`);
     let columnWorst = 0n;
-    w.cells.forEach((wc, r) => {
-      const gc = g.cells[r]!;
+    wCells.forEach((wc, r) => {
+      const gc = gCells[r]!;
       if ((wc.kind === 'Null') !== (gc.kind === 'Null'))
         throw new Error(`vector ${id}: ${name} row ${r} is null in one table only`);
       if (wc.kind === 'Float' && gc.kind === 'Float') {
@@ -439,7 +441,13 @@ describe('the power functions off the wire', () => {
   const one = (fn: 'pow' | 'exp' | 'ln' | 'log10', args: readonly Cell[]) => {
     const table: Table = {
       schema: [{ name: 'k', type: 'int' }],
-      columns: [{ name: 'k', type: 'int', cells: [{ kind: 'Int', value: 0 }] }],
+      columns: [
+        {
+          name: 'k',
+          type: 'int',
+          data: { kind: 'Ints', values: Int32Array.of(0), validity: { kind: 'AllValid' } },
+        },
+      ],
     };
     const r = evalPipeline(
       [
@@ -452,7 +460,7 @@ describe('the power functions off the wire', () => {
       table,
     );
     if (!r.ok) return r;
-    return { ok: true as const, cell: r.value.columns.find((c) => c.name === 'out')!.cells[0]! };
+    return { ok: true as const, cell: cellAt(r.value.columns.find((c) => c.name === 'out')!, 0) };
   };
   const f = (value: number): Cell => ({ kind: 'Float', value });
   const i = (value: number): Cell => ({ kind: 'Int', value });

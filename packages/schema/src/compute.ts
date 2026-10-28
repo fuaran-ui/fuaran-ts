@@ -113,14 +113,55 @@ export interface SchemaEntry {
 export type ColumnSchema = readonly SchemaEntry[];
 
 /**
- * A typed, null-aware column. `cells` co-indexes with the table's rows; a `Null`
- * cell is the validity-mask "absent" marker. Named `DataColumn` to avoid a clash
- * with the grid `Column<TRow, TMsg>` in types.ts.
+ * Which rows of a column are present (fuaran-core#420): `AllValid`, holding
+ * nothing, or a `Mask` of one byte per row, `1` present and `0` absent. The
+ * builders normalise, so a column with no absent row always carries `AllValid`.
+ */
+export type Validity =
+  | { readonly kind: 'AllValid' }
+  | { readonly kind: 'Mask'; readonly present: Uint8Array };
+
+/**
+ * A column's storage (Phase 2205, the twin of Core's `ColumnData` from 1.0.0,
+ * fuaran-core#417): one typed vector of values and the `Validity` beside it. An
+ * absent row's slot holds the type's zero and is never read as a value.
+ *
+ * - `int` is an `Int32Array`; `float` a `Float64Array`; `bool` a `Uint8Array`
+ *   of `0` / `1`; `string` an array of strings.
+ * - `date` is an `Int32Array` of days since 1970-01-01 (fuaran-core#422).
+ * - every timestamp unit is a `Float64Array` of whole epoch seconds plus the
+ *   fraction of the second scaled to the column's unit (`timestamp_ms` counts
+ *   milliseconds, …) — `undefined` for a `timestamp` column, or where every
+ *   fraction is zero (WIRE_FORMAT §3.6.25).
+ * - `decimal` is an array of decimal texts.
+ *
+ * Build one with `columnOfCells` (or the decoder), read one with `cellAt` /
+ * `columnCells`; both are exported by `@fuaran-ui/ops`.
+ */
+export type ColumnData =
+  | { readonly kind: 'Ints'; readonly values: Int32Array; readonly validity: Validity }
+  | { readonly kind: 'Floats'; readonly values: Float64Array; readonly validity: Validity }
+  | { readonly kind: 'Bools'; readonly values: Uint8Array; readonly validity: Validity }
+  | { readonly kind: 'Strs'; readonly values: readonly string[]; readonly validity: Validity }
+  | { readonly kind: 'Dates'; readonly values: Int32Array; readonly validity: Validity }
+  | {
+      readonly kind: 'Timestamps';
+      readonly seconds: Float64Array;
+      readonly fraction: Int32Array | undefined;
+      readonly validity: Validity;
+    }
+  | { readonly kind: 'Decimals'; readonly values: readonly string[]; readonly validity: Validity };
+
+/**
+ * A typed, null-aware column: its name, its type and its typed storage (Phase
+ * 2205; it held a `Cell[]` before). The storage's length is the table's row
+ * count. Named `DataColumn` to avoid a clash with the grid `Column<TRow, TMsg>`
+ * in types.ts.
  */
 export interface DataColumn {
   readonly name: string;
   readonly type: ColumnType;
-  readonly cells: readonly Cell[];
+  readonly data: ColumnData;
 }
 
 /** An embedded columnar table: its schema + the columns (column order follows the schema). */

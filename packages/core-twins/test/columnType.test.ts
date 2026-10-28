@@ -6,11 +6,13 @@ import { describe, expect, it } from 'vitest';
 import type { Cell, Table } from '@fuaran-ui/schema';
 
 import {
+  columnCells,
   columnTypeWidens,
   compareInstantText,
   evalPipeline,
   timestampTypeOfText,
 } from '../src/index.js';
+import { col } from './tables.js';
 
 const ts = (value: string): Cell => ({ kind: 'Timestamp', value });
 
@@ -51,15 +53,11 @@ describe('Phase 2206 — the column-type lattice with timestamp units', () => {
     const input: Table = {
       schema: [{ name: 't', type: 'timestamp_ms' }],
       columns: [
-        {
-          name: 't',
-          type: 'timestamp_ms',
-          cells: [ts('2026-01-01T00:00:00.5Z'), ts('2026-01-01T00:00:00Z')],
-        },
+        col('t', 'timestamp_ms', [ts('2026-01-01T00:00:00.5Z'), ts('2026-01-01T00:00:00Z')]),
       ],
     };
     const r = evalPipeline([{ kind: 'sort', by: [{ col: 't', dir: 'asc' }] }], input);
-    expect(r.ok && r.value.columns[0]!.cells).toEqual([
+    expect(r.ok && columnCells(r.value.columns[0]!)).toEqual([
       ts('2026-01-01T00:00:00Z'),
       ts('2026-01-01T00:00:00.5Z'),
     ]);
@@ -69,14 +67,10 @@ describe('Phase 2206 — the column-type lattice with timestamp units', () => {
     const input: Table = {
       schema: [{ name: 'n', type: 'int' }],
       columns: [
-        {
-          name: 'n',
-          type: 'int',
-          cells: [
-            { kind: 'Int', value: 1 },
-            { kind: 'Int', value: 2 },
-          ],
-        },
+        col('n', 'int', [
+          { kind: 'Int', value: 1 },
+          { kind: 'Int', value: 2 },
+        ]),
       ],
     };
     const r = evalPipeline(

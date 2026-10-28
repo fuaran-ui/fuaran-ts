@@ -28,20 +28,12 @@ const source: DataSource = {
       {
         name: 'dept',
         type: 'string',
-        cells: [
-          { kind: 'Str', value: 'eng' },
-          { kind: 'Str', value: 'eng' },
-          { kind: 'Str', value: 'sales' },
-        ],
+        data: { kind: 'Strs', values: ['eng', 'eng', 'sales'], validity: { kind: 'AllValid' } },
       },
       {
         name: 'amount',
         type: 'int',
-        cells: [
-          { kind: 'Int', value: 100 },
-          { kind: 'Int', value: 120 },
-          { kind: 'Int', value: 90 },
-        ],
+        data: { kind: 'Ints', values: Int32Array.of(100, 120, 90), validity: { kind: 'AllValid' } },
       },
     ],
   },

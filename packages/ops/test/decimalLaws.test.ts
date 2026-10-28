@@ -29,6 +29,7 @@ import {
   decimalCompare,
   decimalToFloat,
   num,
+  columnOfCells,
 } from '@fuaran-ui/core-twins';
 import type { AggFn, Cell } from '@fuaran-ui/schema';
 
@@ -149,13 +150,13 @@ const RUNNERS: Readonly<Record<string, (v: DecimalVector) => Answer>> = {
     return src.ok ? { accept: encodeDataSource(src.value) } : { reject: src.error };
   },
   codecEncode: (v) => {
-    const cells = column(v.input.cells);
+    // A cell a decimal column cannot hold is refused as the column is built (Phase 2205: the
+    // column holds decimal texts); the guarded encode then refuses a text that is not canonical.
+    const c = columnOfCells('c', 'decimal', column(v.input.cells));
+    if (!c.ok) return { reject: c.error };
     const r = tryEncodeDataSource({
       kind: 'Embedded',
-      table: {
-        schema: [{ name: 'c', type: 'decimal' }],
-        columns: [{ name: 'c', type: 'decimal', cells }],
-      },
+      table: { schema: [{ name: 'c', type: 'decimal' }], columns: [c.value] },
     });
     return r.ok ? { accept: r.value } : { reject: r.error };
   },

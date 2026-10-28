@@ -66,6 +66,7 @@ import type {
   Cell,
   ColExpr,
   ColPair,
+  ColumnData,
   ColumnType,
   DataColumn,
   DataSource,
@@ -155,7 +156,14 @@ import type {
   TrendPolarity,
 } from '@fuaran-ui/schema';
 
-import { civilFromDays, parseIsoDay } from '@fuaran-ui/core-twins';
+import {
+  dateDays,
+  instantParts,
+  isInt32,
+  parseIsoDay,
+  validityOfMask,
+  type InstantParts,
+} from '@fuaran-ui/core-twins';
 // Phase 2001 — the exact decimal: its canonical text and the rounding policy's seven modes.
 import { decimalCanonical } from '@fuaran-ui/core-twins';
 import { ROUNDING_MODES, type Rounding, type RoundingMode } from '@fuaran-ui/schema';
@@ -1634,66 +1642,136 @@ const DECIMAL_INT53_MAX = 9007199254740992;
  * time it arrives and is refused — a type whose purpose is exactness cannot
  * vouch for it.
  */
-const decodeDecimalColumnCell = (colName: string, v: JsonAst): CR<Cell> => {
+const decodeDecimalColumnValue = (colName: string, v: JsonAst): CR<string> => {
   if (v.kind === 'JString') {
     const c = decimalCanonical(v.value);
     return c !== undefined
-      ? cok({ kind: 'Decimal', value: c })
+      ? cok(c)
       : cerr(
           `malformed: column '${colName}': a decimal value must be decimal text — an optional '-', digits, and an optional '.' followed by digits, with no exponent, sign '+', separator or white space`,
         );
   }
   if (v.kind === 'JNumber' && Number.isInteger(v.value) && Math.abs(v.value) <= DECIMAL_INT53_MAX) {
-    return cok({ kind: 'Decimal', value: BigInt(v.value).toString() });
+    return cok(BigInt(v.value).toString());
   }
   return cerr(`column '${colName}': expected decimal value, got ${astKind(v)}`);
 };
 
 /**
- * fuaran-core#94 (lenient-ingest) — render an epoch-seconds instant as the
- * canonical ISO-8601 UTC timestamp string. Pure integer arithmetic
- * (`civilFromDays`, the host's one calendar module), clock-free; negative
- * epochs (pre-1970) are handled.
- * Every division mirrors the F# int64 truncating division.
+ * A column's present values decoded straight into its typed storage (Phase 2205; port of F#
+ * `decodeCell` over Core's typed column). Each type reads its exact JSON kind, except that a float
+ * column accepts an integer token (lossless widening) and a timestamp column of any unit reads
+ * through `decodeInstant`. Two values the typed storage cannot hold are refused by name, as the
+ * reference's codec refuses them: an int outside 32 bits, and a date that is not canonical
+ * `YYYY-MM-DD` text naming a day that exists. An absent row's value is never read.
  */
-const isoOfEpochSeconds = (secs: number): string => {
-  let days = Math.trunc(secs / 86400);
-  if (secs % 86400 < 0) days -= 1;
-  const sod = secs - days * 86400;
-  const { year, month, day } = civilFromDays(days);
-  const p2 = (n: number): string => String(n).padStart(2, '0');
-  const p4 = (n: number): string => String(n).padStart(4, '0');
-  return `${p4(year)}-${p2(month)}-${p2(day)}T${p2(Math.trunc(sod / 3600))}:${p2(Math.trunc((sod % 3600) / 60))}:${p2(sod % 60)}Z`;
-};
-
-/**
- * One present column cell decoded against its declared type — port of F#
- * `decodeCell`. A float column accepts an integer JSON token (lossless
- * widening); a timestamp column of any unit reads through `decodeInstant`.
- * Every other type requires its exact JSON kind.
- */
-const decodeColumnCell = (colName: string, ty: ColumnType, v: JsonAst): CR<Cell> => {
-  const mismatch = cerr(`column '${colName}': expected ${ty} value, got ${astKind(v)}`);
+const decodeColumnData = (
+  colName: string,
+  ty: ColumnType,
+  values: readonly JsonAst[],
+  present: Uint8Array,
+): CR<ColumnData> => {
+  const n = values.length;
+  const validity = validityOfMask(present);
+  const mismatch = (v: JsonAst): CR<never> =>
+    cerr(`column '${colName}': expected ${ty} value, got ${astKind(v)}`);
   switch (ty) {
-    case 'int':
-      return v.kind === 'JNumber' ? cok({ kind: 'Int', value: Math.trunc(v.value) }) : mismatch;
-    case 'float':
-      return v.kind === 'JNumber' ? cok({ kind: 'Float', value: v.value }) : mismatch;
-    case 'bool':
-      return v.kind === 'JBool' ? cok({ kind: 'Bool', value: v.value }) : mismatch;
-    case 'string':
-      return v.kind === 'JString' ? cok({ kind: 'Str', value: v.value }) : mismatch;
-    case 'date':
-      return v.kind === 'JString' ? cok({ kind: 'Date', value: v.value }) : mismatch;
+    case 'int': {
+      const out = new Int32Array(n);
+      for (let i = 0; i < n; i += 1) {
+        if (present[i] === 0) continue;
+        const v = values[i]!;
+        if (v.kind !== 'JNumber') return mismatch(v);
+        const x = Math.trunc(v.value);
+        if (!isInt32(x))
+          return cerr(
+            `malformed: ${colName}: an int column holds 32-bit integers, and ${String(x)} is outside them`,
+          );
+        out[i] = x;
+      }
+      return cok({ kind: 'Ints', values: out, validity });
+    }
+    case 'float': {
+      const out = new Float64Array(n);
+      for (let i = 0; i < n; i += 1) {
+        if (present[i] === 0) continue;
+        const v = values[i]!;
+        if (v.kind !== 'JNumber') return mismatch(v);
+        out[i] = v.value;
+      }
+      return cok({ kind: 'Floats', values: out, validity });
+    }
+    case 'bool': {
+      const out = new Uint8Array(n);
+      for (let i = 0; i < n; i += 1) {
+        if (present[i] === 0) continue;
+        const v = values[i]!;
+        if (v.kind !== 'JBool') return mismatch(v);
+        out[i] = v.value ? 1 : 0;
+      }
+      return cok({ kind: 'Bools', values: out, validity });
+    }
+    case 'string': {
+      const out = new Array<string>(n).fill('');
+      for (let i = 0; i < n; i += 1) {
+        if (present[i] === 0) continue;
+        const v = values[i]!;
+        if (v.kind !== 'JString') return mismatch(v);
+        out[i] = v.value;
+      }
+      return cok({ kind: 'Strs', values: out, validity });
+    }
+    case 'date': {
+      const out = new Int32Array(n);
+      for (let i = 0; i < n; i += 1) {
+        if (present[i] === 0) continue;
+        const v = values[i]!;
+        if (v.kind !== 'JString') return mismatch(v);
+        const d = dateDays(v.value);
+        if (d === undefined)
+          return cerr(
+            `malformed: ${colName}: a date value must be canonical ISO-8601 text, YYYY-MM-DD, naming a day that exists`,
+          );
+        out[i] = d;
+      }
+      return cok({ kind: 'Dates', values: out, validity });
+    }
+    case 'decimal': {
+      const out = new Array<string>(n).fill('0');
+      for (let i = 0; i < n; i += 1) {
+        if (present[i] === 0) continue;
+        const d = decodeDecimalColumnValue(colName, values[i]!);
+        if (!d.ok) return d;
+        out[i] = d.value;
+      }
+      return cok({ kind: 'Decimals', values: out, validity });
+    }
     case 'timestamp':
     case 'timestamp_ms':
     case 'timestamp_us':
-    case 'timestamp_ns':
-      return decodeInstant(colName, ty, TIMESTAMP_UNIT_DIGITS[ty] ?? 0, v, mismatch);
-    case 'decimal':
-      return decodeDecimalColumnCell(colName, v);
+    case 'timestamp_ns': {
+      const digits = TIMESTAMP_UNIT_DIGITS[ty] ?? 0;
+      const seconds = new Float64Array(n);
+      const fraction = new Int32Array(n);
+      let anyFraction = false;
+      for (let i = 0; i < n; i += 1) {
+        if (present[i] === 0) continue;
+        const v = values[i]!;
+        const p = decodeInstant(colName, ty, digits, v, mismatch(v));
+        if (!p.ok) return p;
+        seconds[i] = p.value.second;
+        fraction[i] = p.value.fraction;
+        if (p.value.fraction !== 0) anyFraction = true;
+      }
+      return cok({
+        kind: 'Timestamps',
+        seconds,
+        fraction: anyFraction ? fraction : undefined,
+        validity,
+      });
+    }
     default:
-      return mismatch;
+      return cerr(`column '${colName}': unknown column type '${String(ty)}'`);
   }
 };
 
@@ -1748,8 +1826,8 @@ const decodeInstant = (
   ty: ColumnType,
   digits: number,
   v: JsonAst,
-  mismatch: CR<Cell>,
-): CR<Cell> => {
+  mismatch: CR<never>,
+): CR<InstantParts> => {
   if (v.kind === 'JString') {
     const n = instantFractionDigits(v.value);
     if (n === undefined)
@@ -1760,7 +1838,8 @@ const decodeInstant = (
       return cerr(
         `malformed: ${colName}: a ${ty} value's fraction is finer than the column's unit holds: ${timestampTagOfDigits(n)} or finer is needed`,
       );
-    return cok({ kind: 'Timestamp', value: v.value });
+    const p = instantParts(v.value, digits);
+    return typeof p === 'object' ? cok(p) : mismatch;
   }
   // The F# JInt path and its whole-JFloat path, unified — TS has one number kind.
   if (v.kind !== 'JNumber' || v.value !== Math.floor(v.value) || Math.abs(v.value) >= 9e15)
@@ -1786,12 +1865,7 @@ const decodeInstant = (
     return cerr(
       `malformed: ${colName}: the epoch ${v.value} names an instant outside the years 0000-9999 the canonical timestamp spells`,
     );
-  const whole = isoOfEpochSeconds(second);
-  const text =
-    fraction === 0
-      ? whole
-      : `${whole.slice(0, 19)}.${String(fraction).padStart(digits, '0').replace(/0+$/, '')}Z`;
-  return cok({ kind: 'Timestamp', value: text });
+  return cok({ second, fraction });
 };
 
 const decodeColSchema = (j: JsonAst): CR<SchemaEntry[]> => {
@@ -1853,28 +1927,22 @@ const decodeDataColumn = (columnsObj: Fields, name: string, ty: ColumnType): CR<
   if (colEl === undefined) return cerr('missing field: columns.' + name);
   const parts = columnParts(name, colEl);
   if (!parts.ok) return parts;
-  const values = { ok: true as const, value: parts.value[0] };
-  const validity = { ok: true as const, value: parts.value[1] };
-  if (values.value.length !== validity.value.length) {
+  const [values, validity] = parts.value;
+  if (values.length !== validity.length) {
     return cerr(
-      `column '${name}': values/validity length mismatch (${values.value.length} vs ${validity.value.length})`,
+      `column '${name}': values/validity length mismatch (${values.length} vs ${validity.length})`,
     );
   }
-  const cells: Cell[] = [];
-  for (let i = 0; i < values.value.length; i += 1) {
-    const p = validity.value[i]!;
+  const present = new Uint8Array(values.length);
+  for (let i = 0; i < validity.length; i += 1) {
+    const p = validity[i]!;
     if (p.kind !== 'JBool') {
       return cerr(`malformed: ${name}.validity: expected bool, got ${astKind(p)}`);
     }
-    if (!p.value) {
-      cells.push({ kind: 'Null' });
-    } else {
-      const c = decodeColumnCell(name, ty, values.value[i]!);
-      if (!c.ok) return c;
-      cells.push(c.value);
-    }
+    present[i] = p.value ? 1 : 0;
   }
-  return cok<DataColumn>({ name, type: ty, cells });
+  const data = decodeColumnData(name, ty, values, present);
+  return data.ok ? cok<DataColumn>({ name, type: ty, data: data.value }) : data;
 };
 
 // Phase 88 (fuaran-core, mirrored) — infer a column's type from its cells.

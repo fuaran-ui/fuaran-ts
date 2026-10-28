@@ -14,6 +14,7 @@ import type { Binding, ColExpr, Node, NodeId, Transform } from '@fuaran-ui/schem
 import { describe, expect, it } from 'vitest';
 
 import { decodeNode, encodeNode } from '../src/index.js';
+import { typedCol } from './typedCol.js';
 
 // Wrap a Transform binding in a DataGrid node (the data-bearing source slot).
 const gridWith = (binding: Binding<unknown>): Node<unknown> => ({
@@ -163,7 +164,7 @@ describe('compute codec — full verb / expr / cell coverage (round-trip stable)
           kind: 'Embedded',
           table: {
             schema: [{ name: 'key', type: 'string' }],
-            columns: [{ name: 'key', type: 'string', cells: [{ kind: 'Str', value: 'a' }] }],
+            columns: [typedCol('key', 'string', [{ kind: 'Str', value: 'a' }])],
           },
         },
         on: [{ a: 'key', b: 'key' }],
@@ -202,31 +203,18 @@ describe('compute codec — full verb / expr / cell coverage (round-trip stable)
               { name: 't', type: 'timestamp' },
             ],
             columns: [
-              { name: 'n', type: 'int', cells: [{ kind: 'Int', value: 1 }, { kind: 'Null' }] },
-              {
-                name: 'f',
-                type: 'float',
-                cells: [{ kind: 'Float', value: 1.5 }, { kind: 'Null' }],
-              },
-              { name: 'b', type: 'bool', cells: [{ kind: 'Bool', value: true }, { kind: 'Null' }] },
-              {
-                name: 'k',
-                type: 'string',
-                cells: [
-                  { kind: 'Str', value: 'a' },
-                  { kind: 'Str', value: 'b' },
-                ],
-              },
-              {
-                name: 'd',
-                type: 'date',
-                cells: [{ kind: 'Date', value: '2026-01-01' }, { kind: 'Null' }],
-              },
-              {
-                name: 't',
-                type: 'timestamp',
-                cells: [{ kind: 'Timestamp', value: '2026-01-01T00:00:00Z' }, { kind: 'Null' }],
-              },
+              typedCol('n', 'int', [{ kind: 'Int', value: 1 }, { kind: 'Null' }]),
+              typedCol('f', 'float', [{ kind: 'Float', value: 1.5 }, { kind: 'Null' }]),
+              typedCol('b', 'bool', [{ kind: 'Bool', value: true }, { kind: 'Null' }]),
+              typedCol('k', 'string', [
+                { kind: 'Str', value: 'a' },
+                { kind: 'Str', value: 'b' },
+              ]),
+              typedCol('d', 'date', [{ kind: 'Date', value: '2026-01-01' }, { kind: 'Null' }]),
+              typedCol('t', 'timestamp', [
+                { kind: 'Timestamp', value: '2026-01-01T00:00:00Z' },
+                { kind: 'Null' },
+              ]),
             ],
           },
         },
