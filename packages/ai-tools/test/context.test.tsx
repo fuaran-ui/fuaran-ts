@@ -40,6 +40,7 @@ const tree: Node<unknown> = {
                   weight: 'Standard',
                   emphasis: 'Normal',
                   trendPolarity: 'HigherIsBetter',
+                  comparisons: [],
                 },
               },
             },
