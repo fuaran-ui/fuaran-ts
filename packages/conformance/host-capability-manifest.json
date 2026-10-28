@@ -61,9 +61,7 @@
       "pending": "this host's evaluator runs the drawn transformLaws sample; the authored dataframeParity cases are not run yet"
     },
     "laws/decimal": "covered",
-    "laws/fieldLaws": {
-      "pending": "this host's suite does not yet run this law family's vectors"
-    },
+    "laws/fieldLaws": "covered",
     "laws/propagationLaws": {
       "pending": "this host's suite does not yet run this law family's vectors"
     },

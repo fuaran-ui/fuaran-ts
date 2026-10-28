@@ -127,3 +127,25 @@ export {
 } from './function.js';
 
 export { actorId, encodeActor, humanActor, jsonString, type Actor } from './actor.js';
+
+export {
+  canonicalUnit,
+  parseUnit,
+  renderUnit,
+  unitRefusalText,
+  type UnitFactor,
+  type UnitOfMeasure,
+  type UnitRefusal,
+} from './unit.js';
+
+export {
+  classifySchemaDelta,
+  diffSchema,
+  fieldHasMetadata,
+  patchSchema,
+  schemaFingerprint,
+  type FieldChange,
+  type SchemaCompat,
+  type SchemaDelta,
+  type SchemaError,
+} from './schema.js';

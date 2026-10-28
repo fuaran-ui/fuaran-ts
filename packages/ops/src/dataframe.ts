@@ -32,4 +32,17 @@ export {
   columnOfCells,
   isPresentAt,
   type ColumnResult,
+  // Phase 2207 — a schema entry's unit (the unit algebra's canonical text) and the schema
+  // operations over field metadata: fingerprint, diff, patch and the compatibility verdict.
+  canonicalUnit,
+  unitRefusalText,
+  type UnitRefusal,
+  classifySchemaDelta,
+  diffSchema,
+  patchSchema,
+  schemaFingerprint,
+  type FieldChange,
+  type SchemaCompat,
+  type SchemaDelta,
+  type SchemaError,
 } from '@fuaran-ui/core-twins';

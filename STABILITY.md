@@ -1818,6 +1818,36 @@ pre-1.0 rules an additive change is a minor, so the next release is 0.29.0. An a
 must decode a `HoleValueSpace.Enum`, which the IDL already carried and which these declarations are the first node
 fixtures to exercise.
 
+### Recorded breaking change — `@fuaran-ui/schema` 0.28.0, `@fuaran-ui/ops` 0.32.0 and `@fuaran-ui/conformance` 0.29.0, the column wire carries field metadata: unit, label, description, ext (Phase 2207)
+
+_Unreleased: rides the untagged drafts. Each package is already ahead of `v0.31.0` at a minor number, which is where a
+pre-1.0 breaking change goes, so no number moves._
+
+**`SchemaEntry` gains four optional members** (WIRE_FORMAT §3.6.26, the reference's `Field`): `unit` (the canonical text
+of the unit algebra), `label`, `description` and `ext` (a `ReadonlyMap<string, string>` of extension members, held
+verbatim, a prototype-named key included). An entry that states none is the `{name, type}` it was, and keeps its bytes.
+Adding optional members is additive for a TypeScript consumer.
+
+- **The decoder reads, validates and canonicalises them.** A unit is read through the unit algebra and held canonical
+  (`s-1.m` is `m/s`, `l` is `L`); an unparseable unit, a non-string `unit` / `label` / `description`, a non-object `ext`
+  and a non-string `ext` member are each **refused**, naming the column and the reason (`malformed:`, the reference's
+  `MalformedShape`). This is the breaking half: before, the decoder read past all four members, so a source carrying a
+  bad one decoded and now it does not. An empty `ext` states nothing. A member the entry does not define is still read
+  past.
+- **The encoder writes the stated members only**, keys sorted. The guarded `tryEncodeDataSource` refuses a unit that is
+  not spelled canonically, as it refuses a non-canonical decimal.
+- **Added** (`@fuaran-ui/ops`): `encodeSchemaEntry`, `encodeSchemaDelta`, `canonicalUnit` and `unitRefusalText`, and
+  the schema operations over metadata — `schemaFingerprint`, `diffSchema`, `patchSchema` (with the law
+  `patchSchema(old, diffSchema(old, target))` = `target`) and `classifySchemaDelta` (a replaced or withdrawn unit on a
+  depended-on column is `breaking`, a moved extension member `unknown`). The twins live in the workspace-internal
+  `core-twins` (`unit.ts`, `schema.ts`) and are bundled.
+- **`@fuaran-ui/conformance`**: the capability manifest claims `laws/fieldLaws` as `covered`.
+
+**Certified by** the shared corpus's `laws/fieldLaws` family, all 43 vectors over its five cases
+(`packages/ops/test/fieldLaws.test.ts`), `packages/core-twins/test/unit.test.ts` (every refusal class, the grammar's
+edges, the replay law) and `packages/ops/test/fieldMetadata.test.ts` (verbatim extension keys, the named refusal, the
+guarded encode).
+
 ## Re-confirmation gate before public exposure
 
 Before this repo flips public (public GitHub repository, published-to-npm package, or marketing surface), the licensing posture declared in [`LICENSE`](LICENSE) must be re-confirmed by Diametrical Ltd.

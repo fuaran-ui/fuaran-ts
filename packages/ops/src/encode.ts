@@ -108,7 +108,9 @@ import {
   nullColumn,
   timestampDigits,
 } from '@fuaran-ui/core-twins';
-import type { Rounding } from '@fuaran-ui/schema';
+// Phase 2207 — a schema entry's unit is written canonical; the schema delta's shape.
+import { canonicalUnit, type FieldChange, type SchemaDelta } from '@fuaran-ui/core-twins';
+import type { Rounding, SchemaEntry } from '@fuaran-ui/schema';
 
 import type { JsonAst } from './parse.js';
 import type { StyleDelta, TreeOp } from './treeOp.js';
@@ -326,17 +328,69 @@ const dataColumnJson = (c: DataColumn): string => {
   ]);
 };
 
-const schemaJson = (
-  schema: readonly { readonly name: string; readonly type: ColumnType }[],
-): string =>
-  jArray(
-    schema.map((e) =>
-      jObject([
-        ['name', str(e.name)],
-        ['type', str(e.type)],
-      ]),
-    ),
-  );
+/**
+ * One schema entry as the wire carries it — port of the reference `ColumnCodec.fieldJson`: `name`
+ * and `type` always, then the metadata members the entry states and no other (Phase 2207), so an
+ * entry without metadata keeps the `{name, type}` bytes it had. An empty `ext` is never written.
+ */
+const fieldJson = (e: SchemaEntry): string => {
+  const fields: Field[] = [
+    ['name', str(e.name)],
+    ['type', str(e.type)],
+  ];
+  if (e.unit !== undefined) fields.push(['unit', str(e.unit)]);
+  if (e.label !== undefined) fields.push(['label', str(e.label)]);
+  if (e.description !== undefined) fields.push(['description', str(e.description)]);
+  if (e.ext !== undefined && e.ext.size > 0)
+    fields.push(['ext', jObject([...e.ext].map(([k, v]): Field => [k, str(v)]))]);
+  return jObject(fields);
+};
+
+const schemaJson = (schema: readonly SchemaEntry[]): string => jArray(schema.map(fieldJson));
+
+/** Encode one schema entry to its canonical bytes (Phase 2207). */
+export const encodeSchemaEntry = (e: SchemaEntry): string => fieldJson(e);
+
+const amendedJson = (name: string, c: FieldChange): string => {
+  const fields: Field[] = [
+    ['name', str(name)],
+    ['member', str(c.member)],
+  ];
+  if (c.member === 'ext') fields.push(['key', str(c.key)]);
+  if (c.from !== undefined) fields.push(['from', str(c.from)]);
+  if (c.to !== undefined) fields.push(['to', str(c.to)]);
+  return jObject(fields);
+};
+
+/**
+ * Phase 2207 — a schema delta's canonical wire, port of the reference `SchemaDeltaCodec.encode`:
+ * `added` and `removed` as schema entries, `retyped` as `{name, from, to}`, `reordered`, `order`,
+ * and `amended` ONLY when non-empty (`{name, member, key?, from?, to?}`, an absent side omitted),
+ * so a delta between schemas without metadata keeps the bytes it had.
+ */
+export const encodeSchemaDelta = (d: SchemaDelta): string => {
+  const fields: Field[] = [
+    ['added', schemaJson(d.added)],
+    ['removed', schemaJson(d.removed)],
+    [
+      'retyped',
+      jArray(
+        d.retyped.map((r) =>
+          jObject([
+            ['name', str(r.name)],
+            ['from', str(r.from)],
+            ['to', str(r.to)],
+          ]),
+        ),
+      ),
+    ],
+    ['reordered', bool(d.reordered)],
+    ['order', jArray(d.order.map(str))],
+  ];
+  if (d.amended.length > 0)
+    fields.push(['amended', jArray(d.amended.map((a) => amendedJson(a.name, a.change)))]);
+  return jObject(fields);
+};
 
 /** Encode a `DataSource` — port of F# `ColumnCodec.encodeJson`. */
 const dataSource = (src: DataSource): string => {
@@ -555,7 +609,9 @@ export const encodeDataSource = (src: DataSource): string => dataSource(src);
  * the refusal of a cell the decimal column cannot carry — a decimal whose text
  * is not CANONICAL decimal text (`12.50` is refused; the decimal type has one
  * spelling per value). A typed decimal column holds nothing but decimal text
- * (Phase 2205), so that is the one refusal left.
+ * (Phase 2205), so that is the one cell refusal left. Since Phase 2207 a schema
+ * entry whose `unit` is not the canonical text of a unit is refused too (`s-1.m`
+ * is spelled `m/s`; a unit has one spelling, as a decimal has).
  * Every other table encodes exactly as `encodeDataSource` encodes it.
  */
 export const tryEncodeDataSource = (
@@ -564,6 +620,16 @@ export const tryEncodeDataSource = (
   | { readonly ok: true; readonly value: string }
   | { readonly ok: false; readonly error: string } => {
   if (src.kind === 'Embedded') {
+    // Phase 2207 — a unit has ONE spelling: a text that is not its canonical form is refused.
+    for (const e of src.table.schema) {
+      if (e.unit === undefined) continue;
+      const u = canonicalUnit(e.unit);
+      if (!u.ok || u.value !== e.unit)
+        return {
+          ok: false,
+          error: `malformed: column '${e.name}': unit '${e.unit}' is not the canonical text of a unit`,
+        };
+    }
     for (const col of src.table.columns) {
       const d = col.data;
       if (d.kind !== 'Decimals') continue;
