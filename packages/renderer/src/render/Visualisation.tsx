@@ -1239,7 +1239,7 @@ const renderGridCell = <TMsg,>(
           />
         );
       }
-      return <span>{renderCellValue(col.format, value)}</span>;
+      return <span>{renderCellValue(col.format, value, ctx.sources.locale ?? '')}</span>;
     case 'Editable': {
       const onEdit = kind.onEdit;
       if (value.kind === 'Numeric') {
@@ -1264,7 +1264,7 @@ const renderGridCell = <TMsg,>(
           />
         );
       }
-      return <span>{renderCellValue(col.format, value)}</span>;
+      return <span>{renderCellValue(col.format, value, ctx.sources.locale ?? '')}</span>;
     }
     case 'Checkbox': {
       const onToggle = kind.onToggle;

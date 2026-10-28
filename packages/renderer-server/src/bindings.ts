@@ -1026,8 +1026,50 @@ const jsonToString = (v: JsonValue): string => {
 
 // ─── Number / cell formatting ─────────────────────────────────────────────────
 
-/** Format a numeric value per a `CellFormat`. */
-export const formatNumber = (format: CellFormat, value: number): string => {
+/**
+ * Phase 2490 — the `Format` case and resolved tag a figure's present `locale`
+ * routes to; `undefined` for a figure without one and for every other case.
+ * `Ambient` reads the render's ambient locale, as `Binding.Format` does.
+ */
+const figureLocale = (
+  format: CellFormat,
+  ambientLocale: string,
+): { readonly tag: string; readonly fmt: Format } | undefined => {
+  if (format.kind !== 'Number' && format.kind !== 'Currency' && format.kind !== 'Percent')
+    return undefined;
+  const loc = format.locale;
+  if (loc === undefined) return undefined;
+  const tag = loc.kind === 'Explicit' ? loc.tag : ambientLocale;
+  switch (format.kind) {
+    case 'Number':
+      return {
+        tag,
+        fmt:
+          format.decimals !== undefined
+            ? { kind: 'Number', decimals: format.decimals }
+            : { kind: 'Number' },
+      };
+    case 'Currency':
+      return { tag, fmt: { kind: 'Currency', isoCode: format.code } };
+    case 'Percent':
+      return {
+        tag,
+        fmt:
+          format.decimals !== undefined
+            ? { kind: 'Percent', decimals: format.decimals }
+            : { kind: 'Percent' },
+      };
+  }
+};
+
+/**
+ * Format a numeric value per a `CellFormat`. A figure carrying a `locale` renders
+ * through `formatLocaleValue` (Phase 2490); every other one is the locale-free
+ * projection.
+ */
+export const formatNumber = (format: CellFormat, value: number, ambientLocale = ''): string => {
+  const located = figureLocale(format, ambientLocale);
+  if (located !== undefined) return formatLocaleValue(located.tag, located.fmt, value);
   switch (format.kind) {
     case 'None':
       return numToString(value);
@@ -1057,14 +1099,24 @@ const numToString = (value: number): string => String(value);
 const pad2 = (n: number): string => String(n).padStart(2, '0');
 
 /** Format a `CellValue` per its `CellFormat` (used by Grid cells). */
-export const renderCellValue = (format: CellFormat, value: CellValue): string => {
+export const renderCellValue = (
+  format: CellFormat,
+  value: CellValue,
+  ambientLocale = '',
+): string => {
   if (format.kind === 'Custom') return format.format(value);
   switch (value.kind) {
     case 'Numeric':
-      return formatNumber(format, value.value);
+      return formatNumber(format, value.value, ambientLocale);
     // Phase 2006 — from the digits, never through a number.
-    case 'Decimal':
-      return formatDecimal(format, value.value);
+    case 'Decimal': {
+      // Phase 2490 — a located figure's locale formatter takes a number, so the
+      // canonical text converts once, here, at that boundary.
+      const located = figureLocale(format, ambientLocale);
+      return located !== undefined
+        ? formatLocaleValue(located.tag, located.fmt, Number(value.value))
+        : formatDecimal(format, value.value);
+    }
     case 'Text':
       return value.value;
     case 'Bool':

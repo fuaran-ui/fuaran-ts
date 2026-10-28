@@ -855,9 +855,12 @@ export type DurationStyle = EnumCase<'DurationStyle'>;
 
 export type CellFormat =
   | { readonly kind: 'None' }
-  | { readonly kind: 'Number'; readonly decimals?: number }
-  | { readonly kind: 'Currency'; readonly code: string }
-  | { readonly kind: 'Percent'; readonly decimals?: number }
+  // Phase 2490 — the three figure cases carry an optional `locale`: absent, the
+  // figure is the locale-free projection; present, it renders through the
+  // locale formatter `Binding.Format` uses for the matching `Format` case.
+  | { readonly kind: 'Number'; readonly decimals?: number; readonly locale?: LocaleSource }
+  | { readonly kind: 'Currency'; readonly code: string; readonly locale?: LocaleSource }
+  | { readonly kind: 'Percent'; readonly decimals?: number; readonly locale?: LocaleSource }
   | { readonly kind: 'SignificantDigits'; readonly digits: number }
   // Phase 1811 — `DateTime` (was `Date`): the format string renders a date, a time or both.
   | { readonly kind: 'DateTime'; readonly format: string }

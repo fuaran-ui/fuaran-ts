@@ -319,10 +319,14 @@ const bindingResolutionError = (message: string): ErrorPayload => ({
 });
 
 /** Resolved-value text for Metric / LabelValueRow value slots (mirrors the client). */
-const resolvedValueText = (resolution: Resolution<number>, format: CellFormat): string => {
+const resolvedValueText = (
+  resolution: Resolution<number>,
+  format: CellFormat,
+  ambientLocale: string,
+): string => {
   switch (resolution.kind) {
     case 'Resolved':
-      return formatNumber(format, resolution.value);
+      return formatNumber(format, resolution.value, ambientLocale);
     case 'NotResolved':
       return EM_DASH;
     case 'Errored':
@@ -1627,7 +1631,11 @@ const renderMetric = (
   const parts = [
     ...(spec.icon !== undefined ? [iconHook('fuaran-metric-icon', spec.icon)] : []),
     textEl('div', [['class', 'fuaran-metric-label']], renderText(ctx.sources, spec.label)),
-    textEl('div', [['class', 'fuaran-metric-value']], resolvedValueText(resolution, spec.format)),
+    textEl(
+      'div',
+      [['class', 'fuaran-metric-value']],
+      resolvedValueText(resolution, spec.format, ctx.sources.locale ?? ''),
+    ),
   ];
   if (spec.trend !== undefined) {
     // Phase 867 — mirrors the client renderer byte-for-byte: the trend element
@@ -1650,7 +1658,10 @@ const renderMetric = (
               ['aria-label', sentiment],
             ],
             glyph,
-          ) + escapeText(formatNumber(spec.trendFormat ?? { kind: 'None' }, t)),
+          ) +
+            escapeText(
+              formatNumber(spec.trendFormat ?? { kind: 'None' }, t, ctx.sources.locale ?? ''),
+            ),
         ),
       );
     }
@@ -1676,7 +1687,10 @@ const renderMetric = (
             ['aria-label', sentiment],
           ],
           glyph,
-        ) + escapeText(`${formatNumber(c.format, v)} ${renderText(ctx.sources, c.label)}`),
+        ) +
+          escapeText(
+            `${formatNumber(c.format, v, ctx.sources.locale ?? '')} ${renderText(ctx.sources, c.label)}`,
+          ),
       ),
     );
   }
@@ -1801,7 +1815,7 @@ const renderLabelValueRow = (
   const value = textEl(
     'span',
     [['class', 'fuaran-label-value-row-value']],
-    resolvedValueText(resolution, spec.format),
+    resolvedValueText(resolution, spec.format, ctx.sources.locale ?? ''),
   );
   return el('div', [['class', `fuaran-label-value-row${emphasisSuffix}`]], labelBlock + value);
 };
@@ -3013,7 +3027,7 @@ const renderGridCell = (
           ['value', value.kind === 'Text' ? value.value : renderCellValue({ kind: 'None' }, value)],
         ]);
       }
-      return textEl('span', [], renderCellValue(col.format, value));
+      return textEl('span', [], renderCellValue(col.format, value, ctx.sources.locale ?? ''));
     case 'Editable':
       if (value.kind === 'Numeric') {
         return voidEl('input', [
@@ -3029,7 +3043,7 @@ const renderGridCell = (
           ['value', value.value],
         ]);
       }
-      return textEl('span', [], renderCellValue(col.format, value));
+      return textEl('span', [], renderCellValue(col.format, value, ctx.sources.locale ?? ''));
     case 'Checkbox':
       return voidEl('input', [
         ['type', 'checkbox'],

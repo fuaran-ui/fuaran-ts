@@ -68,10 +68,11 @@ const bindingResolutionError = (message: string): ErrorPayload => ({
 const resolvedValueText = (
   resolution: Resolution<number>,
   format: MetricSpec['format'],
+  ambientLocale: string,
 ): string => {
   switch (resolution.kind) {
     case 'Resolved':
-      return formatNumber(format, resolution.value);
+      return formatNumber(format, resolution.value, ambientLocale);
     case 'NotResolved':
       return '—';
     case 'Errored':
@@ -795,7 +796,9 @@ const renderMetric = <TMsg,>(
     <div className={`fuaran-metric fuaran-metric-${toneVar(spec.tone)}`}>
       {spec.icon !== undefined ? iconHook('fuaran-metric-icon', spec.icon) : null}
       <div className="fuaran-metric-label">{renderText(ctx.sources, spec.label)}</div>
-      <div className="fuaran-metric-value">{resolvedValueText(resolution, spec.format)}</div>
+      <div className="fuaran-metric-value">
+        {resolvedValueText(resolution, spec.format, ctx.sources.locale ?? '')}
+      </div>
       {spec.trend !== undefined &&
         (() => {
           // Phase 867 — the trend element carries a SENTIMENT, not a constant.
@@ -810,7 +813,7 @@ const renderMetric = <TMsg,>(
               <span className="fuaran-metric-trend-glyph" role="img" aria-label={sentiment}>
                 {glyph}
               </span>
-              {formatNumber(spec.trendFormat ?? { kind: 'None' }, t)}
+              {formatNumber(spec.trendFormat ?? { kind: 'None' }, t, ctx.sources.locale ?? '')}
             </div>
           );
         })()}
@@ -830,7 +833,7 @@ const renderMetric = <TMsg,>(
             <span className="fuaran-metric-trend-glyph" role="img" aria-label={sentiment}>
               {glyph}
             </span>
-            {`${formatNumber(c.format, v)} ${renderText(ctx.sources, c.label)}`}
+            {`${formatNumber(c.format, v, ctx.sources.locale ?? '')} ${renderText(ctx.sources, c.label)}`}
           </div>
         );
       })}
@@ -908,7 +911,7 @@ const renderLabelValueRow = <TMsg,>(
         )}
       </div>
       <span className="fuaran-label-value-row-value">
-        {resolvedValueText(resolution, spec.format)}
+        {resolvedValueText(resolution, spec.format, ctx.sources.locale ?? '')}
       </span>
     </div>
   );

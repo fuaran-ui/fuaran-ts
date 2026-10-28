@@ -952,15 +952,25 @@ const textSource = (t: TextSource): string => {
 };
 
 const cellFormat = (f: CellFormat): string => {
+  // Phase 2490 — a figure case's `locale` rides only when present; alphabetical
+  // field order (`code` / `decimals` before `locale`), the canonical rule.
+  const locale = (l: LocaleSource | undefined): readonly (readonly [string, string])[] =>
+    l !== undefined ? [['locale', localeSource(l)]] : [];
   switch (f.kind) {
     case 'None':
       return caseObj('None', []);
     case 'Number':
-      return caseObj('Number', f.decimals !== undefined ? [['decimals', num(f.decimals)]] : []);
+      return caseObj('Number', [
+        ...(f.decimals !== undefined ? [['decimals', num(f.decimals)] as const] : []),
+        ...locale(f.locale),
+      ]);
     case 'Currency':
-      return caseObj('Currency', [['code', str(f.code)]]);
+      return caseObj('Currency', [['code', str(f.code)], ...locale(f.locale)]);
     case 'Percent':
-      return caseObj('Percent', f.decimals !== undefined ? [['decimals', num(f.decimals)]] : []);
+      return caseObj('Percent', [
+        ...(f.decimals !== undefined ? [['decimals', num(f.decimals)] as const] : []),
+        ...locale(f.locale),
+      ]);
     case 'SignificantDigits':
       return caseObj('SignificantDigits', [['digits', num(f.digits)]]);
     case 'DateTime':

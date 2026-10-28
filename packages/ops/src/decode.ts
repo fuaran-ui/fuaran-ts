@@ -1257,22 +1257,28 @@ const decodeCellFormat = (w: Walk, path: string, j: JsonAst): R<CellFormat> => {
   switch (d.value) {
     case 'None':
       return ok({ kind: 'None' });
-    case 'Number': {
-      const dec = tryField(f, 'decimals');
-      if (dec === undefined) return ok({ kind: 'Number' });
-      const r = requireInt(w, `${path}.decimals`, dec);
-      return r.ok ? ok({ kind: 'Number', decimals: r.value }) : r;
+    // Phase 2490 — the figure cases' optional `locale`; absent decodes absent.
+    case 'Number':
+    case 'Percent': {
+      const kind = d.value;
+      const dec = optField(w, path, f, 'decimals', requireInt);
+      const loc = optField(w, path, f, 'locale', decodeLocaleSource);
+      if (!dec.ok || !loc.ok) return failed(dec, loc);
+      return ok<CellFormat>({
+        kind,
+        ...(dec.value !== undefined ? { decimals: dec.value } : {}),
+        ...(loc.value !== undefined ? { locale: loc.value } : {}),
+      });
     }
     case 'Currency': {
       const r = reqField(w, path, f, 'code', 'ISO currency code string', requireString);
-      if (!r.ok) return r;
-      return ok<CellFormat>({ kind: 'Currency', code: r.value });
-    }
-    case 'Percent': {
-      const dec = tryField(f, 'decimals');
-      if (dec === undefined) return ok({ kind: 'Percent' });
-      const r = requireInt(w, `${path}.decimals`, dec);
-      return r.ok ? ok({ kind: 'Percent', decimals: r.value }) : r;
+      const loc = optField(w, path, f, 'locale', decodeLocaleSource);
+      if (!r.ok || !loc.ok) return failed(r, loc);
+      return ok<CellFormat>({
+        kind: 'Currency',
+        code: r.value,
+        ...(loc.value !== undefined ? { locale: loc.value } : {}),
+      });
     }
     case 'SignificantDigits': {
       const r = reqField(w, path, f, 'digits', 'integer digit count', requireInt);

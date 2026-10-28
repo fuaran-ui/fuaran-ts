@@ -594,6 +594,21 @@ export const format = {
   number(decimals?: number): CellFormat {
     return decimals !== undefined ? { kind: 'Number', decimals } : { kind: 'Number' };
   },
+  /**
+   * Phase 2490 — the figure in `locale`: a `number` / `currency` / `percent` renders
+   * through the locale formatter `binding.format` uses (grouped, symbol-led). Every
+   * other case carries no locale and is returned unchanged.
+   */
+  inLocale(locale: LocaleSource, f: CellFormat): CellFormat {
+    switch (f.kind) {
+      case 'Number':
+      case 'Currency':
+      case 'Percent':
+        return { ...f, locale };
+      default:
+        return f;
+    }
+  },
   significantDigits(digits: number): CellFormat {
     return { kind: 'SignificantDigits', digits };
   },

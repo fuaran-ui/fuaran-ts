@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = 'c78f383ca50dc36dc5d158d63052aa202e70d2a1bdee77a30c629354247f76d4';
+export const IDL_SHA256 = 'b8d8755fcf412df90d10c812c9ce99634d616486d007aeb7b5ca42c1c1ced409';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -1490,9 +1490,18 @@ export const UNION_CASES = {
   },
   CellFormat: {
     None: [],
-    Number: [{ name: 'decimals', opt: 'optional', type: T_int }],
-    Currency: [{ name: 'code', opt: 'required', type: T_str }],
-    Percent: [{ name: 'decimals', opt: 'optional', type: T_int }],
+    Number: [
+      { name: 'decimals', opt: 'optional', type: T_int },
+      { name: 'locale', opt: 'optional', type: T_union_LocaleSource },
+    ],
+    Currency: [
+      { name: 'code', opt: 'required', type: T_str },
+      { name: 'locale', opt: 'optional', type: T_union_LocaleSource },
+    ],
+    Percent: [
+      { name: 'decimals', opt: 'optional', type: T_int },
+      { name: 'locale', opt: 'optional', type: T_union_LocaleSource },
+    ],
     SignificantDigits: [{ name: 'digits', opt: 'required', type: T_int }],
     DateTime: [{ name: 'format', opt: 'required', type: T_str }],
     Duration: [
