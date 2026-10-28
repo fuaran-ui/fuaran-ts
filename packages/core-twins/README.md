@@ -8,6 +8,7 @@ subsystems, gathered behind one internal boundary:
 | Twin                                                                           | Reference                                | Re-exported by                                                        |
 | ------------------------------------------------------------------------------ | ---------------------------------------- | --------------------------------------------------------------------- |
 | DataFrame / `Transform` evaluator, list-parameter substitution                 | `Fuaran.Core.DataFrame`                  | `@fuaran-ui/ops`                                                      |
+| Typed column (`columnOfCells`, `cellAt`, `columnCells`, `takeRows`)            | `Fuaran.Core.Column` (typed vectors)     | `@fuaran-ui/ops`                                                      |
 | Canonical float layout (`num`, `formatFiniteDouble`)                           | the wire canonical number rule           | `@fuaran-ui/ops`                                                      |
 | Capability runtime (`invocationKey`, `validateArgs`, registry, `toJsonSchema`) | `Fuaran.Core.Function`                   | `@fuaran-ui/ui`                                                       |
 | Function registry (`findBySignature`, `compose`)                               | `Fuaran.Core.FunctionRegistry`           | `@fuaran-ui/ui`                                                       |
@@ -21,6 +22,18 @@ types and an import back would be a build cycle; `test/civil.test.ts` pins that 
 The published packages re-export every name from the module they always exported it from, and
 bundle the implementation into their own `dist` (`noExternal` + `dts.resolve` in their
 `tsup.config.ts`), so no public import path depends on this package.
+
+## The typed column (Phase 2205)
+
+A `DataColumn` holds one typed vector and a validity, as Core's `Column` does from 1.0.0: `Int32Array` ints and
+days, `Float64Array` floats and epoch seconds (plus an `Int32Array` fraction in the timestamp's unit), a
+`Uint8Array` of bools, and string arrays for text and decimals. `src/column.ts` is the one place that builds and
+reads that storage; the evaluator works over it, gathering rows by index and reading aggregates from the vectors.
+
+Measured under Node 25 over 100,000 rows (an int key, a float with nulls, a string, a date), against the cell-list
+representation it replaced: a table holds 4.90 MB rather than 26.53 MB, and a `groupBy` with `sum`, `mean` and
+`count` takes 10.3 ms rather than 34.7 ms. Encoding is slower, 62 ms against 50 ms, because a date's text is written
+from its day count. Every wire byte and every transform-law answer is unchanged.
 
 ## The boundary
 

@@ -1760,6 +1760,53 @@ for byte, the float-parity sweep, the encoder's unchanged bytes), `packages/rend
 (the static tier's grid order and formatting) and `packages/charts/test/decimal-series.test.ts` (a decimal chart
 lowers to the float chart of the same values).
 
+### Recorded breaking change — `@fuaran-ui/schema` 0.28.0, `@fuaran-ui/ops` 0.32.0, `@fuaran-ui/ui` 0.26.0, `@fuaran-ui/charts` 0.15.0, `@fuaran-ui/op-stream` 0.12.0, `@fuaran-ui/renderer` 0.29.0 and `@fuaran-ui/renderer-server` 0.26.0, a column holds typed vectors (Phase 2205)
+
+_Unreleased: rides the untagged drafts. Every one of these packages is already ahead of `v0.31.0` at a minor number,
+which is where a pre-1.0 breaking change goes, so no number moves._
+
+**`DataColumn` holds typed storage instead of a cell list**, as the reference's `Column` does from Core 1.0.0
+(fuaran-core#417, #420, #422). `cells: readonly Cell[]` is gone; a column is `{ name, type, data: ColumnData }`, where
+`ColumnData` is one typed vector and a `Validity` (`AllValid`, holding nothing, or a `Mask` of one byte per row):
+
+| Column type                               | Storage                                                                                                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `int`                                     | `Int32Array`                                                                                                                                      |
+| `float`                                   | `Float64Array`                                                                                                                                    |
+| `bool`                                    | `Uint8Array` of `0` / `1`                                                                                                                         |
+| `string`                                  | `string[]`                                                                                                                                        |
+| `date`                                    | `Int32Array` of days since 1970-01-01                                                                                                             |
+| `timestamp`, `timestamp_ms`, `_us`, `_ns` | `Float64Array` of whole epoch seconds, plus an `Int32Array` fraction scaled to the unit (absent for `timestamp`, or where every fraction is zero) |
+| `decimal`                                 | `string[]` of decimal texts                                                                                                                       |
+
+- **Added** (`@fuaran-ui/ops`): `columnOfCells` builds a column from cells and refuses, by name, a cell its type cannot
+  hold; `cellAt`, `columnCells` (the `toCells` bridge), `columnLength` and `isPresentAt` read one. `buildTable`
+  (`@fuaran-ui/ui`) builds typed columns and throws a `TypeError` naming the column on such a cell.
+- **The decoder builds the typed vectors directly**, and the encoder writes from them; every wire byte stands. Two values
+  the storage cannot hold are now **refused at decode**, as the reference codec refuses them: an int outside 32 bits, and
+  a `date` value that is not canonical `YYYY-MM-DD` text naming a day that exists. Before, the decoder kept any string in
+  a date column and any number in an int column.
+- **The evaluator works over typed columns.** Filter, sort, limit, distinct, the set operations and both sides of a join
+  gather rows by index with no cell boxed; `count`, `sum`, `mean`, `stddev` and `median` read the vectors directly. A
+  produced column is held at its type, so three things a cell list let through are refused by name: a `union` of two
+  column types no type holds together (an int column over a float one is a float column, the reference's rule), a
+  derived int outside 32 bits, and a derived date or instant whose text is not canonical.
+
+**What a consumer does.** Replace `col.cells[i]` with `cellAt(col, i)`, `col.cells.length` with `columnLength(col)`, a
+`col.cells` loop with `columnCells(col)`, and a literal `{ name, type, cells }` with `columnOfCells(name, type, cells)`.
+
+**Measured** (Node 25, 100,000 rows of an int key, a float with nulls, a string and a date; held bytes are the heap plus
+array buffers released when the table is dropped): a table holds **4.90 MB, from 26.53 MB**; a `groupBy` over the int
+key with `sum`, `mean` and `count` takes **10.3 ms, from 34.7 ms** (medians of 15); decoding the 4.68 MB wire takes
+about the same (74–107 ms against 83–94 ms); encoding takes **62 ms, from 50 ms**, the cost of writing a date's text
+from its day count. The wire, its re-encode and the `groupBy` output hash identically before and after.
+
+**Certified by** the shared corpus's `transformLaws` and `decimalLaws` families (unchanged vectors, run from the
+package root), `packages/core-twins/test/column.test.ts` (each type's storage, the validity, the temporal text, the
+refusals, the gather), `packages/core-twins/test/typedEvaluator.test.ts` (the verbs over typed columns and the three new
+refusals) and `packages/ops/test/typedColumnCodec.test.ts` (decode into typed vectors, byte-identical encode, the two
+decode refusals).
+
 ### `@fuaran-ui/conformance` 0.29.0 — the kpi-strip and filter-bar fragments gain holes (Phase 2471)
 
 The bundled snapshot is re-synced to the specification commit `90b68a1`. The `frag-stdlib-kpi-strip` and

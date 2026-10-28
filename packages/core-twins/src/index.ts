@@ -45,6 +45,25 @@ export {
 } from './decimalText.js';
 
 export {
+  cellAt,
+  columnCells,
+  columnLength,
+  columnOfCells,
+  dataCellAt,
+  dateDays,
+  dateText,
+  instantParts,
+  instantText,
+  isInt32,
+  isPresentAt,
+  nullColumn,
+  takeRows,
+  validityOfMask,
+  type ColumnResult,
+  type InstantParts,
+} from './column.js';
+
+export {
   aggregateCells,
   cellString,
   evalErrorString,

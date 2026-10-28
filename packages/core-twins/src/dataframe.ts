@@ -32,6 +32,15 @@ import type { Result } from '@fuaran-ui/schema';
 
 import { num } from './canonFloat.js';
 import {
+  cellAt,
+  columnCells,
+  isPresentAt,
+  columnLength,
+  columnOfCells,
+  nullColumn,
+  takeRows,
+} from './column.js';
+import {
   columnTypeWidens,
   compareInstantText,
   timestampDigits,
@@ -78,42 +87,80 @@ const arityError = (fn: string, expected: number, got: number): EvalError => ({
   got,
 });
 
-// ─── internal row-oriented frame (the evaluator's working form) ──────────────
+// ─── internal columnar frame (the evaluator's working form) ────────────────────
+//
+// Phase 2205: the frame holds the table's TYPED columns (`./column.ts`), co-indexed with its schema,
+// and a verb reads a row through `cellAt` rather than through a row of boxed cells. The row-set
+// verbs (filter, sort, limit, distinct, the set operations, a join's two sides) gather rows by
+// index without boxing a cell; a verb that produces values (derive, groupBy, window, pivot,
+// unpivot) builds its new column through `columnOfCells`, which admits exactly what Core's typed
+// column admits.
 
 interface Frame {
   readonly cols: readonly SchemaEntry[];
-  readonly rows: readonly (readonly Cell[])[];
+  /** One column per schema entry, in schema order, each named and typed as its entry. */
+  readonly data: readonly DataColumn[];
+  readonly n: number;
+}
+
+/** One row of a frame: what `evalExpr` reads a `col` reference through. */
+interface RowRef {
+  readonly data: readonly DataColumn[];
+  readonly i: number;
 }
 
 const NULL: Cell = { kind: 'Null' };
 
 const isNull = (c: Cell): boolean => c.kind === 'Null';
 
-const rowCount = (t: Table): number => (t.columns.length > 0 ? t.columns[0]!.cells.length : 0);
+const rowCount = (t: Table): number => (t.columns.length > 0 ? columnLength(t.columns[0]!) : 0);
 
-const toFrame = (t: Table): Frame => {
+const iota = (n: number): Int32Array => {
+  const out = new Int32Array(n);
+  for (let i = 0; i < n; i += 1) out[i] = i;
+  return out;
+};
+
+/** A column built from produced cells, or the storage's refusal as the evaluator's `TypeError`. */
+const colOf = (name: string, type: ColumnType, cells: readonly Cell[]): DR<DataColumn> => {
+  const c = columnOfCells(name, type, cells);
+  return c.ok ? dok(c.value) : derr(typeError(c.error));
+};
+
+const renamed = (c: DataColumn, name: string): DataColumn => (c.name === name ? c : { ...c, name });
+
+const toFrame = (t: Table): DR<Frame> => {
   const n = rowCount(t);
   const byName = new Map(t.columns.map((c) => [c.name, c] as const));
-  const rows: Cell[][] = [];
-  for (let i = 0; i < n; i += 1) {
-    rows.push(
-      t.schema.map((e) => {
-        const c = byName.get(e.name);
-        return c !== undefined && i >= 0 && i < c.cells.length ? c.cells[i]! : NULL;
-      }),
-    );
+  const data: DataColumn[] = [];
+  for (const e of t.schema) {
+    const c = byName.get(e.name);
+    if (c === undefined) data.push(nullColumn(e.name, e.type, n));
+    else if (c.type !== e.type) {
+      // A column held at another type than its schema entry says is re-admitted at the entry's.
+      const r = colOf(e.name, e.type, columnCells(takeRows(c, iota(n))));
+      if (!r.ok) return r;
+      data.push(r.value);
+    } else data.push(columnLength(c) === n ? c : takeRows(c, iota(n)));
   }
-  return { cols: t.schema, rows };
+  return dok({ cols: t.schema, data, n });
 };
 
-const ofFrame = (f: Frame): Table => {
-  const columns: DataColumn[] = f.cols.map((e, ci) => ({
-    name: e.name,
-    type: e.type,
-    cells: f.rows.map((row) => row[ci]!),
-  }));
-  return { schema: f.cols, columns };
-};
+const ofFrame = (f: Frame): Table => ({ schema: f.cols, columns: f.data });
+
+/** The frame's rows `rows`, in that order (`-1` an absent row in every column). */
+const selectRows = (f: Frame, rows: ArrayLike<number>): Frame => ({
+  cols: f.cols,
+  data: f.data.map((c) => takeRows(c, rows)),
+  n: rows.length,
+});
+
+/** The cells of row `i` at the column indices `idxs`. */
+const cellsAt = (data: readonly DataColumn[], idxs: readonly number[], i: number): Cell[] =>
+  idxs.map((ci) => cellAt(data[ci]!, i));
+
+/** Every cell of row `i`. */
+const rowCells = (f: Frame, i: number): Cell[] => f.data.map((c) => cellAt(c, i));
 
 const colIndex = (cols: readonly SchemaEntry[], name: string): number =>
   cols.findIndex((e) => e.name === name);
@@ -833,14 +880,16 @@ const EMPTY_ENV: EvalEnv = {};
 
 const evalExpr = (
   cols: readonly SchemaEntry[],
-  row: readonly Cell[],
+  row: RowRef,
   e: ColExpr,
   env: EvalEnv = EMPTY_ENV,
 ): DR<Cell> => {
   switch (e.kind) {
     case 'col': {
       const i = colIndex(cols, e.name);
-      return i >= 0 ? dok(row[i]!) : derr(unknownColumn(e.name, available(cols)));
+      return i >= 0
+        ? dok(cellAt(row.data[i]!, row.i))
+        : derr(unknownColumn(e.name, available(cols)));
     }
     case 'lit':
       return dok(e.cell);
@@ -1313,8 +1362,21 @@ const columnTypeBy = (dt: DerivedTyping, column: string, cells: readonly Cell[])
 
 // ─── aggregates (pinned) ─────────────────────────────────────────────────────
 
-const presentNums = (cells: readonly Cell[]): number[] =>
-  cells.map(asNum).filter((n): n is number => n !== undefined);
+/**
+ * The present numbers of a column's rows `rows`, read straight from its typed vector (Phase 2205):
+ * an int or a float column's values, in row order, with no cell boxed. Any other column holds no
+ * number an aggregate reads.
+ */
+const presentNums = (col: DataColumn, rows: ArrayLike<number>): number[] => {
+  const d = col.data;
+  if (d.kind !== 'Ints' && d.kind !== 'Floats') return [];
+  const nums: number[] = [];
+  for (let k = 0; k < rows.length; k += 1) {
+    const r = rows[k]!;
+    if (isPresentAt(d, r)) nums.push(d.values[r]!);
+  }
+  return nums;
+};
 
 /** `mean` / `stddev` (population) / `median` over numbers already read as floats. */
 const floatAgg = (fn: 'mean' | 'stddev' | 'median', nums: readonly number[]): Cell => {
@@ -1407,38 +1469,70 @@ const aggDecimal = (fn: AggFn, cells: readonly Cell[]): DR<Cell> => {
 };
 
 /**
- * One aggregate over a cell list of the given source type — the evaluator's
- * adapter onto the pinned aggregate semantics. Public so a host leg can fold
- * an aggregate over a column it builds directly.
+ * One aggregate over a cell list of the given source type — the cells are held as a column of
+ * that type first (a cell the type cannot hold is the aggregate's `AggError`), then folded as the
+ * evaluator folds a column. Public so a host leg can fold an aggregate over cells it builds directly.
  */
-export const aggregateCells = (fn: AggFn, srcType: ColumnType, cells: readonly Cell[]): DR<Cell> =>
-  srcType === 'decimal' ? aggDecimal(fn, cells) : dok(aggCells(fn, srcType, cells));
+export const aggregateCells = (
+  fn: AggFn,
+  srcType: ColumnType,
+  cells: readonly Cell[],
+): DR<Cell> => {
+  const col = columnOfCells('aggregate', srcType, cells);
+  return col.ok
+    ? aggregateRows(fn, srcType, col.value, iota(cells.length))
+    : derr({ kind: 'AggError', detail: col.error });
+};
 
-const aggCells = (fn: AggFn, srcType: ColumnType, cells: readonly Cell[]): Cell => {
-  const present = cells.filter((c) => !isNull(c));
+/**
+ * One aggregate over the rows `rows` of a column of type `srcType` — the evaluator's adapter onto
+ * the pinned aggregate semantics. `count`, `sum`, `mean`, `stddev` and `median` read the typed
+ * vector directly; the others compare cells.
+ */
+const aggregateRows = (
+  fn: AggFn,
+  srcType: ColumnType,
+  col: DataColumn,
+  rows: ArrayLike<number>,
+): DR<Cell> => {
+  if (srcType === 'decimal')
+    return aggDecimal(
+      fn,
+      Array.from(rows, (r) => cellAt(col, r)),
+    );
   switch (fn) {
-    case 'count':
-      return { kind: 'Int', value: present.length };
-    case 'countDistinct':
-      return { kind: 'Int', value: new Set(present.map(cellKey)).size };
+    case 'count': {
+      let n = 0;
+      for (let k = 0; k < rows.length; k += 1) if (isPresentAt(col.data, rows[k]!)) n += 1;
+      return dok({ kind: 'Int', value: n });
+    }
     case 'first':
-      return cells.length === 0 ? NULL : cells[0]!;
+      return dok(rows.length === 0 ? NULL : cellAt(col, rows[0]!));
     case 'last':
-      return cells.length === 0 ? NULL : cells[cells.length - 1]!;
+      return dok(rows.length === 0 ? NULL : cellAt(col, rows[rows.length - 1]!));
     case 'sum': {
-      const nums = presentNums(cells);
-      if (nums.length === 0) return NULL;
-      return srcType === 'int'
-        ? { kind: 'Int', value: nums.reduce((acc, x) => acc + Math.trunc(x), 0) }
-        : { kind: 'Float', value: nums.reduce((acc, x) => acc + x, 0) };
+      const nums = presentNums(col, rows);
+      if (nums.length === 0) return dok(NULL);
+      const total = nums.reduce((acc, x) => acc + x, 0);
+      return dok(
+        col.data.kind === 'Ints' ? { kind: 'Int', value: total } : { kind: 'Float', value: total },
+      );
     }
     case 'mean':
     case 'stddev':
     case 'median':
-      return floatAgg(fn, presentNums(cells));
+      return dok(floatAgg(fn, presentNums(col, rows)));
+    case 'countDistinct':
     case 'min':
     case 'max': {
-      if (present.length === 0) return NULL;
+      const present: Cell[] = [];
+      for (let k = 0; k < rows.length; k += 1) {
+        const c = cellAt(col, rows[k]!);
+        if (!isNull(c)) present.push(c);
+      }
+      if (fn === 'countDistinct')
+        return dok({ kind: 'Int', value: new Set(present.map(cellKey)).size });
+      if (present.length === 0) return dok(NULL);
       let acc = present[0]!;
       for (let i = 1; i < present.length; i += 1) {
         const b = present[i]!;
@@ -1449,7 +1543,7 @@ const aggCells = (fn: AggFn, srcType: ColumnType, cells: readonly Cell[]): Cell 
         }
         // c === undefined ⇒ keep acc (matches F# `None -> a`)
       }
-      return acc;
+      return dok(acc);
     }
   }
 };
@@ -1474,17 +1568,31 @@ const aggType = (fn: AggFn, srcType: ColumnType): ColumnType => {
 
 // ─── sort (pinned: stable; nulls last regardless of direction) ───────────────
 
-const rowKeyCompare = (
+/** A frame's sort keys resolved once: each key's column index and direction; a key naming no column is skipped. */
+const resolveSortKeys = (
   cols: readonly SchemaEntry[],
   by: readonly SortKey[],
-  r1: readonly Cell[],
-  r2: readonly Cell[],
-): number => {
+): { readonly idxs: number[]; readonly dirs: SortKey['dir'][] } => {
+  const idxs: number[] = [];
+  const dirs: SortKey['dir'][] = [];
   for (const { col, dir } of by) {
     const i = colIndex(cols, col);
     if (i < 0) continue;
-    const a = r1[i]!;
-    const b = r2[i]!;
+    idxs.push(i);
+    dirs.push(dir);
+  }
+  return { idxs, dirs };
+};
+
+/** Compare two rows' sort-key cells (`resolveSortKeys` order). */
+const keyCompare = (
+  dirs: readonly SortKey['dir'][],
+  k1: readonly Cell[],
+  k2: readonly Cell[],
+): number => {
+  for (let j = 0; j < dirs.length; j += 1) {
+    const a = k1[j]!;
+    const b = k2[j]!;
     const an = isNull(a);
     const bn = isNull(b);
     let c: number;
@@ -1494,7 +1602,7 @@ const rowKeyCompare = (
     else if (!an && bn) c = -1;
     else {
       const cc = compareCells(a, b);
-      c = cc === undefined ? 0 : dir === 'asc' ? cc : -cc;
+      c = cc === undefined ? 0 : dirs[j] === 'asc' ? cc : -cc;
     }
     if (c !== 0) return c;
   }
@@ -1534,13 +1642,13 @@ const rowKey = (cells: readonly Cell[]): string => cells.map(cellKey).join('');
 // ─── per-verb evaluation ─────────────────────────────────────────────────────
 
 const evalFilter = (f: Frame, pred: ColExpr, env: EvalEnv = EMPTY_ENV): DR<Frame> => {
-  const out: (readonly Cell[])[] = [];
-  for (const row of f.rows) {
-    const r = evalExpr(f.cols, row, pred, env);
+  const keep: number[] = [];
+  for (let i = 0; i < f.n; i += 1) {
+    const r = evalExpr(f.cols, { data: f.data, i }, pred, env);
     if (!r.ok) return r;
-    if (r.value.kind === 'Bool' && r.value.value) out.push(row);
+    if (r.value.kind === 'Bool' && r.value.value) keep.push(i);
   }
-  return dok({ ...f, rows: out });
+  return dok(keep.length === f.n ? f : selectRows(f, keep));
 };
 
 /**
@@ -1588,7 +1696,8 @@ const evalProject = (f: Frame, pairs: readonly { a: string; b: string }[]): DR<F
   if (!repeat.ok) return repeat;
   return dok({
     cols: resolved.map((r) => ({ name: r.out, type: r.type })),
-    rows: f.rows.map((row) => resolved.map((r) => row[r.index]!)),
+    data: resolved.map((r) => renamed(f.data[r.index]!, r.out)),
+    n: f.n,
   });
 };
 
@@ -1599,25 +1708,41 @@ const evalDerive = (f: Frame, name: string, expr: ColExpr, env: EvalEnv = EMPTY_
   const dt = derivedTypingIn(env, f.cols, expr);
   if (dt.kind === 'refused') return derr(floatBesideDecimal(name));
   const newCells: Cell[] = [];
-  for (const row of f.rows) {
-    const r = evalExpr(f.cols, row, expr, env);
+  for (let i = 0; i < f.n; i += 1) {
+    const r = evalExpr(f.cols, { data: f.data, i }, expr, env);
     if (!r.ok) return r;
     newCells.push(r.value);
   }
   const typed = columnTypeBy(dt, name, newCells);
   if (!typed.ok) return typed;
   const ty = typed.value;
+  const col = colOf(name, ty, newCells);
+  if (!col.ok) return col;
   const i = colIndex(f.cols, name);
   if (i >= 0) {
     return dok({
       cols: f.cols.map((e, j) => (j === i ? { name: e.name, type: ty } : e)),
-      rows: f.rows.map((row, ri) => row.map((cell, j) => (j === i ? newCells[ri]! : cell))),
+      data: f.data.map((c, j) => (j === i ? col.value : c)),
+      n: f.n,
     });
   }
-  return dok({
-    cols: [...f.cols, { name, type: ty }],
-    rows: f.rows.map((row, ri) => [...row, newCells[ri]!]),
-  });
+  return dok({ cols: [...f.cols, { name, type: ty }], data: [...f.data, col.value], n: f.n });
+};
+
+/** The frame's rows grouped by the cells at `idxs`: each group's row indices, in first-appearance order. */
+const groupRows = (f: Frame, idxs: readonly number[]): number[][] => {
+  const groups = new Map<string, number[]>();
+  const order: number[][] = [];
+  for (let i = 0; i < f.n; i += 1) {
+    const ks = rowKey(cellsAt(f.data, idxs, i));
+    const g = groups.get(ks);
+    if (g === undefined) {
+      const fresh = [i];
+      groups.set(ks, fresh);
+      order.push(fresh);
+    } else g.push(i);
+  }
+  return order;
 };
 
 const evalGroupBy = (f: Frame, keys: readonly string[], aggs: readonly Agg[]): DR<Frame> => {
@@ -1625,21 +1750,7 @@ const evalGroupBy = (f: Frame, keys: readonly string[], aggs: readonly Agg[]): D
     if (colIndex(f.cols, k) < 0) return derr(unknownColumn(k, available(f.cols)));
   }
   const idxs = keys.map((k) => colIndex(f.cols, k));
-  const keyOf = (row: readonly Cell[]): Cell[] => idxs.map((i) => row[i]!);
-
-  const order: string[] = [];
-  const groups = new Map<string, { key: Cell[]; rows: (readonly Cell[])[] }>();
-  for (const row of f.rows) {
-    const k = keyOf(row);
-    const ks = rowKey(k);
-    const g = groups.get(ks);
-    if (g === undefined) {
-      order.push(ks);
-      groups.set(ks, { key: k, rows: [row] });
-    } else {
-      g.rows.push(row);
-    }
-  }
+  const groups = groupRows(f, idxs);
 
   const resolvedAggs: { agg: Agg; type: ColumnType; index: number }[] = [];
   for (const a of aggs) {
@@ -1659,47 +1770,56 @@ const evalGroupBy = (f: Frame, keys: readonly string[], aggs: readonly Agg[]): D
     type: aggType(r.agg.fn, r.type),
   }));
 
-  const rows: Cell[][] = [];
-  for (const ks of order) {
-    const g = groups.get(ks)!;
-    const out: Cell[] = [...g.key];
-    for (const r of resolvedAggs) {
-      const v = aggregateCells(
-        r.agg.fn,
-        r.type,
-        g.rows.map((row) => row[r.index]!),
-      );
+  // A group's key is its first row's, so the key columns are one gather of those rows.
+  const firsts = groups.map((g) => g[0]!);
+  const data: DataColumn[] = idxs.map((ci, k) => takeRows(f.data[ci]!, firsts, keys[k]!));
+  for (let a = 0; a < resolvedAggs.length; a += 1) {
+    const r = resolvedAggs[a]!;
+    const out: Cell[] = [];
+    for (const g of groups) {
+      const v = aggregateRows(r.agg.fn, r.type, f.data[r.index]!, g);
       if (!v.ok) return v;
       out.push(v.value);
     }
-    rows.push(out);
+    const c = colOf(aggCols[a]!.name, aggCols[a]!.type, out);
+    if (!c.ok) return c;
+    data.push(c.value);
   }
 
-  return dok({ cols: [...keyCols, ...aggCols], rows });
+  return dok({ cols: [...keyCols, ...aggCols], data, n: groups.length });
 };
 
-const evalSort = (f: Frame, by: readonly SortKey[]): Frame => ({
-  ...f,
-  rows: stableSort(f.rows, (a, b) => rowKeyCompare(f.cols, by, a, b)),
-});
+/** The row indices `rows` stably ordered by the sort keys `by` (nulls last regardless of direction). */
+const sortedRows = (f: Frame, rows: readonly number[], by: readonly SortKey[]): number[] => {
+  const { idxs, dirs } = resolveSortKeys(f.cols, by);
+  if (idxs.length === 0) return rows.slice();
+  const keys = new Map<number, Cell[]>();
+  for (const r of rows) keys.set(r, cellsAt(f.data, idxs, r));
+  return stableSort(rows, (a, b) => keyCompare(dirs, keys.get(a)!, keys.get(b)!));
+};
+
+const evalSort = (f: Frame, by: readonly SortKey[]): Frame =>
+  selectRows(f, sortedRows(f, Array.from(iota(f.n)), by));
 
 const evalDistinct = (f: Frame): Frame => {
   const seen = new Set<string>();
-  const out: (readonly Cell[])[] = [];
-  for (const row of f.rows) {
-    const k = rowKey(row);
+  const keep: number[] = [];
+  for (let i = 0; i < f.n; i += 1) {
+    const k = rowKey(rowCells(f, i));
     if (!seen.has(k)) {
       seen.add(k);
-      out.push(row);
+      keep.push(i);
     }
   }
-  return { ...f, rows: out };
+  return keep.length === f.n ? f : selectRows(f, keep);
 };
 
 const evalLimit = (f: Frame, n: number, offset: number): Frame => {
-  const start = Math.min(Math.max(0, offset), f.rows.length);
-  const take = Math.max(0, n);
-  return { ...f, rows: f.rows.slice(start, start + take) };
+  const start = Math.min(Math.max(0, offset), f.n);
+  const end = Math.min(f.n, start + Math.max(0, n));
+  const keep = new Int32Array(end - start);
+  for (let k = 0; k < keep.length; k += 1) keep[k] = start + k;
+  return selectRows(f, keep);
 };
 
 const evalJoin = (
@@ -1718,46 +1838,78 @@ const evalJoin = (
     li.push(il);
     ri.push(ir);
   }
-  const keyMatch = (lr: readonly Cell[], rr: readonly Cell[]): boolean =>
-    li.every((i, k) => cellEq(lr[i]!, rr[ri[k]!]!));
+  const leftKeys = Array.from({ length: f.n }, (_, i) => cellsAt(f.data, li, i));
+  const rightKeys = Array.from({ length: right.n }, (_, i) => cellsAt(right.data, ri, i));
+  const keyMatch = (lk: readonly Cell[], rk: readonly Cell[]): boolean =>
+    lk.every((c, k) => cellEq(c, rk[k]!));
 
   const leftNames = new Set(available(f.cols));
   const rightCols: SchemaEntry[] = right.cols.map((e) => ({
     name: leftNames.has(e.name) ? e.name + '_right' : e.name,
     type: e.type,
   }));
-  const outCols = [...f.cols, ...rightCols];
-  const leftNulls: Cell[] = f.cols.map(() => NULL);
-  const rightNulls: Cell[] = right.cols.map(() => NULL);
 
-  const leftSide: (readonly Cell[])[] = [];
-  for (const lr of f.rows) {
-    const matches = right.rows.filter((rr) => keyMatch(lr, rr));
-    if (matches.length === 0) {
-      if (how === 'left' || how === 'outer') leftSide.push([...lr, ...rightNulls]);
-      // inner / right with no match: emit nothing
-    } else {
-      for (const rr of matches) leftSide.push([...lr, ...rr]);
+  // The output is two gathers: the left row and the right row each output row reads, `-1` on
+  // the side a non-matching row pads with nulls.
+  const lrows: number[] = [];
+  const rrows: number[] = [];
+  for (let l = 0; l < f.n; l += 1) {
+    let matched = false;
+    for (let r = 0; r < right.n; r += 1) {
+      if (!keyMatch(leftKeys[l]!, rightKeys[r]!)) continue;
+      matched = true;
+      lrows.push(l);
+      rrows.push(r);
+    }
+    // inner / right with no match: emit nothing
+    if (!matched && (how === 'left' || how === 'outer')) {
+      lrows.push(l);
+      rrows.push(-1);
     }
   }
-
-  const rightOnly: (readonly Cell[])[] = [];
   if (how === 'right' || how === 'outer') {
-    for (const rr of right.rows) {
-      if (!f.rows.some((lr) => keyMatch(lr, rr))) rightOnly.push([...leftNulls, ...rr]);
+    for (let r = 0; r < right.n; r += 1) {
+      if (!leftKeys.some((lk) => keyMatch(lk, rightKeys[r]!))) {
+        lrows.push(-1);
+        rrows.push(r);
+      }
     }
   }
 
-  return dok({ cols: outCols, rows: [...leftSide, ...rightOnly] });
+  return dok({
+    cols: [...f.cols, ...rightCols],
+    data: [
+      ...f.data.map((c) => takeRows(c, lrows)),
+      ...right.data.map((c, k) => takeRows(c, rrows, rightCols[k]!.name)),
+    ],
+    n: lrows.length,
+  });
 };
 
+/**
+ * `union` appends the other frame's rows. Each column is held at the JOIN of its two sides' types
+ * (an int column over a float one is a float column) — the reference's rule (fuaran-core#423),
+ * which a typed column needs: a pair no column type holds together is refused by name.
+ */
 const evalUnion = (f: Frame, other: Frame): DR<Frame> => {
   const an = available(f.cols);
   const bn = available(other.cols);
   if (an.length !== bn.length || an.some((n, i) => n !== bn[i])) {
     return derr({ kind: 'JoinError', detail: 'union requires matching column names' });
   }
-  return dok({ ...f, rows: [...f.rows, ...other.rows] });
+  const cols: SchemaEntry[] = [];
+  const data: DataColumn[] = [];
+  for (let ci = 0; ci < f.cols.length; ci += 1) {
+    const l = f.cols[ci]!;
+    const r = other.cols[ci]!;
+    const ty = joinColumnType(l.type, r.type);
+    if (ty === undefined) return derr(typesBesideEachOther(l.name, l.type, r.type));
+    const c = colOf(l.name, ty, [...columnCells(f.data[ci]!), ...columnCells(other.data[ci]!)]);
+    if (!c.ok) return c;
+    cols.push({ name: l.name, type: ty });
+    data.push(c.value);
+  }
+  return dok({ cols, data, n: f.n + other.n });
 };
 
 /**
@@ -1772,8 +1924,13 @@ const evalSetOp = (verb: string, keepPresent: boolean, f: Frame, other: Frame): 
   if (an.length !== bn.length || an.some((n, i) => n !== bn[i])) {
     return derr({ kind: 'JoinError', detail: verb + ' requires matching column names' });
   }
-  const present = new Set(other.rows.map(rowKey));
-  return dok({ ...f, rows: f.rows.filter((row) => present.has(rowKey(row)) === keepPresent) });
+  const present = new Set<string>();
+  for (let i = 0; i < other.n; i += 1) present.add(rowKey(rowCells(other, i)));
+  const keep: number[] = [];
+  for (let i = 0; i < f.n; i += 1) {
+    if (present.has(rowKey(rowCells(f, i))) === keepPresent) keep.push(i);
+  }
+  return dok(selectRows(f, keep));
 };
 
 const evalWindow = (f: Frame, spec: WindowSpecLike): DR<Frame> => {
@@ -1782,32 +1939,18 @@ const evalWindow = (f: Frame, spec: WindowSpecLike): DR<Frame> => {
     return derr(unknownColumn(spec.of, available(f.cols)));
   }
   const partIdx = spec.partitionBy.map((p) => colIndex(f.cols, p)).filter((i) => i >= 0);
-  const partKey = (row: readonly Cell[]): string => rowKey(partIdx.map((i) => row[i]!));
 
-  // partition (first-appearance order), tagging each row with its original index
-  const order: string[] = [];
-  const partitions = new Map<string, { index: number; row: readonly Cell[] }[]>();
-  f.rows.forEach((row, i) => {
-    const k = partKey(row);
-    const p = partitions.get(k);
-    if (p === undefined) {
-      order.push(k);
-      partitions.set(k, [{ index: i, row }]);
-    } else {
-      p.push({ index: i, row });
-    }
-  });
+  // partition (first-appearance order), each partition its rows' indices
+  const partitions = groupRows(f, partIdx);
+  const { idxs: orderIdxs, dirs: orderDirs } = resolveSortKeys(f.cols, spec.orderBy);
 
-  const valueAt = (row: readonly Cell[]): Cell => (ofIdx >= 0 ? row[ofIdx]! : NULL);
+  const valueAt = (r: number): Cell => (ofIdx >= 0 ? cellAt(f.data[ofIdx]!, r) : NULL);
   const sourceIsDecimal = colType(f.cols, spec.of) === 'decimal';
 
-  const computed: { index: number; out: Cell }[] = [];
-  for (const k of order) {
-    const members = partitions.get(k)!;
-    const ordered = stableSort(members, (a, b) =>
-      rowKeyCompare(f.cols, spec.orderBy, a.row, b.row),
-    );
-    const vals = ordered.map((m) => valueAt(m.row));
+  const outCells = new Array<Cell>(f.n);
+  for (const members of partitions) {
+    const ordered = sortedRows(f, members, spec.orderBy);
+    const vals = ordered.map(valueAt);
     let outs: Cell[];
     switch (spec.fn) {
       case 'rowNumber':
@@ -1815,16 +1958,10 @@ const evalWindow = (f: Frame, spec: WindowSpecLike): DR<Frame> => {
         break;
       case 'rank': {
         // ties (equal order keys) share a rank; running sum of step (0/1)
-        const steps = ordered.map((m, i) =>
-          i === 0
-            ? 1
-            : rowKeyCompare(f.cols, spec.orderBy, ordered[i - 1]!.row, m.row) === 0
-              ? 0
-              : 1,
-        );
+        const keys = ordered.map((r) => cellsAt(f.data, orderIdxs, r));
         let acc = 0;
-        outs = steps.map((s) => {
-          acc += s;
+        outs = keys.map((k, i) => {
+          acc += i === 0 || keyCompare(orderDirs, keys[i - 1]!, k) !== 0 ? 1 : 0;
           return { kind: 'Int', value: acc };
         });
         break;
@@ -1868,11 +2005,10 @@ const evalWindow = (f: Frame, spec: WindowSpecLike): DR<Frame> => {
         });
         break;
     }
-    ordered.forEach((m, i) => computed.push({ index: m.index, out: outs[i]! }));
+    ordered.forEach((r, i) => {
+      outCells[r] = outs[i]!;
+    });
   }
-
-  computed.sort((a, b) => a.index - b.index);
-  const outCells = computed.map((c) => c.out);
 
   let ty: ColumnType;
   switch (spec.fn) {
@@ -1894,9 +2030,12 @@ const evalWindow = (f: Frame, spec: WindowSpecLike): DR<Frame> => {
       ty = 'string';
   }
 
+  const col = colOf(spec.as, ty, outCells);
+  if (!col.ok) return col;
   return dok({
     cols: [...f.cols, { name: spec.as, type: ty }],
-    rows: f.rows.map((row, i) => [...row, outCells[i]!]),
+    data: [...f.data, col.value],
+    n: f.n,
   });
 };
 
@@ -1916,14 +2055,13 @@ const evalPivot = (f: Frame, spec: PivotSpecLike): DR<Frame> => {
   const valIdx = need(spec.values);
   if (valIdx === undefined) return derr(unknownColumn(spec.values, available(f.cols)));
   const valType = f.cols[valIdx]!.type;
-
-  const indexKey = (row: readonly Cell[]): Cell[] => idxIdx.map((i) => row[i]!);
+  const onCol = f.data[onIdx]!;
 
   // distinct on-values (sorted by canonical string for a deterministic column order)
   const onSeen = new Set<string>();
   const onValues: Cell[] = [];
-  for (const row of f.rows) {
-    const c = row[onIdx]!;
+  for (let i = 0; i < f.n; i += 1) {
+    const c = cellAt(onCol, i);
     if (isNull(c)) continue;
     const k = cellKey(c);
     if (!onSeen.has(k)) {
@@ -1946,16 +2084,7 @@ const evalPivot = (f: Frame, spec: PivotSpecLike): DR<Frame> => {
   if (!repeat.ok) return repeat;
 
   // index groups, first-appearance order
-  const order: Cell[][] = [];
-  const orderSeen = new Set<string>();
-  for (const row of f.rows) {
-    const k = indexKey(row);
-    const ks = rowKey(k);
-    if (!orderSeen.has(ks)) {
-      orderSeen.add(ks);
-      order.push(k);
-    }
-  }
+  const groups = groupRows(f, idxIdx);
 
   const idxCols: SchemaEntry[] = spec.index.map((n) => ({ name: n, type: colType(f.cols, n)! }));
   const pivotCols: SchemaEntry[] = onValues.map((ov) => ({
@@ -1963,22 +2092,23 @@ const evalPivot = (f: Frame, spec: PivotSpecLike): DR<Frame> => {
     type: aggType(spec.agg, valType),
   }));
 
-  const rows: Cell[][] = [];
-  for (const k of order) {
-    const ks = rowKey(k);
-    const out: Cell[] = [...k];
-    for (const ov of onValues) {
-      const matching = f.rows
-        .filter((row) => rowKey(indexKey(row)) === ks && cellEq(row[onIdx]!, ov))
-        .map((row) => row[valIdx]!);
-      const v = aggregateCells(spec.agg, valType, matching);
+  const firsts = groups.map((g) => g[0]!);
+  const data: DataColumn[] = idxIdx.map((ci, k) => takeRows(f.data[ci]!, firsts, spec.index[k]!));
+  for (let p = 0; p < onValues.length; p += 1) {
+    const ov = onValues[p]!;
+    const out: Cell[] = [];
+    for (const g of groups) {
+      const matching = g.filter((r) => cellEq(cellAt(onCol, r), ov));
+      const v = aggregateRows(spec.agg, valType, f.data[valIdx]!, matching);
       if (!v.ok) return v;
       out.push(v.value);
     }
-    rows.push(out);
+    const c = colOf(pivotCols[p]!.name, pivotCols[p]!.type, out);
+    if (!c.ok) return c;
+    data.push(c.value);
   }
 
-  return dok({ cols: [...idxCols, ...pivotCols], rows });
+  return dok({ cols: [...idxCols, ...pivotCols], data, n: groups.length });
 };
 
 const evalUnpivot = (
@@ -2010,26 +2140,32 @@ const evalUnpivot = (
   // melted cells only where it does not.
   const dt = unpivotTyping(valueVars.map((n) => colType(f.cols, n)!));
   if (dt.kind === 'refused') return derr(floatBesideDecimal('value'));
-  const rows: Cell[][] = [];
-  for (const row of f.rows) {
-    const idCells = idIdx.map((i) => row[i]!);
+  // Each source row melts into one output row per value column, so the id columns are one gather.
+  const sources: number[] = [];
+  const variables: Cell[] = [];
+  const values: Cell[] = [];
+  for (let i = 0; i < f.n; i += 1) {
     valueVars.forEach((name, k) => {
-      rows.push([...idCells, { kind: 'Str', value: name }, row[valIdx[k]!]!]);
+      sources.push(i);
+      variables.push({ kind: 'Str', value: name });
+      values.push(cellAt(f.data[valIdx[k]!]!, i));
     });
   }
-  const valueAt = idCols.length + 1;
-  const valType = columnTypeBy(
-    dt,
-    'value',
-    rows.map((r) => r[valueAt]!),
-  );
+  const valType = columnTypeBy(dt, 'value', values);
   if (!valType.ok) return valType;
-  const cols: SchemaEntry[] = [
-    ...idCols,
-    { name: 'variable', type: 'string' },
-    { name: 'value', type: valType.value },
-  ];
-  return dok({ cols, rows });
+  const variable = colOf('variable', 'string', variables);
+  if (!variable.ok) return variable;
+  const value = colOf('value', valType.value, values);
+  if (!value.ok) return value;
+  return dok({
+    cols: [...idCols, { name: 'variable', type: 'string' }, { name: 'value', type: valType.value }],
+    data: [
+      ...idIdx.map((ci, k) => takeRows(f.data[ci]!, sources, idVars[k]!)),
+      variable.value,
+      value.value,
+    ],
+    n: sources.length,
+  });
 };
 
 // Window/Pivot spec aliases (the schema `WindowSpec`/`PivotSpec` shapes).
@@ -2089,18 +2225,21 @@ const evalStep = (
     case 'join': {
       const r = evalSource(resolve, t.source);
       if (!r.ok) return r;
-      return evalJoin(f, toFrame(r.value), t.on, t.how);
+      const right = toFrame(r.value);
+      return right.ok ? evalJoin(f, right.value, t.on, t.how) : right;
     }
     case 'union': {
       const r = evalSource(resolve, t.source);
       if (!r.ok) return r;
-      return evalUnion(f, toFrame(r.value));
+      const other = toFrame(r.value);
+      return other.ok ? evalUnion(f, other.value) : other;
     }
     case 'intersect':
     case 'except': {
       const r = evalSource(resolve, t.source);
       if (!r.ok) return r;
-      return evalSetOp(t.kind, t.kind === 'intersect', f, toFrame(r.value));
+      const other = toFrame(r.value);
+      return other.ok ? evalSetOp(t.kind, t.kind === 'intersect', f, other.value) : other;
     }
   }
 };
@@ -2115,7 +2254,9 @@ export const evalPipelineWithInEnv = (
   pipeline: readonly Transform[],
   input: Table,
 ): DR<Table> => {
-  let f = toFrame(input);
+  const start = toFrame(input);
+  if (!start.ok) return start;
+  let f = start.value;
   for (const step of pipeline) {
     const r = evalStep(resolve, f, step, env);
     if (!r.ok) return r;

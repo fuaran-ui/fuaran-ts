@@ -25,4 +25,11 @@ export {
   type SourceResolver,
   // Phase 2006 — the exact decimal's order, for the renderers' grid sort.
   decimalCompare,
+  // Phase 2205 — a column holds typed vectors: its builder and its readers (the `toCells` bridge).
+  cellAt,
+  columnCells,
+  columnLength,
+  columnOfCells,
+  isPresentAt,
+  type ColumnResult,
 } from '@fuaran-ui/core-twins';

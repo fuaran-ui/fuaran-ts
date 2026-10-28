@@ -44,6 +44,8 @@ import {
   truncateToGrain,
 } from '@fuaran-ui/schema';
 import {
+  cellAt,
+  columnLength,
   evalPipelineWith,
   evalPipelineWithInEnv,
   liveValueToTable,
@@ -475,11 +477,11 @@ const cellToRowValue = (c: Cell): unknown =>
 
 /** Project an evaluated columnar `Table` into plain row objects (`Null` ⇒ `null`). */
 export const tableToRows = (t: Table): Record<string, unknown>[] => {
-  const n = t.columns.length > 0 ? t.columns[0]!.cells.length : 0;
+  const n = t.columns.length > 0 ? columnLength(t.columns[0]!) : 0;
   const rows: Record<string, unknown>[] = [];
   for (let i = 0; i < n; i += 1) {
     const row = nullProtoRecord<unknown>();
-    for (const col of t.columns) row[col.name] = cellToRowValue(col.cells[i]!);
+    for (const col of t.columns) row[col.name] = cellToRowValue(cellAt(col, i));
     rows.push(row);
   }
   return rows;
@@ -707,7 +709,13 @@ const evalExprCell = (
 ): { readonly ok: true; readonly value: Cell } | { readonly ok: false; readonly error: string } => {
   const unitFrame: Table = {
     schema: [{ name: '__unit', type: 'bool' }],
-    columns: [{ name: '__unit', type: 'bool', cells: [{ kind: 'Bool', value: true }] }],
+    columns: [
+      {
+        name: '__unit',
+        type: 'bool',
+        data: { kind: 'Bools', values: Uint8Array.of(1), validity: { kind: 'AllValid' } },
+      },
+    ],
   };
   const asTransform: Extract<Binding<unknown>, { kind: 'Transform' }> = {
     kind: 'Transform',
@@ -730,14 +738,14 @@ const evalExprCell = (
   const col = frame.value.columns.find((c) => c.name === '__value');
   // There by construction; its ABSENCE is a broken invariant, never a null
   // result, and defaulting to Null here would hide it as the slot's empty state.
-  if (col === undefined || col.cells[0] === undefined) {
+  if (col === undefined || columnLength(col) === 0) {
     const present = frame.value.columns.map((c) => c.name).join(', ');
     return {
       ok: false,
       error: `Expr evaluation produced no result column (columns present: ${present}) - a host defect, not a document one`,
     };
   }
-  return { ok: true, value: col.cells[0] };
+  return { ok: true, value: cellAt(col, 0) };
 };
 
 /** Resolve a binding in a SCALAR slot — twin of the client's `resolveScalarWith`. */
@@ -760,9 +768,9 @@ export const resolveScalarWith = <T>(
   if (!frame.ok) return { kind: 'Errored', message: frame.error };
   const result = frame.value;
   const colCount = result.columns.length;
-  const rowCount = colCount > 0 ? result.columns[0]!.cells.length : 0;
+  const rowCount = colCount > 0 ? columnLength(result.columns[0]!) : 0;
   if (rowCount === 1 && colCount === 1) {
-    const cell = result.columns[0]!.cells[0]!;
+    const cell = cellAt(result.columns[0]!, 0);
     if (cell.kind === 'Null') return { kind: 'NotResolved' };
     const v = coerceCell(cell);
     return v.ok ? { kind: 'Resolved', value: v.value } : { kind: 'Errored', message: v.error };

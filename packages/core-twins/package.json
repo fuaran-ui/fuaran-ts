@@ -2,7 +2,7 @@
   "name": "@fuaran-ui/core-twins",
   "version": "0.0.0",
   "private": true,
-  "description": "Workspace-internal home of this host's twins of the Fuaran.Core reference subsystems: the DataFrame / Transform evaluator with list-parameter substitution and its canonical float layout, the capability runtime (invocationKey, validateArgs, registry), the function registry (findBySignature), and the op-stream actor encoding. Deliberately not published: each published package that re-exports a twin bundles it at build time, so no public import path depends on this package.",
+  "description": "Workspace-internal home of this host's twins of the Fuaran.Core reference subsystems: the typed column (typed vectors and a validity), the DataFrame / Transform evaluator with list-parameter substitution and its canonical float layout, the capability runtime (invocationKey, validateArgs, registry), the function registry (findBySignature), and the op-stream actor encoding. Deliberately not published: each published package that re-exports a twin bundles it at build time, so no public import path depends on this package.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/fuaran-ui/fuaran-ts",
   "repository": {

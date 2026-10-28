@@ -42,6 +42,7 @@ import type {
   Cell,
   ColExpr,
   ColPair,
+  ColumnData,
   ColumnType,
   DataColumn,
   DataSource,
@@ -98,6 +99,15 @@ import type {
 import { formatFiniteDouble, num } from '@fuaran-ui/core-twins';
 // Phase 2001 — the exact decimal's canonical-text check and the rounding policy.
 import { isCanonicalDecimal } from '@fuaran-ui/core-twins';
+// Phase 2205 — the typed column's readers.
+import {
+  columnLength,
+  dateText,
+  instantText,
+  isPresentAt,
+  nullColumn,
+  timestampDigits,
+} from '@fuaran-ui/core-twins';
 import type { Rounding } from '@fuaran-ui/schema';
 
 import type { JsonAst } from './parse.js';
@@ -257,50 +267,64 @@ const intLit = (n: number): string => String(Math.trunc(n));
 type WireColumnType = ColumnType;
 
 /**
- * The present-cell JSON value for a column of type `ty` — port of F#
- * `ColumnCodec.cellJson`. A `Null` cell emits the type-default placeholder (the
- * validity mask records the nullity); an `Int` widens to a float in a float
- * column; every other present cell encodes as-is.
+ * The placeholder an absent row emits — port of F# `Cell.defaultFor ty` then `cellJson`:
+ * int→"0", float→"0", bool→false, decimal→"0" (a string, Phase 2001), others→"". The validity
+ * mask records the absence; the slot's value is never read.
  */
-const columnCellWire = (ty: WireColumnType, c: Cell): string => {
-  switch (c.kind) {
-    case 'Null':
-      // Cell.defaultFor ty, then cellJson: int→"0", float→"0", bool→false, decimal→"0" (a
-      // string, Phase 2001), others→"".
-      return ty === 'bool'
-        ? bool(false)
-        : ty === 'int' || ty === 'float'
-          ? '0'
-          : ty === 'decimal'
-            ? str('0')
-            : str('');
-    case 'Int':
-      // An int in a decimal column is held as its digits — a decimal is a JSON string on the wire.
-      return ty === 'float'
-        ? num(c.value)
-        : ty === 'decimal'
-          ? str(intLit(c.value))
-          : intLit(c.value);
-    case 'Decimal':
-      return str(c.value);
-    case 'Float':
-      return num(c.value);
-    case 'Bool':
-      return bool(c.value);
-    case 'Str':
-    case 'Date':
-    case 'Timestamp':
-      return str(c.value);
+const absentSlot = (ty: WireColumnType): string =>
+  ty === 'bool'
+    ? bool(false)
+    : ty === 'int' || ty === 'float'
+      ? '0'
+      : ty === 'decimal'
+        ? str('0')
+        : str('');
+
+/**
+ * A column's present values as JSON — port of F# `ColumnCodec.cellJson` over Core's typed column
+ * (Phase 2205), read straight from the typed vector: a date and an instant emit their canonical
+ * text, every other value as-is.
+ */
+const columnValuesWire = (ty: WireColumnType, d: ColumnData): string[] => {
+  const n = d.kind === 'Timestamps' ? d.seconds.length : d.values.length;
+  const mask = d.validity.kind === 'Mask' ? d.validity.present : undefined;
+  const absent = absentSlot(ty);
+  const out = new Array<string>(n);
+  const each = (wire: (i: number) => string): string[] => {
+    for (let i = 0; i < n; i += 1) out[i] = mask !== undefined && mask[i] !== 1 ? absent : wire(i);
+    return out;
+  };
+  switch (d.kind) {
+    case 'Ints':
+      return each((i) => intLit(d.values[i]!));
+    case 'Floats':
+      return each((i) => num(d.values[i]!));
+    case 'Bools':
+      return each((i) => bool(d.values[i] === 1));
+    case 'Strs':
+    case 'Decimals':
+      return each((i) => str(d.values[i]!));
+    case 'Dates':
+      return each((i) => str(dateText(d.values[i]!)));
+    case 'Timestamps': {
+      const digits = timestampDigits(ty) ?? 0;
+      return each((i) => str(instantText(d.seconds[i]!, d.fraction?.[i] ?? 0, digits)));
+    }
     default:
-      return assertNever(c);
+      return assertNever(d);
   }
 };
 
-const dataColumnJson = (c: DataColumn): string =>
-  jObject([
-    ['values', jArray(c.cells.map((cell) => columnCellWire(c.type, cell)))],
-    ['validity', jArray(c.cells.map((cell) => bool(cell.kind !== 'Null')))],
+const dataColumnJson = (c: DataColumn): string => {
+  const n = columnLength(c);
+  const mask = c.data.validity.kind === 'Mask' ? c.data.validity.present : undefined;
+  const validity = new Array<string>(n);
+  for (let i = 0; i < n; i += 1) validity[i] = bool(mask === undefined || mask[i] === 1);
+  return jObject([
+    ['values', jArray(columnValuesWire(c.type, c.data))],
+    ['validity', jArray(validity)],
   ]);
+};
 
 const schemaJson = (
   schema: readonly { readonly name: string; readonly type: ColumnType }[],
@@ -324,11 +348,8 @@ const dataSource = (src: DataSource): string => {
   }
   const t = src.table;
   const columns: Field[] = t.schema.map((e) => {
-    const col: DataColumn = t.columns.find((c) => c.name === e.name) ?? {
-      name: e.name,
-      type: 'string',
-      cells: [],
-    };
+    const col: DataColumn =
+      t.columns.find((c) => c.name === e.name) ?? nullColumn(e.name, 'string', 0);
     return [e.name, dataColumnJson(col)];
   });
   return jObject([
@@ -533,7 +554,8 @@ export const encodeDataSource = (src: DataSource): string => dataSource(src);
  * Phase 2001 — the GUARDED encode of a `DataSource`: the canonical string, or
  * the refusal of a cell the decimal column cannot carry — a decimal whose text
  * is not CANONICAL decimal text (`12.50` is refused; the decimal type has one
- * spelling per value), or a present cell that is neither a decimal nor an int.
+ * spelling per value). A typed decimal column holds nothing but decimal text
+ * (Phase 2205), so that is the one refusal left.
  * Every other table encodes exactly as `encodeDataSource` encodes it.
  */
 export const tryEncodeDataSource = (
@@ -543,18 +565,14 @@ export const tryEncodeDataSource = (
   | { readonly ok: false; readonly error: string } => {
   if (src.kind === 'Embedded') {
     for (const col of src.table.columns) {
-      if (col.type !== 'decimal') continue;
-      for (const c of col.cells) {
-        if (c.kind === 'Null' || c.kind === 'Int') continue;
-        if (c.kind !== 'Decimal')
+      const d = col.data;
+      if (d.kind !== 'Decimals') continue;
+      for (let i = 0; i < d.values.length; i += 1) {
+        const text = d.values[i]!;
+        if (isPresentAt(d, i) && !isCanonicalDecimal(text))
           return {
             ok: false,
-            error: `column '${col.name}': expected decimal value, got ${c.kind}`,
-          };
-        if (!isCanonicalDecimal(c.value))
-          return {
-            ok: false,
-            error: `malformed: column '${col.name}': decimal text '${c.value}' is not in canonical form`,
+            error: `malformed: column '${col.name}': decimal text '${text}' is not in canonical form`,
           };
       }
     }

@@ -39,6 +39,7 @@ export const SCHEMA_TYPE_ALLOWLIST: readonly string[] = [
   'CapabilitySignature',
   'Cell',
   'ColExpr',
+  'ColumnData',
   'ColumnType',
   'DataColumn',
   'DataSource',
@@ -54,6 +55,7 @@ export const SCHEMA_TYPE_ALLOWLIST: readonly string[] = [
   'SortKey',
   'Table',
   'Transform',
+  'Validity',
 ];
 
 export interface Violation {

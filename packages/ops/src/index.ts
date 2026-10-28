@@ -28,6 +28,12 @@ export {
   type SourceResolver,
   type EvalEnv,
   decimalCompare,
+  cellAt,
+  columnCells,
+  columnLength,
+  columnOfCells,
+  isPresentAt,
+  type ColumnResult,
 } from './dataframe.js';
 // Phase 2006 — a row's exact decimal formats from its digits.
 export { formatDecimal } from './decimalFormat.js';

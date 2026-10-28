@@ -15,7 +15,8 @@ import { describe, expect, it } from 'vitest';
 
 import { decodeNode } from '../src/decode.js';
 import { encodeDataSource } from '../src/encode.js';
-import { evalPipeline } from '../src/dataframe.js';
+import { columnCells, evalPipeline } from '../src/dataframe.js';
+import { typedCol } from './typedCol.js';
 
 // ─── tiny table builders ─────────────────────────────────────────────────────
 
@@ -27,7 +28,7 @@ const N: Cell = { kind: 'Null' };
 
 const table = (schema: readonly [string, ColumnType][], cols: Record<string, Cell[]>): Table => ({
   schema: schema.map(([name, type]) => ({ name, type })),
-  columns: schema.map(([name, type]) => ({ name, type, cells: cols[name]! })),
+  columns: schema.map(([name, type]) => typedCol(name, type, cols[name]!)),
 });
 
 const run = (pipeline: Transform[], input: Table): string => {
@@ -310,7 +311,8 @@ describe('fuaran-core#90 string/membership/null/date additions', () => {
   const cells = (pipeline: Transform[], col: string): Cell[] => {
     const r = evalPipeline(pipeline, people);
     if (!r.ok) throw new Error('eval failed');
-    return [...(r.value.columns.find((c) => c.name === col)?.cells ?? [])];
+    const c = r.value.columns.find((x) => x.name === col);
+    return c === undefined ? [] : columnCells(c);
   };
 
   const lit = (c: Cell) => ({ kind: 'lit', cell: c }) as const;

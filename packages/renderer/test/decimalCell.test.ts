@@ -35,7 +35,7 @@ const source: DataSource = {
       {
         name: 'amount',
         type: 'decimal',
-        cells: decimalTexts.map((value) => ({ kind: 'Decimal', value })),
+        data: { kind: 'Decimals', values: decimalTexts, validity: { kind: 'AllValid' } },
       },
     ],
   },
