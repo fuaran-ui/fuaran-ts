@@ -91,6 +91,7 @@ export const renderVis = <TMsg,>(
             // `staticRows`. They ride BOTH legs, so the static table and the bound
             // one carry the same paged behaviour.
             gridPrintBreakClasses(vis.spec.keepRowsTogether, vis.spec.repeatHeader),
+            vis.spec.columns,
           )
         : renderGrid(ctx, parentNodeId, state, vis.spec);
     case 'Chart':
@@ -1403,10 +1404,33 @@ const renderChart = <TMsg,>(
   );
 };
 
+// Phase 2473 — one static cell under the grid's declared columns, read by POSITION
+// (`columns[j]` describes every row's cell `j`; parity-locked with the SSR twin and F#
+// `ElementPlan.VisPlan.staticGrid`). A `TonedPill` column draws the cell as the toned pill:
+// the cell's OWN text, toned by the map entry for the row's value at the pill's `field`,
+// where a static row reads as each declared column's `field` mapped to its cell's text.
+const staticCell = <TMsg,>(
+  columns: readonly ColumnErased<TMsg>[],
+  texts: readonly string[],
+  j: number,
+): ReactNode => {
+  const text = texts[j] ?? '';
+  const kind = columns[j]?.kind;
+  if (kind?.kind !== 'TonedPill') return text;
+  const row: Record<string, string> = {};
+  texts.forEach((t, k) => {
+    const f = columns[k]?.field;
+    if (f !== undefined) row[f] = t;
+  });
+  const [, tone] = tonedPillOf(row, kind.field, kind.map, kind.defaultTone);
+  return <span className={`fuaran-grid-cell-pill fuaran-pill-${toneVar(tone)}`}>{text}</span>;
+};
+
 const renderTable = <TMsg,>(
   ctx: RenderContext<TMsg>,
   spec: TableSpec<TMsg>,
   printBreak = '',
+  columns: readonly ColumnErased<TMsg>[] = [],
 ): ReactElement => (
   <table
     className={`fuaran-table${printBreak}`}
@@ -1435,15 +1459,16 @@ const renderTable = <TMsg,>(
     <tbody>
       {spec.rows.map((row, ri) => {
         const onRowClick = spec.onRowClick;
+        const texts = row.map((cell) => renderText(ctx.sources, cell));
         return (
           <tr
             key={ri}
             className="fuaran-table-row"
             {...(onRowClick !== undefined ? { onClick: () => runAction(ctx, onRowClick(ri)) } : {})}
           >
-            {row.map((cell, ci) => (
+            {texts.map((_, ci) => (
               <td key={ci} className="fuaran-table-cell">
-                {renderText(ctx.sources, cell)}
+                {staticCell(columns, texts, ci)}
               </td>
             ))}
           </tr>

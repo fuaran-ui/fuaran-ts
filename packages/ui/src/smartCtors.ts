@@ -1590,6 +1590,13 @@ export interface TableOptions<TMsg> {
   readonly headers: readonly TextInput[];
   readonly rows: readonly (readonly TextInput[])[];
   readonly onRowClick?: (index: number) => Action<TMsg>;
+  /**
+   * Phase 2473 — how the cells render, read by POSITION: `columns[j]` describes every
+   * row's cell `j`, and a static row reads as each column's `field` mapped to its cell's
+   * text. A `TonedPill` column draws its cells as pills toned by the map, keeping each
+   * cell's text. Omitted ⇒ `columns: []`, the pre-2473 table byte-for-byte.
+   */
+  readonly columns?: readonly ColumnErased<TMsg>[];
 }
 
 export interface MapOptions<TMsg> {
@@ -2480,7 +2487,7 @@ export const fuaran = {
           kind: 'Grid',
           spec: {
             source: { kind: 'Static', value: [] },
-            columns: [],
+            columns: o.columns ?? [],
             editable: false,
             reorderable: false,
             // Phase 1125 / 1473 — all three omit at `false`, so a table that

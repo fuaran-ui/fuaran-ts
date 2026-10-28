@@ -2565,6 +2565,7 @@ const renderVis = (
             ctx,
             vis.spec.staticRows,
             gridPrintBreakClasses(vis.spec.keepRowsTogether, vis.spec.repeatHeader),
+            vis.spec.columns,
           )
         : renderGrid(ctx, state, vis.spec);
     case 'Chart':
@@ -3159,6 +3160,28 @@ const renderChart = (
 const isChartRow = (row: unknown): row is ChartRow =>
   typeof row === 'object' && row !== null && !Array.isArray(row);
 
+// Phase 2473 — one static cell under the declared columns. A `TonedPill` column draws the
+// cell as the toned pill: the cell's OWN text (the authored content is never dropped), toned
+// by the map entry for the row's value at the pill's `field`, where a static row reads as
+// each declared column's `field` mapped to its cell's text. Any other cell is plain text,
+// escaped exactly as the pre-2473 leg escaped it.
+const staticCell = (
+  columns: readonly ColumnErased<unknown>[],
+  texts: readonly string[],
+  j: number,
+  text: string,
+): string => {
+  const kind = columns[j]?.kind;
+  if (kind?.kind !== 'TonedPill') return escapeText(text);
+  const row: Record<string, string> = {};
+  texts.forEach((t, k) => {
+    const f = columns[k]?.field;
+    if (f !== undefined) row[f] = t;
+  });
+  const [, tone] = tonedPillOf(row, kind.field, kind.map, kind.defaultTone);
+  return textEl('span', [['class', `fuaran-grid-cell-pill fuaran-pill-${toneVar(tone)}`]], text);
+};
+
 // Phase 393 — the static read-only table leg, now driven by a grid's `staticRows`.
 const renderTable = (
   ctx: ServerContext,
@@ -3168,6 +3191,9 @@ const renderTable = (
   // They ride BOTH legs: the static table, where the rows and the header row
   // group are real elements the print rules reach, and the bound table below.
   printBreak = '',
+  // Phase 2473 — the grid's declared columns, read by POSITION: `columns[j]` describes
+  // every row's cell `j`. Parity-locked with the F# `ElementPlan.VisPlan.staticGrid`.
+  columns: readonly ColumnErased<unknown>[] = [],
 ): string => {
   const headerCells = spec.headers
     .map((h) => textEl('th', [['class', 'fuaran-table-header']], renderText(ctx.sources, h)))
@@ -3175,9 +3201,10 @@ const renderTable = (
   const head = el('thead', [], el('tr', [], headerCells));
   const bodyRows = spec.rows
     .map((row) => {
-      const cells = row
-        .map((cell) =>
-          textEl('td', [['class', 'fuaran-table-cell']], renderText(ctx.sources, cell)),
+      const texts = row.map((cell) => renderText(ctx.sources, cell));
+      const cells = texts
+        .map((text, j) =>
+          el('td', [['class', 'fuaran-table-cell']], staticCell(columns, texts, j, text)),
         )
         .join('');
       return el('tr', [['class', 'fuaran-table-row']], cells);
