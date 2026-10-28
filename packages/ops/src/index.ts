@@ -195,6 +195,14 @@ export {
 // charter's O1). Both renderers lay a tree's declared defaults under the
 // host's own sources through `withStateSeeds`.
 export { collectStateSeeds, withStateSeeds, HOST_RESERVED_PREFIX } from './seeds.js';
+// Phase 2474 — a static table's designed selection, laid under the host's
+// `selections` by both renderers, and the static row record a click publishes.
+export {
+  collectSelectionSeeds,
+  withSelectionSeeds,
+  staticRowRecord,
+  staticKeyColumn,
+} from './seeds.js';
 
 // The `Binding.Local` edit-buffer codec (WIRE_FORMAT.md Section 3.3.3) and the
 // failure a decoded host-only projection raises. Exported so a host that builds

@@ -1597,6 +1597,13 @@ export interface TableOptions<TMsg> {
    * cell's text. Omitted ⇒ `columns: []`, the pre-2473 table byte-for-byte.
    */
   readonly columns?: readonly ColumnErased<TMsg>[];
+  /**
+   * Phase 2474 — the declared column whose cell identifies each row. When it names
+   * one of `columns`, the table is SELECTABLE: a row click publishes the row's record
+   * under the table's id, so a `Selection` on the table with a `field` reads that cell
+   * of the selected row. Omitted ⇒ the table is not selectable, byte-for-byte as before.
+   */
+  readonly rowKeyField?: string;
 }
 
 export interface MapOptions<TMsg> {
@@ -2488,6 +2495,7 @@ export const fuaran = {
           spec: {
             source: { kind: 'Static', value: [] },
             columns: o.columns ?? [],
+            ...(o.rowKeyField !== undefined ? { rowKeyField: o.rowKeyField } : {}),
             editable: false,
             reorderable: false,
             // Phase 1125 / 1473 — all three omit at `false`, so a table that

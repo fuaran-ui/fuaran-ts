@@ -135,7 +135,14 @@ import {
 } from '@fuaran-ui/renderer';
 // Phase 1075 — the `Binding.State` seeding pass. One definition, shared with
 // the client renderer, so the two tiers cannot drift on the charter's §4/§5.
-import { type BehindView, decimalCompare, withStateSeeds } from '@fuaran-ui/ops';
+import {
+  type BehindView,
+  decimalCompare,
+  staticKeyColumn,
+  staticRowRecord,
+  withSelectionSeeds,
+  withStateSeeds,
+} from '@fuaran-ui/ops';
 // Phase 2434 — types only, erased from the build: `@fuaran-ui/charts` is an
 // optional peer, and the lowering comes from the host's `registerCharts`.
 import type { ChartRow } from '@fuaran-ui/charts';
@@ -442,7 +449,7 @@ const renderKind = (
     case 'Input':
       return renderInput(ctx, node.id, kind.input, semanticAttrs);
     case 'Visualisation':
-      return renderVis(ctx, node.state, kind.visualisation);
+      return renderVis(ctx, String(node.id), node.state, kind.visualisation);
     case 'ErrorBoundary':
       // No error server-side — render the child inert (mirrors the client
       // boundary's no-error path).
@@ -2553,6 +2560,7 @@ const renderFileUpload = (
 
 const renderVis = (
   ctx: ServerContext,
+  nodeId: string,
   state: StateBehaviour<unknown>,
   vis: VisKind<unknown>,
 ): string => {
@@ -2566,6 +2574,7 @@ const renderVis = (
             vis.spec.staticRows,
             gridPrintBreakClasses(vis.spec.keepRowsTogether, vis.spec.repeatHeader),
             vis.spec.columns,
+            staticSelectedKey(ctx, nodeId, vis.spec.columns, vis.spec.rowKeyField),
           )
         : renderGrid(ctx, state, vis.spec);
     case 'Chart':
@@ -3173,13 +3182,31 @@ const staticCell = (
 ): string => {
   const kind = columns[j]?.kind;
   if (kind?.kind !== 'TonedPill') return escapeText(text);
-  const row: Record<string, string> = {};
-  texts.forEach((t, k) => {
-    const f = columns[k]?.field;
-    if (f !== undefined) row[f] = t;
-  });
-  const [, tone] = tonedPillOf(row, kind.field, kind.map, kind.defaultTone);
+  const [, tone] = tonedPillOf(
+    staticRowRecord(columns, texts),
+    kind.field,
+    kind.map,
+    kind.defaultTone,
+  );
   return textEl('span', [['class', `fuaran-grid-cell-pill fuaran-pill-${toneVar(tone)}`]], text);
+};
+
+// Phase 2474 — a SELECTABLE static table (its `rowKeyField` is a declared column):
+// the key position and the key of the row its selection names, read the way the
+// bound leg reads a selection. Parity-locked with F# `ElementPlan.VisPlan.staticGrid`.
+const staticSelectedKey = (
+  ctx: ServerContext,
+  nodeId: string,
+  columns: readonly ColumnErased<unknown>[],
+  rowKeyField: string | undefined,
+): { readonly keyAt: number; readonly key: string } | undefined => {
+  const keyAt = staticKeyColumn(columns, rowKeyField);
+  const selections = ctx.sources.selections;
+  if (keyAt === undefined || rowKeyField === undefined || selections === undefined)
+    return undefined;
+  if (!Object.hasOwn(selections, nodeId)) return undefined;
+  const key = projectRowFieldString(selections[nodeId], rowKeyField);
+  return key === '' ? undefined : { keyAt, key };
 };
 
 // Phase 393 — the static read-only table leg, now driven by a grid's `staticRows`.
@@ -3194,6 +3221,9 @@ const renderTable = (
   // Phase 2473 — the grid's declared columns, read by POSITION: `columns[j]` describes
   // every row's cell `j`. Parity-locked with the F# `ElementPlan.VisPlan.staticGrid`.
   columns: readonly ColumnErased<unknown>[] = [],
+  // Phase 2474 — a selectable table's key position and the selection's key
+  // (`staticSelectedKey`); the matching row is marked selected.
+  selected: { readonly keyAt: number; readonly key: string } | undefined = undefined,
 ): string => {
   const headerCells = spec.headers
     .map((h) => textEl('th', [['class', 'fuaran-table-header']], renderText(ctx.sources, h)))
@@ -3207,7 +3237,16 @@ const renderTable = (
           el('td', [['class', 'fuaran-table-cell']], staticCell(columns, texts, j, text)),
         )
         .join('');
-      return el('tr', [['class', 'fuaran-table-row']], cells);
+      return selected !== undefined && texts[selected.keyAt] === selected.key
+        ? el(
+            'tr',
+            [
+              ['class', 'fuaran-table-row fuaran-grid-row-selected'],
+              ['aria-selected', 'true'],
+            ],
+            cells,
+          )
+        : el('tr', [['class', 'fuaran-table-row']], cells);
     })
     .join('');
   const body = el('tbody', [], bodyRows);
@@ -3434,7 +3473,13 @@ export const renderToHtml = <TMsg>(tree: Node<TMsg>, options: RenderToHtmlOption
     // anything, never an override. Seeding here — at the one place this tier
     // builds a context — is what keeps the SSR first frame identical to the
     // client's, and hydration mismatch-free.
-    sources: withStateSeeds(node, options.sources ?? emptySources),
+    // Phase 2474 — and a static table's designed selection under `selections`,
+    // so this frame marks the row the client's first frame marks.
+    sources: withSelectionSeeds(
+      node,
+      withStateSeeds(node, options.sources ?? emptySources),
+      (s, cell) => renderText(s, cell as Parameters<typeof renderText>[1]),
+    ),
     fragments: collectFragments(new Map<string, Node<unknown>>(), node),
     expandingFragments: new Set<string>(),
     // Phase 1037 — default-deny. A host widens it BY NAME via `egressPolicy`.

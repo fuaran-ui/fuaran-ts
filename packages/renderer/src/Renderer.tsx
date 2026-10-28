@@ -26,9 +26,10 @@ import type { DecodePolicy, HashStrictness, Node } from '@fuaran-ui/schema';
 
 // Phase 1075 — the `Binding.State` seeding pass. One definition, shared with
 // the server renderer, so the two tiers cannot drift on the charter's §4/§5.
-import { type BehindView, withStateSeeds } from '@fuaran-ui/ops';
+import { type BehindView, withSelectionSeeds, withStateSeeds } from '@fuaran-ui/ops';
 
 import type { BindingSources } from './bindings.js';
+import { renderText } from './bindings.js';
 import type { GridDragCell, RenderContext } from './context.js';
 import { collectFragments } from './context.js';
 import { customHashFloorOf } from './customHash.js';
@@ -242,7 +243,15 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
   // deriving over the same key read the same rows. The host's map wins on
   // every key it names (charter §4). The seed walk itself is cached per tree.
   const hostSources = props.sources ?? noSources;
-  const sources = useMemo(() => withStateSeeds(props.tree, hostSources), [props.tree, hostSources]);
+  // Phase 2474 — and a static table's designed selection under `selections`
+  // (`withSelectionSeeds`), so the selected row is marked from the first frame.
+  const sources = useMemo(
+    () =>
+      withSelectionSeeds(props.tree, withStateSeeds(props.tree, hostSources), (s, cell) =>
+        renderText(s, cell as Parameters<typeof renderText>[1]),
+      ),
+    [props.tree, hostSources],
+  );
   const fragments = useMemo(
     () => collectFragments(new Map<string, Node<TMsg>>(), props.tree),
     [props.tree],

@@ -28,7 +28,7 @@ import type {
   VisKind,
 } from '@fuaran-ui/schema';
 import { isDecimalCell } from '@fuaran-ui/schema';
-import { decimalCompare } from '@fuaran-ui/ops';
+import { decimalCompare, staticKeyColumn, staticRowRecord } from '@fuaran-ui/ops';
 import type { ChartRow } from '@fuaran-ui/charts';
 
 import {
@@ -92,6 +92,8 @@ export const renderVis = <TMsg,>(
             // one carry the same paged behaviour.
             gridPrintBreakClasses(vis.spec.keepRowsTogether, vis.spec.repeatHeader),
             vis.spec.columns,
+            parentNodeId,
+            vis.spec.rowKeyField,
           )
         : renderGrid(ctx, parentNodeId, state, vis.spec);
     case 'Chart':
@@ -1417,12 +1419,12 @@ const staticCell = <TMsg,>(
   const text = texts[j] ?? '';
   const kind = columns[j]?.kind;
   if (kind?.kind !== 'TonedPill') return text;
-  const row: Record<string, string> = {};
-  texts.forEach((t, k) => {
-    const f = columns[k]?.field;
-    if (f !== undefined) row[f] = t;
-  });
-  const [, tone] = tonedPillOf(row, kind.field, kind.map, kind.defaultTone);
+  const [, tone] = tonedPillOf(
+    staticRowRecord(columns, texts),
+    kind.field,
+    kind.map,
+    kind.defaultTone,
+  );
   return <span className={`fuaran-grid-cell-pill fuaran-pill-${toneVar(tone)}`}>{text}</span>;
 };
 
@@ -1431,52 +1433,86 @@ const renderTable = <TMsg,>(
   spec: TableSpec<TMsg>,
   printBreak = '',
   columns: readonly ColumnErased<TMsg>[] = [],
-): ReactElement => (
-  <table
-    className={`fuaran-table${printBreak}`}
-    // Phase 801 — the declared sort intent as data attributes, so a progressive-enhancement
-    // script honours it without re-parsing the wire. Emitted ONLY when declared, so an
-    // undeclared table's DOM is unchanged and SSR hydration still finds what it expects.
-    {...(spec.sortable !== undefined
-      ? { 'data-fuaran-sortable': spec.sortable ? 'true' : 'false' }
-      : {})}
-    {...(spec.defaultSort !== undefined
-      ? {
-          'data-fuaran-sort-column': String(spec.defaultSort.column),
-          'data-fuaran-sort-direction': spec.defaultSort.direction,
-        }
-      : {})}
-  >
-    <thead>
-      <tr>
-        {spec.headers.map((h, i) => (
-          <th key={i} className="fuaran-table-header">
-            {renderText(ctx.sources, h)}
-          </th>
-        ))}
-      </tr>
-    </thead>
-    <tbody>
-      {spec.rows.map((row, ri) => {
-        const onRowClick = spec.onRowClick;
-        const texts = row.map((cell) => renderText(ctx.sources, cell));
-        return (
-          <tr
-            key={ri}
-            className="fuaran-table-row"
-            {...(onRowClick !== undefined ? { onClick: () => runAction(ctx, onRowClick(ri)) } : {})}
-          >
-            {texts.map((_, ci) => (
-              <td key={ci} className="fuaran-table-cell">
-                {staticCell(columns, texts, ci)}
-              </td>
-            ))}
-          </tr>
-        );
-      })}
-    </tbody>
-  </table>
-);
+  // Phase 2474 — the grid's id and row key. A SELECTABLE table (its `rowKeyField`
+  // is a declared column) publishes a clicked row's record under its id (the
+  // Phase 427 default on the static leg) and marks the row its selection names;
+  // parity-locked with F# `ElementPlan.VisPlan.staticGrid`.
+  nodeId: string | undefined = undefined,
+  rowKeyField: string | undefined = undefined,
+): ReactElement => {
+  const keyAt = nodeId === undefined ? undefined : staticKeyColumn(columns, rowKeyField);
+  const selectedRaw =
+    keyAt !== undefined && nodeId !== undefined
+      ? ownValue(ctx.sources.selections, nodeId)
+      : undefined;
+  const rawKey =
+    selectedRaw !== undefined && rowKeyField !== undefined
+      ? projectRowFieldString(selectedRaw, rowKeyField)
+      : undefined;
+  const selectedKey = rawKey === '' ? undefined : rawKey;
+  const select = (texts: readonly string[]): void => {
+    if (nodeId === undefined) return;
+    const row = staticRowRecord(columns, texts);
+    if (ctx.runtime.setSelection) ctx.runtime.setSelection(nodeId, row as JsonValue);
+    else if (ctx.runtime.warn)
+      ctx.runtime.warn(`grid '${nodeId}' selection — no runtime.setSelection wired.`);
+  };
+  return (
+    <table
+      className={`fuaran-table${printBreak}`}
+      // Phase 801 — the declared sort intent as data attributes, so a progressive-enhancement
+      // script honours it without re-parsing the wire. Emitted ONLY when declared, so an
+      // undeclared table's DOM is unchanged and SSR hydration still finds what it expects.
+      {...(spec.sortable !== undefined
+        ? { 'data-fuaran-sortable': spec.sortable ? 'true' : 'false' }
+        : {})}
+      {...(spec.defaultSort !== undefined
+        ? {
+            'data-fuaran-sort-column': String(spec.defaultSort.column),
+            'data-fuaran-sort-direction': spec.defaultSort.direction,
+          }
+        : {})}
+    >
+      <thead>
+        <tr>
+          {spec.headers.map((h, i) => (
+            <th key={i} className="fuaran-table-header">
+              {renderText(ctx.sources, h)}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {spec.rows.map((row, ri) => {
+          const onRowClick = spec.onRowClick;
+          const texts = row.map((cell) => renderText(ctx.sources, cell));
+          const selected =
+            keyAt !== undefined && selectedKey !== undefined && texts[keyAt] === selectedKey;
+          return (
+            <tr
+              key={ri}
+              className={
+                selected ? 'fuaran-table-row fuaran-grid-row-selected' : 'fuaran-table-row'
+              }
+              {...(selected ? { 'aria-selected': 'true' as const } : {})}
+              {...(onRowClick !== undefined
+                ? { onClick: () => runAction(ctx, onRowClick(ri)) }
+                : keyAt !== undefined
+                  ? { onClick: () => select(texts) }
+                  : {})}
+            >
+              {texts.map((_, ci) => (
+                <td key={ci} className="fuaran-table-cell">
+                  {staticCell(columns, texts, ci)}
+                </td>
+              ))}
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+};
 
 const renderMap = <TMsg,>(
   ctx: RenderContext<TMsg>,

@@ -271,3 +271,176 @@ export const withStateSeeds = <
   const state = Object.assign(Object.create(null) as Record<string, unknown>, seeds, sources.state);
   return { ...sources, state };
 };
+
+// ============================================================================
+//  Phase 2474 — a static table's DESIGNED selection.
+//
+//  A static `DataGrid` whose `rowKeyField` names one of its declared columns is
+//  selectable: a row click publishes the row's record under the table's id. A
+//  `Selection` on such a table projecting that field with a `defaultValue`
+//  names the row selected before any click. The table's rows are in the tree,
+//  so that declaration names a ROW, and both renderers lay its record under the
+//  host's `selections` before the first render (the host's own entry wins; a
+//  key naming no row seeds nothing; a bound grid is never seeded). Parity-locked
+//  with F# `StateSeeds.apply` / `BindingWalk.selectionSeedsOf`.
+// ============================================================================
+
+/**
+ * A static row as a record: each declared column's `field` to the text of the
+ * row's cell at the column's position. Parity-locked with F# `GridModel.staticRow`.
+ */
+export const staticRowRecord = (
+  columns: readonly { readonly field?: string }[],
+  texts: readonly string[],
+): Record<string, string> => {
+  const row = Object.create(null) as Record<string, string>;
+  texts.forEach((t, k) => {
+    const f = columns[k]?.field;
+    if (f !== undefined) row[f] = t;
+  });
+  return row;
+};
+
+/**
+ * The position of a static table's row-key cell — the declared column whose
+ * `field` is the grid's `rowKeyField`. Defined only when the table is selectable.
+ * Parity-locked with F# `GridModel.staticKeyColumn`.
+ */
+export const staticKeyColumn = (
+  columns: readonly { readonly field?: string }[],
+  rowKeyField: string | undefined,
+): number | undefined => {
+  if (rowKeyField === undefined) return undefined;
+  const at = columns.findIndex((c) => c.field === rowKeyField);
+  return at < 0 ? undefined : at;
+};
+
+/** A designed key as text — the row-key projection's canonical text. */
+const keyText = (v: unknown): string | undefined => {
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number') return String(v);
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  return undefined;
+};
+
+const isSelectionDeclaration = (
+  v: unknown,
+): v is { nodeId: string; field: string; defaultValue: unknown } =>
+  isPlainObject(v) &&
+  v['kind'] === 'Selection' &&
+  typeof v['nodeId'] === 'string' &&
+  typeof v['field'] === 'string' &&
+  v['defaultValue'] !== undefined &&
+  v['defaultValue'] !== null;
+
+const selectionSeedKey = (nodeId: string, field: string): string => `${nodeId}\u0000${field}`;
+
+const selectionSeedCache = new WeakMap<object, ReadonlyMap<string, unknown>>();
+
+/**
+ * Every designed-selection declaration in a tree: for each (node, field), the
+ * `defaultValue` of the first projecting `Selection` in walk order.
+ */
+export const collectSelectionSeeds = <TMsg>(tree: Node<TMsg>): ReadonlyMap<string, unknown> => {
+  const cached = selectionSeedCache.get(tree);
+  if (cached !== undefined) return cached;
+  const seeds = new Map<string, unknown>();
+  const seen = new Set<unknown>();
+
+  const visit = (value: unknown, childNodes: ReadonlySet<unknown>): void => {
+    if (value === null || typeof value !== 'object') return;
+    if (childNodes.has(value) || seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, childNodes);
+      return;
+    }
+    const obj = value as Record<string, unknown>;
+    if (isSelectionDeclaration(obj)) {
+      const key = selectionSeedKey(obj.nodeId, obj.field);
+      if (!seeds.has(key)) seeds.set(key, obj.defaultValue);
+    }
+    const dataMember = dataMemberOf(obj);
+    for (const [k, v] of Object.entries(obj)) {
+      if (k === dataMember) continue;
+      visit(v, childNodes);
+    }
+  };
+
+  const visitNode = (node: Node<TMsg>): void => {
+    if (seen.has(node)) return;
+    const kids = children(node, Reach.all);
+    visit(node, new Set<unknown>(kids));
+    for (const c of kids) visitNode(c);
+  };
+
+  visitNode(tree);
+  selectionSeedCache.set(tree, seeds);
+  return seeds;
+};
+
+/**
+ * Lay a tree's designed static-table selections UNDER a host's own
+ * `selections`. `resolveText` is the calling renderer's own cell resolver, so the
+ * key is matched against the text the table shows. Returns the caller's object
+ * unchanged when nothing is seeded.
+ */
+export const withSelectionSeeds = <
+  TMsg,
+  S extends { readonly selections?: Readonly<Record<string, unknown>> },
+>(
+  tree: Node<TMsg>,
+  sources: S,
+  resolveText: (sources: S, cell: unknown) => string,
+): S => {
+  const declared = collectSelectionSeeds(tree);
+  if (declared.size === 0) return sources;
+  const added = Object.create(null) as Record<string, unknown>;
+  let any = false;
+
+  const visitNode = (node: Node<TMsg>): void => {
+    const kind = node.kind as unknown as Record<string, unknown>;
+    const vis =
+      kind['kind'] === 'Visualisation'
+        ? (kind['visualisation'] as Record<string, unknown>)
+        : undefined;
+    if (vis !== undefined && vis['kind'] === 'Grid') {
+      const spec = vis['spec'] as {
+        readonly columns: readonly { readonly field?: string }[];
+        readonly rowKeyField?: string;
+        readonly staticRows?: { readonly rows: readonly (readonly unknown[])[] };
+      };
+      const id = node.id as unknown as string;
+      const keyAt = staticKeyColumn(spec.columns, spec.rowKeyField);
+      const own = sources.selections !== undefined && Object.hasOwn(sources.selections, id);
+      if (
+        spec.staticRows !== undefined &&
+        keyAt !== undefined &&
+        !own &&
+        !Object.hasOwn(added, id)
+      ) {
+        const designed = keyText(declared.get(selectionSeedKey(id, spec.rowKeyField as string)));
+        if (designed !== undefined) {
+          for (const row of spec.staticRows.rows) {
+            const texts = row.map((cell) => resolveText(sources, cell));
+            if (texts[keyAt] === designed) {
+              added[id] = staticRowRecord(spec.columns, texts);
+              any = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+    for (const c of children(node, Reach.all)) visitNode(c);
+  };
+
+  visitNode(tree);
+  if (!any) return sources;
+  const selections = Object.assign(
+    Object.create(null) as Record<string, unknown>,
+    added,
+    sources.selections,
+  );
+  return { ...sources, selections };
+};
