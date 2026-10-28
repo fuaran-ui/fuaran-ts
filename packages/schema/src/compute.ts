@@ -103,10 +103,31 @@ export type Cell =
   | { readonly kind: 'Decimal'; readonly value: string }
   | { readonly kind: 'Null' };
 
-/** A `(name, type)` schema entry — the column order of a table follows the schema. */
+/**
+ * A schema entry — the column order of a table follows the schema. `name` and `type` say what the
+ * column IS; since Phase 2207 (WIRE_FORMAT §3.6.26, the reference's `Field`) four optional members
+ * say what it MEANS. A member the entry does not state is absent, never `''`: a stated empty label is
+ * a statement and differs from no label. An entry stating none is exactly the `{name, type}` it was.
+ */
 export interface SchemaEntry {
   readonly name: string;
   readonly type: ColumnType;
+  /**
+   * The unit the column's values are measured in, as the CANONICAL text of the unit algebra
+   * (`m/s2`, `c[GBP]`, `1`). The decoder canonicalises what it reads (`s-1.m` is held as `m/s`) and
+   * refuses a text the algebra does not parse; the guarded encode refuses a non-canonical text.
+   */
+  readonly unit?: string;
+  /** A short display name for the column. */
+  readonly label?: string;
+  /** A sentence saying what the column holds. */
+  readonly description?: string;
+  /**
+   * Namespaced extension members (`vendor.key` by convention), preserved verbatim and interpreted
+   * by no host. A map, so any key — `__proto__` included — is held as written. Empty states nothing:
+   * the decoder leaves an empty `ext` absent and the encoder never writes one.
+   */
+  readonly ext?: ReadonlyMap<string, string>;
 }
 
 /** The ordered table schema. */

@@ -166,6 +166,8 @@ import {
 } from '@fuaran-ui/core-twins';
 // Phase 2001 — the exact decimal: its canonical text and the rounding policy's seven modes.
 import { decimalCanonical } from '@fuaran-ui/core-twins';
+// Phase 2207 — a schema entry's unit is read through the unit algebra and held canonical.
+import { canonicalUnit, unitRefusalText } from '@fuaran-ui/core-twins';
 import { ROUNDING_MODES, type Rounding, type RoundingMode } from '@fuaran-ui/schema';
 
 import {
@@ -1874,7 +1876,8 @@ const decodeInstant = (
   return cok({ second, fraction });
 };
 
-const decodeColSchema = (j: JsonAst): CR<SchemaEntry[]> => {
+/** A `schema` array of entries, each with its field metadata (Phase 2207). */
+export const decodeColSchema = (j: JsonAst): CR<SchemaEntry[]> => {
   const a = cArr(j);
   if (!a.ok) return a;
   return cMapM(a.value, (e) => {
@@ -1887,7 +1890,66 @@ const decodeColSchema = (j: JsonAst): CR<SchemaEntry[]> => {
     if (!COLUMN_TYPES.includes(ty.value as ColumnType)) {
       return cerr(`unknown column type '${ty.value}'; expected one of: ${COLUMN_TYPES.join(', ')}`);
     }
-    return cok<SchemaEntry>({ name: name.value, type: ty.value as ColumnType });
+    return decodeFieldMetadata(name.value, ty.value as ColumnType, fo.value);
+  });
+};
+
+/**
+ * Phase 2207 (WIRE_FORMAT §3.6.26) — an entry's optional metadata, a port of the reference
+ * `ColumnCodec.decodeField`: `unit` is parsed by the unit algebra and held as its CANONICAL text
+ * (a text it does not parse is refused, naming the column and the reason); `label` and
+ * `description` must be strings; `ext` must be an object whose every member is a string, read
+ * verbatim, and an empty one states nothing. Each refusal is the reference's `MalformedShape`.
+ * A member the entry does not define is read past.
+ */
+const decodeFieldMetadata = (name: string, type: ColumnType, f: Fields): CR<SchemaEntry> => {
+  const text = (member: string): CR<string | undefined> => {
+    const v = f.get(member);
+    if (v === undefined) return cok(undefined);
+    return v.kind === 'JString'
+      ? cok(v.value)
+      : cerr(
+          `malformed: ${name}: schema entry member '${member}' must be a string, got ${astKind(v)}`,
+        );
+  };
+  const unitText = text('unit');
+  if (!unitText.ok) return unitText;
+  let unit: string | undefined;
+  if (unitText.value !== undefined) {
+    const u = canonicalUnit(unitText.value);
+    if (!u.ok)
+      return cerr(
+        `malformed: ${name}: unit '${unitText.value}' is not a unit the kit parses: ${unitRefusalText(u.error)}`,
+      );
+    unit = u.value;
+  }
+  const label = text('label');
+  if (!label.ok) return label;
+  const description = text('description');
+  if (!description.ok) return description;
+  const extJ = f.get('ext');
+  let ext: Map<string, string> | undefined;
+  if (extJ !== undefined) {
+    if (extJ.kind !== 'JObject')
+      return cerr(
+        `malformed: ${name}: schema entry member 'ext' must be an object, got ${astKind(extJ)}`,
+      );
+    ext = new Map();
+    for (const [k, v] of extJ.fields) {
+      if (v.kind !== 'JString')
+        return cerr(
+          `malformed: ${name}: schema entry extension member '${k}' must be a string, got ${astKind(v)}`,
+        );
+      ext.set(k, v.value);
+    }
+  }
+  return cok<SchemaEntry>({
+    name,
+    type,
+    ...(unit === undefined ? {} : { unit }),
+    ...(label.value === undefined ? {} : { label: label.value }),
+    ...(description.value === undefined ? {} : { description: description.value }),
+    ...(ext === undefined || ext.size === 0 ? {} : { ext }),
   });
 };
 

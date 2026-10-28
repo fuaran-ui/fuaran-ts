@@ -13,6 +13,22 @@
 export { encodeNode, encodeOp } from './encode.js';
 export { encodeRows, RowCellRefusedError, type RowCellRefusalCode } from './encode.js';
 export { encodeDataSource, encodeCell, encodeColExpr, encodePipeline } from './encode.js';
+// Phase 2207 — a schema entry's field metadata (unit, label, description, ext): the entry's and
+// the schema delta's canonical bytes, the unit algebra's canonical text, and the schema operations.
+export { encodeSchemaEntry, encodeSchemaDelta } from './encode.js';
+export {
+  canonicalUnit,
+  unitRefusalText,
+  type UnitRefusal,
+  classifySchemaDelta,
+  diffSchema,
+  patchSchema,
+  schemaFingerprint,
+  type FieldChange,
+  type SchemaCompat,
+  type SchemaDelta,
+  type SchemaError,
+} from './dataframe.js';
 export {
   evalPipeline,
   evalPipelineWith,
