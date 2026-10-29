@@ -147,6 +147,26 @@ export {
   renderCellValue,
 } from './bindings.js';
 
+// Phase 2209 — a bound field's unit and label at the read sites (WIRE_FORMAT
+// §3.6.27): the pure display rule over a resolved schema, and the resolvers that
+// read the bound field from the evaluation a slot already performs. The string
+// server renderer reads the display rule from here, so the two tiers share one
+// definition of it.
+export {
+  type ScalarWithField,
+  dataFieldOf,
+  fieldCaption,
+  fieldColumnTitle,
+  fieldDisplayName,
+  fieldUnitText,
+  resolveRowsWithFields,
+  resolveScalarWithFieldWith,
+  valueUnit,
+  withAxisTitles,
+  withColumnHeaders,
+  withUnit,
+} from './bindings.js';
+
 export {
   type RenderContext,
   runAction,

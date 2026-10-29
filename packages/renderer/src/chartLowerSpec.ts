@@ -44,8 +44,10 @@
 //  `chart-lowering/bar-bound-i18n-titles` corpus fixture pins it on every host.
 // ============================================================================
 
-import type { ChartSpec } from '@fuaran-ui/schema';
+import type { ChartSpec, ColumnSchema } from '@fuaran-ui/schema';
 import type { ChartLowerSpec } from '@fuaran-ui/charts';
+
+import { withAxisTitles } from './bindings.js';
 
 /**
  * Project a tree-level `ChartSpec` onto the neutral `ChartLowerSpec` the
@@ -53,7 +55,16 @@ import type { ChartLowerSpec } from '@fuaran-ui/charts';
  * omitted rather than passed as `undefined`, so the lowering's documented
  * default applies and a pre-field tree lowers byte-for-byte as before.
  */
-export const chartLowerSpecOf = <TMsg>(spec: ChartSpec<TMsg>): ChartLowerSpec => {
+export const chartLowerSpecOf = <TMsg>(
+  declared: ChartSpec<TMsg>,
+  // Phase 2209 — the schema the chart's rows were read from
+  // (`resolveRowsWithFields`). An axis title the tree leaves absent is filled
+  // from its bound field's column title (WIRE_FORMAT §3.6.27) and then crosses
+  // as a stated `Literal`; with no fields — a source that is not a `Transform`,
+  // or a caller that has none — the spec crosses exactly as before.
+  fields: ColumnSchema = [],
+): ChartLowerSpec => {
+  const spec = withAxisTitles(fields, declared);
   return {
     kind: spec.kind,
     xField: spec.xField,

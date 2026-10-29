@@ -1,0 +1,476 @@
+{
+  "fm-header-derived": {
+    "id": "fm-header-derived",
+    "kind": {
+      "$type": "DataGrid",
+      "columns": [
+        {
+          "field": "mass",
+          "kind": {
+            "$type": "Text"
+          },
+          "label": ""
+        }
+      ],
+      "source": {
+        "$type": "Transform",
+        "pipeline": [],
+        "source": {
+          "columns": {
+            "mass": {
+              "validity": [true],
+              "values": [12.5]
+            },
+            "speed": {
+              "validity": [true],
+              "values": [3.5]
+            }
+          },
+          "schema": [
+            {
+              "label": "Payload mass",
+              "name": "mass",
+              "type": "float",
+              "unit": "kg"
+            },
+            {
+              "label": "",
+              "name": "speed",
+              "type": "float",
+              "unit": "m/s"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "fm-header-explicit": {
+    "id": "fm-header-explicit",
+    "kind": {
+      "$type": "DataGrid",
+      "columns": [
+        {
+          "field": "mass",
+          "kind": {
+            "$type": "Text"
+          },
+          "label": "Mass (t)"
+        }
+      ],
+      "source": {
+        "$type": "Transform",
+        "pipeline": [],
+        "source": {
+          "columns": {
+            "mass": {
+              "validity": [true],
+              "values": [12.5]
+            },
+            "speed": {
+              "validity": [true],
+              "values": [3.5]
+            }
+          },
+          "schema": [
+            {
+              "label": "Payload mass",
+              "name": "mass",
+              "type": "float",
+              "unit": "kg"
+            },
+            {
+              "label": "",
+              "name": "speed",
+              "type": "float",
+              "unit": "m/s"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "fm-header-plain": {
+    "id": "fm-header-plain",
+    "kind": {
+      "$type": "DataGrid",
+      "columns": [
+        {
+          "field": "mass",
+          "kind": {
+            "$type": "Text"
+          },
+          "label": ""
+        }
+      ],
+      "source": {
+        "$type": "Transform",
+        "pipeline": [],
+        "source": {
+          "columns": {
+            "mass": {
+              "validity": [true],
+              "values": [12.5]
+            },
+            "speed": {
+              "validity": [true],
+              "values": [3.5]
+            }
+          },
+          "schema": [
+            {
+              "name": "mass",
+              "type": "float"
+            },
+            {
+              "name": "speed",
+              "type": "float"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "fm-axis-derived": {
+    "id": "fm-axis-derived",
+    "kind": {
+      "$type": "Chart",
+      "kind": "Line",
+      "source": {
+        "$type": "Transform",
+        "pipeline": [],
+        "source": {
+          "columns": {
+            "mass": {
+              "validity": [true],
+              "values": [12.5]
+            },
+            "speed": {
+              "validity": [true],
+              "values": [3.5]
+            }
+          },
+          "schema": [
+            {
+              "label": "Payload mass",
+              "name": "mass",
+              "type": "float",
+              "unit": "kg"
+            },
+            {
+              "label": "",
+              "name": "speed",
+              "type": "float",
+              "unit": "m/s"
+            }
+          ]
+        }
+      },
+      "stacked": false,
+      "xField": "mass",
+      "yFields": ["speed"]
+    }
+  },
+  "fm-axis-explicit": {
+    "id": "fm-axis-explicit",
+    "kind": {
+      "$type": "Chart",
+      "kind": "Line",
+      "source": {
+        "$type": "Transform",
+        "pipeline": [],
+        "source": {
+          "columns": {
+            "mass": {
+              "validity": [true],
+              "values": [12.5]
+            },
+            "speed": {
+              "validity": [true],
+              "values": [3.5]
+            }
+          },
+          "schema": [
+            {
+              "label": "Payload mass",
+              "name": "mass",
+              "type": "float",
+              "unit": "kg"
+            },
+            {
+              "label": "",
+              "name": "speed",
+              "type": "float",
+              "unit": "m/s"
+            }
+          ]
+        }
+      },
+      "stacked": false,
+      "xTitle": "Mass",
+      "xField": "mass",
+      "yFields": ["speed"]
+    }
+  },
+  "fm-axis-plain": {
+    "id": "fm-axis-plain",
+    "kind": {
+      "$type": "Chart",
+      "kind": "Line",
+      "source": {
+        "$type": "Transform",
+        "pipeline": [],
+        "source": {
+          "columns": {
+            "mass": {
+              "validity": [true],
+              "values": [12.5]
+            },
+            "speed": {
+              "validity": [true],
+              "values": [3.5]
+            }
+          },
+          "schema": [
+            {
+              "name": "mass",
+              "type": "float"
+            },
+            {
+              "name": "speed",
+              "type": "float"
+            }
+          ]
+        }
+      },
+      "stacked": false,
+      "xField": "mass",
+      "yFields": ["speed"]
+    }
+  },
+  "fm-axis-plain-static": {
+    "id": "fm-axis-plain",
+    "kind": {
+      "$type": "Chart",
+      "kind": "Line",
+      "source": {
+        "$type": "Static",
+        "value": [
+          {
+            "mass": 12.5,
+            "speed": 3.5
+          }
+        ]
+      },
+      "stacked": false,
+      "xField": "mass",
+      "yFields": ["speed"]
+    }
+  },
+  "fm-metric-unit": {
+    "id": "fm-metric-unit",
+    "kind": {
+      "$type": "Metric",
+      "label": "Payload",
+      "value": {
+        "$type": "Transform",
+        "pipeline": [],
+        "source": {
+          "columns": {
+            "mass": {
+              "validity": [true],
+              "values": [12.5]
+            }
+          },
+          "schema": [
+            {
+              "label": "Payload mass",
+              "name": "mass",
+              "type": "float",
+              "unit": "kg"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "fm-metric-percent": {
+    "id": "fm-metric-percent",
+    "kind": {
+      "$type": "Metric",
+      "format": {
+        "$type": "Percent"
+      },
+      "label": "Payload",
+      "value": {
+        "$type": "Transform",
+        "pipeline": [],
+        "source": {
+          "columns": {
+            "mass": {
+              "validity": [true],
+              "values": [12.5]
+            }
+          },
+          "schema": [
+            {
+              "label": "Payload mass",
+              "name": "mass",
+              "type": "float",
+              "unit": "kg"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "fm-metric-caption": {
+    "id": "fm-metric-caption",
+    "kind": {
+      "$type": "Metric",
+      "label": "",
+      "value": {
+        "$type": "Transform",
+        "pipeline": [],
+        "source": {
+          "columns": {
+            "mass": {
+              "validity": [true],
+              "values": [12.5]
+            }
+          },
+          "schema": [
+            {
+              "label": "Payload mass",
+              "name": "mass",
+              "type": "float",
+              "unit": "kg"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "fm-metric-unresolved": {
+    "id": "m",
+    "kind": {
+      "$type": "Metric",
+      "label": "x",
+      "value": {
+        "$type": "Transform",
+        "pipeline": [
+          {
+            "$type": "limit",
+            "n": 0
+          }
+        ],
+        "source": {
+          "columns": {
+            "mass": {
+              "validity": [true],
+              "values": [12.5]
+            }
+          },
+          "schema": [
+            {
+              "label": "Payload mass",
+              "name": "mass",
+              "type": "float",
+              "unit": "kg"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "fm-plain-metric": {
+    "id": "fm-plain",
+    "kind": {
+      "$type": "Metric",
+      "label": "",
+      "value": {
+        "$type": "Transform",
+        "pipeline": [],
+        "source": {
+          "columns": {
+            "mass": {
+              "validity": [true],
+              "values": [12.5]
+            }
+          },
+          "schema": [
+            {
+              "name": "mass",
+              "type": "float"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "fm-a11y-unit": {
+    "accessibility": {
+      "label": {
+        "$type": "Transform",
+        "pipeline": [],
+        "source": {
+          "columns": {
+            "mass": {
+              "validity": [true],
+              "values": [12.5]
+            }
+          },
+          "schema": [
+            {
+              "label": "Payload mass",
+              "name": "mass",
+              "type": "float",
+              "unit": "kg"
+            }
+          ]
+        }
+      },
+      "role": "region"
+    },
+    "id": "fm-a11y-unit",
+    "kind": {
+      "$type": "Box",
+      "children": [],
+      "layout": {
+        "$type": "Auto"
+      },
+      "role": "Group"
+    }
+  },
+  "fm-plain-a11y": {
+    "accessibility": {
+      "label": {
+        "$type": "Transform",
+        "pipeline": [],
+        "source": {
+          "columns": {
+            "mass": {
+              "validity": [true],
+              "values": [12.5]
+            }
+          },
+          "schema": [
+            {
+              "name": "mass",
+              "type": "float"
+            }
+          ]
+        }
+      },
+      "role": "region"
+    },
+    "id": "fm-plain",
+    "kind": {
+      "$type": "Box",
+      "children": [],
+      "layout": {
+        "$type": "Auto"
+      },
+      "role": "Group"
+    }
+  }
+}

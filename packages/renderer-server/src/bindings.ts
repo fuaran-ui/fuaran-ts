@@ -22,6 +22,7 @@ import type {
   Cell,
   CellFormat,
   CellValue,
+  ColumnSchema,
   DurationStyle,
   DurationUnit,
   Format,
@@ -29,6 +30,7 @@ import type {
   Node,
   CaptureSource,
   RelativeTimeUnit,
+  SchemaEntry,
   SwitchCase,
   Table,
   TextSource,
@@ -748,6 +750,45 @@ const evalExprCell = (
   return { ok: true, value: cellAt(col, 0) };
 };
 
+/**
+ * A scalar slot's resolution and its BOUND FIELD (Phase 2209, WIRE_FORMAT
+ * §3.6.27) — twin of the client's `resolveScalarWithFieldWith`: a `Transform`'s
+ * one result schema entry, read from the same evaluation as the value.
+ */
+export const resolveScalarWithFieldWith = <T>(
+  coerceCell: (c: Cell) => CellCoerce<T>,
+  sources: BindingSources,
+  binding: Binding<T>,
+): { readonly resolution: Resolution<T>; readonly field: SchemaEntry | undefined } => {
+  if (binding.kind !== 'Transform') {
+    return { resolution: resolveScalarWith(coerceCell, sources, binding), field: undefined };
+  }
+  const frame = evalTransformFrame(sources, binding);
+  if (!frame.ok) return { resolution: { kind: 'Errored', message: frame.error }, field: undefined };
+  const schema = frame.value.schema;
+  return {
+    resolution: scalarOfFrame(coerceCell, binding, frame.value),
+    field: schema.length === 1 ? schema[0] : undefined,
+  };
+};
+
+/**
+ * A ROWS slot's resolution and the schema its columns are read from (Phase
+ * 2209) — twin of the client's `resolveRowsWithFields`: one evaluation.
+ */
+export const resolveRowsWithFields = <T>(
+  sources: BindingSources,
+  binding: Binding<T>,
+): { readonly resolution: Resolution<T>; readonly fields: ColumnSchema } => {
+  if (binding.kind !== 'Transform') return { resolution: resolve(sources, binding), fields: [] };
+  const frame = evalTransformFrame(sources, binding);
+  if (!frame.ok) return { resolution: { kind: 'Errored', message: frame.error }, fields: [] };
+  return {
+    resolution: { kind: 'Resolved', value: tableToRows(frame.value) as T },
+    fields: frame.value.schema,
+  };
+};
+
 /** Resolve a binding in a SCALAR slot — twin of the client's `resolveScalarWith`. */
 export const resolveScalarWith = <T>(
   coerceCell: (c: Cell) => CellCoerce<T>,
@@ -766,7 +807,15 @@ export const resolveScalarWith = <T>(
   if (binding.kind !== 'Transform') return resolve<T>(sources, binding);
   const frame = evalTransformFrame(sources, binding);
   if (!frame.ok) return { kind: 'Errored', message: frame.error };
-  const result = frame.value;
+  return scalarOfFrame(coerceCell, binding, frame.value);
+};
+
+/** The one cell a scalar slot reads off an evaluated `Transform` result — twin of the client's. */
+const scalarOfFrame = <T>(
+  coerceCell: (c: Cell) => CellCoerce<T>,
+  binding: Extract<Binding<unknown>, { kind: 'Transform' }>,
+  result: Table,
+): Resolution<T> => {
   const colCount = result.columns.length;
   const rowCount = colCount > 0 ? columnLength(result.columns[0]!) : 0;
   if (rowCount === 1 && colCount === 1) {

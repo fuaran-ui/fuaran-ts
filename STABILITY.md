@@ -348,6 +348,24 @@ carries the two checkable claims (`float-seq-reads-element-wise`,
 `floatSeries` is exported from `@fuaran-ui/renderer-server`'s index beside `asArray`, which is
 additive. The client tier's copy is module-internal, so its public surface is unchanged.
 
+### Rides `@fuaran-ui/renderer` 0.29.0 and `@fuaran-ui/renderer-server` 0.26.0 — a bound field's unit and label at the read sites (fuaran#2209)
+
+**Additive.** Both drafts are untagged and above `v0.31.0`, so the change rides them. No wire change: the rendering
+obligation is `WIRE_FORMAT.md` §3.6.27, over the schema-entry members §3.6.26 admitted.
+
+- **Rendering.** Where a slot reads a value from a `Transform` field that states a `label` or a `unit`: an empty
+  `DataGrid` header takes the field's column title (`Payload mass (kg)`); an absent chart `xTitle` / `yTitle` takes the
+  x / first y field's column title; a resolved `Metric` value is followed by the unit (formats `None`, `Number`,
+  `SignificantDigits` only) and an empty caption takes the field's display name; an accessibility `label` read from a
+  `Transform` is followed by the unit. A tree's own text always wins, and a document whose fields state no metadata
+  renders byte-for-byte as before. Both tiers, parity-locked with the reference renderer.
+- **New exports (`@fuaran-ui/renderer`).** `resolveScalarWithFieldWith`, `resolveRowsWithFields`, `ScalarWithField`,
+  `fieldUnitText`, `fieldDisplayName`, `fieldColumnTitle`, `withColumnHeaders`, `withAxisTitles`, `valueUnit`,
+  `withUnit`, `fieldCaption`, and `dataFieldOf` (moved into the bindings module; still exported from where it was).
+  `chartLowerSpecOf` takes an optional second argument, the chart's resolved schema; omitted, it lowers as before.
+- **Certified by** `packages/renderer/test/fieldMetadata.test.tsx` and `packages/renderer-server/test/fieldMetadata.test.ts`
+  over the `fm-*` cases of §3.6.27's parity table (`packages/renderer/test/fieldMetadataFixtures.json`).
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:
