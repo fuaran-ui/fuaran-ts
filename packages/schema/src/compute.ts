@@ -244,7 +244,11 @@ export type ScalarFn =
   | 'pow'
   | 'exp'
   | 'ln'
-  | 'log10';
+  | 'log10'
+  // Phase 2208 — SQL LEAST / GREATEST (the reference's fuaran-core#101): the smallest / largest of
+  // the variadic arguments by the pinned cell ordering, the winning cell returned; a null propagates.
+  | 'least'
+  | 'greatest';
 
 /** A group/window aggregate function — its canonical wire tag. */
 export type AggFn =
@@ -350,7 +354,11 @@ export type ColExpr =
     }
   // Phase 2001 — an exact operand brought to `rounding`: the one general place a decimal loses
   // digits. `round` / `floor` / `ceil` over a decimal are its scale-0 forms.
-  | { readonly kind: 'rounded'; readonly expr: ColExpr; readonly rounding: Rounding };
+  | { readonly kind: 'rounded'; readonly expr: ColExpr; readonly rounding: Rounding }
+  // Phase 2208 (fuaran-core#429) — the operand brought to `unit`, the CANONICAL text of the unit
+  // algebra: the one explicit conversion between two units of one dimension, and the one way to give
+  // a literal or a column stating no unit a unit. Its value is a float.
+  | { readonly kind: 'convert'; readonly expr: ColExpr; readonly unit: string };
 
 /** One `when → then` branch of a `ColExpr.case`. */
 export interface CaseBranch {
@@ -580,4 +588,13 @@ export type EvalError =
   | { readonly kind: 'UnresolvedSource'; readonly ref: string }
   // fuaran-core#77 — a `ColExpr.param` referenced no binding in the evaluation env; names the missing
   // param + enumerates the bound names (strict: the evaluator never guesses a default).
-  | { readonly kind: 'UnboundParam'; readonly name: string; readonly bound: readonly string[] };
+  | { readonly kind: 'UnboundParam'; readonly name: string; readonly bound: readonly string[] }
+  // Phase 2208 (fuaran-core#429) — two units met where the rule requires one: `step` names the step,
+  // `expr` the expression they met in, `left` and `right` the units by their canonical text.
+  | {
+      readonly kind: 'UnitMismatch';
+      readonly step: string;
+      readonly expr: ColExpr;
+      readonly left: string;
+      readonly right: string;
+    };

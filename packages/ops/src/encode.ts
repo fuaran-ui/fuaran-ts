@@ -510,6 +510,11 @@ const colExpr = (e: ColExpr): string => {
         ['expr', colExpr(e.expr)],
         ['rounding', roundingJson(e.rounding)],
       ]);
+    case 'convert':
+      return caseObj('convert', [
+        ['expr', colExpr(e.expr)],
+        ['unit', str(e.unit)],
+      ]);
     default:
       return assertNever(e);
   }

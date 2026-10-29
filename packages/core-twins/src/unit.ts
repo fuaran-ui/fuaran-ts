@@ -5,8 +5,9 @@
 //  carry a column's unit on the wire: `parseUnit` reads UCUM's case-sensitive
 //  syntax over the subset Core admits, `renderUnit` writes the unit's ONE
 //  canonical text, and two units are equal exactly when they render alike.
-//  Conversion factors, dimensions and the arithmetic over units are not ported:
-//  no host operation here reads them.
+//  Since Phase 2208 the algebra too: the product, quotient and integer power of
+//  units, dimensions and the exact conversion factor, which the dataframe
+//  evaluator's unit check reads (fuaran-core#429).
 //
 //  The vocabulary is the reference's, complete: every admitted atom with its
 //  metric flag (whether an SI prefix applies), the alias, the twenty prefixes in
@@ -60,85 +61,111 @@ export type UnitRefusal =
 
 // ─── the vocabulary ──────────────────────────────────────────────────────────
 
-/** Every admitted atom by its canonical symbol, and whether SI prefixes apply to it. */
-const ATOMS: ReadonlyMap<string, boolean> = new Map([
+/**
+ * An admitted atom: whether SI prefixes apply, its scale relative to the coherent base (metre,
+ * GRAM, second, ampere, kelvin, mole, candela) as `num/den`, and its exponents over
+ * `[length, mass, time, current, temperature, amount, luminous intensity]` — the reference's
+ * `AtomDef`.
+ */
+interface AtomDef {
+  readonly metric: boolean;
+  readonly num: bigint;
+  readonly den: bigint;
+  readonly dims: readonly number[];
+}
+
+const def = (metric: boolean, num: bigint, den: bigint, dims: readonly number[]): AtomDef => ({
+  metric,
+  num,
+  den,
+  dims,
+});
+
+/** Every admitted atom by its canonical symbol. */
+const ATOMS: ReadonlyMap<string, AtomDef> = new Map([
   // The seven SI base dimensions; mass at the gram, UCUM's base.
-  ['m', true],
-  ['g', true],
-  ['s', true],
-  ['A', true],
-  ['K', true],
-  ['mol', true],
-  ['cd', true],
+  ['m', def(true, 1n, 1n, [1, 0, 0, 0, 0, 0, 0])],
+  ['g', def(true, 1n, 1n, [0, 1, 0, 0, 0, 0, 0])],
+  ['s', def(true, 1n, 1n, [0, 0, 1, 0, 0, 0, 0])],
+  ['A', def(true, 1n, 1n, [0, 0, 0, 1, 0, 0, 0])],
+  ['K', def(true, 1n, 1n, [0, 0, 0, 0, 1, 0, 0])],
+  ['mol', def(true, 1n, 1n, [0, 0, 0, 0, 0, 1, 0])],
+  ['cd', def(true, 1n, 1n, [0, 0, 0, 0, 0, 0, 1])],
   // The SI coherent derived units (degree Celsius excepted: it is affine).
-  ['rad', true],
-  ['sr', true],
-  ['Hz', true],
-  ['N', true],
-  ['Pa', true],
-  ['J', true],
-  ['W', true],
-  ['C', true],
-  ['V', true],
-  ['F', true],
-  ['Ohm', true],
-  ['S', true],
-  ['Wb', true],
-  ['T', true],
-  ['H', true],
-  ['lm', true],
-  ['lx', true],
-  ['Bq', true],
-  ['Gy', true],
-  ['Sv', true],
-  ['kat', true],
+  ['rad', def(true, 1n, 1n, [0, 0, 0, 0, 0, 0, 0])],
+  ['sr', def(true, 1n, 1n, [0, 0, 0, 0, 0, 0, 0])],
+  ['Hz', def(true, 1n, 1n, [0, 0, -1, 0, 0, 0, 0])],
+  ['N', def(true, 1000n, 1n, [1, 1, -2, 0, 0, 0, 0])],
+  ['Pa', def(true, 1000n, 1n, [-1, 1, -2, 0, 0, 0, 0])],
+  ['J', def(true, 1000n, 1n, [2, 1, -2, 0, 0, 0, 0])],
+  ['W', def(true, 1000n, 1n, [2, 1, -3, 0, 0, 0, 0])],
+  ['C', def(true, 1n, 1n, [0, 0, 1, 1, 0, 0, 0])],
+  ['V', def(true, 1000n, 1n, [2, 1, -3, -1, 0, 0, 0])],
+  ['F', def(true, 1n, 1000n, [-2, -1, 4, 2, 0, 0, 0])],
+  ['Ohm', def(true, 1000n, 1n, [2, 1, -3, -2, 0, 0, 0])],
+  ['S', def(true, 1n, 1000n, [-2, -1, 3, 2, 0, 0, 0])],
+  ['Wb', def(true, 1000n, 1n, [2, 1, -2, -1, 0, 0, 0])],
+  ['T', def(true, 1000n, 1n, [0, 1, -2, -1, 0, 0, 0])],
+  ['H', def(true, 1000n, 1n, [2, 1, -2, -2, 0, 0, 0])],
+  ['lm', def(true, 1n, 1n, [0, 0, 0, 0, 0, 0, 1])],
+  ['lx', def(true, 1n, 1n, [-2, 0, 0, 0, 0, 0, 1])],
+  ['Bq', def(true, 1n, 1n, [0, 0, -1, 0, 0, 0, 0])],
+  ['Gy', def(true, 1n, 1n, [2, 0, -2, 0, 0, 0, 0])],
+  ['Sv', def(true, 1n, 1n, [2, 0, -2, 0, 0, 0, 0])],
+  ['kat', def(true, 1n, 1n, [0, 0, -1, 0, 0, 1, 0])],
   // Metric non-SI units.
-  ['L', true],
-  ['t', true],
-  ['bar', true],
+  ['L', def(true, 1n, 1000n, [3, 0, 0, 0, 0, 0, 0])],
+  ['t', def(true, 1000000n, 1n, [0, 1, 0, 0, 0, 0, 0])],
+  ['bar', def(true, 100000000n, 1n, [-1, 1, -2, 0, 0, 0, 0])],
   // Non-metric units: time, ratios, and the international customary set.
-  ['min', false],
-  ['h', false],
-  ['d', false],
-  ['wk', false],
-  ['a', false],
-  ['%', false],
-  ['[ppm]', false],
-  ['[ppb]', false],
-  ['[in_i]', false],
-  ['[ft_i]', false],
-  ['[yd_i]', false],
-  ['[mi_i]', false],
-  ['[lb_av]', false],
-  ['[oz_av]', false],
+  ['min', def(false, 60n, 1n, [0, 0, 1, 0, 0, 0, 0])],
+  ['h', def(false, 3600n, 1n, [0, 0, 1, 0, 0, 0, 0])],
+  ['d', def(false, 86400n, 1n, [0, 0, 1, 0, 0, 0, 0])],
+  ['wk', def(false, 604800n, 1n, [0, 0, 1, 0, 0, 0, 0])],
+  ['a', def(false, 31557600n, 1n, [0, 0, 1, 0, 0, 0, 0])],
+  ['%', def(false, 1n, 100n, [0, 0, 0, 0, 0, 0, 0])],
+  ['[ppm]', def(false, 1n, 1000000n, [0, 0, 0, 0, 0, 0, 0])],
+  ['[ppb]', def(false, 1n, 1000000000n, [0, 0, 0, 0, 0, 0, 0])],
+  ['[in_i]', def(false, 127n, 5000n, [1, 0, 0, 0, 0, 0, 0])],
+  ['[ft_i]', def(false, 381n, 1250n, [1, 0, 0, 0, 0, 0, 0])],
+  ['[yd_i]', def(false, 1143n, 1250n, [1, 0, 0, 0, 0, 0, 0])],
+  ['[mi_i]', def(false, 201168n, 125n, [1, 0, 0, 0, 0, 0, 0])],
+  ['[lb_av]', def(false, 45359237n, 100000n, [0, 1, 0, 0, 0, 0, 0])],
+  ['[oz_av]', def(false, 45359237n, 1600000n, [0, 1, 0, 0, 0, 0, 0])],
 ]);
 
 /** Spellings read as another atom: UCUM's lower-case litre. Rendered as the canonical symbol. */
 const ALIASES: ReadonlyMap<string, string> = new Map([['l', 'L']]);
 
-/** UCUM's twenty prefixes, in the reference's try order: `da` first, so `dam` is decametre. */
-const PREFIXES: readonly string[] = [
-  'da',
-  'Y',
-  'Z',
-  'E',
-  'P',
-  'T',
-  'G',
-  'M',
-  'k',
-  'h',
-  'd',
-  'c',
-  'm',
-  'u',
-  'n',
-  'p',
-  'f',
-  'a',
-  'z',
-  'y',
-];
+/**
+ * UCUM's twenty prefixes and their powers of ten, in the reference's TRY ORDER: `da` first, so `dam`
+ * is decametre.
+ */
+const PREFIX_POWERS: ReadonlyMap<string, number> = new Map([
+  ['da', 1],
+  ['Y', 24],
+  ['Z', 21],
+  ['E', 18],
+  ['P', 15],
+  ['T', 12],
+  ['G', 9],
+  ['M', 6],
+  ['k', 3],
+  ['h', 2],
+  ['d', -1],
+  ['c', -2],
+  ['m', -3],
+  ['u', -6],
+  ['n', -9],
+  ['p', -12],
+  ['f', -15],
+  ['a', -18],
+  ['z', -21],
+  ['y', -24],
+]);
+
+/** The prefixes in try order. */
+const PREFIXES: readonly string[] = [...PREFIX_POWERS.keys()];
 
 /** UCUM special units whose conversion is not a ratio: affine temperatures and logarithms. */
 const NON_RATIO: ReadonlySet<string> = new Set([
@@ -293,7 +320,7 @@ const resolve = (tok: string, position: number): Result<UnitFactor, UnitRefusal>
     const rest = tok.substring(p.length);
     const atom = tryAtom(rest);
     if (atom !== undefined)
-      return ATOMS.get(atom) === true
+      return ATOMS.get(atom)!.metric
         ? ok({ symbol: atom, prefix: p, exp: 1 })
         : err({ kind: 'PrefixNotAllowed', token: tok, position });
     if (NON_RATIO.has(rest)) return err({ kind: 'NonRatioUnit', token: tok, position });
@@ -462,3 +489,125 @@ export const canonicalUnit = (text: string): Result<string, UnitRefusal> => {
   const u = parseUnit(text);
   return u.ok ? ok(renderUnit(u.value)) : u;
 };
+
+// ─── the algebra (Phase 2208) ────────────────────────────────────────────────
+//
+// What the dataframe evaluator's unit check reads (the reference's `Unit.mul` / `div` / `pow` /
+// `compatible` / `conversionFactor`, fuaran-core#426): the product, the quotient and an integer
+// power of units, whether two units measure one dimension, and the EXACT factor between two that
+// do. Where the reference raises because an exponent would leave ±2147483647, these answer
+// `undefined` and the caller names the refusal: a twin never throws.
+
+/** The dimensionless unit, `1`: the identity of `mulUnit`. */
+export const DIMENSIONLESS: UnitOfMeasure = { factors: [] };
+
+/** Two units are one unit when they render to one canonical text (identity is the product). */
+export const sameUnit = (a: UnitOfMeasure, b: UnitOfMeasure): boolean =>
+  renderUnit(a) === renderUnit(b);
+
+/** The product of two units, or `undefined` where an exponent would leave ±2147483647. */
+export const mulUnit = (a: UnitOfMeasure, b: UnitOfMeasure): UnitOfMeasure | undefined => {
+  const f = tryCombine(a.factors, 1, b.factors);
+  return f === undefined ? undefined : { factors: f };
+};
+
+/** The quotient `a / b`, or `undefined` where an exponent would leave ±2147483647. */
+export const divUnit = (a: UnitOfMeasure, b: UnitOfMeasure): UnitOfMeasure | undefined => {
+  const f = tryCombine(a.factors, -1, b.factors);
+  return f === undefined ? undefined : { factors: f };
+};
+
+/** `u` to the integer power `n` (`1` at `n = 0`), or `undefined` where an exponent leaves the range. */
+export const powUnit = (u: UnitOfMeasure, n: number): UnitOfMeasure | undefined => {
+  if (n === 0) return DIMENSIONLESS;
+  const factors: UnitFactor[] = [];
+  for (const f of u.factors) {
+    const e = f.exp * n;
+    if (e > MAX_EXP || e < -MAX_EXP) return undefined;
+    factors.push({ symbol: f.symbol, prefix: f.prefix, exp: e });
+  }
+  return { factors };
+};
+
+/** The dimension a unit measures: non-zero exponents by base dimension, and one per currency. */
+const dimension = (u: UnitOfMeasure): Map<string, number> => {
+  const m = new Map<string, number>();
+  const add = (k: string, x: number): void => {
+    m.set(k, (m.get(k) ?? 0) + x);
+  };
+  for (const f of u.factors) {
+    if (isCurrency(f.symbol)) add('[' + f.symbol, f.exp);
+    else ATOMS.get(f.symbol)!.dims.forEach((x, i) => add(String(i), x * f.exp));
+  }
+  for (const [k, x] of [...m]) if (x === 0) m.delete(k);
+  return m;
+};
+
+/**
+ * Whether two units measure one dimension, so a value in one has a value in the other. Every
+ * currency is a dimension of its own.
+ */
+export const compatibleUnits = (a: UnitOfMeasure, b: UnitOfMeasure): boolean => {
+  const da = dimension(a);
+  const db = dimension(b);
+  if (da.size !== db.size) return false;
+  for (const [k, x] of da) if (db.get(k) !== x) return false;
+  return true;
+};
+
+/** An exact ratio in lowest terms, its denominator positive. */
+export interface UnitRatio {
+  readonly num: bigint;
+  readonly den: bigint;
+}
+
+const gcd = (a: bigint, b: bigint): bigint => {
+  let x = a;
+  let y = b;
+  while (y !== 0n) [x, y] = [y, x % y];
+  return x;
+};
+
+/** The scale of a unit relative to the coherent base, in lowest terms (the reference's `scale`). */
+const scale = (u: UnitOfMeasure): UnitRatio => {
+  let num = 1n;
+  let den = 1n;
+  let ten = 0;
+  for (const f of u.factors) {
+    ten += prefixPower(f.prefix) * f.exp;
+    if (!isCurrency(f.symbol)) {
+      const a = ATOMS.get(f.symbol)!;
+      const k = BigInt(Math.abs(f.exp));
+      if (f.exp > 0) {
+        num *= a.num ** k;
+        den *= a.den ** k;
+      } else {
+        num *= a.den ** k;
+        den *= a.num ** k;
+      }
+    }
+  }
+  if (ten > 0) num *= 10n ** BigInt(ten);
+  else if (ten < 0) den *= 10n ** BigInt(-ten);
+  const g = gcd(num, den);
+  return { num: num / g, den: den / g };
+};
+
+/** The power of ten a prefix stands for (`''` is none). */
+const prefixPower = (p: string): number => (p === '' ? 0 : PREFIX_POWERS.get(p)!);
+
+/**
+ * The exact factor that turns a value in `source` into the same quantity in `target`
+ * (`km/h` → `m/s` is `5/18`), or `undefined` where the two are not compatible.
+ */
+export const conversionFactor = (
+  source: UnitOfMeasure,
+  target: UnitOfMeasure,
+): UnitRatio | undefined => {
+  if (!compatibleUnits(source, target)) return undefined;
+  const q = divUnit(source, target);
+  return q === undefined ? undefined : scale(q);
+};
+
+/** A ratio as the reference reads it into a float literal: each side to a double, then divided. */
+export const ratioToFloat = (r: UnitRatio): number => Number(r.num) / Number(r.den);

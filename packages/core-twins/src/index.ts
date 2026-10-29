@@ -129,12 +129,21 @@ export {
 export { actorId, encodeActor, humanActor, jsonString, type Actor } from './actor.js';
 
 export {
+  DIMENSIONLESS,
   canonicalUnit,
+  compatibleUnits,
+  conversionFactor,
+  divUnit,
+  mulUnit,
   parseUnit,
+  powUnit,
+  ratioToFloat,
   renderUnit,
+  sameUnit,
   unitRefusalText,
   type UnitFactor,
   type UnitOfMeasure,
+  type UnitRatio,
   type UnitRefusal,
 } from './unit.js';
 

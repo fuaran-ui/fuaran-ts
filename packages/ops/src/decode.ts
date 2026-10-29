@@ -1511,6 +1511,8 @@ const SCALAR_FNS = [
   'exp',
   'ln',
   'log10',
+  'least',
+  'greatest',
 ] as const;
 const AGG_FNS = [
   'sum',
@@ -2290,6 +2292,19 @@ const decodeColExprCore = (j: JsonAst): CR<ColExpr> => {
         ? cok<ColExpr>({ kind: 'rounded', expr: e.value, rounding: rounding.value })
         : rounding;
     }
+    case 'convert': {
+      // Phase 2208 (fuaran-core#429) — the operand brought to a unit, held by its canonical text.
+      const uj = cField(f, 'unit');
+      if (!uj.ok) return uj;
+      const text = cStr(uj.value);
+      if (!text.ok) return text;
+      const u = canonicalUnit(text.value);
+      if (!u.ok) return cerr(`malformed: convert: '${text.value}' is not a unit`);
+      const ej = cField(f, 'expr');
+      if (!ej.ok) return ej;
+      const e = decodeColExprCore(ej.value);
+      return e.ok ? cok<ColExpr>({ kind: 'convert', expr: e.value, unit: u.value }) : e;
+    }
     case 'contains':
     case 'startsWith':
     case 'endsWith': {
@@ -2791,6 +2806,7 @@ const scanExpr = (root: ColExpr): { count: number; sawCol: boolean } => {
         walk(e.divisor);
         return;
       case 'rounded':
+      case 'convert':
         walk(e.expr);
         return;
     }
@@ -2896,6 +2912,7 @@ const colExprParamNames = (root: ColExpr): readonly string[] => {
         walk(e.divisor);
         return;
       case 'rounded':
+      case 'convert':
         walk(e.expr);
         return;
     }

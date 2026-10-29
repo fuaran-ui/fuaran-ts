@@ -1848,6 +1848,36 @@ Adding optional members is additive for a TypeScript consumer.
 edges, the replay law) and `packages/ops/test/fieldMetadata.test.ts` (verbatim extension keys, the named refusal, the
 guarded encode).
 
+### Recorded breaking change — `@fuaran-ui/schema` 0.28.0, `@fuaran-ui/ops` 0.32.0 and `@fuaran-ui/ui` 0.26.0, the evaluator propagates and checks units (Phase 2208)
+
+_Unreleased: rides the untagged drafts. Each package is already ahead of `v0.31.0` at a minor number, which is where a
+pre-1.0 breaking change goes, so no number moves._
+
+**Three closed unions gain cases** (the reference's Phase 429, D29), the breaking class: `ColExpr` gains
+`{kind:'convert', expr, unit}` (wire `{"$type":"convert","expr":…,"unit":"<canonical unit text>"}`, the unit decoded
+to its canonical text), `ScalarFn` gains `'least'` and `'greatest'` (SQL `LEAST` / `GREATEST`: the winning cell by the
+pinned cell ordering, a null propagating), and `EvalError` gains `UnitMismatch` (`step`, `expr`, `left`, `right`). An
+exhaustive `switch` over any of them in a consumer stops compiling until it handles the new case.
+
+- **The evaluator checks units over the step's schema before any row.** Addition, subtraction, comparison,
+  `coalesce`, `case` arms, `least` / `greatest`, `in` and a join's key pairs require one unit among the operands that
+  state one; products, quotients and integer-literal powers compose through the unit algebra; two stated units that
+  are not one unit (`km` beside `m` included) are refused as `UnitMismatch`. `convert` tags an operand stating no unit,
+  multiplies one of a compatible unit by the exact conversion factor, and is refused across dimensions.
+- **Every verb carries the whole schema entry.** A projection, filter, sort, limit, distinct, a join's two sides, a
+  group key, a pivot index and an unpivot id keep unit, label, description and extension members; a derive, an
+  aggregate, a window column, a pivot value and the unpivot's `value` build their own entry, carrying the unit the check
+  derives (a count and a ranking none) and no label. A union keeps the left's entry under the one unit the pair
+  states; two stated units are refused, as they are for `intersect` / `except`. A pipeline over unitless columns answers
+  exactly as it did.
+- **The algebra twin (`core-twins/unit.ts`) gains** `mulUnit`, `divUnit`, `powUnit`, `compatibleUnits`, the exact
+  `conversionFactor` and `ratioToFloat`, over the reference's atom scales and dimensions.
+
+**Certified by** the shared corpus's `laws/transformLaws` family, whose `-unit-` vectors now run with every other
+(`packages/ops/test/transformLaws.test.ts`), and `packages/core-twins/test/unitPropagation.test.ts` (the algebra, a test
+per verb class — kept, dropped, unit-only — and a go-red: each refusal is a `UnitMismatch` and the same pipeline over
+the same data answers once the units are withdrawn).
+
 ## Re-confirmation gate before public exposure
 
 Before this repo flips public (public GitHub repository, published-to-npm package, or marketing surface), the licensing posture declared in [`LICENSE`](LICENSE) must be re-confirmed by Diametrical Ltd.
