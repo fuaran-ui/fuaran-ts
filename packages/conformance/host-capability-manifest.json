@@ -32,6 +32,9 @@
       "pending": "this host's suite does not yet run the skeleton-apply vectors"
     },
     "apply/styleNormaliseApply": "covered",
+    "binding-propagation": {
+      "pending": "this host has no binding walk deriving which bindings a write makes stale for the vectors to run against yet"
+    },
     "chain": "covered",
     "contract-card-reject": "covered",
     "contract-card-round-trip": "covered",
