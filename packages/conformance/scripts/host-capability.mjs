@@ -75,7 +75,7 @@ export const HOST_CORPUS_FAMILIES = {
   'apply/styleNormaliseApply': 'covered', // packages/ops/test/style-normalise-apply-corpus.test.ts
   'apply/skeletonApply': pending("this host's suite does not yet run the skeleton-apply vectors"),
   'binding-propagation': pending(
-    "this host has no binding walk deriving which bindings a write makes stale for the vectors to run against yet",
+    'this host has no binding walk deriving which bindings a write makes stale for the vectors to run against yet',
   ),
   chain: 'covered', // packages/op-stream/test/parity.test.ts
   dag: 'covered', // packages/ops/test/dag.test.ts
