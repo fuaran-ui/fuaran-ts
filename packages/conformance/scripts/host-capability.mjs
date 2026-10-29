@@ -80,6 +80,8 @@ export const HOST_CORPUS_FAMILIES = {
   chain: 'covered', // packages/op-stream/test/parity.test.ts
   dag: 'covered', // packages/ops/test/dag.test.ts
   'decode-policy': 'covered', // packages/ops/test/decodePolicy.test.ts
+  'grid-edit': 'covered', // packages/ops/test/gridEdit.test.ts
+  'grid-window-writer': 'covered', // packages/renderer/test/gridWindow.test.tsx
   'design-seam-reject': notApplicable(NO_DESIGN_SEAM),
   'design-seam-round-trip': notApplicable(NO_DESIGN_SEAM),
   'devtools-relay': 'covered', // packages/renderer/test/relayCorpus.test.tsx

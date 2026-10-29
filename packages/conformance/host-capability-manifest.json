@@ -59,6 +59,8 @@
     "formatting": {
       "pending": "this host's cell formatter (renderer-server formatNumber) is not yet driven from the formatting vectors"
     },
+    "grid-edit": "covered",
+    "grid-window-writer": "covered",
     "laws/capabilityLaws": "covered",
     "laws/dataframeParity": {
       "pending": "this host's evaluator runs the drawn transformLaws sample; the authored dataframeParity cases are not run yet"
