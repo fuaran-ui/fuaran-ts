@@ -726,8 +726,19 @@ export const formatLocaleValue = (localeTag: string, fmt: Format, value: number)
           : {};
       return new Intl.NumberFormat(loc, opts).format(value);
     }
-    case 'Currency':
-      return new Intl.NumberFormat(loc, { style: 'currency', currency: fmt.isoCode }).format(value);
+    case 'Currency': {
+      // Phase 2499 — a present `decimals` overrides the currency's own digits.
+      const opts: Intl.NumberFormatOptions =
+        fmt.decimals !== undefined
+          ? {
+              style: 'currency',
+              currency: fmt.isoCode,
+              minimumFractionDigits: fmt.decimals,
+              maximumFractionDigits: fmt.decimals,
+            }
+          : { style: 'currency', currency: fmt.isoCode };
+      return new Intl.NumberFormat(loc, opts).format(value);
+    }
     case 'Percent': {
       const opts: Intl.NumberFormatOptions =
         fmt.decimals !== undefined
@@ -1414,7 +1425,13 @@ const figureLocale = (
             : { kind: 'Number' },
       };
     case 'Currency':
-      return { tag, fmt: { kind: 'Currency', isoCode: format.code } };
+      return {
+        tag,
+        fmt:
+          format.decimals !== undefined
+            ? { kind: 'Currency', isoCode: format.code, decimals: format.decimals }
+            : { kind: 'Currency', isoCode: format.code },
+      };
     case 'Percent':
       return {
         tag,
@@ -1441,7 +1458,7 @@ export const formatNumber = (format: CellFormat, value: number, ambientLocale = 
       if (format.decimals !== undefined) return value.toFixed(format.decimals);
       return Number.isInteger(value) ? value.toFixed(0) : numToString(value);
     case 'Currency':
-      return `${format.code} ${value.toFixed(2)}`;
+      return `${format.code} ${value.toFixed(format.decimals ?? 2)}`;
     case 'Percent':
       if (format.decimals !== undefined) return `${(value * 100).toFixed(format.decimals)}%`;
       return `${(value * 100).toFixed(1)}%`;

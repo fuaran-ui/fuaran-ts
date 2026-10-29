@@ -1036,7 +1036,11 @@ const cellFormat = (f: CellFormat): string => {
         ...locale(f.locale),
       ]);
     case 'Currency':
-      return caseObj('Currency', [['code', str(f.code)], ...locale(f.locale)]);
+      return caseObj('Currency', [
+        ['code', str(f.code)],
+        ...(f.decimals !== undefined ? [['decimals', num(f.decimals)] as const] : []),
+        ...locale(f.locale),
+      ]);
     case 'Percent':
       return caseObj('Percent', [
         ...(f.decimals !== undefined ? [['decimals', num(f.decimals)] as const] : []),
@@ -1067,7 +1071,11 @@ const formatIntent = (f: Format): string => {
     case 'Number':
       return caseObj('Number', f.decimals !== undefined ? [['decimals', num(f.decimals)]] : []);
     case 'Currency':
-      return caseObj('Currency', [['isoCode', str(f.isoCode)]]);
+      // Phase 2499 — `decimals` rides only when present, before `isoCode`.
+      return caseObj('Currency', [
+        ...(f.decimals !== undefined ? [['decimals', num(f.decimals)] as const] : []),
+        ['isoCode', str(f.isoCode)],
+      ]);
     case 'Percent':
       return caseObj('Percent', f.decimals !== undefined ? [['decimals', num(f.decimals)]] : []);
     case 'DateTime':

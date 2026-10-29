@@ -859,7 +859,13 @@ export type CellFormat =
   // figure is the locale-free projection; present, it renders through the
   // locale formatter `Binding.Format` uses for the matching `Format` case.
   | { readonly kind: 'Number'; readonly decimals?: number; readonly locale?: LocaleSource }
-  | { readonly kind: 'Currency'; readonly code: string; readonly locale?: LocaleSource }
+  // Phase 2499 — `Currency` carries the optional `decimals` too.
+  | {
+      readonly kind: 'Currency';
+      readonly code: string;
+      readonly decimals?: number;
+      readonly locale?: LocaleSource;
+    }
   | { readonly kind: 'Percent'; readonly decimals?: number; readonly locale?: LocaleSource }
   | { readonly kind: 'SignificantDigits'; readonly digits: number }
   // Phase 1811 — `DateTime` (was `Date`): the format string renders a date, a time or both.
@@ -912,7 +918,8 @@ export type TimeGrain = EnumCase<'TimeGrain'>;
  */
 export type Format =
   | { readonly kind: 'Number'; readonly decimals?: number }
-  | { readonly kind: 'Currency'; readonly isoCode: string }
+  // Phase 2499 — an optional `decimals`: the formatter's fraction digits.
+  | { readonly kind: 'Currency'; readonly isoCode: string; readonly decimals?: number }
   | { readonly kind: 'Percent'; readonly decimals?: number }
   /**
    * Phase 1810 — BOTH styles are optional so that a time of day can be
