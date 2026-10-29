@@ -159,7 +159,6 @@ import type {
 import {
   dateDays,
   instantParts,
-  isInt32,
   parseIsoDay,
   validityOfMask,
   type InstantParts,
@@ -1692,10 +1691,12 @@ const decodeColumnData = (
         if (present[i] === 0) continue;
         const v = values[i]!;
         if (v.kind !== 'JNumber') return mismatch(v);
-        const x = Math.trunc(v.value);
-        if (!isInt32(x))
+        // WIRE_FORMAT §3.6.28 — §7.1's integer-slot rule for a column value: a
+        // fraction is refused, never truncated (Phase 2484).
+        const x = v.value;
+        if (!isInt32Slot(x))
           return cerr(
-            `malformed: ${colName}: an int column holds 32-bit integers, and ${String(x)} is outside them`,
+            `column '${colName}': an int column holds signed 32-bit integers, and ${String(x)} is not one`,
           );
         out[i] = x;
       }
@@ -2025,7 +2026,8 @@ const inferColumnType = (name: string, values: readonly JsonAst[]): CR<ColumnTyp
     );
   const tag = (v: JsonAst): string =>
     v.kind === 'JNumber'
-      ? Number.isInteger(v.value)
+      ? // By value (WIRE_FORMAT §3.6.28): a whole value past int32 is a float.
+        isInt32Slot(v.value)
         ? 'int'
         : 'float'
       : v.kind === 'JBool'
