@@ -218,6 +218,9 @@ const applyFn = (fn: ScalarFn, args: readonly Typing[]): Typing => {
       return !arity(3) || anyAbsent ? ABSENT : of('string');
     case 'dateDiffDays':
       return !arity(2) || anyAbsent ? ABSENT : of('int');
+    case 'least':
+    case 'greatest':
+      return args.length === 0 || anyAbsent ? ABSENT : joinAll(args);
     // Phase 2400 (the reference's D43): the transcendentals answer a float. A power over an int
     // base and an int exponent is decided by the exponent's SIGN, which a typing does not carry —
     // `powLit` reads a literal exponent, and otherwise the cells decide; every other pair a float.
@@ -288,6 +291,9 @@ const typing = (cols: readonly ColumnKnowledge[], e: ColExpr): Typing => {
       const a = go(e.expr);
       return a.t === 'absent' ? ABSENT : isOf(a, 'int', 'decimal') ? of('decimal') : UNKNOWN;
     }
+    // Phase 2208 — a conversion is the float cast it resolves to.
+    case 'convert':
+      return go(e.expr).t === 'absent' ? ABSENT : of('float');
   }
 };
 

@@ -64,6 +64,18 @@ import {
   decimalTruncate,
   type DecimalRoundingMode,
 } from './decimalText.js';
+import {
+  DIMENSIONLESS,
+  conversionFactor,
+  divUnit,
+  mulUnit,
+  parseUnit,
+  powUnit,
+  ratioToFloat,
+  renderUnit,
+  sameUnit,
+  type UnitOfMeasure,
+} from './unit.js';
 
 type DR<T> = Result<T, EvalError>;
 const dok = <T>(value: T): DR<T> => ({ ok: true, value });
@@ -825,6 +837,20 @@ const applyScalar = (fn: string, args: readonly Cell[]): DR<Cell> => {
       if (!db.ok) return db;
       return dok({ kind: 'Int', value: db.value - da.value });
     }
+    case 'least':
+    case 'greatest': {
+      // Variadic (at least one). Any null propagates, as `concat`'s does; incomparable operands are
+      // a typed error through the shared cell ordering, so the pinned comparison is the one source.
+      if (args.length === 0) return derr(arityError(fn === 'least' ? 'Least' : 'Greatest', 1, 0));
+      if (args.some(isNull)) return dok(NULL);
+      let best = args[0]!;
+      for (const c of args.slice(1)) {
+        const k = compareCells(best, c);
+        if (k === undefined) return derr(typeError('least/greatest over incompatible types'));
+        if ((fn === 'least') !== k <= 0) best = c;
+      }
+      return dok(best);
+    }
     default:
       return derr(typeError("unknown scalar function '" + fn + "'"));
   }
@@ -989,6 +1015,12 @@ const evalExpr = (
       if (bad !== undefined) return derr(bad);
       const a = evalExpr(cols, row, e.expr, env);
       return a.ok ? roundedCell(e.rounding.mode, e.rounding.scale, a.value) : a;
+    }
+    case 'convert': {
+      // Every step resolves a conversion against its schema before evaluation; one that reaches
+      // here is resolved the same way, and a mismatch is raised when a row reaches it.
+      const r = resolveUnitsIn('expression', cols, e);
+      return r.ok ? evalExpr(cols, row, r.value.expr, env) : r;
     }
   }
 };
@@ -1183,6 +1215,9 @@ const applyTyping = (fn: string, args: readonly Typing[]): Typing => {
       return !arity(3) || anyAbsent ? 'absent' : 'string';
     case 'dateDiffDays':
       return !arity(2) || anyAbsent ? 'absent' : 'int';
+    case 'least':
+    case 'greatest':
+      return args.length === 0 || anyAbsent ? 'absent' : tJoinAll(args);
     // Phase 2400 (the reference's D43): the transcendentals answer a float, as a root does. A power
     // over an int base and an int exponent is decided by the exponent's SIGN, which a typing does
     // not carry — `powLitTyping` reads a literal exponent, and otherwise the cells decide; an
@@ -1252,6 +1287,9 @@ const typing = (cols: readonly SchemaEntry[], e: ColExpr): Typing => {
       const a = go(e.expr);
       return a === 'absent' ? 'absent' : isExact(a) ? 'decimal' : 'unknown';
     }
+    // A conversion is typed as the float cast it resolves to.
+    case 'convert':
+      return go(e.expr) === 'absent' ? 'absent' : 'float';
   }
 };
 
@@ -1323,6 +1361,8 @@ const substituteParams = (env: EvalEnv, e: ColExpr): ColExpr => {
       };
     case 'rounded':
       return { kind: 'rounded', expr: go(e.expr), rounding: e.rounding };
+    case 'convert':
+      return { kind: 'convert', expr: go(e.expr), unit: e.unit };
   }
 };
 
@@ -1566,6 +1606,366 @@ const aggType = (fn: AggFn, srcType: ColumnType): ColumnType => {
   }
 };
 
+// ─── the unit check (Phase 2208, the reference's Phase 429 / D29) ────────────
+//
+// A column's unit is a fact of its schema entry, so the check is a static walk over the step's
+// schema before any row: an empty frame is checked exactly as a full one. The walk answers the
+// expression's unit — `undefined` is UNCONSTRAINED: a literal, a param, a column that states no
+// unit; it composes with anything, so a unitless pipeline passes and evaluates as it always did —
+// and rewrites every `convert` to the cast (and factor) it stands for.
+
+type MaybeUnit = UnitOfMeasure | undefined;
+
+/** A canonical unit text, read back to the unit (it parsed when the entry was decoded). */
+const unitOfText = (text: string): UnitOfMeasure => {
+  const u = parseUnit(text);
+  return u.ok ? u.value : DIMENSIONLESS;
+};
+
+/** The unit a schema states for a column, where it states one. */
+const colUnit = (cols: readonly SchemaEntry[], name: string): MaybeUnit => {
+  const u = cols.find((c) => c.name === name)?.unit;
+  return u === undefined ? undefined : unitOfText(u);
+};
+
+/** An entry under a stated unit, or as it is. */
+const stated = (u: MaybeUnit, entry: SchemaEntry): SchemaEntry =>
+  u === undefined ? entry : { ...entry, unit: renderUnit(u) };
+
+/** A compact text of an expression for a refusal — the reference's `exprText`. */
+const exprText = (e: ColExpr): string => {
+  const args = (xs: readonly ColExpr[]): string => xs.map(exprText).join(', ');
+  switch (e.kind) {
+    case 'col':
+      return "'" + e.name + "'";
+    case 'lit':
+      return cellString(e.cell);
+    case 'param':
+      return '$' + e.name;
+    case 'binary':
+      return e.op.toLowerCase() + '(' + exprText(e.left) + ', ' + exprText(e.right) + ')';
+    case 'not':
+      return 'not(' + exprText(e.expr) + ')';
+    case 'coalesce':
+      return 'coalesce(' + args(e.exprs) + ')';
+    case 'case':
+      return (
+        'case(' + args(e.cases.flatMap((c) => [c.when, c.then])) + ', ' + exprText(e.else) + ')'
+      );
+    case 'cast':
+      return 'cast(' + e.type + ', ' + exprText(e.expr) + ')';
+    case 'apply':
+      return e.fn.toLowerCase() + '(' + args(e.args) + ')';
+    case 'in':
+      return 'in(' + exprText(e.expr) + '; ' + args(e.items) + ')';
+    case 'isNull':
+      return 'isNull(' + exprText(e.expr) + ')';
+    case 'inParam':
+      return 'in(' + exprText(e.expr) + '; $' + e.param + ')';
+    case 'quotient':
+      return 'quotient(' + exprText(e.dividend) + ', ' + exprText(e.divisor) + ')';
+    case 'rounded':
+      return 'rounded(' + exprText(e.expr) + ')';
+    case 'convert':
+      return 'convert(' + exprText(e.expr) + ', ' + e.unit + ')';
+  }
+};
+
+const unitMismatch = (step: string, expr: ColExpr, left: string, right: string): EvalError => ({
+  kind: 'UnitMismatch',
+  step,
+  expr,
+  left,
+  right,
+});
+
+/** What a power, product or quotient whose exponent would leave the algebra's range is refused against. */
+const POWER_RANGE_TEXT = 'a power the algebra can carry';
+
+/** The unit of a product: an unconstrained factor contributes nothing. */
+const unitProduct = (step: string, at: ColExpr, a: MaybeUnit, b: MaybeUnit): DR<MaybeUnit> => {
+  if (a === undefined) return dok(b);
+  if (b === undefined) return dok(a);
+  const p = mulUnit(a, b);
+  return p === undefined ? derr(unitMismatch(step, at, renderUnit(a), POWER_RANGE_TEXT)) : dok(p);
+};
+
+/**
+ * The unit of a quotient: an unconstrained dividend is dimensionless over a stated divisor (`1 / s`
+ * is `/s`), an unconstrained divisor leaves the dividend's unit.
+ */
+const unitQuotient = (step: string, at: ColExpr, a: MaybeUnit, b: MaybeUnit): DR<MaybeUnit> => {
+  if (b === undefined) return dok(a);
+  const dividend = a ?? DIMENSIONLESS;
+  const q = divUnit(dividend, b);
+  return q === undefined
+    ? derr(unitMismatch(step, at, renderUnit(dividend), POWER_RANGE_TEXT))
+    : dok(q);
+};
+
+/** The first operand stating a unit other than the dimensionless one. */
+const firstDimensioned = (units: readonly MaybeUnit[]): MaybeUnit =>
+  units.find((u) => u !== undefined && !sameUnit(u, DIMENSIONLESS));
+
+interface UnitResolved {
+  readonly unit: MaybeUnit;
+  readonly expr: ColExpr;
+}
+
+/**
+ * The unit of `e` over `cols`, and `e` with every `convert` resolved — the reference's
+ * `resolveUnitsIn`. `step` names the step a refusal is about. Addition, subtraction, comparison,
+ * `coalesce`, `case` arms, `least` / `greatest` and `in` require ONE unit among the operands that
+ * state one, and the answer carries it; multiplication, division, `quotient` and `mod` compose
+ * through the algebra; `cast`, `abs`, `round`, `floor`, `ceil` and `rounded` keep their operand's
+ * unit; a boolean, a text and a date carry none; a literal and a param are unconstrained.
+ */
+const resolveUnitsIn = (
+  step: string,
+  cols: readonly SchemaEntry[],
+  e: ColExpr,
+): DR<UnitResolved> => {
+  const go = (x: ColExpr): DR<UnitResolved> => resolveUnitsIn(step, cols, x);
+  const res = (unit: MaybeUnit, expr: ColExpr): DR<UnitResolved> => dok({ unit, expr });
+  const mismatch = (l: UnitOfMeasure, r: UnitOfMeasure): DR<never> =>
+    derr(unitMismatch(step, e, renderUnit(l), renderUnit(r)));
+  // One unit among the stated ones: an unconstrained operand takes the other's.
+  const agreeAll = (acc: MaybeUnit, units: readonly MaybeUnit[]): DR<MaybeUnit> => {
+    let u = acc;
+    for (const x of units) {
+      if (x === undefined) continue;
+      if (u === undefined) u = x;
+      else if (!sameUnit(u, x)) return mismatch(u, x);
+    }
+    return dok(u);
+  };
+  const many = (xs: readonly ColExpr[]): DR<UnitResolved[]> => {
+    const out: UnitResolved[] = [];
+    for (const x of xs) {
+      const r = go(x);
+      if (!r.ok) return r;
+      out.push(r.value);
+    }
+    return dok(out);
+  };
+  switch (e.kind) {
+    case 'col':
+      return res(colUnit(cols, e.name), e);
+    case 'lit':
+    case 'param':
+      return res(undefined, e);
+    case 'binary': {
+      const a = go(e.left);
+      if (!a.ok) return a;
+      const b = go(e.right);
+      if (!b.ok) return b;
+      const e2: ColExpr = { kind: 'binary', op: e.op, left: a.value.expr, right: b.value.expr };
+      const ua = a.value.unit;
+      const ub = b.value.unit;
+      switch (e.op) {
+        case 'add':
+        case 'sub': {
+          const u = agreeAll(ua, [ub]);
+          return u.ok ? res(u.value, e2) : u;
+        }
+        case 'mul': {
+          const u = unitProduct(step, e, ua, ub);
+          return u.ok ? res(u.value, e2) : u;
+        }
+        case 'div': {
+          const u = unitQuotient(step, e, ua, ub);
+          return u.ok ? res(u.value, e2) : u;
+        }
+        case 'mod':
+          return res(ua, e2);
+        case 'eq':
+        case 'ne':
+        case 'lt':
+        case 'le':
+        case 'gt':
+        case 'ge': {
+          const u = agreeAll(ua, [ub]);
+          return u.ok ? res(undefined, e2) : u;
+        }
+        default:
+          return res(undefined, e2);
+      }
+    }
+    case 'not': {
+      const x = go(e.expr);
+      return x.ok ? res(undefined, { kind: 'not', expr: x.value.expr }) : x;
+    }
+    case 'isNull': {
+      const x = go(e.expr);
+      return x.ok ? res(undefined, { kind: 'isNull', expr: x.value.expr }) : x;
+    }
+    case 'inParam': {
+      const x = go(e.expr);
+      return x.ok ? res(undefined, { kind: 'inParam', expr: x.value.expr, param: e.param }) : x;
+    }
+    case 'coalesce': {
+      const rs = many(e.exprs);
+      if (!rs.ok) return rs;
+      const u = agreeAll(
+        undefined,
+        rs.value.map((r) => r.unit),
+      );
+      return u.ok ? res(u.value, { kind: 'coalesce', exprs: rs.value.map((r) => r.expr) }) : u;
+    }
+    case 'case': {
+      const whens = many(e.cases.map((c) => c.when));
+      if (!whens.ok) return whens;
+      const thens = many(e.cases.map((c) => c.then));
+      if (!thens.ok) return thens;
+      const els = go(e.else);
+      if (!els.ok) return els;
+      const u = agreeAll(
+        els.value.unit,
+        thens.value.map((r) => r.unit),
+      );
+      if (!u.ok) return u;
+      return res(u.value, {
+        kind: 'case',
+        cases: e.cases.map((_, i) => ({ when: whens.value[i]!.expr, then: thens.value[i]!.expr })),
+        else: els.value.expr,
+      });
+    }
+    case 'cast': {
+      const x = go(e.expr);
+      return x.ok ? res(x.value.unit, { kind: 'cast', type: e.type, expr: x.value.expr }) : x;
+    }
+    case 'apply': {
+      const rs = many(e.args);
+      if (!rs.ok) return rs;
+      const units = rs.value.map((r) => r.unit);
+      const e2: ColExpr = { kind: 'apply', fn: e.fn, args: rs.value.map((r) => r.expr) };
+      switch (e.fn) {
+        case 'abs':
+        case 'round':
+        case 'floor':
+        case 'ceil':
+          return res(units[0], e2);
+        case 'least':
+        case 'greatest': {
+          const u = agreeAll(undefined, units);
+          return u.ok ? res(u.value, e2) : u;
+        }
+        case 'pow': {
+          // An integer-LITERAL exponent composes the unit through the algebra (`m` squared is
+          // `m2`; to the power zero, unconstrained); any other power takes a dimensionless operand.
+          const exponent = e.args[1];
+          if (e.args.length === 2 && exponent?.kind === 'lit' && exponent.cell.kind === 'Int') {
+            const ub = units[0];
+            if (ub === undefined || exponent.cell.value === 0) return res(undefined, e2);
+            const p = powUnit(ub, exponent.cell.value);
+            return p === undefined
+              ? derr(unitMismatch(step, e, renderUnit(ub), POWER_RANGE_TEXT))
+              : res(p, e2);
+          }
+          const u = firstDimensioned(units);
+          return u === undefined ? res(undefined, e2) : mismatch(u, DIMENSIONLESS);
+        }
+        case 'exp':
+        case 'ln':
+        case 'log10': {
+          const u = firstDimensioned(units);
+          return u === undefined ? res(undefined, e2) : mismatch(u, DIMENSIONLESS);
+        }
+        default:
+          return res(undefined, e2);
+      }
+    }
+    case 'in': {
+      const x = go(e.expr);
+      if (!x.ok) return x;
+      const rs = many(e.items);
+      if (!rs.ok) return rs;
+      const u = agreeAll(
+        x.value.unit,
+        rs.value.map((r) => r.unit),
+      );
+      return u.ok
+        ? res(undefined, { kind: 'in', expr: x.value.expr, items: rs.value.map((r) => r.expr) })
+        : u;
+    }
+    case 'quotient': {
+      const a = go(e.dividend);
+      if (!a.ok) return a;
+      const b = go(e.divisor);
+      if (!b.ok) return b;
+      const u = unitQuotient(step, e, a.value.unit, b.value.unit);
+      return u.ok
+        ? res(u.value, {
+            kind: 'quotient',
+            dividend: a.value.expr,
+            divisor: b.value.expr,
+            rounding: e.rounding,
+          })
+        : u;
+    }
+    case 'rounded': {
+      const x = go(e.expr);
+      return x.ok
+        ? res(x.value.unit, { kind: 'rounded', expr: x.value.expr, rounding: e.rounding })
+        : x;
+    }
+    case 'convert': {
+      // Over an operand stating no unit, a TAG: the operand as a float under `unit`. Over one of a
+      // compatible unit, the float times the exact factor, as a float literal. Otherwise refused.
+      const x = go(e.expr);
+      if (!x.ok) return x;
+      const target = unitOfText(e.unit);
+      const asFloat: ColExpr = { kind: 'cast', type: 'float', expr: x.value.expr };
+      const source = x.value.unit;
+      if (source === undefined || sameUnit(source, target)) return res(target, asFloat);
+      const ratio = conversionFactor(source, target);
+      if (ratio === undefined) return mismatch(source, target);
+      return res(target, {
+        kind: 'binary',
+        op: 'mul',
+        left: asFloat,
+        right: { kind: 'lit', cell: { kind: 'Float', value: ratioToFloat(ratio) } },
+      });
+    }
+  }
+};
+
+/** The unit an aggregate's column carries: a count is dimensionless, every other keeps its source's. */
+const aggregateUnitOf = (fn: AggFn, source: MaybeUnit): MaybeUnit =>
+  fn === 'count' || fn === 'countDistinct' ? undefined : source;
+
+/** The unit a window column carries: the ranking family none, the shifting and running families their source's. */
+const windowUnitOf = (fn: WindowSpecLike['fn'], source: MaybeUnit): MaybeUnit =>
+  fn === 'rowNumber' || fn === 'rank' ? undefined : source;
+
+/** An unpivot's `value` unit: the one unit every value column states, none where they differ or any states none. */
+const sharedUnit = (cols: readonly SchemaEntry[], valueVars: readonly string[]): MaybeUnit => {
+  const units = valueVars.map((n) => colUnit(cols, n));
+  const first = units[0];
+  return first !== undefined && units.every((u) => u !== undefined && sameUnit(u, first))
+    ? first
+    : undefined;
+};
+
+/** Two columns met as one (a union's pair, a set op's pair): the left entry under the one unit the pair states. */
+const unitsAgree = (what: string, left: SchemaEntry, right: SchemaEntry): DR<SchemaEntry> => {
+  if (left.unit !== undefined && right.unit !== undefined && left.unit !== right.unit)
+    return derr(
+      unitMismatch(
+        what + " '" + left.name + "'",
+        { kind: 'col', name: left.name },
+        left.unit,
+        right.unit,
+      ),
+    );
+  return dok(
+    left.unit === undefined && right.unit !== undefined ? { ...left, unit: right.unit } : left,
+  );
+};
+
+/** A fresh entry: a verb's own column states its name and type, and no metadata it did not derive. */
+const fresh = (name: string, type: ColumnType): SchemaEntry => ({ name, type });
+
 // ─── sort (pinned: stable; nulls last regardless of direction) ───────────────
 
 /** A frame's sort keys resolved once: each key's column index and direction; a key naming no column is skipped. */
@@ -1641,7 +2041,12 @@ const rowKey = (cells: readonly Cell[]): string => cells.map(cellKey).join('');
 
 // ─── per-verb evaluation ─────────────────────────────────────────────────────
 
-const evalFilter = (f: Frame, pred: ColExpr, env: EvalEnv = EMPTY_ENV): DR<Frame> => {
+const evalFilter = (f: Frame, predicate: ColExpr, env: EvalEnv = EMPTY_ENV): DR<Frame> => {
+  // The predicate's units are checked over the schema before any row, then the resolved predicate
+  // is evaluated.
+  const checked = resolveUnitsIn('filter', f.cols, predicate);
+  if (!checked.ok) return checked;
+  const pred = checked.value.expr;
   const keep: number[] = [];
   for (let i = 0; i < f.n; i += 1) {
     const r = evalExpr(f.cols, { data: f.data, i }, pred, env);
@@ -1683,11 +2088,11 @@ const repeatedOutput = (
 };
 
 const evalProject = (f: Frame, pairs: readonly { a: string; b: string }[]): DR<Frame> => {
-  const resolved: { out: string; type: ColumnType; index: number }[] = [];
+  const resolved: { out: string; index: number }[] = [];
   for (const { a, b } of pairs) {
     const i = colIndex(f.cols, a);
     if (i < 0) return derr(unknownColumn(a, available(f.cols)));
-    resolved.push({ out: b, type: f.cols[i]!.type, index: i });
+    resolved.push({ out: b, index: i });
   }
   const repeat = repeatedOutput(
     'project',
@@ -1695,16 +2100,25 @@ const evalProject = (f: Frame, pairs: readonly { a: string; b: string }[]): DR<F
   );
   if (!repeat.ok) return repeat;
   return dok({
-    cols: resolved.map((r) => ({ name: r.out, type: r.type })),
+    // A projection renames a column and states nothing new about it: every metadatum is kept.
+    cols: resolved.map((r) => ({ ...f.cols[r.index]!, name: r.out })),
     data: resolved.map((r) => renamed(f.data[r.index]!, r.out)),
     n: f.n,
   });
 };
 
-const evalDerive = (f: Frame, name: string, expr: ColExpr, env: EvalEnv = EMPTY_ENV): DR<Frame> => {
-  // The column's typing is read off the schema before any row: a derive refused statically is
-  // refused on every frame, an empty one included, and a decided one carries its type whatever
-  // rows the frame holds.
+const evalDerive = (
+  f: Frame,
+  name: string,
+  written: ColExpr,
+  env: EvalEnv = EMPTY_ENV,
+): DR<Frame> => {
+  // The column's unit and typing are read off the schema before any row: a derive refused
+  // statically is refused on every frame, an empty one included, and a decided one carries its
+  // type, and its unit, whatever rows the frame holds.
+  const checked = resolveUnitsIn("derive '" + name + "'", f.cols, written);
+  if (!checked.ok) return checked;
+  const { unit, expr } = checked.value;
   const dt = derivedTypingIn(env, f.cols, expr);
   if (dt.kind === 'refused') return derr(floatBesideDecimal(name));
   const newCells: Cell[] = [];
@@ -1718,15 +2132,16 @@ const evalDerive = (f: Frame, name: string, expr: ColExpr, env: EvalEnv = EMPTY_
   const ty = typed.value;
   const col = colOf(name, ty, newCells);
   if (!col.ok) return col;
+  const entry = stated(unit, fresh(name, ty));
   const i = colIndex(f.cols, name);
   if (i >= 0) {
     return dok({
-      cols: f.cols.map((e, j) => (j === i ? { name: e.name, type: ty } : e)),
+      cols: f.cols.map((e, j) => (j === i ? entry : e)),
       data: f.data.map((c, j) => (j === i ? col.value : c)),
       n: f.n,
     });
   }
-  return dok({ cols: [...f.cols, { name, type: ty }], data: [...f.data, col.value], n: f.n });
+  return dok({ cols: [...f.cols, entry], data: [...f.data, col.value], n: f.n });
 };
 
 /** The frame's rows grouped by the cells at `idxs`: each group's row indices, in first-appearance order. */
@@ -1764,11 +2179,14 @@ const evalGroupBy = (f: Frame, keys: readonly string[], aggs: readonly Agg[]): D
   ]);
   if (!repeat.ok) return repeat;
 
-  const keyCols: SchemaEntry[] = keys.map((k) => ({ name: k, type: colType(f.cols, k)! }));
-  const aggCols: SchemaEntry[] = resolvedAggs.map((r) => ({
-    name: r.agg.name,
-    type: aggType(r.agg.fn, r.type),
-  }));
+  // A key keeps its entry; an aggregate's column keeps its source's unit, a count none.
+  const keyCols: SchemaEntry[] = idxs.map((ci) => f.cols[ci]!);
+  const aggCols: SchemaEntry[] = resolvedAggs.map((r) =>
+    stated(
+      aggregateUnitOf(r.agg.fn, colUnit(f.cols, r.agg.of)),
+      fresh(r.agg.name, aggType(r.agg.fn, r.type)),
+    ),
+  );
 
   // A group's key is its first row's, so the key columns are one gather of those rows.
   const firsts = groups.map((g) => g[0]!);
@@ -1838,6 +2256,25 @@ const evalJoin = (
     li.push(il);
     ri.push(ir);
   }
+  // A key pair is an equality, so the comparison's rule holds it: two stated units must be one.
+  for (const { a, b } of on) {
+    const lu = colUnit(f.cols, a);
+    const ru = colUnit(right.cols, b);
+    if (lu !== undefined && ru !== undefined && !sameUnit(lu, ru))
+      return derr(
+        unitMismatch(
+          "join key '" + a + "' = '" + b + "'",
+          {
+            kind: 'binary',
+            op: 'eq',
+            left: { kind: 'col', name: a },
+            right: { kind: 'col', name: b },
+          },
+          renderUnit(lu),
+          renderUnit(ru),
+        ),
+      );
+  }
   const leftKeys = Array.from({ length: f.n }, (_, i) => cellsAt(f.data, li, i));
   const rightKeys = Array.from({ length: right.n }, (_, i) => cellsAt(right.data, ri, i));
   const keyMatch = (lk: readonly Cell[], rk: readonly Cell[]): boolean =>
@@ -1845,8 +2282,8 @@ const evalJoin = (
 
   const leftNames = new Set(available(f.cols));
   const rightCols: SchemaEntry[] = right.cols.map((e) => ({
+    ...e,
     name: leftNames.has(e.name) ? e.name + '_right' : e.name,
-    type: e.type,
   }));
 
   // The output is two gathers: the left row and the right row each output row reads, `-1` on
@@ -1900,13 +2337,16 @@ const evalUnion = (f: Frame, other: Frame): DR<Frame> => {
   const cols: SchemaEntry[] = [];
   const data: DataColumn[] = [];
   for (let ci = 0; ci < f.cols.length; ci += 1) {
-    const l = f.cols[ci]!;
     const r = other.cols[ci]!;
+    // The unit is the left's, the right's where only the right states one; two are refused.
+    const agreed = unitsAgree('union column', f.cols[ci]!, r);
+    if (!agreed.ok) return agreed;
+    const l = agreed.value;
     const ty = joinColumnType(l.type, r.type);
     if (ty === undefined) return derr(typesBesideEachOther(l.name, l.type, r.type));
     const c = colOf(l.name, ty, [...columnCells(f.data[ci]!), ...columnCells(other.data[ci]!)]);
     if (!c.ok) return c;
-    cols.push({ name: l.name, type: ty });
+    cols.push({ ...l, type: ty });
     data.push(c.value);
   }
   return dok({ cols, data, n: f.n + other.n });
@@ -1923,6 +2363,11 @@ const evalSetOp = (verb: string, keepPresent: boolean, f: Frame, other: Frame): 
   const bn = available(other.cols);
   if (an.length !== bn.length || an.some((n, i) => n !== bn[i])) {
     return derr({ kind: 'JoinError', detail: verb + ' requires matching column names' });
+  }
+  // Row identity across two units is the comparison's error; the left schema is what is kept.
+  for (let ci = 0; ci < f.cols.length; ci += 1) {
+    const agreed = unitsAgree(verb + ' column', f.cols[ci]!, other.cols[ci]!);
+    if (!agreed.ok) return agreed;
   }
   const present = new Set<string>();
   for (let i = 0; i < other.n; i += 1) present.add(rowKey(rowCells(other, i)));
@@ -2033,7 +2478,7 @@ const evalWindow = (f: Frame, spec: WindowSpecLike): DR<Frame> => {
   const col = colOf(spec.as, ty, outCells);
   if (!col.ok) return col;
   return dok({
-    cols: [...f.cols, { name: spec.as, type: ty }],
+    cols: [...f.cols, stated(windowUnitOf(spec.fn, colUnit(f.cols, spec.of)), fresh(spec.as, ty))],
     data: [...f.data, col.value],
     n: f.n,
   });
@@ -2086,11 +2531,13 @@ const evalPivot = (f: Frame, spec: PivotSpecLike): DR<Frame> => {
   // index groups, first-appearance order
   const groups = groupRows(f, idxIdx);
 
-  const idxCols: SchemaEntry[] = spec.index.map((n) => ({ name: n, type: colType(f.cols, n)! }));
-  const pivotCols: SchemaEntry[] = onValues.map((ov) => ({
-    name: cellString(ov),
-    type: aggType(spec.agg, valType),
-  }));
+  // An index column keeps its entry; every value column is one aggregate of `values`, so each
+  // carries that aggregate's unit.
+  const idxCols: SchemaEntry[] = idxIdx.map((ci) => f.cols[ci]!);
+  const valueUnit = aggregateUnitOf(spec.agg, colUnit(f.cols, spec.values));
+  const pivotCols: SchemaEntry[] = onValues.map((ov) =>
+    stated(valueUnit, fresh(cellString(ov), aggType(spec.agg, valType))),
+  );
 
   const firsts = groups.map((g) => g[0]!);
   const data: DataColumn[] = idxIdx.map((ci, k) => takeRows(f.data[ci]!, firsts, spec.index[k]!));
@@ -2134,7 +2581,7 @@ const evalUnpivot = (
     ['value', "the unpivot's value column"],
   ]);
   if (!repeat.ok) return repeat;
-  const idCols: SchemaEntry[] = idVars.map((n) => ({ name: n, type: colType(f.cols, n)! }));
+  const idCols: SchemaEntry[] = idIdx.map((ci) => f.cols[ci]!);
   // The value column is typed by the one derived-column rule, the value columns being its arms:
   // their declared types' join where the schema decides it — over an empty frame too — and the
   // melted cells only where it does not.
@@ -2158,7 +2605,11 @@ const evalUnpivot = (
   const value = colOf('value', valType.value, values);
   if (!value.ok) return value;
   return dok({
-    cols: [...idCols, { name: 'variable', type: 'string' }, { name: 'value', type: valType.value }],
+    cols: [
+      ...idCols,
+      fresh('variable', 'string'),
+      stated(sharedUnit(f.cols, valueVars), fresh('value', valType.value)),
+    ],
     data: [
       ...idIdx.map((ci, k) => takeRows(f.data[ci]!, sources, idVars[k]!)),
       variable.value,
@@ -2299,6 +2750,17 @@ export const evalErrorString = (e: EvalError): string => {
       return 'unresolved source ref: ' + e.ref;
     case 'UnboundParam':
       return "unbound param '" + e.name + "'; bound: " + e.bound.join(', ');
+    case 'UnitMismatch':
+      return (
+        'unit mismatch in ' +
+        e.step +
+        ': ' +
+        e.left +
+        ' against ' +
+        e.right +
+        ' in ' +
+        exprText(e.expr)
+      );
   }
 };
 
@@ -2336,6 +2798,7 @@ const colExprParams = (e: ColExpr): string[] => {
     case 'quotient':
       return [...colExprParams(e.dividend), ...colExprParams(e.divisor)];
     case 'rounded':
+    case 'convert':
       return colExprParams(e.expr);
   }
 };
@@ -2433,6 +2896,8 @@ const substituteListParamsExpr = (
         expr: substituteListParamsExpr(listEnv, e.expr),
         rounding: e.rounding,
       };
+    case 'convert':
+      return { kind: 'convert', expr: substituteListParamsExpr(listEnv, e.expr), unit: e.unit };
   }
 };
 

@@ -40,18 +40,18 @@
 //  error name, so gating on one would be gating on something the corpus does
 //  not claim. Both sides must refuse; which refusal is each host's own business.
 //
+//  THE UNIT VECTORS RUN (Phase 2208): the evaluator carries field metadata
+//  through every verb and checks units, so the `-unit-` vectors are asserted
+//  like every other evalPipeline vector — a refusal among them is the unit
+//  check's, and an answer carries its schema's units, labels and descriptions.
+//
 //  WHAT IS NOT RUN, each by name and with its reason, never silently:
-//   - every `evalPipeline` vector whose id carries `-unit-` — carried by
-//     fuaran#2208: this host does not yet carry field metadata (fuaran#2207) or
-//     the unit algebra. The set is derived from the ids and cross-checked
-//     against the inputs that state a unit, so a new unit vector, or a renamed
-//     one, is noticed rather than absorbed;
 //   - the `columnOp` and `delta` case kinds, per kind: this host carries no
 //     ColumnOp surface and no table-delta surface. The set of kinds the file
 //     carries is asserted exactly, so a new kind fails loudly.
 //  Every other `evalPipeline` vector is asserted. The named "not evaluable by
 //  this host" skip a pipeline the codec cannot decode used to get is now
-//  itself a FAILURE for any non-unit vector: it is not a way to skip one.
+//  itself a FAILURE: it is not a way to skip one.
 //
 //  The seed, iteration count, vector count and kit version are read from the
 //  family manifest, never restated here.
@@ -131,37 +131,6 @@ const CASE_KINDS: Readonly<Record<string, { readonly run: true } | { readonly re
   evalPipeline: { run: true },
   columnOp: { reason: 'this host carries no ColumnOp surface' },
   delta: { reason: 'this host carries no table-delta surface' },
-};
-
-const UNIT_REASON =
-  'carried by fuaran#2208 — this host does not yet carry field metadata (fuaran#2207) or the unit algebra';
-
-const isUnitVector = (v: TransformVector): boolean => v.id.includes('-unit-');
-
-/**
- * Does the vector's input state a unit anywhere — a schema entry of its source,
- * or of an operand table its pipeline embeds, carrying a `unit` member? This is
- * the independent half of the unit skip set's cross-check: it reads the DATA,
- * where `isUnitVector` reads the name.
- */
-const statesAUnit = (v: TransformVector): boolean => {
-  const tables: unknown[] = [];
-  const collect = (j: unknown): void => {
-    if (Array.isArray(j)) j.forEach(collect);
-    else if (j !== null && typeof j === 'object') {
-      const o = j as Record<string, unknown>;
-      if (Array.isArray(o['schema'])) tables.push(o);
-      Object.values(o).forEach(collect);
-    }
-  };
-  for (const text of [v.input.source, v.input.pipeline]) {
-    if (text !== undefined) collect(JSON.parse(text));
-  }
-  return tables.some((t) =>
-    ((t as { schema: unknown[] }).schema ?? []).some(
-      (e) => e !== null && typeof e === 'object' && 'unit' in (e as object),
-    ),
-  );
 };
 
 // ─── decoding a vector through the shipped codec ─────────────────────────────
@@ -282,10 +251,6 @@ if (lawFile) {
       continue;
     }
     if (v.case !== 'evalPipeline') continue;
-    if (isUnitVector(v)) {
-      notRun.push({ id: v.id, reason: UNIT_REASON });
-      continue;
-    }
     const d = decodePipelineOrReason(v.input.pipeline);
     if ('reason' in d) unevaluable.push({ id: v.id, reason: d.reason });
   }
@@ -298,7 +263,7 @@ if (lawFile) {
   );
   if (unevaluable.length > 0) {
     console.warn(
-      `transformLaws: ${unevaluable.length} non-unit evalPipeline vector(s) do not decode — ` +
+      `transformLaws: ${unevaluable.length} evalPipeline vector(s) do not decode — ` +
         `a FAILURE, not a skip:\n` +
         unevaluable.map((u) => `  - ${u.id}: ${u.reason}`).join('\n'),
     );
@@ -336,21 +301,13 @@ describe('transformLaws vectors (shared corpus laws/ family)', () => {
     expect(carried).toEqual(Object.keys(CASE_KINDS).sort());
   });
 
-  it('the unit skip set is exactly the -unit- ids, and they are exactly the inputs stating a unit', () => {
-    const pipelineVectors = vectors.filter((v) => v.case === 'evalPipeline');
-    const byName = pipelineVectors.filter(isUnitVector).map((v) => v.id);
-    const byData = pipelineVectors.filter(statesAUnit).map((v) => v.id);
-    const skipped = notRun.filter((u) => u.reason === UNIT_REASON).map((u) => u.id);
-    expect(
-      byName.length,
-      'the family carries no -unit- vector — revisit this skip',
-    ).toBeGreaterThan(0);
-    expect(skipped).toEqual(byName);
-    // A unit vector renamed without `-unit-`, or a `-unit-` id over unit-free data, breaks this.
-    expect(byData).toEqual(byName);
+  it('the family carries the unit vectors, and this host runs them', () => {
+    const unitIds = vectors.filter((v) => v.id.includes('-unit-')).map((v) => v.id);
+    expect(unitIds.length, 'the family carries no -unit- vector').toBeGreaterThan(0);
+    expect(notRun.filter((u) => unitIds.includes(u.id))).toEqual([]);
   });
 
-  it('no non-unit evalPipeline vector is unevaluable by this host', () => {
+  it('no evalPipeline vector is unevaluable by this host', () => {
     expect(unevaluable).toEqual([]);
   });
 
@@ -358,10 +315,6 @@ describe('transformLaws vectors (shared corpus laws/ family)', () => {
     const handling = CASE_KINDS[v.case];
     if (handling !== undefined && 'reason' in handling) {
       it.skip(`${v.id} — not run: ${handling.reason}`, () => {});
-      continue;
-    }
-    if (v.case === 'evalPipeline' && isUnitVector(v)) {
-      it.skip(`${v.id} — not run: ${UNIT_REASON}`, () => {});
       continue;
     }
 
