@@ -33,13 +33,16 @@ import type { ChartRow } from '@fuaran-ui/charts';
 
 import {
   asArray,
+  dataFieldOf,
   ownValue,
   readState,
   renderCellValue,
   renderText,
   resolve,
+  resolveRowsWithFields,
   resolveScalarFloat,
   tryResolve,
+  withColumnHeaders,
   type BindingSources,
 } from '../bindings.js';
 import { registeredCharts } from '../chartLowering.js';
@@ -113,9 +116,14 @@ const renderGrid = <TMsg,>(
   ctx: RenderContext<TMsg>,
   parentNodeId: string,
   state: StateBehaviour<TMsg>,
-  spec: GridSpec<TMsg>,
+  declared: GridSpec<TMsg>,
 ): ReactNode => {
-  const resolution = resolve(ctx.sources, spec.source);
+  // Phase 2209 — the rows and the schema they were read from come from ONE
+  // evaluation; a data column whose header the tree left empty takes its bound
+  // field's column title (WIRE_FORMAT §3.6.27). Every later read of `spec` sees
+  // the filled one. Mirrors the reference's `renderGrid`.
+  const { resolution, fields } = resolveRowsWithFields(ctx.sources, declared.source);
+  const spec = withColumnHeaders<TMsg, GridSpec<TMsg>>(fields, declared);
   if (resolution.kind === 'NotResolved' && state.onLoading !== undefined) {
     return renderNode(ctx, state.onLoading);
   }
@@ -1092,17 +1100,10 @@ const compareCells = (a: CellValue, b: CellValue): number => {
   return cellSortRank(a) - cellSortRank(b);
 };
 
-/**
- * Phase 1909 — the field a column's DATA is read through: what sort keys off.
- * `undefined` on an ACTION column (cell kind `Button` / `ButtonGroup`), whose
- * cell draws its own label and never displays a field — an action column
- * carries no field, and a pre-existing tree that still declares one keeps
- * rendering while sort ignores it. Parity with the reference's
- * `GridColumn.dataField`; this host draws no export control, so sort is the
- * only reader.
- */
-export const dataFieldOf = <TMsg,>(col: ColumnErased<TMsg>): string | undefined =>
-  col.kind.kind === 'Button' || col.kind.kind === 'ButtonGroup' ? undefined : col.field;
+// Phase 1909's `dataFieldOf` (what sort and, since Phase 2209, an empty header
+// read a column's data through) lives in `bindings.ts`; re-exported here, where
+// its callers have always imported it.
+export { dataFieldOf };
 
 export const sortRowsByDescriptor = <TMsg,>(
   columns: readonly ColumnErased<TMsg>[],
@@ -1360,7 +1361,8 @@ const renderChart = <TMsg,>(
   state: StateBehaviour<TMsg>,
   spec: ChartSpec<TMsg>,
 ): ReactNode => {
-  const resolution = resolve(ctx.sources, spec.source);
+  // Phase 2209 — the schema rides the same evaluation, for the axis titles.
+  const { resolution, fields } = resolveRowsWithFields(ctx.sources, spec.source);
   if (resolution.kind === 'NotResolved' && state.onLoading !== undefined) {
     return renderNode(ctx, state.onLoading);
   }
@@ -1387,7 +1389,7 @@ const renderChart = <TMsg,>(
     // Every declared semantic field crosses the bridge — see `chartLowerSpec.ts`,
     // which is the ONE place that decision is made (the server twin reads the
     // same helper) and which states the Literal-only `TextSource` rule.
-    const drawing = charts.lower(chartLowerSpecOf(spec), rows as readonly ChartRow[]);
+    const drawing = charts.lower(chartLowerSpecOf(spec, fields), rows as readonly ChartRow[]);
     return (
       <div dangerouslySetInnerHTML={{ __html: trustedHtml(drawingSvg(ctx.sources, drawing)) }} />
     );

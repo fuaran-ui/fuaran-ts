@@ -23,6 +23,8 @@ import type {
 
 import {
   asArray,
+  cellToFloat,
+  fieldCaption,
   floatSeries,
   electedDefaultTracks,
   focusableTreeItem,
@@ -32,11 +34,14 @@ import {
   renderText,
   resolve,
   resolveScalarFloat,
+  resolveScalarWithFieldWith,
   type Resolution,
   trackKindToken,
   treeItemExpanded,
   tryResolve,
   tryResolveScalarFloat,
+  valueUnit,
+  withUnit,
 } from '../bindings.js';
 import { registeredCharts } from '../chartLowering.js';
 import { trustedHtml } from '../trustedTypes.js';
@@ -785,7 +790,8 @@ const renderMetric = <TMsg,>(
 ): ReactNode => {
   // Phase 632 — the Metric value is a scalar slot: a `Binding.Transform`
   // resolves to its 1×1 result cell (a global aggregate / row-field lookup).
-  const resolution = resolveScalarFloat(ctx.sources, spec.value);
+  // Phase 2209 — its bound field rides the same evaluation (WIRE_FORMAT §3.6.27).
+  const { resolution, field } = resolveScalarWithFieldWith(cellToFloat, ctx.sources, spec.value);
   if (resolution.kind === 'NotResolved' && state.onLoading !== undefined) {
     return renderNode(ctx, state.onLoading);
   }
@@ -795,9 +801,17 @@ const renderMetric = <TMsg,>(
   return (
     <div className={`fuaran-metric fuaran-metric-${toneVar(spec.tone)}`}>
       {spec.icon !== undefined ? iconHook('fuaran-metric-icon', spec.icon) : null}
-      <div className="fuaran-metric-label">{renderText(ctx.sources, spec.label)}</div>
+      <div className="fuaran-metric-label">
+        {fieldCaption(field, renderText(ctx.sources, spec.label))}
+      </div>
       <div className="fuaran-metric-value">
-        {resolvedValueText(resolution, spec.format, ctx.sources.locale ?? '')}
+        {/* Only a READ value carries the unit: the em-dash and the sentinels say no value was read. */}
+        {resolution.kind === 'Resolved'
+          ? withUnit(
+              valueUnit(spec.format, field),
+              resolvedValueText(resolution, spec.format, ctx.sources.locale ?? ''),
+            )
+          : resolvedValueText(resolution, spec.format, ctx.sources.locale ?? '')}
       </div>
       {spec.trend !== undefined &&
         (() => {

@@ -16,7 +16,14 @@
 
 import type { Accessibility, NodeKind } from '@fuaran-ui/schema';
 
-import { type BindingSources, resolveScalarBool, tryResolveScalarText } from './bindings.js';
+import {
+  type BindingSources,
+  cellToText,
+  fieldUnitText,
+  resolveScalarBool,
+  resolveScalarWithFieldWith,
+  withUnit,
+} from './bindings.js';
 
 /**
  * Project an optional `Accessibility` (resolved against the supplied sources)
@@ -43,11 +50,19 @@ export const accessibilityAttributes = (
   // case resolves exactly as before, so no shipped document changes what it
   // renders. Pinned by `nodes/a11y-wrapper-transform-label` and the `behaviour`
   // vectors in the corpus's `a11y-contract.json`.
+  //
+  // Phase 2209 — a name read from a `Transform` is a VALUE read from a field, so
+  // it says what the value measures: the bound field's unit text follows it
+  // (WIRE_FORMAT §3.6.27, read site 4). The empty-name filter runs first, so a
+  // unit never rescues an empty name. Mirrors the reference's projection.
   if (a11y.label !== undefined) {
-    const label = tryResolveScalarText(sources, a11y.label);
+    const { resolution, field } = resolveScalarWithFieldWith(cellToText, sources, a11y.label);
     // An empty accessible name is worse than none: it silences the content that
     // would otherwise have named the node.
-    if (label !== undefined && label !== '') pairs.push(['aria-label', label]);
+    if (resolution.kind === 'Resolved' && resolution.value !== '') {
+      const unit = field === undefined ? undefined : fieldUnitText(field);
+      pairs.push(['aria-label', withUnit(unit, resolution.value)]);
+    }
   }
   if (a11y.labelledBy !== undefined) pairs.push(['aria-labelledby', a11y.labelledBy]);
   if (a11y.describedBy !== undefined) pairs.push(['aria-describedby', a11y.describedBy]);
