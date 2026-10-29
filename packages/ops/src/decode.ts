@@ -1274,11 +1274,14 @@ const decodeCellFormat = (w: Walk, path: string, j: JsonAst): R<CellFormat> => {
     }
     case 'Currency': {
       const r = reqField(w, path, f, 'code', 'ISO currency code string', requireString);
+      // Phase 2499 — `Currency` carries the optional `decimals` the other two do.
+      const dec = optField(w, path, f, 'decimals', requireInt);
       const loc = optField(w, path, f, 'locale', decodeLocaleSource);
-      if (!r.ok || !loc.ok) return failed(r, loc);
+      if (!r.ok || !dec.ok || !loc.ok) return failed(r, dec, loc);
       return ok<CellFormat>({
         kind: 'Currency',
         code: r.value,
+        ...(dec.value !== undefined ? { decimals: dec.value } : {}),
         ...(loc.value !== undefined ? { locale: loc.value } : {}),
       });
     }
@@ -1334,7 +1337,14 @@ const decodeFormat = (w: Walk, path: string, j: JsonAst): R<Format> => {
     }
     case 'Currency': {
       const r = reqField(w, path, f, 'isoCode', 'ISO-4217 currency code string', requireString);
-      return r.ok ? ok<Format>({ kind: 'Currency', isoCode: r.value }) : r;
+      // Phase 2499 — an optional `decimals`, the formatter's fraction digits.
+      const dec = optField(w, path, f, 'decimals', requireInt);
+      if (!r.ok || !dec.ok) return failed(r, dec);
+      return ok<Format>({
+        kind: 'Currency',
+        isoCode: r.value,
+        ...(dec.value !== undefined ? { decimals: dec.value } : {}),
+      });
     }
     case 'Percent': {
       const dec = tryField(f, 'decimals');

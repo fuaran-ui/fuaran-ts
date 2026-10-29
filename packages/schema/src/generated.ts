@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = 'b8d8755fcf412df90d10c812c9ce99634d616486d007aeb7b5ca42c1c1ced409';
+export const IDL_SHA256 = '08ca738ed16bd740e160879588ee8aa778a2d6724beffc08126fedf462d47019';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -1496,6 +1496,7 @@ export const UNION_CASES = {
     ],
     Currency: [
       { name: 'code', opt: 'required', type: T_str },
+      { name: 'decimals', opt: 'optional', type: T_int },
       { name: 'locale', opt: 'optional', type: T_union_LocaleSource },
     ],
     Percent: [
@@ -1704,7 +1705,10 @@ export const UNION_CASES = {
   },
   Format: {
     Number: [{ name: 'decimals', opt: 'optional', type: T_int }],
-    Currency: [{ name: 'isoCode', opt: 'required', type: T_str }],
+    Currency: [
+      { name: 'isoCode', opt: 'required', type: T_str },
+      { name: 'decimals', opt: 'optional', type: T_int },
+    ],
     Percent: [{ name: 'decimals', opt: 'optional', type: T_int }],
     DateTime: [
       { name: 'dateStyle', opt: 'optional', type: T_enum_DateStyle },

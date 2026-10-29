@@ -609,6 +609,21 @@ export const format = {
         return f;
     }
   },
+  /**
+   * Phase 2499 — the figure at `decimals` fraction digits: a `number` / `currency` /
+   * `percent` sets them on the locale-free projection and the locale formatter alike.
+   * Every other case carries no `decimals` and is returned unchanged.
+   */
+  withDecimals(decimals: number, f: CellFormat): CellFormat {
+    switch (f.kind) {
+      case 'Number':
+      case 'Currency':
+      case 'Percent':
+        return { ...f, decimals };
+      default:
+        return f;
+    }
+  },
   significantDigits(digits: number): CellFormat {
     return { kind: 'SignificantDigits', digits };
   },
@@ -631,6 +646,10 @@ export const localeFormat = {
   },
   currency(isoCode: string): Format {
     return { kind: 'Currency', isoCode };
+  },
+  /** Phase 2499 — a currency amount at `decimals` fraction digits, overriding the currency's own. */
+  currencyDigits(isoCode: string, decimals: number): Format {
+    return { kind: 'Currency', isoCode, decimals };
   },
   percent(decimals?: number): Format {
     return decimals !== undefined ? { kind: 'Percent', decimals } : { kind: 'Percent' };

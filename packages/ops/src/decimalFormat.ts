@@ -116,7 +116,7 @@ export const formatDecimal = (format: CellFormat, text: string): string => {
         ? toFixed(fixedDigits(format.decimals), s)
         : canonicalOf(s);
     case 'Currency':
-      return `${format.code} ${toFixed(2, s)}`;
+      return `${format.code} ${toFixed(fixedDigits(format.decimals ?? 2), s)}`;
     case 'Percent':
       return `${toFixed(fixedDigits(format.decimals ?? 1), percent(s))}%`;
     case 'SignificantDigits':
