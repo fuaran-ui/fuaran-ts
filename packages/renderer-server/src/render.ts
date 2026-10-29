@@ -83,6 +83,7 @@ import {
 } from './accessibility.js';
 import {
   asArray,
+  cellToFloat,
   floatSeries,
   type BindingSources,
   captureKeyword,
@@ -104,7 +105,9 @@ import {
   renderText,
   readState,
   resolve,
+  resolveRowsWithFields,
   resolveScalarFloat,
+  resolveScalarWithFieldWith,
   type Resolution,
   tokensToCommaSeparated,
   trackKindToken,
@@ -119,6 +122,12 @@ import {
   CODE_HIGHLIGHT_TIER,
   chartLowerSpecOf,
   codeHighlight,
+  // Phase 2209 — the field-metadata display rule (WIRE_FORMAT §3.6.27): pure
+  // functions over a resolved schema, one definition for both tiers.
+  fieldCaption,
+  valueUnit,
+  withColumnHeaders,
+  withUnit,
   // Phase 2046 — fragment collection and namespacing are the client renderer's
   // own, over the shared child enumeration, so the two tiers resolve and
   // rename fragments over the same positions (this tier used to carry a copy).
@@ -1621,20 +1630,29 @@ const renderMetric = (
 ): string => {
   // Phase 632 — the Metric value is a scalar slot: a `Binding.Transform`
   // resolves to its 1×1 result cell (a global aggregate / row-field lookup).
-  const resolution = resolveScalarFloat(ctx.sources, spec.value);
+  // Phase 2209 — its bound field rides the same evaluation (WIRE_FORMAT §3.6.27).
+  const { resolution, field } = resolveScalarWithFieldWith(cellToFloat, ctx.sources, spec.value);
   if (resolution.kind === 'NotResolved' && state.onLoading !== undefined) {
     return renderNode(ctx, state.onLoading);
   }
   if (resolution.kind === 'Errored' && state.onError !== undefined) {
     return renderNode(ctx, state.onError(bindingResolutionError(resolution.message)));
   }
+  const valueText = resolvedValueText(resolution, spec.format, ctx.sources.locale ?? '');
   const parts = [
     ...(spec.icon !== undefined ? [iconHook('fuaran-metric-icon', spec.icon)] : []),
-    textEl('div', [['class', 'fuaran-metric-label']], renderText(ctx.sources, spec.label)),
+    textEl(
+      'div',
+      [['class', 'fuaran-metric-label']],
+      fieldCaption(field, renderText(ctx.sources, spec.label)),
+    ),
     textEl(
       'div',
       [['class', 'fuaran-metric-value']],
-      resolvedValueText(resolution, spec.format, ctx.sources.locale ?? ''),
+      // Only a READ value carries the unit: the em-dash and the sentinels say no value was read.
+      resolution.kind === 'Resolved'
+        ? withUnit(valueUnit(spec.format, field), valueText)
+        : valueText,
     ),
   ];
   if (spec.trend !== undefined) {
@@ -2633,9 +2651,13 @@ const cellEditable = (gridEditable: boolean, col: ColumnErased<unknown>): boolea
 const renderGrid = (
   ctx: ServerContext,
   state: StateBehaviour<unknown>,
-  spec: Extract<VisKind<unknown>, { kind: 'Grid' }>['spec'],
+  declared: Extract<VisKind<unknown>, { kind: 'Grid' }>['spec'],
 ): string => {
-  const resolution = resolve(ctx.sources, spec.source);
+  // Phase 2209 — one evaluation for the rows and their schema; an empty header
+  // of a data column takes its bound field's column title (WIRE_FORMAT §3.6.27).
+  // Parity-locked with the client renderer's `renderGrid`.
+  const { resolution, fields } = resolveRowsWithFields(ctx.sources, declared.source);
+  const spec = withColumnHeaders(fields, declared);
   if (resolution.kind === 'NotResolved' && state.onLoading !== undefined) {
     return renderNode(ctx, state.onLoading);
   }
@@ -3136,7 +3158,8 @@ const renderChart = (
   state: StateBehaviour<unknown>,
   spec: Extract<VisKind<unknown>, { kind: 'Chart' }>['spec'],
 ): string => {
-  const resolution = resolve(ctx.sources, spec.source);
+  // Phase 2209 — the schema rides the same evaluation, for the axis titles.
+  const { resolution, fields } = resolveRowsWithFields(ctx.sources, spec.source);
   if (resolution.kind === 'NotResolved' && state.onLoading !== undefined) {
     return renderNode(ctx, state.onLoading);
   }
@@ -3158,7 +3181,7 @@ const renderChart = (
     // carries the Literal-only `TextSource` rule. This arm threaded `title` +
     // `valueFormat` and dropped the other five semantic fields; the client arm
     // dropped six. Two copies, two different answers — hence one helper.
-    const drawing = charts.lower(chartLowerSpecOf(spec), rows as readonly ChartRow[]);
+    const drawing = charts.lower(chartLowerSpecOf(spec, fields), rows as readonly ChartRow[]);
     return el('div', [], drawingSvg(ctx.sources, drawing));
   }
 

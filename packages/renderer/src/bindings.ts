@@ -16,6 +16,9 @@ import type {
   Cell,
   CellFormat,
   CellValue,
+  ChartSpec,
+  ColumnErased,
+  ColumnSchema,
   DurationStyle,
   DurationUnit,
   Format,
@@ -23,6 +26,7 @@ import type {
   Node,
   CaptureSource,
   RelativeTimeUnit,
+  SchemaEntry,
   SwitchCase,
   Table,
   TextSource,
@@ -857,6 +861,41 @@ export const cellToFloat = (c: Cell): CellCoerce<number> => {
 };
 
 /**
+ * A scalar slot's resolution and the BOUND FIELD its value was read from (Phase
+ * 2209, WIRE_FORMAT §3.6.27): a `Transform`'s result has one schema entry, read
+ * from the same evaluation as the value, so a slot that shows the field's unit
+ * evaluates the pipeline once. Every other binding case has no bound field.
+ */
+export interface ScalarWithField<T> {
+  readonly resolution: Resolution<T>;
+  readonly field: SchemaEntry | undefined;
+}
+
+/**
+ * Resolve a binding in a SCALAR slot, and name the field it was read from:
+ * `Binding.Transform` evaluates through the shared frame machinery and
+ * interprets the result as one cell (see the section note above); every other
+ * binding case resolves exactly as `resolve` and has no bound field. Mirror of
+ * the F# reference's `resolveScalarWithField`.
+ */
+export const resolveScalarWithFieldWith = <T>(
+  coerceCell: (c: Cell) => CellCoerce<T>,
+  sources: BindingSources,
+  binding: Binding<T>,
+): ScalarWithField<T> => {
+  if (binding.kind !== 'Transform') {
+    return { resolution: resolveScalarWith(coerceCell, sources, binding), field: undefined };
+  }
+  const frame = evalTransformFrame(sources, binding);
+  if (!frame.ok) return { resolution: { kind: 'Errored', message: frame.error }, field: undefined };
+  const schema = frame.value.schema;
+  return {
+    resolution: scalarOfFrame(coerceCell, binding, frame.value),
+    field: schema.length === 1 ? schema[0] : undefined,
+  };
+};
+
+/**
  * Resolve a binding in a SCALAR slot: `Binding.Transform` evaluates through
  * the shared frame machinery and interprets the result as one cell (see the
  * section note above); every other binding case resolves exactly as `resolve`.
@@ -881,7 +920,15 @@ export const resolveScalarWith = <T>(
   if (binding.kind !== 'Transform') return resolve<T>(sources, binding);
   const frame = evalTransformFrame(sources, binding);
   if (!frame.ok) return { kind: 'Errored', message: frame.error };
-  const result = frame.value;
+  return scalarOfFrame(coerceCell, binding, frame.value);
+};
+
+/** The one cell a scalar slot reads off an evaluated `Transform` result (the section note above). */
+const scalarOfFrame = <T>(
+  coerceCell: (c: Cell) => CellCoerce<T>,
+  binding: Extract<Binding<unknown>, { kind: 'Transform' }>,
+  result: Table,
+): Resolution<T> => {
   const colCount = result.columns.length;
   const rowCount = colCount > 0 ? columnLength(result.columns[0]!) : 0;
   if (rowCount === 1 && colCount === 1) {
@@ -971,6 +1018,167 @@ export const resolveScalarBool = (
   sources: BindingSources,
   binding: Binding<boolean>,
 ): Resolution<boolean> => resolveScalarWith(cellToBool, sources, binding);
+
+/**
+ * Resolve a ROWS slot (a `DataGrid` / `Chart` `source`) together with the
+ * result schema its columns are read from (Phase 2209). A `Binding.Transform`
+ * evaluates ONCE, through the same frame machinery `resolve` uses, and its
+ * result's schema rides beside the rows; every other binding case resolves
+ * exactly as `resolve` does and has no fields. Mirror of the F# reference's
+ * `resolveRowsWithFields`.
+ */
+export const resolveRowsWithFields = <T>(
+  sources: BindingSources,
+  binding: Binding<T>,
+): { readonly resolution: Resolution<T>; readonly fields: ColumnSchema } => {
+  if (binding.kind !== 'Transform') return { resolution: resolve(sources, binding), fields: [] };
+  const frame = evalTransformFrame(sources, binding);
+  if (!frame.ok) return { resolution: { kind: 'Errored', message: frame.error }, fields: [] };
+  return {
+    resolution: { kind: 'Resolved', value: tableToRows(frame.value) as T },
+    fields: frame.value.schema,
+  };
+};
+
+// ─── A bound field's metadata at the read sites (Phase 2209) ─────────────────
+//
+// WIRE_FORMAT §3.6.27, stated once for both renderers: where a slot reads a
+// value from a field that states a `label` or a `unit` (§3.6.26), the renderer
+// shows them — a header reads "Payload mass (kg)", an axis names its unit, a KPI
+// value carries it, and an accessible name says it. The tree's own text always
+// wins; the field supplies only what the tree left unstated. Every clause fires
+// only on a STATED label or unit, so a document whose fields state none renders
+// byte-for-byte as it did before. Twin of the F# reference's
+// `BindingResolver.FieldDisplay`; the two must not diverge.
+
+/**
+ * The unit text a renderer shows: the field's canonical unit text, unless it
+ * states none or states the dimensionless `1` — a pure number, where "(1)"
+ * beside it would tell a reader nothing.
+ */
+export const fieldUnitText = (field: SchemaEntry): string | undefined =>
+  field.unit !== undefined && field.unit !== '1' ? field.unit : undefined;
+
+/** The label when stated and non-empty, else the column name. */
+export const fieldDisplayName = (field: SchemaEntry): string =>
+  field.label !== undefined && field.label !== '' ? field.label : field.name;
+
+/**
+ * The column title — `Payload mass (kg)` — which EXISTS only when the field
+ * states a non-empty label or has a unit text. `undefined` is the renderer's cue
+ * to draw exactly what it drew before §3.6.27.
+ */
+export const fieldColumnTitle = (field: SchemaEntry): string | undefined => {
+  const unit = fieldUnitText(field);
+  if (unit !== undefined) return `${fieldDisplayName(field)} (${unit})`;
+  return field.label !== undefined && field.label !== '' ? field.label : undefined;
+};
+
+const titleOf = (fields: ColumnSchema, name: string): string | undefined => {
+  const field = fields.find((f) => f.name === name);
+  return field === undefined ? undefined : fieldColumnTitle(field);
+};
+
+/**
+ * Phase 1909 — the field a column's DATA is read through. `undefined` on an
+ * ACTION column (cell kind `Button` / `ButtonGroup`), whose cell draws its own
+ * label and never displays a field — an action column carries no field, and a
+ * pre-existing tree that still declares one keeps rendering while sort ignores
+ * it. Parity with the reference's `GridColumn.dataField`. (Here since Phase 2209,
+ * where a header reads it too; `render/Visualisation.tsx` re-exports it.)
+ */
+export const dataFieldOf = <TMsg>(col: ColumnErased<TMsg>): string | undefined =>
+  col.kind.kind === 'Button' || col.kind.kind === 'ButtonGroup' ? undefined : col.field;
+
+/**
+ * A grid spec with each EMPTY header of a data column replaced by its bound
+ * field's column title. A non-empty `label` is the author's header and is kept
+ * verbatim; an action column reads no field. With no fields — a source that is
+ * not a `Transform` — the spec is returned as it came.
+ */
+export const withColumnHeaders = <
+  TMsg,
+  S extends { readonly columns: readonly ColumnErased<TMsg>[] },
+>(
+  fields: ColumnSchema,
+  spec: S,
+): S => {
+  if (fields.length === 0) return spec;
+  return {
+    ...spec,
+    columns: spec.columns.map((col) => {
+      if (col.label !== '') return col;
+      const name = dataFieldOf(col);
+      const title = name === undefined ? undefined : titleOf(fields, name);
+      return title === undefined ? col : { ...col, label: title };
+    }),
+  };
+};
+
+/**
+ * A chart spec with each ABSENT axis title filled from its bound field's column
+ * title: x from `xField`, y from the first of `yFields` (the field the
+ * capitalised fallback names). A filled title is a STATED one, so it draws on a
+ * temporal x axis too. A declared title, whatever its arm, wins.
+ */
+export const withAxisTitles = <TMsg>(
+  fields: ColumnSchema,
+  spec: ChartSpec<TMsg>,
+): ChartSpec<TMsg> => {
+  if (fields.length === 0) return spec;
+  const fill = (declared: TextSource | undefined, name: string | undefined) => {
+    if (declared !== undefined || name === undefined) return declared;
+    const title = titleOf(fields, name);
+    return title === undefined ? undefined : ({ kind: 'Literal', value: title } as TextSource);
+  };
+  const xTitle = fill(spec.xTitle, spec.xField);
+  const yTitle = fill(spec.yTitle, spec.yFields[0]);
+  return {
+    ...spec,
+    ...(xTitle !== undefined ? { xTitle } : {}),
+    ...(yTitle !== undefined ? { yTitle } : {}),
+  };
+};
+
+/**
+ * The unit a read VALUE carries: the bound field's unit text, where the slot's
+ * format does not state a unit of its own. `Currency`, `Percent`, `Duration`,
+ * `RelativeTime` and `DateTime` already say what the figure is, and `Custom` is
+ * the host's — a second unit would contradict or repeat.
+ */
+export const valueUnit = (
+  format: CellFormat,
+  field: SchemaEntry | undefined,
+): string | undefined => {
+  if (field === undefined) return undefined;
+  switch (format.kind) {
+    case 'None':
+    case 'Number':
+    case 'SignificantDigits':
+      return fieldUnitText(field);
+    case 'Currency':
+    case 'Percent':
+    case 'DateTime':
+    case 'Duration':
+    case 'RelativeTime':
+    case 'Custom':
+      return undefined;
+  }
+};
+
+/** `text` followed by a space and `unit`, when there is one. */
+export const withUnit = (unit: string | undefined, text: string): string =>
+  unit === undefined ? text : `${text} ${unit}`;
+
+/**
+ * A caption the tree left EMPTY, filled with the bound field's display name when
+ * the field states metadata (it has a column title). A non-empty caption is the
+ * author's and is returned unchanged.
+ */
+export const fieldCaption = (field: SchemaEntry | undefined, explicitCaption: string): string =>
+  explicitCaption !== '' || field === undefined || fieldColumnTitle(field) === undefined
+    ? explicitCaption
+    : fieldDisplayName(field);
 
 // ─── Conditional presence and predicate branching (Phase 1535) ───────────────
 //
