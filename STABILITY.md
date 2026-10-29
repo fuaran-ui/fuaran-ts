@@ -1896,6 +1896,25 @@ exhaustive `switch` over any of them in a consumer stops compiling until it hand
 per verb class — kept, dropped, unit-only — and a go-red: each refusal is a `UnitMismatch` and the same pipeline over
 the same data answers once the units are withdrawn).
 
+### Recorded breaking change — `@fuaran-ui/ops` 0.32.0 and `@fuaran-ui/conformance` 0.29.0, an `int` column value is a signed 32-bit integer (Phase 2484)
+
+_Unreleased: rides the untagged drafts. Each package is already ahead of `v0.31.0` at a minor number, which is where a
+pre-1.0 breaking change goes, so no number moves._
+
+Breaking for wire READERS only (WIRE_FORMAT §3.6.28). An embedded `Transform` source's `int` column already refused a
+value outside the signed 32-bit range (Phase 2205); two readings now match the reference codec as well:
+
+- **A fractional value is refused, never truncated.** `2.5` in an `int` column decoded as `2`; it is now a
+  `WRONG_TYPE` at the source, §7.1's integer-slot rule applied to a column value.
+- **Inference reads a number by value.** A schema-less column of whole values holding one past the 32-bit range
+  inferred `int` and was then refused; it now infers `float` and is accepted, as the reference reads it.
+
+The out-of-range refusal's message names the rule (`an int column holds signed 32-bit integers`) rather than the
+earlier `malformed:` wording; its code and path are unchanged. **Certified by** the corpus vectors
+`grid-transform-int-bounds`, `reject-transform-int-above-int32`, `reject-transform-int-below-int32`,
+`reject-transform-int-fractional`, `lenient-transform-int-whole-float-token` and
+`lenient-transform-int-inferred-past-int32`, in the re-synced snapshot.
+
 ## Re-confirmation gate before public exposure
 
 Before this repo flips public (public GitHub repository, published-to-npm package, or marketing surface), the licensing posture declared in [`LICENSE`](LICENSE) must be re-confirmed by Diametrical Ltd.
