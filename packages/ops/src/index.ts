@@ -233,3 +233,29 @@ export {
   WireSurvivabilityError,
   DECODED_COMPUTED_MESSAGE,
 } from './localCodec.js';
+
+// Grid edits as columnar ops (WIRE_FORMAT.md Section 3.2, "Edits as column ops -
+// GridEdit"): the codec, the op's application and inverse, the row delta it
+// induces under a declared row identity, and an edit history (apply, undo, redo).
+export {
+  applyColumnOp,
+  cellToken,
+  decodeColumnOpJson,
+  decodeGridEdit,
+  decodeGridEditJson,
+  deltaOf,
+  encodeColumnOp,
+  encodeGridEdit,
+  encodeTableDelta,
+  GridEditHistory,
+  invertColumnOp,
+  type ColumnOp,
+  type ColumnOpResult,
+  type ColumnRefusal,
+  type GridEdit,
+  type GridEditDecode,
+  type HistoryRefusal,
+  type HistoryResult,
+  type RowChange,
+  type TableDelta,
+} from './gridEdit.js';
