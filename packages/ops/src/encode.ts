@@ -1188,6 +1188,8 @@ const encDialect = (() => {
   return () =>
     (tables ??= {
       records: {
+        Affordance: affordanceRecord as Enc,
+        AffordanceAlias: affordanceAlias as Enc,
         ColumnErased: columnErased as Enc,
         DefaultSort: defaultSortJson as Enc,
         DrawStyle: drawStyle as Enc,
@@ -1876,6 +1878,8 @@ const formField = (f: FormField<unknown>): string => {
   if (f.required) fields.push(['required', bool(true)]);
   if (f.help !== undefined) fields.push(['help', textSource(f.help)]);
   if (f.rule !== undefined) fields.push(['rule', fieldRule(f.rule)]);
+  // Phase 2517 — the field's operable surface (WIRE_FORMAT §31.1).
+  if (f.affordance !== undefined) fields.push(['affordance', affordanceRecord(f.affordance)]);
   return jObject(fields);
 };
 
@@ -2376,6 +2380,10 @@ const fragmentRefSpec = specEncoder('FragmentRef', {
 const guestChannel = recordEncoder('GuestChannel');
 /** One further comparison on a `Metric` (Phase 2472). */
 const metricComparison = recordEncoder('MetricComparison');
+// Phase 2517 — the operable-surface declaration on a form field (WIRE_FORMAT §31.1);
+// `Select` / `Button` carry it through their spec tables.
+const affordanceRecord = recordEncoder('Affordance');
+const affordanceAlias = recordEncoder('AffordanceAlias');
 // Phase 2328 — `onBubble` is the optional closure slot the IDL declares: a Mount
 // carrying a bubble handler writes the sentinel, and one with none writes no key
 // (`mount-no-onbubble`), as `Stepper.onSelect` and `FileUpload.onSelect` do.

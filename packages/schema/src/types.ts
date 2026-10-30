@@ -2307,7 +2307,20 @@ export interface FormField<TMsg> {
   readonly help?: TextSource;
   /** Phase 864 — the declared constraint. Absent means unconstrained beyond `required`. */
   readonly rule?: FieldRule;
+  /** Phase 2517 — the field's operable surface (WIRE_FORMAT §31.1). Absent at `undefined`. */
+  readonly affordance?: Affordance;
 }
+
+/**
+ * Phase 2517 — the affordance a `Select`, `Button` or form field declares
+ * (WIRE_FORMAT §31.1): further set / read phrasings, spoken aliases, a
+ * description, `clearable` and the `neverControllable` opt-out. Every member is
+ * omit-at-default, so `{}` declares nothing beyond the node itself.
+ */
+export interface Affordance extends IdlRecord<'Affordance'> {}
+
+/** Phase 2517 — a spoken `alias` resolving to the canonical option `value`. */
+export interface AffordanceAlias extends IdlRecord<'AffordanceAlias'> {}
 
 // Every handler is optional (Phase 426 — the control write-back default, the Phase 423
 // filter-chip mechanics generalised; a chip's control is a FormFieldKind, so this is its slot).
@@ -3081,6 +3094,8 @@ export interface MapMarker {
 /** This host's type for each IDL record, by the IDL's name. */
 export interface RecordTypes<TMsg> {
   readonly Accessibility: Accessibility;
+  readonly Affordance: Affordance;
+  readonly AffordanceAlias: AffordanceAlias;
   /** Spelt inline on `CellKindErased.ButtonGroup` as a `[label, onClick]` pair. */
   readonly ButtonGroupItem: Extract<
     CellKindErased<TMsg>,

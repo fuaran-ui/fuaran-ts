@@ -116,6 +116,7 @@ import type {
   FormField,
   FormFieldKind,
   FieldRule,
+  Affordance,
   CompareRule,
   CompareOp,
   TextFormat,
@@ -4439,6 +4440,10 @@ const dialect = (() => {
   return () =>
     (tables ??= {
       records: {
+        // Phase 2517 — the set reading; a `Button` overrides its own member with
+        // the click reading (§31.2).
+        Affordance: decodeAffordanceSet,
+        AffordanceAlias: recordDecoder('AffordanceAlias'),
         ColumnErased: decodeColumnErased,
         ContentHash: decodeContentHash,
         DefaultSort: decodeDefaultSort,
@@ -5797,8 +5802,19 @@ const decodeFormField = (w: Walk, path: string, j: JsonAst): R<FormField<unknown
   // key rather than passing silently.
   const nm = checkFormFieldNearMisses(w, path, f);
   const rule = optField(w, path, f, 'rule', decodeFieldRule);
-  if (!kind.ok || !id.ok || !label.ok || !required.ok || !help.ok || !nm.ok || !rule.ok)
-    return failed(kind, id, label, required, help, nm, rule);
+  // Phase 2517 — a form field is a SET: its patterns name the slot (§31.2).
+  const affordance = optField(w, path, f, 'affordance', decodeAffordanceSet);
+  if (
+    !kind.ok ||
+    !id.ok ||
+    !label.ok ||
+    !required.ok ||
+    !help.ok ||
+    !nm.ok ||
+    !rule.ok ||
+    !affordance.ok
+  )
+    return failed(kind, id, label, required, help, nm, rule, affordance);
   return ok({
     id: id.value,
     kind: kind.value,
@@ -5806,6 +5822,7 @@ const decodeFormField = (w: Walk, path: string, j: JsonAst): R<FormField<unknown
     required: required.value,
     ...(help.value !== undefined ? { help: help.value } : {}),
     ...(rule.value !== undefined ? { rule: rule.value } : {}),
+    ...(affordance.value !== undefined ? { affordance: affordance.value } : {}),
   });
 };
 
@@ -5835,7 +5852,50 @@ const decodeFilterSpec = (w: Walk, path: string, j: JsonAst): R<FilterSpec<unkno
   return ok({ name: name.value, label: label.value, field: kind.value });
 };
 
-const decodeButtonSpec = specDecoder('Button');
+// ─── Phase 2517 — the `affordance` member (WIRE_FORMAT §31.1, §31.2) ─────────
+//
+// The record is decoded from its table; the SLOT RULE is the carrying kind's,
+// so it is checked after: a `Select` or a form field is a SET, and each of its
+// `patterns` names exactly one `{value}`; a `Button` is a CLICK, and none of
+// its `patterns` names one; no `readPatterns` entry names one. Any other brace,
+// and a blank pattern, is refused — the pattern grammar stays closed. Each
+// refusal is `WRONG_TYPE` at the offending entry, as on the reference host.
+const AFFORDANCE_SLOT = '{value}';
+
+const affordanceSlotCount = (pattern: string): number | undefined => {
+  const stripped = pattern.split(AFFORDANCE_SLOT).join('');
+  if (stripped.includes('{') || stripped.includes('}')) return undefined;
+  return (pattern.length - stripped.length) / AFFORDANCE_SLOT.length;
+};
+
+const affordanceDecoder = (setPatterns: boolean): Decoder<Affordance> =>
+  recordDecoder('Affordance', {}, (value, _w, path) => {
+    const check = (
+      key: 'patterns' | 'readPatterns',
+      slots: number,
+      expected: string,
+    ): R<never> | undefined => {
+      const list = (value[key] ?? []) as readonly string[];
+      for (let i = 0; i < list.length; i++) {
+        const p = list[i] as string;
+        if (affordanceSlotCount(p) !== slots || p.trim() === '')
+          return wrongType(`${path}.${key}[${i}]`, expected);
+      }
+      return undefined;
+    };
+    const patterns = setPatterns
+      ? check('patterns', 1, 'a set pattern naming exactly one {value} slot')
+      : check('patterns', 0, 'a click pattern naming no slot');
+    if (patterns !== undefined) return patterns;
+    const reads = check('readPatterns', 0, 'a read pattern naming no slot');
+    if (reads !== undefined) return reads;
+    return ok(value as Affordance);
+  });
+
+const decodeAffordanceSet = affordanceDecoder(true);
+const decodeAffordanceClick = affordanceDecoder(false);
+
+const decodeButtonSpec = specDecoder('Button', { affordance: { dec: decodeAffordanceClick } });
 
 const decodeSelectSpec = specDecoder<'Select', SelectSpec<unknown>>(
   'Select',
@@ -5848,6 +5908,8 @@ const decodeSelectSpec = specDecoder<'Select', SelectSpec<unknown>>(
     // `value` / `values`.
     onChange: { placeholder: onChangePlaceholder },
     onChangeMulti: { placeholder: onChangePlaceholder },
+    // Phase 2517 — a select is a SET: its patterns name the slot (§31.2).
+    affordance: { dec: decodeAffordanceSet },
   },
   // Phase 1962 — the `value` rule (WIRE_FORMAT §3.2), a relation between two
   // sibling keys the per-field table cannot state (the IDL marks `value`
