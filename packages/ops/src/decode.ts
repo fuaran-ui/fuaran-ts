@@ -4896,20 +4896,24 @@ const decodeSparklineSpec = specDecoder('Sparkline', { source: { aliases: ['data
 //
 // Upper bound only, deliberately: a negative count is an authoring defect
 // (FUARAN152 in the pre-emit family), not a resource breach.
+//
+// Phase 1925 — the bound is ONE function, because `UpdateProp` writes the same
+// slot: an apply that set `rows` without it built a tree no host decodes.
+const boundSkeletonRows = (p: string, rows: number): R<number> =>
+  rows > MAX_SKELETON_ROWS
+    ? makeError(
+        'LIMIT_EXCEEDED',
+        p,
+        `skeleton rows ${rows} exceeds the maximum of ${MAX_SKELETON_ROWS} (WIRE_FORMAT 21.9)`,
+        `at most ${MAX_SKELETON_ROWS} rows on one Skeleton`,
+      )
+    : ok(rows);
+
+const decodeSkeletonRows = (w: Walk, p: string, j: JsonAst): R<number> =>
+  andThen(requireInt(w, p, j), (rows) => boundSkeletonRows(p, rows));
+
 const decodeSkeletonSpec = specDecoder('Skeleton', {
-  rows: {
-    dec: (w, p, j) =>
-      andThen(requireInt(w, p, j), (rows) =>
-        rows > MAX_SKELETON_ROWS
-          ? makeError(
-              'LIMIT_EXCEEDED',
-              p,
-              `skeleton rows ${rows} exceeds the maximum of ${MAX_SKELETON_ROWS} (WIRE_FORMAT 21.9)`,
-              `at most ${MAX_SKELETON_ROWS} rows on one Skeleton`,
-            )
-          : ok(rows),
-      ),
-  },
+  rows: { dec: decodeSkeletonRows },
 });
 
 // Phase 821 — the standalone icon-only display kind.
@@ -7466,19 +7470,34 @@ const viaAst = <T>(v: JsonValue, dec: Decoder<T>): Result<T, string> => {
   return r.ok ? { ok: true, value: r.value } : { ok: false, error: r.error[0]!.message };
 };
 
-const okS = <T>(value: T): Result<T, string> => ({ ok: true, value });
-const errS = (error: string): Result<never, string> => ({ ok: false, error });
-
-/** Typed-value coercers for `TreeOp.UpdateProp` (used by the apply engine). */
+/**
+ * Typed-value coercers for `TreeOp.UpdateProp` (used by the apply engine).
+ *
+ * Every coercer reads through the decoder's OWN rule for the field (Phase
+ * 1925): an integer slot through `requireInt` (WIRE_FORMAT 7.1), so `2.5` is
+ * refused rather than truncated by `Math.trunc` and a value outside 32-bit is
+ * refused rather than stored; the scalar slots through `requireFloat` /
+ * `requireBool` / `requireString`, the static envelope and the non-finite
+ * sentinels included.
+ */
 export const coerce = {
-  int: (v: JsonValue): Result<number, string> =>
-    typeof v === 'number' ? okS(Math.trunc(v)) : errS('expected a JSON number (integer)'),
-  float: (v: JsonValue): Result<number, string> =>
-    typeof v === 'number' ? okS(v) : errS('expected a JSON number'),
-  bool: (v: JsonValue): Result<boolean, string> =>
-    typeof v === 'boolean' ? okS(v) : errS('expected a JSON boolean'),
-  string: (v: JsonValue): Result<string, string> =>
-    typeof v === 'string' ? okS(v) : errS('expected a JSON string'),
+  int: (v: JsonValue): Result<number, string> => viaAst(v, requireInt),
+  /**
+   * `Skeleton.Rows` — 7.1 first, then the 21.9 bound, the decoder's two rules
+   * in the decoder's order. The refusal keeps its decode CODE, because a bound
+   * answers the shared `LimitExceeded` and a slot violation `KindMismatch`.
+   */
+  skeletonRows: (
+    v: JsonValue,
+  ): Result<number, { readonly code: string; readonly message: string }> => {
+    const r = decodeSkeletonRows(newWalk(), '$value', valueToAst(v));
+    return r.ok
+      ? { ok: true, value: r.value }
+      : { ok: false, error: { code: r.error[0]!.code, message: r.error[0]!.message } };
+  },
+  float: (v: JsonValue): Result<number, string> => viaAst(v, requireFloat),
+  bool: (v: JsonValue): Result<boolean, string> => viaAst(v, requireBool),
+  string: (v: JsonValue): Result<string, string> => viaAst(v, requireString),
   textSource: (v: JsonValue): Result<TextSource, string> => viaAst(v, decodeTextSource),
   bindingNumber: (v: JsonValue): Result<Binding<number>, string> =>
     viaAst(v, decodeBinding) as Result<Binding<number>, string>,

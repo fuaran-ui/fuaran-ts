@@ -73,6 +73,7 @@ export const HOST_CORPUS_FAMILIES = {
   'apply/duplicateIdsApply': 'covered', // packages/ops/test/duplicate-ids-apply-corpus.test.ts
   'apply/limitsApply': 'covered', // packages/ops/test/limits-apply-corpus.test.ts
   'apply/styleNormaliseApply': 'covered', // packages/ops/test/style-normalise-apply-corpus.test.ts
+  'apply/updatePropApply': 'covered', // packages/ops/test/update-prop-apply-corpus.test.ts
   'apply/skeletonApply': pending("this host's suite does not yet run the skeleton-apply vectors"),
   'binding-propagation': pending(
     'this host has no binding walk deriving which bindings a write makes stale for the vectors to run against yet',

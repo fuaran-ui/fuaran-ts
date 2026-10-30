@@ -156,7 +156,9 @@ type UpdateOutcome =
   | { readonly tag: 'updated'; readonly kind: NodeKind<unknown> }
   | { readonly tag: 'unknownField' }
   | { readonly tag: 'notSupported' }
-  | { readonly tag: 'typeMismatch'; readonly detail: string };
+  | { readonly tag: 'typeMismatch'; readonly detail: string }
+  /** A value the slot can hold that a WIRE_FORMAT 21 bound refuses (Phase 1925). */
+  | { readonly tag: 'overLimit'; readonly detail: string };
 
 const updated = (kind: NodeKind<unknown>): UpdateOutcome => ({ tag: 'updated', kind });
 const typeMismatch = (detail: string): UpdateOutcome => ({ tag: 'typeMismatch', detail });
@@ -266,10 +268,16 @@ const updateField = (
             return { tag: 'unknownField' };
         }
       }
-      case 'Skeleton':
-        return field === 'Rows'
-          ? patch(coerce.int(value), (x) => disp({ kind: 'Skeleton', spec: { rows: x } }))
-          : { tag: 'unknownField' };
+      case 'Skeleton': {
+        // Phase 1925 — the decoder's 7.1-then-21.9 order: a value that is not
+        // a 32-bit integer is a type mismatch, one past the row bound a limit.
+        if (field !== 'Rows') return { tag: 'unknownField' };
+        const rows = coerce.skeletonRows(value);
+        if (rows.ok) return updated(disp({ kind: 'Skeleton', spec: { rows: rows.value } }));
+        return rows.error.code === 'LIMIT_EXCEEDED'
+          ? { tag: 'overLimit', detail: rows.error.message }
+          : typeMismatch(rows.error.message);
+      }
       case 'Icon': {
         // Phase 821 — the standalone Icon display kind's field surface.
         const s = d.spec;
@@ -933,6 +941,11 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
             return fail(
               'KindMismatch',
               `UpdateProp value for '${op.path}' on node '${op.target}' does not match the field's expected type: ${outcome.detail}`,
+            );
+          case 'overLimit':
+            return fail(
+              'LimitExceeded',
+              `UpdateProp value for '${op.path}' on node '${op.target}' is past a wire limit: ${outcome.detail}`,
             );
         }
         break;
