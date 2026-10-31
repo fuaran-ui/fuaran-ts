@@ -1018,6 +1018,38 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
       telem.push({ op: 'UpdateState', targetId: op.target });
       return ok(newTree);
     }
+    case 'UpdateAccessibility': {
+      // Phase 2527 — the whole record replaces the trait, and a record setting
+      // no member is the absent slot, which is how the trait is removed.
+      const empty = Object.values(op.accessibility).every((member) => member === undefined);
+      const newTree = mapNode(
+        op.target,
+        (n) => {
+          const { accessibility: _replaced, ...rest } = n;
+          return empty ? rest : { ...rest, accessibility: op.accessibility };
+        },
+        root,
+      );
+      if (newTree === undefined)
+        return fail('NodeNotFound', `Node '${op.target}' not found in tree.`);
+      telem.push({ op: 'UpdateAccessibility', targetId: op.target });
+      return ok(newTree);
+    }
+    case 'UpdateTooltip': {
+      // Phase 2527 — an absent `tooltip` clears the trait.
+      const newTree = mapNode(
+        op.target,
+        (n) => {
+          const { tooltip: _replaced, ...rest } = n;
+          return op.tooltip === undefined ? rest : { ...rest, tooltip: op.tooltip };
+        },
+        root,
+      );
+      if (newTree === undefined)
+        return fail('NodeNotFound', `Node '${op.target}' not found in tree.`);
+      telem.push({ op: 'UpdateTooltip', targetId: op.target });
+      return ok(newTree);
+    }
     case 'InsertChild': {
       const parent = findNode(root, op.parentId);
       if (parent === undefined)
@@ -1194,6 +1226,8 @@ const insertedNodes = (op: TreeOp<unknown>): readonly N[] => {
     case 'ReplaceBinding':
     case 'UpdateStyle':
     case 'PatchStyle':
+    case 'UpdateAccessibility':
+    case 'UpdateTooltip':
     case 'RemoveNode':
     case 'MoveNode':
     case 'ReorderChildren':
@@ -1215,7 +1249,8 @@ const insertedNodes = (op: TreeOp<unknown>): readonly N[] => {
  * moving one branch under the other's leaf nests past `MAX_NODE_DEPTH`.
  *
  * Everything else cannot grow the tree: `UpdateProp`, `ReplaceBinding`,
- * `UpdateStyle` and `PatchStyle` carry no node (`UpdateProp` refuses every
+ * `UpdateStyle`, `PatchStyle`, `UpdateAccessibility` and `UpdateTooltip` carry no
+ * node (`UpdateProp` refuses every
  * node-valued field), `RemoveNode` shrinks, and `ReorderChildren` permutes
  * children in place.
  */

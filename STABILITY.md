@@ -1121,6 +1121,19 @@ type changes: `'DuplicateNodeId'` was already a case.
 (`duplicateIdsApply`), run by `packages/ops/test/duplicate-ids-apply-corpus.test.ts`, and this host's
 own cases in `packages/ops/test/apply-duplicate-ids.test.ts`. Both failed on the previous engine.
 
+### Recorded breaking change — `@fuaran-ui/ops` 0.32.0, `UpdateAccessibility` and `UpdateTooltip`, the trait edits (Phase 2527)
+
+_Unreleased: rides the `@fuaran-ui/ops` 0.32.0 slot, ahead of the newest tag, `v0.31.0`._
+
+**What changed.** `TreeOp` gains `{ kind: 'UpdateAccessibility', target, accessibility }` and
+`{ kind: 'UpdateTooltip', target, tooltip? }` (WIRE_FORMAT.md §3.4). The first replaces the whole trait, and a
+record setting no member removes it. The second sets the tooltip, and an absent `tooltip` clears it. Each decodes
+through the node envelope's own decoder, so the trait's near-miss refusals hold on the op. Neither carries a node,
+so the tree limits do not measure them.
+
+**Why.** No op could reach either trait, so a host's diff had no way to spell an edit of one. An exhaustive `switch`
+over `TreeOp` in a consumer stops compiling until it handles the two cases.
+
 ### Recorded breaking change — `@fuaran-ui/ops` 0.31.0, `PatchStyle`, the field-level style edit (Phase 2291)
 
 _Unreleased: ahead of the newest tag, `v0.30.0`, which published ops 0.30.0._

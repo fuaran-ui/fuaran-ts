@@ -2611,6 +2611,16 @@ const treeOp = (op: TreeOp<unknown>): string => {
         ['state', stateBehaviour(op.state)],
         ['target', str(op.target)],
       ]);
+    case 'UpdateAccessibility':
+      return caseObj('UpdateAccessibility', [
+        ['accessibility', accessibility(op.accessibility)],
+        ['target', str(op.target)],
+      ]);
+    case 'UpdateTooltip':
+      return caseObj('UpdateTooltip', [
+        ['target', str(op.target)],
+        ...(op.tooltip !== undefined ? ([['tooltip', textSource(op.tooltip)]] as const) : []),
+      ]);
     case 'InsertChild':
       return caseObj('InsertChild', [
         ['child', node(op.child)],

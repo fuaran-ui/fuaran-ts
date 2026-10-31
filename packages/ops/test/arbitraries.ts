@@ -1012,6 +1012,20 @@ function opArbAt(depth: number): fc.Arbitrary<TreeOp<unknown>> {
       .tuple(nodeIdArb, stateBehaviourArb(1))
       .map(([target, state]) => ({ kind: 'UpdateState', target, state }) as TreeOp<unknown>),
     fc
+      .tuple(nodeIdArb, accessibilityArb)
+      .map(
+        ([target, accessibility]) =>
+          ({ kind: 'UpdateAccessibility', target, accessibility }) as TreeOp<unknown>,
+      ),
+    fc.tuple(nodeIdArb, fc.option(textSourceArb, { nil: undefined })).map(
+      ([target, tooltip]) =>
+        ({
+          kind: 'UpdateTooltip',
+          target,
+          ...(tooltip !== undefined ? { tooltip } : {}),
+        }) as TreeOp<unknown>,
+    ),
+    fc
       .tuple(nodeIdArb, nodeArb(2))
       .map(([parentId, child]) => ({ kind: 'InsertChild', parentId, child }) as TreeOp<unknown>),
     nodeIdArb.map((target) => ({ kind: 'RemoveNode', target }) as TreeOp<unknown>),
