@@ -54,6 +54,11 @@ const HOSTED_OPAQUE =
 export const HOST_CORPUS_FAMILIES = {
   'node-round-trip': 'covered', // packages/ops/test/corpus.test.ts
   'op-round-trip': 'covered', // packages/ops/test/corpus.test.ts
+  // Phase 2517 — the wire section runs (test/operability-wire-corpus.test.ts); the
+  // derivation and the matcher (WIRE_FORMAT 31.3-31.5) are not yet ported.
+  operability: pending(
+    'the codec round-trips and refuses the affordance member (WIRE_FORMAT 31.1, 31.2) and its suite runs the family wire section; the derivation and the matcher (31.3-31.5) are not yet ported',
+  ),
   reject: 'covered', // packages/ops/test/corpus.test.ts
   'lenient-accept': 'covered', // packages/ops/test/corpus.test.ts
   'envelope-round-trip': 'covered', // packages/ops/test/corpus.test.ts

@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = '08ca738ed16bd740e160879588ee8aa778a2d6724beffc08126fedf462d47019';
+export const IDL_SHA256 = '6c868d199afb85263b42344ce1930b1604dd6abf3a209dfab1d4267e081a47f3';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -38,6 +38,7 @@ const T_union_Binding_bool = {
   name: 'Binding',
   args: [T_bool],
 } as const satisfies IdlType;
+const T_record_Affordance = { $type: 'record', name: 'Affordance' } as const satisfies IdlType;
 const T_enum_ToneVariant = { $type: 'enum', name: 'ToneVariant' } as const satisfies IdlType;
 const T_enum_ChartKind = { $type: 'enum', name: 'ChartKind' } as const satisfies IdlType;
 const T_hosted = { $type: 'hosted', wire: 'json' } as const satisfies IdlType;
@@ -223,6 +224,14 @@ const T_list_record_TabHeader = {
 const T_record_TreeItem = { $type: 'record', name: 'TreeItem' } as const satisfies IdlType;
 const T_list_record_TreeItem = { $type: 'list', of: T_record_TreeItem } as const satisfies IdlType;
 const T_enum_LiveRegionKind = { $type: 'enum', name: 'LiveRegionKind' } as const satisfies IdlType;
+const T_record_AffordanceAlias = {
+  $type: 'record',
+  name: 'AffordanceAlias',
+} as const satisfies IdlType;
+const T_list_record_AffordanceAlias = {
+  $type: 'list',
+  of: T_record_AffordanceAlias,
+} as const satisfies IdlType;
 const T_union_CellKindErased = {
   $type: 'union',
   name: 'CellKindErased',
@@ -629,6 +638,7 @@ export const KIND_FIELDS = {
     { name: 'icon', opt: 'optional', type: T_str },
     { name: 'tooltip', opt: 'hostOnly', type: T_fn },
     { name: 'disabled', opt: 'optional', type: T_union_Binding_bool },
+    { name: 'affordance', opt: 'optional', type: T_record_Affordance },
   ],
   Callout: [
     { name: 'body', opt: 'required', type: T_union_TextSource },
@@ -1033,6 +1043,7 @@ export const KIND_FIELDS = {
     { name: 'disabled', opt: 'optional', type: T_union_Binding_bool },
     { name: 'multiple', opt: 'optional', type: T_bool },
     { name: 'values', opt: 'optional', type: T_union_Binding_list_str },
+    { name: 'affordance', opt: 'optional', type: T_record_Affordance },
   ],
   Skeleton: [{ name: 'rows', opt: 'required', type: T_int }],
   Sparkline: [{ name: 'source', opt: 'required', type: T_union_Binding_list_float }],
@@ -1133,6 +1144,33 @@ export const RECORD_FIELDS = {
     { name: 'role', opt: 'optional', type: T_hosted },
     { name: 'speak', opt: 'optional', type: T_union_TextSource },
   ],
+  Affordance: [
+    { name: 'patterns', opt: 'omitDefault', type: T_list_str, dflt: { $type: 'list', items: [] } },
+    {
+      name: 'readPatterns',
+      opt: 'omitDefault',
+      type: T_list_str,
+      dflt: { $type: 'list', items: [] },
+    },
+    {
+      name: 'aliases',
+      opt: 'omitDefault',
+      type: T_list_record_AffordanceAlias,
+      dflt: { $type: 'list', items: [] },
+    },
+    { name: 'description', opt: 'optional', type: T_str },
+    { name: 'clearable', opt: 'omitDefault', type: T_bool, dflt: { $type: 'bool', value: false } },
+    {
+      name: 'neverControllable',
+      opt: 'omitDefault',
+      type: T_bool,
+      dflt: { $type: 'bool', value: false },
+    },
+  ],
+  AffordanceAlias: [
+    { name: 'alias', opt: 'required', type: T_str },
+    { name: 'value', opt: 'required', type: T_str },
+  ],
   ButtonGroupItem: [
     { name: 'label', opt: 'required', type: T_union_TextSource },
     { name: 'onClick', opt: 'optional', type: T_fn },
@@ -1215,6 +1253,7 @@ export const RECORD_FIELDS = {
     { name: 'required', opt: 'omitDefault', type: T_bool, dflt: { $type: 'bool', value: false } },
     { name: 'help', opt: 'optional', type: T_union_TextSource },
     { name: 'rule', opt: 'optional', type: T_record_FieldRule },
+    { name: 'affordance', opt: 'optional', type: T_record_Affordance },
   ],
   GuestChannel: [
     { name: 'direction', opt: 'required', type: T_enum_ChannelDirection },
