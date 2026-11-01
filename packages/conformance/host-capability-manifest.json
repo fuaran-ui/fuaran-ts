@@ -88,6 +88,9 @@
     "repair": "covered",
     "row-encode": "covered",
     "sanitization": "covered",
+    "server-driven": {
+      "notApplicable": "this host neither produces nor applies a server-driven frame (WIRE_FORMAT section 33); only the reference host does today"
+    },
     "stored-emissions": "covered",
     "style-observer": "covered",
     "teleport-decode": "covered",
