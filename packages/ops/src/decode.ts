@@ -7441,6 +7441,34 @@ const decodeTreeOpAstInner = (w: Walk, path: string, j: JsonAst): R<TreeOp<unkno
       const state = reqField(w, path, f, 'state', 'StateBehaviour object', decodeStateBehaviour);
       return state.ok ? ok({ kind: 'UpdateState', target: t.value, state: state.value }) : state;
     }
+    case 'UpdateAccessibility': {
+      // Phase 2527 — the envelope slot's own decoder, near-miss refusals included.
+      const t = target();
+      if (!t.ok) return t;
+      const accessibility = reqField(
+        w,
+        path,
+        f,
+        'accessibility',
+        'Accessibility object',
+        decodeAccessibility,
+      );
+      return accessibility.ok
+        ? ok({ kind: 'UpdateAccessibility', target: t.value, accessibility: accessibility.value })
+        : accessibility;
+    }
+    case 'UpdateTooltip': {
+      // Phase 2527 — an absent `tooltip` is the edit that clears the trait.
+      const t = target();
+      if (!t.ok) return t;
+      const tooltip = optField(w, path, f, 'tooltip', decodeTextSource);
+      if (!tooltip.ok) return tooltip;
+      return ok({
+        kind: 'UpdateTooltip',
+        target: t.value,
+        ...(tooltip.value !== undefined ? { tooltip: tooltip.value } : {}),
+      });
+    }
     case 'InsertChild': {
       // Phase 687 CLOSED the migration window Phase 681 opened: a legacy
       // `position` is a decode error. See `retiredPositionalField`.
@@ -7498,7 +7526,7 @@ const decodeTreeOpAstInner = (w: Walk, path: string, j: JsonAst): R<TreeOp<unkno
       return unknownDuCase(
         path,
         d.value,
-        'EditNode | UpdateProp | ReplaceBinding | UpdateStyle | PatchStyle | UpdateState | InsertChild | RemoveNode | MoveNode | ReorderChildren | ReplaceRoot | Batch',
+        'EditNode | UpdateProp | ReplaceBinding | UpdateStyle | PatchStyle | UpdateState | UpdateAccessibility | UpdateTooltip | InsertChild | RemoveNode | MoveNode | ReorderChildren | ReplaceRoot | Batch',
       );
   }
 };

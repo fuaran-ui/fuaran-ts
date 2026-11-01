@@ -134,6 +134,8 @@ const requiredOpTokens: string[] = [
   'UpdateStyle',
   'PatchStyle',
   'UpdateState',
+  'UpdateAccessibility',
+  'UpdateTooltip',
   'InsertChild',
   'RemoveNode',
   'MoveNode',

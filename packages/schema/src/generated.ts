@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = '6c868d199afb85263b42344ce1930b1604dd6abf3a209dfab1d4267e081a47f3';
+export const IDL_SHA256 = '3d7b02a648d9b15cfd67622ede39e11272f227893097986a786bd2b86e825a8c';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -381,6 +381,10 @@ const T_op = { $type: 'op' } as const satisfies IdlType;
 const T_list_op = { $type: 'list', of: T_op } as const satisfies IdlType;
 const T_kind = { $type: 'kind' } as const satisfies IdlType;
 const T_record_StyleDelta = { $type: 'record', name: 'StyleDelta' } as const satisfies IdlType;
+const T_record_Accessibility = {
+  $type: 'record',
+  name: 'Accessibility',
+} as const satisfies IdlType;
 const T_record_StateBehaviour = {
   $type: 'record',
   name: 'StateBehaviour',
@@ -388,10 +392,6 @@ const T_record_StateBehaviour = {
 const T_record_SemanticStyle = {
   $type: 'record',
   name: 'SemanticStyle',
-} as const satisfies IdlType;
-const T_record_Accessibility = {
-  $type: 'record',
-  name: 'Accessibility',
 } as const satisfies IdlType;
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
@@ -1924,6 +1924,10 @@ export const OP_FIELDS = {
     { name: 'target', opt: 'required', type: T_str },
   ],
   ReplaceRoot: [{ name: 'node', opt: 'required', type: T_node }],
+  UpdateAccessibility: [
+    { name: 'accessibility', opt: 'required', type: T_record_Accessibility },
+    { name: 'target', opt: 'required', type: T_str },
+  ],
   UpdateProp: [
     { name: 'path', opt: 'required', type: T_str },
     { name: 'target', opt: 'required', type: T_str },
@@ -1936,6 +1940,10 @@ export const OP_FIELDS = {
   UpdateStyle: [
     { name: 'style', opt: 'required', type: T_record_SemanticStyle },
     { name: 'target', opt: 'required', type: T_str },
+  ],
+  UpdateTooltip: [
+    { name: 'target', opt: 'required', type: T_str },
+    { name: 'tooltip', opt: 'optional', type: T_union_TextSource },
   ],
 } as const satisfies Record<string, readonly FieldRow[]>;
 export type OpName = keyof typeof OP_FIELDS;
