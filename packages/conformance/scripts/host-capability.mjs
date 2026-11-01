@@ -60,6 +60,9 @@ export const HOST_CORPUS_FAMILIES = {
     'the codec round-trips and refuses the affordance member (WIRE_FORMAT 31.1, 31.2) and its suite runs the family wire section; the derivation and the matcher (31.3-31.5) are not yet ported',
   ),
   'page-document': notApplicable('this host renders no stored page'),
+  'server-driven': notApplicable(
+    'this host neither produces nor applies a server-driven frame (WIRE_FORMAT section 33); only the reference host does today',
+  ),
   reject: 'covered', // packages/ops/test/corpus.test.ts
   'lenient-accept': 'covered', // packages/ops/test/corpus.test.ts
   'envelope-round-trip': 'covered', // packages/ops/test/corpus.test.ts
