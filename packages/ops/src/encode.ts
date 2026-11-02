@@ -1200,6 +1200,7 @@ const encDialect = (() => {
         MapMarker: mapMarker as Enc,
         MetricComparison: metricComparison as Enc,
         SelectOption: selectOption as Enc,
+        SelectOptionGroup: selectOptionGroup as Enc,
         SrcSetEntry: srcSetEntry as Enc,
         StaticRows: staticRows as Enc,
         TabHeader: tabHeader as Enc,
@@ -2384,6 +2385,9 @@ const metricComparison = recordEncoder('MetricComparison');
 // `Select` / `Button` carry it through their spec tables.
 const affordanceRecord = recordEncoder('Affordance');
 const affordanceAlias = recordEncoder('AffordanceAlias');
+// Phase 2571 — a `Select`'s option group (WIRE_FORMAT §3.6.30); the `Select`
+// carries the list through its spec table, omitted at `[]`.
+const selectOptionGroup = recordEncoder('SelectOptionGroup');
 // Phase 2328 — `onBubble` is the optional closure slot the IDL declares: a Mount
 // carrying a bubble handler writes the sentinel, and one with none writes no key
 // (`mount-no-onbubble`), as `Stepper.onSelect` and `FileUpload.onSelect` do.

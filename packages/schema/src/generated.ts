@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = '3d7b02a648d9b15cfd67622ede39e11272f227893097986a786bd2b86e825a8c';
+export const IDL_SHA256 = '514121018ffc157776d234c63295c8686f399d42a55f589a2756fe3974968f18';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -203,6 +203,14 @@ const T_union_Binding_list_str = {
   $type: 'union',
   name: 'Binding',
   args: [T_list_str],
+} as const satisfies IdlType;
+const T_record_SelectOptionGroup = {
+  $type: 'record',
+  name: 'SelectOptionGroup',
+} as const satisfies IdlType;
+const T_list_record_SelectOptionGroup = {
+  $type: 'list',
+  of: T_record_SelectOptionGroup,
 } as const satisfies IdlType;
 const T_list_float = { $type: 'list', of: T_float } as const satisfies IdlType;
 const T_union_Binding_list_float = {
@@ -1044,6 +1052,12 @@ export const KIND_FIELDS = {
     { name: 'multiple', opt: 'optional', type: T_bool },
     { name: 'values', opt: 'optional', type: T_union_Binding_list_str },
     { name: 'affordance', opt: 'optional', type: T_record_Affordance },
+    {
+      name: 'groups',
+      opt: 'omitDefault',
+      type: T_list_record_SelectOptionGroup,
+      dflt: { $type: 'list', items: [] },
+    },
   ],
   Skeleton: [{ name: 'rows', opt: 'required', type: T_int }],
   Sparkline: [{ name: 'source', opt: 'required', type: T_union_Binding_list_float }],
@@ -1291,6 +1305,10 @@ export const RECORD_FIELDS = {
   SelectOption: [
     { name: 'label', opt: 'required', type: T_str },
     { name: 'value', opt: 'required', type: T_str },
+  ],
+  SelectOptionGroup: [
+    { name: 'label', opt: 'required', type: T_str },
+    { name: 'values', opt: 'required', type: T_list_str },
   ],
   SemanticStyle: [
     {

@@ -4444,6 +4444,9 @@ const dialect = (() => {
         // the click reading (§31.2).
         Affordance: decodeAffordanceSet,
         AffordanceAlias: recordDecoder('AffordanceAlias'),
+        // Phase 2571 — a `Select`'s option group; the two cross-member refusals
+        // are the `Select`'s (`checkSelectGroups`).
+        SelectOptionGroup: recordDecoder('SelectOptionGroup'),
         ColumnErased: decodeColumnErased,
         ContentHash: decodeContentHash,
         DefaultSort: decodeDefaultSort,
@@ -5897,6 +5900,61 @@ const decodeAffordanceClick = affordanceDecoder(false);
 
 const decodeButtonSpec = specDecoder('Button', { affordance: { dec: decodeAffordanceClick } });
 
+/**
+ * Phase 2571 — the option-group refusals (WIRE_FORMAT §3.6.30), both
+ * `WRONG_TYPE` at the offending `values` element: a value named more than once
+ * (by two groups, or twice by one), and — over STATIC options only — a value
+ * naming no option. A bound source resolves at render; the decoder cannot judge
+ * it. Mirror of the reference host's `decodeSelectOptionGroups`.
+ */
+const checkSelectGroups = (spec: SelectSpec<unknown>, path: string): R<SelectSpec<unknown>> => {
+  const groups = spec.groups ?? [];
+  if (groups.length === 0) {
+    // Absent and `[]` are one fact: the canonical spec carries no member.
+    if (spec.groups === undefined) return ok(spec);
+    const { groups: _empty, ...clean } = spec;
+    void _empty;
+    return ok(clean as SelectSpec<unknown>);
+  }
+  const source = spec.source;
+  const options =
+    source.kind === 'Static'
+      ? ((source.value as readonly SelectOption[] | undefined) ?? [])
+      : undefined;
+  const known =
+    options !== undefined && !options.some((o) => o.value === OPAQUE)
+      ? new Set(options.map((o) => o.value))
+      : undefined;
+  const seen = new Map<string, [number, string]>();
+  for (let gi = 0; gi < groups.length; gi++) {
+    const g = groups[gi]!;
+    for (let vi = 0; vi < g.values.length; vi++) {
+      const value = g.values[vi]!;
+      const at = `${path}.groups[${gi}].values[${vi}]`;
+      const first = seen.get(value);
+      if (first !== undefined)
+        return makeError(
+          'WRONG_TYPE',
+          at,
+          `option value '${value}' is already named by group ${first[0]} ('${first[1]}'): an option belongs to at most one group`,
+          'a value no other group (and no earlier entry of this group) names',
+        );
+      if (known !== undefined && !known.has(value))
+        return makeError(
+          'WRONG_TYPE',
+          at,
+          `option value '${value}' names no option of this Select: a group can only gather the options its Select carries`,
+          `the value of one of this Select's options: ${[...known]
+            .sort()
+            .map((v) => `'${v}'`)
+            .join(', ')}`,
+        );
+      seen.set(value, [gi, g.label]);
+    }
+  }
+  return ok(spec);
+};
+
 const decodeSelectSpec = specDecoder<'Select', SelectSpec<unknown>>(
   'Select',
   {
@@ -5923,10 +5981,10 @@ const decodeSelectSpec = specDecoder<'Select', SelectSpec<unknown>>(
   // the presence rule is not layered over it.
   (spec, w, path, f) => {
     if (spec.multiple === true) {
-      if (spec.value === undefined) return ok(spec as SelectSpec<unknown>);
+      if (spec.value === undefined) return checkSelectGroups(spec as SelectSpec<unknown>, path);
       const { value, ...clean } = spec;
       void value;
-      return ok(clean as SelectSpec<unknown>);
+      return checkSelectGroups(clean as SelectSpec<unknown>, path);
     }
     const multipleKnown =
       tryField(f, 'multiple') === undefined || typeof spec.multiple === 'boolean';
@@ -5934,7 +5992,8 @@ const decodeSelectSpec = specDecoder<'Select', SelectSpec<unknown>>(
       const missing = reqField(w, path, f, 'value', 'Select value binding', decodeBindingStringOpt);
       if (!missing.ok) return missing;
     }
-    return ok(spec as SelectSpec<unknown>);
+    // Phase 2571 — the option groups, checked against the static options.
+    return checkSelectGroups(spec as SelectSpec<unknown>, path);
   },
 );
 

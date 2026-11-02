@@ -217,3 +217,25 @@ describe('BehindView (Phase 1812)', () => {
     expect(renderToHtml(spoken.value)).not.toContain('all systems operational');
   });
 });
+
+// Phase 2571 — option groups (WIRE_FORMAT §3.6.30): one <optgroup> per group in
+// list order, a group's options in `source` order, the ungrouped remainder last.
+describe('Select option groups', () => {
+  it('serves each group as an optgroup and the remainder after the groups', () => {
+    const html = render('select-option-groups-remainder.json');
+    expect(html).toContain(
+      '<select class="fuaran-select-control"><optgroup label="Trend"><option value="revenue-trend">Revenue</option></optgroup><optgroup label="Breakdown"><option value="region-breakdown">By region</option></optgroup><option value="summary">Summary</option><option value="notes">Notes</option></select>',
+    );
+  });
+
+  it("draws a group's options in source order, not the order its values are written", () => {
+    const html = render('select-option-groups.json');
+    expect(html).toContain(
+      '<optgroup label="Trend"><option value="revenue-trend">Revenue</option><option value="orders-trend">Orders</option></optgroup>',
+    );
+  });
+
+  it('serves an ungrouped select with no optgroup', () => {
+    expect(render('select-1.json')).not.toContain('optgroup');
+  });
+});

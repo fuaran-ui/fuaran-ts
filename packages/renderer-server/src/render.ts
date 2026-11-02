@@ -1944,9 +1944,32 @@ const renderSelect = (
     spec.placeholder !== undefined
       ? textEl('option', [['value', '']], renderText(ctx.sources, spec.placeholder))
       : '';
-  const opts = options
-    .map((o) => textEl('option', [['value', o.value]], renderText(ctx.sources, o.label)))
-    .join('');
+  const option = (o: SelectOption): string =>
+    textEl('option', [['value', o.value]], renderText(ctx.sources, o.label));
+  // Phase 2571 — option groups (WIRE_FORMAT §3.6.30): one `<optgroup>` per group
+  // in list order, holding the options it names in `source` order, then the
+  // options no group names, ungrouped. No groups: the flat list as before.
+  const groups = spec.groups ?? [];
+  const named = new Set(groups.flatMap((g) => g.values));
+  const opts =
+    groups.length === 0
+      ? options.map(option).join('')
+      : groups
+          .map((g) =>
+            el(
+              'optgroup',
+              [['label', g.label]],
+              options
+                .filter((o) => g.values.includes(o.value))
+                .map(option)
+                .join(''),
+            ),
+          )
+          .join('') +
+        options
+          .filter((o) => !named.has(o.value))
+          .map(option)
+          .join('');
   // Phase 291 — multi-select. Emit the `multiple` attribute + the options with NO
   // placeholder and NO scalar value (a controlled multi-select rejects a string
   // value). Inert server-side (the multi onChange attaches on hydration).

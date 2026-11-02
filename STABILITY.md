@@ -380,6 +380,21 @@ change: `yFields` was always a list and an empty one always decoded; the lowerin
 - **Certified by** `packages/charts/test/chart-lowering.test.ts` over the `chart-lowering/derived-series/` goldens the F#
   reference emits, byte for byte, the refusal included.
 
+### Rides `@fuaran-ui/schema` 0.28.0, `@fuaran-ui/ops` 0.32.0, `@fuaran-ui/renderer` 0.29.0 and `@fuaran-ui/renderer-server` 0.26.0 — a `Select` carries optional option groups (fuaran#2571)
+
+**Additive.** Every draft is untagged and above `v0.31.0`, so the change rides them. The wire change is
+`WIRE_FORMAT.md` §3.6.30: `Select` gains an omit-at-default `groups` list.
+
+- **Schema.** `SelectOptionGroup` (`label`, `values`) and the optional `SelectSpec.groups`. The IDL declares the
+  member omit-at-default; this host spells the default as absent, so every `SelectSpec` literal written before it
+  still type-checks. `SelectOption` is unchanged.
+- **Codec.** `groups` decodes and encodes through the spec table (omitted at `[]`); two refusals, both `WRONG_TYPE` at
+  the offending `values` element: a value named more than once, and over static options a value naming no option.
+- **Rendering.** Both tiers draw one `<optgroup label>` per group in list order holding the options it names in
+  `source` order, then the ungrouped remainder; no groups draws the flat list exactly as before.
+- **Certified by** the corpus (`nodes/select-option-groups*.json`, `reject/reject-2571-*`), the client's corpus
+  snapshot and `packages/renderer-server/test/render.test.ts`.
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:

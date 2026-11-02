@@ -2174,7 +2174,14 @@ export interface ButtonSpec<TMsg> extends IdlSpec<'Button', TMsg> {
   readonly disabled?: Binding<boolean>;
 }
 
-export interface SelectSpec<TMsg> extends Omit<IdlSpec<'Select', TMsg>, 'value'> {
+export interface SelectSpec<TMsg> extends Omit<IdlSpec<'Select', TMsg>, 'value' | 'groups'> {
+  /**
+   * Phase 2571 — option groups (WIRE_FORMAT §3.6.30). The IDL declares the member
+   * omit-at-default (`[]`); this host spells the default as ABSENT, so every
+   * `SelectSpec` written before the member existed still type-checks. Absent and
+   * `[]` are one fact and encode identically (the member is omitted).
+   */
+  readonly groups?: readonly SelectOptionGroup[];
   /**
    * The single-select selection. The IDL types it `Binding<string>`; this host
    * widens the payload to `string | undefined` because an unselected control is
@@ -2228,6 +2235,14 @@ export interface SelectOption {
   readonly value: string;
   readonly label: TextSource;
 }
+
+/**
+ * Phase 2571 — a named group of a `Select`'s options (WIRE_FORMAT §3.6.30).
+ * `values` names options of the same `Select` by their `value`; options no group
+ * names render after the groups, ungrouped. `SelectSpec.groups` is
+ * omit-at-default: absent and `[]` are one fact (no grouping).
+ */
+export interface SelectOptionGroup extends IdlRecord<'SelectOptionGroup'> {}
 
 export interface FormSpec<TMsg> extends IdlSpec<'Form', TMsg> {
   /**
@@ -3120,6 +3135,7 @@ export interface RecordTypes<TMsg> {
   /** Spelt as the `[low, high]` pair `FormFieldKind.Range` carries. */
   readonly RangePair: readonly [number, number];
   readonly SelectOption: SelectOption;
+  readonly SelectOptionGroup: SelectOptionGroup;
   readonly SemanticStyle: SemanticStyle;
   readonly SrcSetEntry: SrcSetEntry;
   readonly StateBehaviour: StateBehaviour<TMsg>;
