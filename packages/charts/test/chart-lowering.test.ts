@@ -30,6 +30,8 @@ import type {
   TextSource,
 } from '@fuaran-ui/schema';
 
+import { derivedSeriesFields } from '../src/spec.js';
+
 import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
 
 /** A `TextSource` in canonical wire JSON: the bare string (the canonical
@@ -260,10 +262,11 @@ const KNOWN_INPUT_MEMBERS: ReadonlySet<string> = new Set([
 const unknownMembers = (raw: Record<string, unknown>, known: ReadonlySet<string>): string[] =>
   Object.keys(raw).filter((k) => !known.has(k));
 
-const readInput = (name: string): ChartInput => {
-  const raw = JSON.parse(
-    readFileSync(join(CHART_LOWERING_DIR, `${name}.input.json`), 'utf8'),
-  ) as Record<string, unknown>;
+const readInput = (name: string, dir: string = CHART_LOWERING_DIR): ChartInput => {
+  const raw = JSON.parse(readFileSync(join(dir, `${name}.input.json`), 'utf8')) as Record<
+    string,
+    unknown
+  >;
   const unknown = unknownMembers(raw, KNOWN_INPUT_MEMBERS);
   if (unknown.length > 0) {
     throw new Error(
@@ -341,4 +344,60 @@ describe('chart lowering — cross-host byte-parity', () => {
       expect(absent).toBe(explicit);
     },
   );
+});
+
+// Phase 2568 — series read from the rows (`chart-lowering/derived-series/`,
+// WIRE_FORMAT §3.6.29). A subfamily, so the top-level enumeration above does
+// not reach it: an empty `yFields` plots every numeric column but `xField`,
+// Ordinal-ordered and named by column, and a table over the series cap is the
+// refusal drawing.
+describe('chart lowering — series read from the rows (Phase 2568)', () => {
+  const dir = join(CHART_LOWERING_DIR, 'derived-series');
+  const names = existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => f.endsWith('.input.json'))
+        .map((f) => f.slice(0, -'.input.json'.length))
+        .sort()
+    : [];
+
+  it.runIf(existsSync(CHART_LOWERING_DIR))('the subfamily is present', () => {
+    expect(names.length).toBeGreaterThan(0);
+  });
+
+  it.each(names)('%s — TS lowering is byte-identical to the golden', (name) => {
+    const expected = readFileSync(join(dir, `${name}.expected.json`), 'utf8');
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    expect(spec.yFields).toEqual([]);
+    expect(encodeNode(lowerNode(`chart-${name}`, spec, rows, style))).toBe(expected);
+  });
+
+  it.each(names)('%s — the column order the document writes does not matter', (name) => {
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    const reversedRows = rows.map(
+      (r) => Object.fromEntries(Object.entries(r).reverse()) as ChartRow,
+    );
+    expect(encodeNode(lowerNode('c', spec, reversedRows, style))).toBe(
+      encodeNode(lowerNode('c', spec, rows, style)),
+    );
+  });
+
+  it.each(names.filter((n) => n !== 'derived-over-series-cap'))(
+    '%s — derived lowers to the bytes of the chart naming the same columns',
+    (name) => {
+      const { spec, rows, style } = specAndRows(readInput(name, dir));
+      const named = derivedSeriesFields(spec.xField, rows);
+      expect(encodeNode(lowerNode('c', spec, rows, style))).toBe(
+        encodeNode(lowerNode('c', { ...spec, yFields: named }, rows, style)),
+      );
+    },
+  );
+
+  it('reads numeric columns only, Ordinal-ordered, ignoring empty cells', () => {
+    expect(
+      derivedSeriesFields('x', [
+        { x: 'a', b: 1, a: 2, t: 'text', f: true, n: null },
+        { x: 'b', b: null, a: 3, t: 'more', f: false, n: 4 },
+      ]),
+    ).toEqual(['a', 'b', 'n']);
+  });
 });

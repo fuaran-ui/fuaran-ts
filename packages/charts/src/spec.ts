@@ -51,6 +51,10 @@ import type { ChartAxisUnitMode } from './numberFormat.js';
 export interface ChartLowerSpec {
   readonly kind: ChartKind;
   readonly xField: string;
+  /**
+   * The series columns. EMPTY means every numeric column of the rows but
+   * `xField`, Ordinal-ordered and named by column (Phase 2568).
+   */
   readonly yFields: readonly string[];
   readonly title?: TextSource;
   readonly stacked?: boolean;
@@ -156,6 +160,42 @@ export const numericOf = (row: ChartRow, field: string): number => {
   if (isDecimalCell(v)) return decimalToFloat(v.text) ?? 0.0;
   return 0.0;
 };
+
+// ─── Series read from the rows (Phase 2568, WIRE_FORMAT §3.6.29) ──────────────
+//
+// An EMPTY `yFields` means the chart's series are its rows' numeric columns: every
+// column other than `xField` that at least one row carries as a number (a number
+// or a decimal cell) and no row carries as a string, a boolean or a date. An empty
+// cell (`null`, or a key the row does not hold) says nothing either way, and so —
+// as in the reference host's cell projection — does a value of no recognised
+// type. Ordinal by column name: a decoded row is a map, and the canonical wire
+// writes an object's members Ordinal-sorted, so it is the one order every host
+// derives alike. A non-empty `yFields` is returned as authored.
+
+const ordinal = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/** The numeric columns of `rows` other than `xField`, Ordinal-ordered (Phase 2568). */
+export const derivedSeriesFields = (xField: string, rows: readonly ChartRow[]): string[] => {
+  const numeric = new Set<string>();
+  const disqualified = new Set<string>();
+  for (const row of rows) {
+    for (const column of Object.keys(row)) {
+      if (column === xField) continue;
+      const v = row[column];
+      if (typeof v === 'number' || isDecimalCell(v)) numeric.add(column);
+      else if (typeof v === 'string' || typeof v === 'boolean' || v instanceof Date)
+        disqualified.add(column);
+    }
+  }
+  return [...numeric].filter((c) => !disqualified.has(c)).sort(ordinal);
+};
+
+/** The series a chart plots: its authored `yFields`, or the columns derived from `rows`. */
+export const seriesFieldsOf = (
+  spec: ChartLowerSpec,
+  rows: readonly ChartRow[],
+): readonly string[] =>
+  spec.yFields.length > 0 ? spec.yFields : derivedSeriesFields(spec.xField, rows);
 
 export const stringOf = (row: ChartRow, field: string): string => {
   const v = row[field];

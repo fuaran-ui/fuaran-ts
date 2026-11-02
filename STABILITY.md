@@ -366,6 +366,20 @@ obligation is `WIRE_FORMAT.md` §3.6.27, over the schema-entry members §3.6.26 
 - **Certified by** `packages/renderer/test/fieldMetadata.test.tsx` and `packages/renderer-server/test/fieldMetadata.test.ts`
   over the `fm-*` cases of §3.6.27's parity table (`packages/renderer/test/fieldMetadataFixtures.json`).
 
+### Rides `@fuaran-ui/charts` 0.15.0 — a chart whose series are read from its rows (fuaran#2568)
+
+**Additive.** The draft is untagged and above `v0.31.0` (which published 0.14.5), so the change rides it. No wire
+change: `yFields` was always a list and an empty one always decoded; the lowering rule is `WIRE_FORMAT.md` §3.6.29.
+
+- **Lowering.** `lower` / `lowerNode` given an EMPTY `yFields` plot one series per numeric column of the rows other than
+  `xField` (a number or a decimal cell, no row carrying a string, boolean or date there), Ordinal-ordered and named by
+  column, and lower exactly as the chart naming those columns would. More than 32 such columns is the refusal drawing
+  (the canvas, no shapes, the count and the limit as the description), never a truncation. A non-empty `yFields` lowers
+  to the bytes it lowered to before.
+- **No export moves.** The derivation is module-internal; the package entry's export list is unchanged.
+- **Certified by** `packages/charts/test/chart-lowering.test.ts` over the `chart-lowering/derived-series/` goldens the F#
+  reference emits, byte for byte, the refusal included.
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:
