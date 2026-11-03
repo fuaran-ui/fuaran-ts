@@ -1,0 +1,14 @@
+{
+  "kind": "gateReads",
+  "_": "What this repository's gate reads and builds. No census of the files its suite opens has been taken here, so `reads` claims every tracked file (`**`): nothing is gate-inert, the same conservative reading the repository had with no record. The gate (verify.ps1: pnpm install, format, build, typecheck, test) builds no .NET project, so `builds` is absent rather than empty (an empty `builds` would say the gate builds nothing it could name) and the one project file the repository tracks is listed in `notBuilt` with the reason. Checked: the coverage check classifies every tracked project file against the record.",
+  "reads": [
+    "**"
+  ],
+  "notRead": [],
+  "notBuilt": [
+    {
+      "path": "dev-scripts/install-smoke/fs/smoke.fsproj",
+      "reason": "the F# leg of the install smoke, run by its own workflow (.github/workflows/install-smoke.yml) against the published packages; the gate is the TypeScript workspace and builds no .NET project"
+    }
+  ]
+}
