@@ -435,6 +435,21 @@ exports[`fixture-corpus — decode + render every node fixture > markdown-1.json
 </div></div>"
 `;
 
+exports[`fixture-corpus — decode + render every node fixture > markdown-citation-none.json matches its rendered-output snapshot 1`] = `
+"<div id="markdown-citation-none" data-fuaran-node-id="markdown-citation-none" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-markdown"><p>Online.com took <a href="about:blank">23%</a> of the category.</p>
+</div></div>"
+`;
+
+exports[`fixture-corpus — decode + render every node fixture > markdown-citation-one.json matches its rendered-output snapshot 1`] = `
+"<div id="markdown-citation-one" data-fuaran-node-id="markdown-citation-one" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-markdown"><p>Online.com took <span class="fuaran-cited" data-fact="9f04f29b27c86926a1c3e5d7b8f0a2c4e6d8f0a1b3c5d7e9f1a3b5c7d9e1f3a5"><span class="fuaran-cited-label">Online share of category spend </span>23%</span> of the category.</p>
+</div></div>"
+`;
+
+exports[`fixture-corpus — decode + render every node fixture > markdown-citation-several.json matches its rendered-output snapshot 1`] = `
+"<div id="markdown-citation-several" data-fuaran-node-id="markdown-citation-several" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-markdown"><p>Online.com took <span class="fuaran-cited" data-fact="9f04f29b27c86926a1c3e5d7b8f0a2c4e6d8f0a1b3c5d7e9f1a3b5c7d9e1f3a5"><span class="fuaran-cited-label">Online share of category spend </span>23%</span> from <span class="fuaran-cited" data-fact="fact:spend-q3">£412k</span> placed by <strong><span class="fuaran-cited" data-fact="fact:brands-q3"><span class="fuaran-cited-label">Brands placing </span>17</span></strong> brands, against a forecast of <span class="fuaran-cited" data-fact="fcst:brands-q4@2026-11-01">about 20</span>.</p>
+</div></div>"
+`;
+
 exports[`fixture-corpus — decode + render every node fixture > masonry-1.json matches its rendered-output snapshot 1`] = `
 "<div id="masonry-1" data-fuaran-node-id="masonry-1" class="fuaran-kind-masonry fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-layout-masonry" style="column-count:3"><div id="metric-1" data-fuaran-node-id="metric-1" class="fuaran-kind-metric fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-metric fuaran-metric-brand"><span class="fuaran-icon fuaran-metric-icon" data-icon="trending-up" aria-hidden="true"></span><div class="fuaran-metric-label">Revenue</div><div class="fuaran-metric-value">GBP 1234.50</div><div class="fuaran-metric-trend fuaran-metric-trend-improving"><span class="fuaran-metric-trend-glyph" role="img" aria-label="improving">▲</span>7.0%</div><div class="fuaran-metric-subtext">vs last month</div></div></div><div id="markdown-1" data-fuaran-node-id="markdown-1" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-markdown"><p>Updated hourly.</p>
 </div></div></div></div>"

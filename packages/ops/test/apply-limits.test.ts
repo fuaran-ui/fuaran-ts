@@ -20,7 +20,7 @@ const leaf = (id: string): Node<unknown> => ({
   id: nid(id),
   kind: {
     kind: 'Display',
-    display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: id } } },
+    display: { kind: 'Markdown', spec: { citations: [], text: { kind: 'Literal', value: id } } },
   },
   state: {},
   style: { tone: 'Default', weight: 'Standard', emphasis: 'Normal' },

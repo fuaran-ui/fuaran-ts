@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = '3ce196fda6ce09924bd2a9f38c97c2a0c4492e99411169fbccaeff8c66d73b33';
+export const IDL_SHA256 = '59b30bfa4b6bf50e0623f6672dc27a23170dead76c4cbda6c181bd7e6e704c59';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -160,6 +160,14 @@ const T_union_Binding_list_record_MapMarker = {
   $type: 'union',
   name: 'Binding',
   args: [T_list_record_MapMarker],
+} as const satisfies IdlType;
+const T_record_MarkdownCitation = {
+  $type: 'record',
+  name: 'MarkdownCitation',
+} as const satisfies IdlType;
+const T_list_record_MarkdownCitation = {
+  $type: 'list',
+  of: T_record_MarkdownCitation,
 } as const satisfies IdlType;
 const T_enum_MathDisplay = { $type: 'enum', name: 'MathDisplay' } as const satisfies IdlType;
 const T_union_MediaKind = {
@@ -935,7 +943,15 @@ export const KIND_FIELDS = {
     { name: 'zoom', opt: 'required', type: T_int },
     { name: 'onMarkerClick', opt: 'optional', type: T_fn },
   ],
-  Markdown: [{ name: 'text', opt: 'required', type: T_union_TextSource }],
+  Markdown: [
+    {
+      name: 'citations',
+      opt: 'omitDefault',
+      type: T_list_record_MarkdownCitation,
+      dflt: { $type: 'list', items: [] },
+    },
+    { name: 'text', opt: 'required', type: T_union_TextSource },
+  ],
   Math: [
     { name: 'source', opt: 'required', type: T_str },
     { name: 'display', opt: 'required', type: T_enum_MathDisplay },
@@ -1282,6 +1298,11 @@ export const RECORD_FIELDS = {
     { name: 'label', opt: 'required', type: T_str },
     { name: 'latitude', opt: 'required', type: T_float },
     { name: 'longitude', opt: 'required', type: T_float },
+  ],
+  MarkdownCitation: [
+    { name: 'label', opt: 'optional', type: T_union_TextSource },
+    { name: 'name', opt: 'required', type: T_str },
+    { name: 'reference', opt: 'required', type: T_str },
   ],
   MetricComparison: [
     { name: 'label', opt: 'required', type: T_union_TextSource },

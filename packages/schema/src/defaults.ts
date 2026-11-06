@@ -213,7 +213,7 @@ const labelValueRow: LabelValueRowSpec = withDefaults('LabelValueRow', {
 
 const fact: FactSpec = withDefaults('Fact', { label: emptyLiteral, value: emptyLiteral });
 
-const markdown: MarkdownSpec = { text: emptyLiteral };
+const markdown: MarkdownSpec = { citations: [], text: emptyLiteral };
 
 const metric: MetricSpec = withDefaults('Metric', {
   label: emptyLiteral,

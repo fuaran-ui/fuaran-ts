@@ -18,7 +18,7 @@ const md = (id: string): N => ({
   id: id as NodeId,
   kind: {
     kind: 'Display',
-    display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: id } } },
+    display: { kind: 'Markdown', spec: { citations: [], text: { kind: 'Literal', value: id } } },
   },
   state: {},
   style,

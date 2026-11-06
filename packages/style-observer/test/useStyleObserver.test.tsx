@@ -50,7 +50,7 @@ const tree: Node<unknown> = {
               kind: 'Display',
               display: {
                 kind: 'Markdown',
-                spec: { text: { kind: 'Literal', value: 'low-contrast content' } },
+                spec: { citations: [], text: { kind: 'Literal', value: 'low-contrast content' } },
               },
             },
             state: {},

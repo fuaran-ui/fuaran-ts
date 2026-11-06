@@ -20,7 +20,7 @@ const leaf = (id: string, text: string): Node<unknown> => ({
   id: nid(id),
   kind: {
     kind: 'Display',
-    display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: text } } },
+    display: { kind: 'Markdown', spec: { citations: [], text: { kind: 'Literal', value: text } } },
   },
   state: {},
   style: { tone: 'Default', weight: 'Standard', emphasis: 'Normal' },
@@ -176,6 +176,34 @@ describe('apply engine — field / binding / style / state ops', () => {
     };
     const r = apply(tree(), op);
     expect(r.ok).toBe(true);
+  });
+
+  it('UpdateProp reaches a Fact icon (the arm Phase 2535 left out)', () => {
+    const fact: Node<unknown> = {
+      id: nid('f'),
+      kind: {
+        kind: 'Display',
+        display: {
+          kind: 'Fact',
+          spec: {
+            label: { kind: 'Literal', value: 'Revenue' },
+            value: { kind: 'Literal', value: '1' },
+            tone: 'Default',
+            emphasis: false,
+          },
+        },
+      },
+      state: {},
+      style: { tone: 'Default', weight: 'Standard', emphasis: 'Normal' },
+    };
+    const r = apply(dashboard('root', [fact]), {
+      kind: 'UpdateProp',
+      target: nid('f'),
+      path: 'Icon',
+      value: 'star',
+    });
+    expect(r.ok).toBe(true);
+    expect(JSON.stringify(r)).toContain('"icon":"star"');
   });
 
   it('UpdateProp updates a top-level field', () => {

@@ -105,6 +105,7 @@ import type {
   ToneVariant,
   TrendPolarity,
   Transform,
+  MarkdownCitation,
   MetricComparison,
 } from '@fuaran-ui/schema';
 
@@ -2114,16 +2115,24 @@ export const fuaran = {
       },
     });
   },
-  markdown<TMsg>(id: NodeId | string, body: string): Node<TMsg> {
+  /**
+   * `citations` (Phase 2591) are the figures the body cites, each placed by a link whose
+   * destination is `cite:<name>`; the display text is the link's own.
+   */
+  markdown<TMsg>(
+    id: NodeId | string,
+    body: string,
+    citations: readonly MarkdownCitation[] = [],
+  ): Node<TMsg> {
     return buildNode(id, {
       kind: 'Display',
-      display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: body } } },
+      display: { kind: 'Markdown', spec: { citations, text: { kind: 'Literal', value: body } } },
     });
   },
   markdownSpec<TMsg>(id: NodeId | string, content: TextInput): Node<TMsg> {
     return buildNode(id, {
       kind: 'Display',
-      display: { kind: 'Markdown', spec: { text: text(content) } },
+      display: { kind: 'Markdown', spec: { citations: [], text: text(content) } },
     });
   },
   badge<TMsg>(o: BadgeOptions): Node<TMsg> {

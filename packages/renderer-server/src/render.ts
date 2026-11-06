@@ -177,7 +177,7 @@ import {
   stylesheetText,
 } from './csp.js';
 import { type Attr, el, escapeText, textEl, voidEl } from './html.js';
-import { toHtmlWithEgress } from './markdown.js';
+import { toHtmlCited } from './markdown.js';
 
 const EM_DASH = '—';
 
@@ -1028,7 +1028,15 @@ const renderDisplay = (
       return el(
         'div',
         [['class', 'fuaran-markdown']],
-        toHtmlWithEgress(ctx.egressPolicy, renderText(ctx.sources, display.spec.text)),
+        toHtmlCited(
+          ctx.egressPolicy,
+          display.spec.citations.map((c) => ({
+            name: c.name,
+            reference: c.reference,
+            label: c.label === undefined ? undefined : renderText(ctx.sources, c.label),
+          })),
+          renderText(ctx.sources, display.spec.text),
+        ),
       );
 
     case 'Metric':

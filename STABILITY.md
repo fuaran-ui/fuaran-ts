@@ -380,6 +380,19 @@ change: `yFields` was always a list and an empty one always decoded; the lowerin
 - **Certified by** `packages/charts/test/chart-lowering.test.ts` over the `chart-lowering/derived-series/` goldens the F#
   reference emits, byte for byte, the refusal included.
 
+### Rides `@fuaran-ui/schema` 0.28.0, `@fuaran-ui/ops` 0.32.0, `@fuaran-ui/renderer` 0.29.0, `@fuaran-ui/renderer-server` 0.26.0 and `@fuaran-ui/ui` 0.26.0 — a cited figure reads inside a sentence (fuaran#2591)
+
+**Additive.** Every draft is untagged and above `v0.31.0`, so the change rides them. The wire change is
+`WIRE_FORMAT.md` §3.6.32: `Markdown` gains the optional `citations`, omitted when empty. `MarkdownSpec.citations` is a
+required property the decoder restores, as `MetricSpec.comparisons` is, so a hand-written spec literal gains
+`citations: []`.
+
+- **Ops.** The codec reads and writes it through the field table, and refuses an empty array, a name outside the
+  grammar and a repeated name. `UpdateProp` gains the `Icon` field on `Fact`, the arm fuaran#2535 left out.
+- **Renderers.** `toHtmlCited` is new; `toHtmlWithEgress` is its no-citation case. The client and the string server
+  both draw `span.fuaran-cited[data-fact]` in the line of text, with a label as a visually hidden first child.
+- **UI.** `fuaran.markdown(id, body, citations?)`.
+
 ### Rides `@fuaran-ui/schema` 0.28.0, `@fuaran-ui/ops` 0.32.0, `@fuaran-ui/renderer` 0.29.0 and `@fuaran-ui/renderer-server` 0.26.0 — a `Fact` carries its reference on the wire (fuaran#2535)
 
 **Additive.** Every draft is untagged and above `v0.31.0`, so the change rides them. The wire change is

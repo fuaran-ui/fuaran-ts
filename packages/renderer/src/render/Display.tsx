@@ -53,7 +53,7 @@ import { mathMl } from '../mathMl.js';
 import { CODE_HIGHLIGHT_TIER, codeHighlight } from '../codeHighlight.js';
 import { sanitizeEmbedSrcForEgress, sanitizeUrlForEgress } from '../egress.js';
 import { sanitizeLinkAnchor } from '../sanitize.js';
-import { toHtmlWithEgress } from '../markdown.js';
+import { toHtmlCited } from '../markdown.js';
 import { renderNode } from './core.js';
 import { iconHook } from './iconHook.js';
 
@@ -110,7 +110,15 @@ export const renderDisplay = <TMsg,>(
           className="fuaran-markdown"
           dangerouslySetInnerHTML={{
             __html: trustedHtml(
-              toHtmlWithEgress(ctx.egressPolicy, renderText(ctx.sources, display.spec.text)),
+              toHtmlCited(
+                ctx.egressPolicy,
+                display.spec.citations.map((c) => ({
+                  name: c.name,
+                  reference: c.reference,
+                  label: c.label === undefined ? undefined : renderText(ctx.sources, c.label),
+                })),
+                renderText(ctx.sources, display.spec.text),
+              ),
             ),
           }}
         />

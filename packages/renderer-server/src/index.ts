@@ -69,4 +69,4 @@ export {
   stylesheetText,
 } from './csp.js';
 
-export { toHtml, toHtmlWithEgress } from './markdown.js';
+export { toHtml, toHtmlCited, toHtmlWithEgress } from './markdown.js';

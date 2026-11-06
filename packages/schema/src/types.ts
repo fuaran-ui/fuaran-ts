@@ -1604,6 +1604,17 @@ export interface MetricComparison {
   readonly polarity: TrendPolarity;
 }
 
+/**
+ * Phase 2591 (WIRE_FORMAT.md §3.6.32) — one figure a `Markdown` text cites, placed by a
+ * `cite:<name>` link. `reference` is opaque, as on `Fact`; `label` is for a screen reader and
+ * is never printed. The list itself (`MarkdownSpec.citations`) is omitted when empty.
+ */
+export interface MarkdownCitation {
+  readonly name: string;
+  readonly reference: string;
+  readonly label?: TextSource;
+}
+
 export interface BadgeSpec extends IdlSpec<'Badge'> {}
 
 // A crawlable hyperlink primitive (Phase 139). Renders a real `<a href>` in
@@ -3132,6 +3143,7 @@ export interface RecordTypes<TMsg> {
   readonly InvokeArg: InvokeArg;
   readonly MapMarker: MapMarker;
   readonly MetricComparison: MetricComparison;
+  readonly MarkdownCitation: MarkdownCitation;
   /** Spelt as the `[low, high]` pair `FormFieldKind.Range` carries. */
   readonly RangePair: readonly [number, number];
   readonly SelectOption: SelectOption;

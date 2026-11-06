@@ -103,7 +103,10 @@ describe('server semantics', () => {
       id: 'inner',
       kind: {
         kind: 'Display',
-        display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: 'hi' } } },
+        display: {
+          kind: 'Markdown',
+          spec: { citations: [], text: { kind: 'Literal', value: 'hi' } },
+        },
       },
       state: {},
       style,
@@ -145,7 +148,10 @@ describe('server semantics', () => {
       id,
       kind: {
         kind: 'Display',
-        display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: text } } },
+        display: {
+          kind: 'Markdown',
+          spec: { citations: [], text: { kind: 'Literal', value: text } },
+        },
       },
       state: {},
       style,
@@ -215,6 +221,22 @@ describe('BehindView (Phase 1812)', () => {
     if (!named.ok || !spoken.ok) throw new Error('both decode');
     expect(renderToHtml(spoken.value)).toBe(renderToHtml(named.value));
     expect(renderToHtml(spoken.value)).not.toContain('all systems operational');
+  });
+});
+
+// Phase 2591 — a figure cited inside a sentence (WIRE_FORMAT §3.6.32).
+describe('Markdown citations', () => {
+  it('draws each figure in the line of text, with no tile and no link', () => {
+    const html = render('markdown-citation-several.json');
+    expect(html).toContain(
+      '<span class="fuaran-cited" data-fact="fact:spend-q3">£412k</span> placed by <strong><span class="fuaran-cited" data-fact="fact:brands-q3"><span class="fuaran-cited-label">Brands placing </span>17</span></strong> brands',
+    );
+    expect(html).not.toContain('fuaran-kind-fact');
+    expect(html).not.toContain('<a ');
+  });
+
+  it('leaves a sentence citing nothing as a dead link', () => {
+    expect(render('markdown-citation-none.json')).toContain('<a href="about:blank">23%</a>');
   });
 });
 

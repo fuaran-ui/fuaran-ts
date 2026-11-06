@@ -20,7 +20,10 @@ const leaf = (id: string): N => ({
   id: nid(id),
   kind: {
     kind: 'Display',
-    display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: 'body' } } },
+    display: {
+      kind: 'Markdown',
+      spec: { citations: [], text: { kind: 'Literal', value: 'body' } },
+    },
   },
   state: {},
   style,
@@ -201,7 +204,10 @@ describe('the walks fold over the enumeration', () => {
           kind: 'Display',
           display: {
             kind: 'Markdown',
-            spec: { text: { kind: 'Bound', binding: { kind: 'State', key, defaultValue: 'v' } } },
+            spec: {
+              citations: [],
+              text: { kind: 'Bound', binding: { kind: 'State', key, defaultValue: 'v' } },
+            },
           },
         },
         state: {},

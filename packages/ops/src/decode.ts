@@ -4456,6 +4456,7 @@ const dialect = (() => {
         FormField: decodeFormField,
         GuestChannel: decodeGuestChannel,
         MetricComparison: decodeMetricComparison,
+        MarkdownCitation: decodeMarkdownCitation,
         SrcSetEntry: decodeSrcSetEntry,
         StaticRows: decodeStaticRows,
         TabHeader: decodeTabHeader,
@@ -4705,7 +4706,36 @@ const decodeLabelValueRowSpec = specDecoder('LabelValueRow', {
 
 const decodeFactSpec = specDecoder('Fact', { emphasis: { dec: decodeEmphasisFlag } });
 
-const decodeMarkdownSpec = specDecoder('Markdown');
+/** Phase 2591 — what a `cite:<name>` destination can say without escaping (§3.6.32). */
+const isCitationName = (name: string): boolean => /^[A-Za-z0-9_-]+$/.test(name);
+
+const decodeMarkdownCitation = recordDecoder('MarkdownCitation', {
+  name: {
+    dec: (w, p, j) =>
+      andThen(requireString(w, p, j), (name) =>
+        isCitationName(name)
+          ? ok(name)
+          : wrongType(p, "a citation name of letters, digits, '-' and '_'"),
+      ),
+  },
+});
+
+const decodeMarkdownSpec = specDecoder('Markdown', {}, (spec, _w, path, f) => {
+  if (tryField(f, 'citations') !== undefined && spec.citations.length === 0) {
+    return wrongType(`${path}.citations`, 'a non-empty citation list, or no member at all');
+  }
+  const seen = new Set<string>();
+  for (const [i, c] of spec.citations.entries()) {
+    if (seen.has(c.name)) {
+      return wrongType(
+        `${path}.citations[${i}].name`,
+        'a citation name no other citation in this list uses',
+      );
+    }
+    seen.add(c.name);
+  }
+  return ok(spec);
+});
 
 const decodeBadgeSpec = specDecoder('Badge');
 
@@ -7278,7 +7308,10 @@ const placeholderClosureNode: Node<unknown> = {
   id: CLOSURE as NodeId,
   kind: {
     kind: 'Display',
-    display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: CLOSURE } } },
+    display: {
+      kind: 'Markdown',
+      spec: { citations: [], text: { kind: 'Literal', value: CLOSURE } },
+    },
   },
   state: {},
   style: defaultSemanticStyle,

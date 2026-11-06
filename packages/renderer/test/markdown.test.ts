@@ -19,7 +19,7 @@ import {
   permissiveEgress,
   type EgressPolicy,
 } from '../src/egress.js';
-import { toHtml, toHtmlWithEgress } from '../src/markdown.js';
+import { toHtml, toHtmlCited } from '../src/markdown.js';
 
 import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
 
@@ -32,6 +32,8 @@ interface Fixture {
   html: string;
   /** WIRE_FORMAT §14.1 — the destination policy the render is performed under. */
   policy?: string;
+  /** WIRE_FORMAT §3.6.32 — the figures the text cites. */
+  citations?: readonly { name: string; reference: string; label?: string }[];
 }
 
 const corpus = JSON.parse(readFileSync(corpusPath, 'utf8')) as { fixtures: Fixture[] };
@@ -79,13 +81,13 @@ describe('deterministic GFM markdown renderer — corpus parity', () => {
   it.each(corpus.fixtures.map((f) => [f.id, f] as const))(
     '%s — TS render is byte-identical to the corpus',
     (_id, f) => {
-      expect(toHtmlWithEgress(policyByName(f.policy), f.source)).toBe(f.html);
+      expect(toHtmlCited(policyByName(f.policy), f.citations ?? [], f.source)).toBe(f.html);
     },
   );
 
   it.each(
     corpus.fixtures
-      .filter((f) => (f.policy ?? 'permissive') === 'permissive')
+      .filter((f) => (f.policy ?? 'permissive') === 'permissive' && f.citations === undefined)
       .map((f) => [f.id, f] as const),
   )('%s — the pure toHtml IS the permissive case', (_id, f) => {
     expect(toHtml(f.source)).toBe(f.html);

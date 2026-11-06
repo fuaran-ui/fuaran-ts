@@ -1199,6 +1199,7 @@ const encDialect = (() => {
         GuestChannel: guestChannel as Enc,
         MapMarker: mapMarker as Enc,
         MetricComparison: metricComparison as Enc,
+        MarkdownCitation: markdownCitation as Enc,
         SelectOption: selectOption as Enc,
         SelectOptionGroup: selectOptionGroup as Enc,
         SrcSetEntry: srcSetEntry as Enc,
@@ -2381,6 +2382,7 @@ const fragmentRefSpec = specEncoder('FragmentRef', {
 const guestChannel = recordEncoder('GuestChannel');
 /** One further comparison on a `Metric` (Phase 2472). */
 const metricComparison = recordEncoder('MetricComparison');
+const markdownCitation = recordEncoder('MarkdownCitation');
 // Phase 2517 — the operable-surface declaration on a form field (WIRE_FORMAT §31.1);
 // `Select` / `Button` carry it through their spec tables.
 const affordanceRecord = recordEncoder('Affordance');

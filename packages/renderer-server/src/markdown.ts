@@ -28,4 +28,4 @@
 //  answer.
 // ============================================================================
 
-export { toHtml, toHtmlWithEgress } from '@fuaran-ui/renderer/markdown';
+export { toHtml, toHtmlCited, toHtmlWithEgress } from '@fuaran-ui/renderer/markdown';

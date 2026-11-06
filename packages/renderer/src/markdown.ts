@@ -508,7 +508,38 @@ type Tok =
       active: boolean;
     };
 
-function tokenize(refs: Refs, policy: EgressPolicy, text: string): Tok[] {
+/**
+ * Phase 2591 (WIRE_FORMAT.md §3.6.32) — one figure a text cites, its label already resolved
+ * to a string.
+ */
+export interface Citation {
+  readonly name: string;
+  readonly reference: string;
+  readonly label?: string | undefined;
+}
+
+/**
+ * The span a cited figure draws, in the line of text. The label is visually hidden by the
+ * reference stylesheet, so it reaches a screen reader without being printed in the sentence.
+ */
+const citedSpan = (citation: Citation, titleAttr: string, inner: string): string =>
+  '<span class="fuaran-cited" data-fact="' +
+  escapeHtml(citation.reference) +
+  '"' +
+  titleAttr +
+  '>' +
+  (citation.label
+    ? '<span class="fuaran-cited-label">' + escapeHtml(citation.label) + ' </span>'
+    : '') +
+  inner +
+  '</span>';
+
+function tokenize(
+  refs: Refs,
+  policy: EgressPolicy,
+  citations: readonly Citation[],
+  text: string,
+): Tok[] {
   const toks: Tok[] = [];
   const n = text.length;
   let i = 0;
@@ -524,7 +555,7 @@ function tokenize(refs: Refs, policy: EgressPolicy, text: string): Tok[] {
 
   const makeImage = (labelText: string, url: string, titleOpt: string | null): void => {
     flush();
-    const alt = plainText(parseInlines(refs, policy, labelText));
+    const alt = plainText(parseInlines(refs, policy, citations, labelText));
     const [safe, markers] = markdownDestination(policy, 'media', url);
     const titleAttr = titleOpt !== null ? ' title="' + escapeHtml(titleOpt) + '"' : '';
     toks.push({
@@ -545,9 +576,14 @@ function tokenize(refs: Refs, policy: EgressPolicy, text: string): Tok[] {
   };
   const makeLink = (labelText: string, url: string, titleOpt: string | null): void => {
     flush();
-    const inner = renderInlines(parseInlines(refs, policy, labelText));
-    const [safe, markers] = markdownDestination(policy, 'hyperlink', url);
+    const inner = renderInlines(parseInlines(refs, policy, citations, labelText));
     const titleAttr = titleOpt !== null ? ' title="' + escapeHtml(titleOpt) + '"' : '';
+    const citation = citations.find((c) => 'cite:' + c.name === url);
+    if (citation !== undefined) {
+      toks.push({ kind: 'node', node: { k: 'raw', v: citedSpan(citation, titleAttr, inner) } });
+      return;
+    }
+    const [safe, markers] = markdownDestination(policy, 'hyperlink', url);
     toks.push({
       kind: 'node',
       node: {
@@ -812,12 +848,21 @@ function processEmphasis(toks: Tok[]): Inline[] {
   return result;
 }
 
-function parseInlines(refs: Refs, policy: EgressPolicy, text: string): Inline[] {
-  return processEmphasis(tokenize(refs, policy, text));
+function parseInlines(
+  refs: Refs,
+  policy: EgressPolicy,
+  citations: readonly Citation[],
+  text: string,
+): Inline[] {
+  return processEmphasis(tokenize(refs, policy, citations, text));
 }
 
-const renderInline = (refs: Refs, policy: EgressPolicy, text: string): string =>
-  renderInlines(parseInlines(refs, policy, text));
+const renderInline = (
+  refs: Refs,
+  policy: EgressPolicy,
+  citations: readonly Citation[],
+  text: string,
+): string => renderInlines(parseInlines(refs, policy, citations, text));
 
 // ─── Block parsing ─────────────────────────────────────────────────────────
 
@@ -1187,20 +1232,38 @@ const alignAttr = (a: string): string =>
         ? ' align="right"'
         : '';
 
-function renderBlocks(refs: Refs, policy: EgressPolicy, blocks: Block[]): string {
+function renderBlocks(
+  refs: Refs,
+  policy: EgressPolicy,
+  citations: readonly Citation[],
+  blocks: Block[],
+): string {
   let out = '';
-  for (const b of blocks) out += renderBlock(refs, policy, b);
+  for (const b of blocks) out += renderBlock(refs, policy, citations, b);
   return out;
 }
 
-function renderBlock(refs: Refs, policy: EgressPolicy, b: Block): string {
+function renderBlock(
+  refs: Refs,
+  policy: EgressPolicy,
+  citations: readonly Citation[],
+  b: Block,
+): string {
   switch (b.t) {
     case 'hr':
       return '<hr />\n';
     case 'heading':
-      return '<h' + b.level + '>' + renderInline(refs, policy, b.text) + '</h' + b.level + '>\n';
+      return (
+        '<h' +
+        b.level +
+        '>' +
+        renderInline(refs, policy, citations, b.text) +
+        '</h' +
+        b.level +
+        '>\n'
+      );
     case 'paragraph':
-      return '<p>' + renderInline(refs, policy, b.text) + '</p>\n';
+      return '<p>' + renderInline(refs, policy, citations, b.text) + '</p>\n';
     case 'fenced': {
       const cls = b.lang === '' ? '' : ' class="language-' + escapeHtml(b.lang) + '"';
       return '<pre><code' + cls + '>' + escapeHtml(b.content) + '\n</code></pre>\n';
@@ -1208,7 +1271,7 @@ function renderBlock(refs: Refs, policy: EgressPolicy, b: Block): string {
     case 'indented':
       return '<pre><code>' + escapeHtml(b.content) + '\n</code></pre>\n';
     case 'blockquote':
-      return '<blockquote>\n' + renderBlocks(refs, policy, b.blocks) + '</blockquote>\n';
+      return '<blockquote>\n' + renderBlocks(refs, policy, citations, b.blocks) + '</blockquote>\n';
     case 'table': {
       let out = '<table class="fuaran-table"><thead><tr>';
       b.headers.forEach((h, idx) => {
@@ -1217,7 +1280,7 @@ function renderBlock(refs: Refs, policy: EgressPolicy, b: Block): string {
           '<th class="fuaran-table-header"' +
           alignAttr(a) +
           '>' +
-          renderInline(refs, policy, h) +
+          renderInline(refs, policy, citations, h) +
           '</th>';
       });
       out += '</tr></thead><tbody>';
@@ -1230,7 +1293,7 @@ function renderBlock(refs: Refs, policy: EgressPolicy, b: Block): string {
             '<td class="fuaran-table-cell"' +
             alignAttr(a) +
             '>' +
-            renderInline(refs, policy, cell) +
+            renderInline(refs, policy, citations, cell) +
             '</td>';
         }
         out += '</tr>';
@@ -1239,15 +1302,27 @@ function renderBlock(refs: Refs, policy: EgressPolicy, b: Block): string {
       return out;
     }
     case 'bullet':
-      return '<ul>\n' + renderItems(refs, policy, b.tight, b.items) + '</ul>\n';
+      return '<ul>\n' + renderItems(refs, policy, citations, b.tight, b.items) + '</ul>\n';
     case 'ordered': {
       const startAttr = b.start === 1 ? '' : ' start="' + b.start + '"';
-      return '<ol' + startAttr + '>\n' + renderItems(refs, policy, b.tight, b.items) + '</ol>\n';
+      return (
+        '<ol' +
+        startAttr +
+        '>\n' +
+        renderItems(refs, policy, citations, b.tight, b.items) +
+        '</ol>\n'
+      );
     }
   }
 }
 
-function renderItems(refs: Refs, policy: EgressPolicy, tight: boolean, items: ListItem[]): string {
+function renderItems(
+  refs: Refs,
+  policy: EgressPolicy,
+  citations: readonly Citation[],
+  tight: boolean,
+  items: ListItem[],
+): string {
   let out = '';
   for (const item of items) {
     let checkbox: string;
@@ -1260,13 +1335,18 @@ function renderItems(refs: Refs, policy: EgressPolicy, tight: boolean, items: Li
     if (tight) {
       let inner = '';
       for (const blk of item.blocks) {
-        if (blk.t === 'paragraph') inner += renderInline(refs, policy, blk.text);
-        else inner += '\n' + renderBlock(refs, policy, blk);
+        if (blk.t === 'paragraph') inner += renderInline(refs, policy, citations, blk.text);
+        else inner += '\n' + renderBlock(refs, policy, citations, blk);
       }
       out += '<li' + liClass + '>' + checkbox + inner + '</li>\n';
     } else {
       out +=
-        '<li' + liClass + '>\n' + checkbox + renderBlocks(refs, policy, item.blocks) + '</li>\n';
+        '<li' +
+        liClass +
+        '>\n' +
+        checkbox +
+        renderBlocks(refs, policy, citations, item.blocks) +
+        '</li>\n';
     }
   }
   return out;
@@ -1285,15 +1365,23 @@ function renderItems(refs: Refs, policy: EgressPolicy, tight: boolean, items: Li
  * **This is the entry point a host rendering a DECODED tree wants**, with
  * `denyNonLocalEgress` or its own declaration.
  */
-export const toHtmlWithEgress = (policy: EgressPolicy, source: string): string => {
+export const toHtmlCited = (
+  policy: EgressPolicy,
+  citations: readonly Citation[],
+  source: string,
+): string => {
   if (!source) return '';
   const normalized = source.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
   const rawLines = normalized.split('\n');
   const [refs, lines] = extractRefDefs(rawLines);
   const blocks = parseBlocks(lines);
-  const html = renderBlocks(refs, policy, blocks);
+  const html = renderBlocks(refs, policy, citations, blocks);
   return sanitizeMarkdownHtml(html);
 };
+
+/** `toHtmlCited` for a text that declares no citation: every link is a link. */
+export const toHtmlWithEgress = (policy: EgressPolicy, source: string): string =>
+  toHtmlCited(policy, [], source);
 
 /**
  * Render GFM markdown `source` under the PERMISSIVE destination policy — every

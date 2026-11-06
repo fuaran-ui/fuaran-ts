@@ -249,7 +249,9 @@ const updateField = (
       }
       case 'Markdown':
         return field === 'Text'
-          ? patch(coerce.textSource(value), (x) => disp({ kind: 'Markdown', spec: { text: x } }))
+          ? patch(coerce.textSource(value), (x) =>
+              disp({ kind: 'Markdown', spec: { ...d.spec, text: x } }),
+            )
           : { tag: 'unknownField' };
       case 'Badge': {
         const s = d.spec;
@@ -377,6 +379,10 @@ const updateField = (
           case 'Help':
             return patch(coerce.textSource(value), (x) =>
               disp({ kind: 'Fact', spec: { ...s, help: x } }),
+            );
+          case 'Icon':
+            return patch(coerce.iconSource(value), (x) =>
+              disp({ kind: 'Fact', spec: { ...s, icon: x } }),
             );
           case 'Reference':
             return patch(coerce.stringOption(value), (x) => {

@@ -328,7 +328,7 @@ const displayKindArb: fc.Arbitrary<DisplayKind> = fc.oneof(
       variant: fc.constantFrom('Standard', 'Eyebrow', 'Caption', 'Lead'),
     })
     .map((spec) => ({ kind: 'Heading', spec }) as DisplayKind),
-  textSourceArb.map((text) => ({ kind: 'Markdown', spec: { text } }) as DisplayKind),
+  textSourceArb.map((text) => ({ kind: 'Markdown', spec: { citations: [], text } }) as DisplayKind),
   fc
     .record(
       {
@@ -818,7 +818,7 @@ function leafNode(id: string): N {
     id: nodeId(id),
     kind: {
       kind: 'Display',
-      display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: 'x' } } },
+      display: { kind: 'Markdown', spec: { citations: [], text: { kind: 'Literal', value: 'x' } } },
     },
     state: {},
     style: { tone: 'Default', weight: 'Standard', emphasis: 'Normal' },

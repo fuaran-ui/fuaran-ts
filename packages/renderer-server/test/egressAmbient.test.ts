@@ -41,6 +41,7 @@ interface Fixture {
   source: string;
   html: string;
   policy?: string;
+  citations?: readonly unknown[];
 }
 
 const corpus = JSON.parse(readFileSync(corpusPath, 'utf8')) as { fixtures: Fixture[] };
@@ -62,9 +63,12 @@ const policyByName = (name: string | undefined): EgressPolicy => {
   }
 };
 
-const markdownNode = (source: string): Node<unknown> => {
+const markdownNode = (source: string, citations?: readonly unknown[]): Node<unknown> => {
   const decoded = decodeNode(
-    JSON.stringify({ id: 'md', kind: { $type: 'Markdown', text: source } }),
+    JSON.stringify({
+      id: 'md',
+      kind: { $type: 'Markdown', text: source, ...(citations ? { citations } : {}) },
+    }),
   );
   if (!decoded.ok) throw new Error(`decode failed: ${JSON.stringify(decoded.error)}`);
   return decoded.value;
@@ -86,7 +90,7 @@ describe('the server markdown body renders under the ambient policy', () => {
       .filter((f) => (f.policy ?? 'permissive') === 'denyNonLocal')
       .map((f) => [f.id, f] as const),
   )('%s — the DEFAULT render (no options) reproduces the corpus html', (_id, f) => {
-    expect(renderToHtml(markdownNode(f.source))).toContain(f.html);
+    expect(renderToHtml(markdownNode(f.source, f.citations))).toContain(f.html);
   });
 
   it.each(
@@ -95,7 +99,7 @@ describe('the server markdown body renders under the ambient policy', () => {
       .map((f) => [f.id, f] as const),
   )('%s — the named policy reproduces the corpus html', (_id, f) => {
     expect(
-      renderToHtml(markdownNode(f.source), { egressPolicy: policyByName(f.policy) }),
+      renderToHtml(markdownNode(f.source, f.citations), { egressPolicy: policyByName(f.policy) }),
     ).toContain(f.html);
   });
 });
