@@ -773,7 +773,7 @@ const visKindArb: fc.Arbitrary<VisKind<unknown>> = fc.oneof(
           exportable: false,
           keepRowsTogether: false,
           repeatHeader: false,
-          staticRows: sr,
+          staticRows: { citations: [], ...sr },
         },
       }) as VisKind<unknown>,
   ),

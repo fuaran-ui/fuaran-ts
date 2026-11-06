@@ -274,3 +274,31 @@ describe('Select option groups', () => {
     expect(render('select-1.json')).not.toContain('optgroup');
   });
 });
+
+// Phase 2592 — a table cell cites its figure (WIRE_FORMAT §3.6.33).
+describe('table citations', () => {
+  it('stamps a cited cell on its td, with the label as first child, and draws no tile', () => {
+    const html = render('table-citation-all.json');
+    expect(html).toContain(
+      '<td class="fuaran-table-cell" data-fact="fact:online-share"><span class="fuaran-cited-label">Online share of category spend </span>23%</td>',
+    );
+    expect(html).toContain('<td class="fuaran-table-cell" data-fact="fact:online-brands">17</td>');
+    expect(html).toContain('<td class="fuaran-table-cell">Online</td>');
+    expect(html).not.toContain('fuaran-kind-fact');
+  });
+
+  it('keeps a cited toned cell its pill, after the label', () => {
+    expect(render('table-citation-some.json')).toContain(
+      'data-fact="fact:wholesale-change"><span class="fuaran-cited-label">Wholesale change </span><span class="fuaran-grid-cell-pill',
+    );
+  });
+
+  it('adds only the attribute and the span to the uncited twin', () => {
+    const all = render('table-citation-all.json');
+    const stripped = all
+      .replace(/ data-fact="[^"]*"/g, '')
+      .replace(/<span class="fuaran-cited-label">[^<]*<\/span>/g, '')
+      .replaceAll('table-citation-all', 'table-citation-none');
+    expect(stripped).toBe(render('table-citation-none.json'));
+  });
+});

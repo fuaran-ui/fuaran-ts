@@ -1204,6 +1204,7 @@ const encDialect = (() => {
         SelectOptionGroup: selectOptionGroup as Enc,
         SrcSetEntry: srcSetEntry as Enc,
         StaticRows: staticRows as Enc,
+        TableCitation: tableCitation as Enc,
         TabHeader: tabHeader as Enc,
         TrackEntry: trackEntry as Enc,
         TreeItem: treeItem as Enc,
@@ -2397,6 +2398,7 @@ const mountSpec = specEncoder('Mount', {
   inputs: { enc: nonEmptyMap(fragmentArg as Enc) },
 });
 /** A static read-only table's rows (Phase 393; sort intent Phase 801). */
+const tableCitation = recordEncoder('TableCitation');
 const staticRows = recordEncoder('StaticRows');
 
 const nodeKind = (k: NodeKind<unknown>): string => {

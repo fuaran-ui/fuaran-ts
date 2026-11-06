@@ -380,6 +380,18 @@ change: `yFields` was always a list and an empty one always decoded; the lowerin
 - **Certified by** `packages/charts/test/chart-lowering.test.ts` over the `chart-lowering/derived-series/` goldens the F#
   reference emits, byte for byte, the refusal included.
 
+### Rides the same drafts — a table cell cites its figure (fuaran#2592)
+
+**Additive.** `WIRE_FORMAT.md` §3.6.33: `DataGrid.staticRows` gains the optional `citations`, omitted when empty.
+`StaticRows.citations` is a required property the decoder restores, so a hand-written spec literal gains `citations: []`;
+both renderers read it as optional, so a hand-written spec without it renders as a table citing nothing.
+
+- **Ops.** The decoder reads each coordinate against the rows, and refuses an empty array, a negative or out-of-range
+  row or column, and two entries for one cell. A missing member is `MISSING_FIELD`.
+- **Renderers.** The client and the string server stamp `data-fact` on a cited `<td>`, with a label as a
+  `fuaran-cited-label` first child. A table citing nothing emits what it did.
+- **UI.** `fuaran.table({ ..., citations })`.
+
 ### Rides `@fuaran-ui/schema` 0.28.0, `@fuaran-ui/ops` 0.32.0, `@fuaran-ui/renderer` 0.29.0, `@fuaran-ui/renderer-server` 0.26.0 and `@fuaran-ui/ui` 0.26.0 — a cited figure reads inside a sentence (fuaran#2591)
 
 **Additive.** Every draft is untagged and above `v0.31.0`, so the change rides them. The wire change is

@@ -1615,6 +1615,18 @@ export interface MarkdownCitation {
   readonly label?: TextSource;
 }
 
+/**
+ * Phase 2592 (WIRE_FORMAT.md §3.6.33) — one cell of a static table that cites its figure, by
+ * zero-based `row` and `column` into `staticRows.rows`. `reference` is opaque, as on `Fact`;
+ * `label` is for a screen reader and is never printed. The list is omitted when empty.
+ */
+export interface TableCitation {
+  readonly column: number;
+  readonly label?: TextSource;
+  readonly reference: string;
+  readonly row: number;
+}
+
 export interface BadgeSpec extends IdlSpec<'Badge'> {}
 
 // A crawlable hyperlink primitive (Phase 139). Renders a real `<a href>` in
@@ -3086,6 +3098,8 @@ export interface TableSpec<TMsg> {
   // renderer can surface it as data attributes. Both optional; both absent renders as before.
   readonly sortable?: boolean;
   readonly defaultSort?: DefaultSort;
+  // Phase 2592 — the cells that cite their figures.
+  readonly citations?: readonly TableCitation[];
 }
 
 export interface MapSpec<TMsg> extends IdlSpec<'Map', TMsg> {
@@ -3144,6 +3158,7 @@ export interface RecordTypes<TMsg> {
   readonly MapMarker: MapMarker;
   readonly MetricComparison: MetricComparison;
   readonly MarkdownCitation: MarkdownCitation;
+  readonly TableCitation: TableCitation;
   /** Spelt as the `[low, high]` pair `FormFieldKind.Range` carries. */
   readonly RangePair: readonly [number, number];
   readonly SelectOption: SelectOption;

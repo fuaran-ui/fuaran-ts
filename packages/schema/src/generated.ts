@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = '59b30bfa4b6bf50e0623f6672dc27a23170dead76c4cbda6c181bd7e6e704c59';
+export const IDL_SHA256 = '5defc2bc8886228c73a3f41b4b225de6df5b9e0068db44ac74378471ff9a6665';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -287,6 +287,14 @@ const T_enum_ChannelDirection = {
 const T_enum_TextDirection = { $type: 'enum', name: 'TextDirection' } as const satisfies IdlType;
 const T_enum_StyleRole = { $type: 'enum', name: 'StyleRole' } as const satisfies IdlType;
 const T_enum_FontVoice = { $type: 'enum', name: 'FontVoice' } as const satisfies IdlType;
+const T_record_TableCitation = {
+  $type: 'record',
+  name: 'TableCitation',
+} as const satisfies IdlType;
+const T_list_record_TableCitation = {
+  $type: 'list',
+  of: T_record_TableCitation,
+} as const satisfies IdlType;
 const T_list_list_union_TextSource = {
   $type: 'list',
   of: T_list_union_TextSource,
@@ -1380,6 +1388,12 @@ export const RECORD_FIELDS = {
     { name: 'onLoading', opt: 'optional', type: T_node },
   ],
   StaticRows: [
+    {
+      name: 'citations',
+      opt: 'omitDefault',
+      type: T_list_record_TableCitation,
+      dflt: { $type: 'list', items: [] },
+    },
     { name: 'defaultSort', opt: 'optional', type: T_record_DefaultSort },
     { name: 'headers', opt: 'required', type: T_list_union_TextSource },
     { name: 'rows', opt: 'required', type: T_list_list_union_TextSource },
@@ -1402,6 +1416,12 @@ export const RECORD_FIELDS = {
     { name: 'label', opt: 'required', type: T_union_TextSource },
     { name: 'icon', opt: 'optional', type: T_str },
     { name: 'disabled', opt: 'optional', type: T_union_Binding_bool },
+  ],
+  TableCitation: [
+    { name: 'column', opt: 'required', type: T_int },
+    { name: 'label', opt: 'optional', type: T_union_TextSource },
+    { name: 'reference', opt: 'required', type: T_str },
+    { name: 'row', opt: 'required', type: T_int },
   ],
   TrackEntry: [
     { name: 'default', opt: 'omitDefault', type: T_bool, dflt: { $type: 'bool', value: false } },

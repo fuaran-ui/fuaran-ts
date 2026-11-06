@@ -107,6 +107,7 @@ import type {
   Transform,
   MarkdownCitation,
   MetricComparison,
+  TableCitation,
 } from '@fuaran-ui/schema';
 
 // ─── Ergonomic input coercions ───────────────────────────────────────────────
@@ -1626,6 +1627,11 @@ export interface TableOptions<TMsg> {
   readonly rows: readonly (readonly TextInput[])[];
   readonly onRowClick?: (index: number) => Action<TMsg>;
   /**
+   * Phase 2592 — the cells that cite their figures, by zero-based `row` and `column` into
+   * `rows`. Omitted when empty; decode refuses a coordinate naming no cell.
+   */
+  readonly citations?: readonly TableCitation[];
+  /**
    * Phase 2473 — how the cells render, read by POSITION: `columns[j]` describes every
    * row's cell `j`, and a static row reads as each column's `field` mapped to its cell's
    * text. A `TonedPill` column draws its cells as pills toned by the map, keeping each
@@ -2547,6 +2553,7 @@ export const fuaran = {
             keepRowsTogether: false,
             repeatHeader: false,
             staticRows: {
+              citations: o.citations ?? [],
               headers: o.headers.map(text),
               rows: o.rows.map((row) => row.map(text)),
             },

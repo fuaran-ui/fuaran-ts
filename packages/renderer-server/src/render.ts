@@ -3301,13 +3301,28 @@ const renderTable = (
     .map((h) => textEl('th', [['class', 'fuaran-table-header']], renderText(ctx.sources, h)))
     .join('');
   const head = el('thead', [], el('tr', [], headerCells));
+  const citedAt = new Map((spec.citations ?? []).map((c) => [`${c.row}:${c.column}`, c]));
   const bodyRows = spec.rows
-    .map((row) => {
+    .map((row, i) => {
       const texts = row.map((cell) => renderText(ctx.sources, cell));
       const cells = texts
-        .map((text, j) =>
-          el('td', [['class', 'fuaran-table-cell']], staticCell(columns, texts, j, text)),
-        )
+        .map((text, j) => {
+          // Phase 2592 — the reference on the cell, a label as its first child (§3.6.33).
+          const citation = citedAt.get(`${i}:${j}`);
+          const label =
+            citation?.label === undefined ? '' : renderText(ctx.sources, citation.label);
+          return el(
+            'td',
+            citation === undefined
+              ? [['class', 'fuaran-table-cell']]
+              : [
+                  ['class', 'fuaran-table-cell'],
+                  ['data-fact', citation.reference],
+                ],
+            (label === '' ? '' : textEl('span', [['class', 'fuaran-cited-label']], `${label} `)) +
+              staticCell(columns, texts, j, text),
+          );
+        })
         .join('');
       return selected !== undefined && texts[selected.keyAt] === selected.key
         ? el(

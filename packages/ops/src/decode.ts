@@ -151,6 +151,7 @@ import type {
   DefaultSort,
   TabHeader,
   Table,
+  TableCitation,
   TextSource,
   ToneVariant,
   VisKind,
@@ -6394,6 +6395,7 @@ const decodeColumnErased = (w: Walk, path: string, j: JsonAst): R<ColumnErased<u
 // Phase 393 — decode the `{ headers, rows }` static-rows object of a read-only grid
 // (also the shape the legacy `Table` decode-upgrade reads). Cells are `TextSource`.
 type StaticRows = {
+  readonly citations: readonly TableCitation[];
   readonly headers: readonly TextSource[];
   readonly rows: readonly (readonly TextSource[])[];
   readonly sortable?: boolean;
@@ -6424,6 +6426,64 @@ const decodeDefaultSort = (w: Walk, path: string, j: JsonAst): R<DefaultSort> =>
   if (!column.ok || !direction.ok) return failed(column, direction);
   return ok({ column: column.value, direction: direction.value });
 };
+// Phase 2592 — one cited cell (§3.6.33). The coordinates are read as the header index is,
+// and a row or column naming no cell is refused against the rows they address.
+const decodeTableCitation =
+  (rows: readonly (readonly TextSource[])[]) =>
+  (w: Walk, path: string, j: JsonAst): R<TableCitation> => {
+    const fo = requireObject(w, path, j);
+    if (!fo.ok) return fo;
+    const f = fo.value;
+    const coordinate = (name: string, expected: string): R<number> =>
+      andThen(requireField(path, f, name, expected), (cv) =>
+        cv.kind !== 'JNumber' || cv.value < 0 || !Number.isInteger(cv.value)
+          ? wrongType(`${path}.${name}`, `JSON number (${expected})`)
+          : ok(cv.value),
+      );
+    const row = andThen(coordinate('row', 'non-negative row index'), (r) =>
+      r < rows.length ? ok(r) : wrongType(`${path}.row`, 'a row index this table has'),
+    );
+    const column = andThen(coordinate('column', 'non-negative column index'), (c) =>
+      row.ok && c >= (rows[row.value] ?? []).length
+        ? wrongType(`${path}.column`, 'a column index the cited row has')
+        : ok(c),
+    );
+    const reference = reqField(w, path, f, 'reference', 'citation reference', requireString);
+    const label = optField(w, path, f, 'label', decodeTextSource);
+    if (!row.ok || !column.ok || !reference.ok || !label.ok)
+      return failed(row, column, reference, label);
+    return ok({
+      column: column.value,
+      ...(label.value !== undefined ? { label: label.value } : {}),
+      reference: reference.value,
+      row: row.value,
+    });
+  };
+
+const decodeTableCitations = (
+  w: Walk,
+  path: string,
+  j: JsonAst,
+  rows: readonly (readonly TextSource[])[],
+): R<readonly TableCitation[]> =>
+  andThen(requireArray(w, path, j), (els) => {
+    if (els.length === 0) return wrongType(path, 'a non-empty citation list, or no member at all');
+    const decode = decodeTableCitation(rows);
+    return andThen(
+      traverseIndexed(els, (i, el) => decode(w, `${path}[${i}]`, el)),
+      (citations) => {
+        const seen = new Set<string>();
+        for (const [i, c] of citations.entries()) {
+          const cell = `${c.row}:${c.column}`;
+          if (seen.has(cell))
+            return wrongType(`${path}[${i}]`, 'a cell no other citation in this list names');
+          seen.add(cell);
+        }
+        return ok(citations);
+      },
+    );
+  });
+
 const decodeStaticRows = (w: Walk, path: string, j: JsonAst): R<StaticRows> => {
   const fo = requireObject(w, path, j);
   if (!fo.ok) return fo;
@@ -6450,9 +6510,16 @@ const decodeStaticRows = (w: Walk, path: string, j: JsonAst): R<StaticRows> => {
   );
   const sortable = optField(w, path, f, 'sortable', requireBool);
   const defaultSort = optField(w, path, f, 'defaultSort', decodeDefaultSort);
-  if (!headers.ok || !rows.ok || !sortable.ok || !defaultSort.ok)
-    return failed(headers, rows, sortable, defaultSort);
+  // Phase 2592 — read against the rows, so a bad row list is reported first.
+  const citationsJ = tryField(f, 'citations');
+  const citations: R<readonly TableCitation[]> =
+    citationsJ === undefined || !rows.ok
+      ? ok([])
+      : decodeTableCitations(w, `${path}.citations`, citationsJ, rows.value);
+  if (!headers.ok || !rows.ok || !citations.ok || !sortable.ok || !defaultSort.ok)
+    return failed(rows, citations, headers, sortable, defaultSort);
   return ok({
+    citations: citations.value,
     headers: headers.value,
     rows: rows.value,
     ...(sortable.value !== undefined ? { sortable: sortable.value } : {}),
