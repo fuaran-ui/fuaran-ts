@@ -179,8 +179,12 @@ export const renderDisplay = <TMsg,>(
       // renderText resolves Literal/Bound/I18n as for every label.
       const spec = display.spec;
       const emphasisSuffix = spec.emphasis ? ' fuaran-fact-emphasis' : '';
+      // WIRE_FORMAT 3.6.31 — `data-fact` carries the citation; undefined draws no attribute.
       return (
-        <div className={`fuaran-fact fuaran-fact-${toneVar(spec.tone)}${emphasisSuffix}`}>
+        <div
+          className={`fuaran-fact fuaran-fact-${toneVar(spec.tone)}${emphasisSuffix}`}
+          data-fact={spec.reference}
+        >
           <div className="fuaran-fact-label">{renderText(ctx.sources, spec.label)}</div>
           <div className="fuaran-fact-value">
             {spec.icon !== undefined ? iconHook('fuaran-fact-icon', spec.icon) : null}

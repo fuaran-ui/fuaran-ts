@@ -380,6 +380,15 @@ change: `yFields` was always a list and an empty one always decoded; the lowerin
 - **Certified by** `packages/charts/test/chart-lowering.test.ts` over the `chart-lowering/derived-series/` goldens the F#
   reference emits, byte for byte, the refusal included.
 
+### Rides `@fuaran-ui/schema` 0.28.0, `@fuaran-ui/ops` 0.32.0, `@fuaran-ui/renderer` 0.29.0 and `@fuaran-ui/renderer-server` 0.26.0 — a `Fact` carries its reference on the wire (fuaran#2535)
+
+**Additive.** Every draft is untagged and above `v0.31.0`, so the change rides them. The wire change is
+`WIRE_FORMAT.md` §3.6.31: `Fact` gains the optional `reference`.
+
+- **Schema.** The optional `FactSpec.reference`, from the generated field table.
+- **Ops.** The codec reads and writes it through the field table. `UpdateProp` gains the `Reference` field on `Fact`.
+- **Renderers.** The client and the string server both stamp `data-fact` on the tile's root; no reference, no attribute.
+
 ### Rides `@fuaran-ui/schema` 0.28.0, `@fuaran-ui/ops` 0.32.0, `@fuaran-ui/renderer` 0.29.0 and `@fuaran-ui/renderer-server` 0.26.0 — a `Select` carries optional option groups (fuaran#2571)
 
 **Additive.** Every draft is untagged and above `v0.31.0`, so the change rides them. The wire change is

@@ -218,6 +218,19 @@ describe('BehindView (Phase 1812)', () => {
   });
 });
 
+// Phase 2535 — a cited figure (WIRE_FORMAT §3.6.31): `data-fact` on the tile's root.
+describe('Fact reference', () => {
+  it('stamps data-fact on the tile', () => {
+    expect(render('fact-cited.json')).toContain(
+      '<div class="fuaran-fact fuaran-fact-default" data-fact="9f04f29b27c86926a1c3e5d7b8f0a2c4e6d8f0a1b3c5d7e9f1a3b5c7d9e1f3a5">',
+    );
+  });
+
+  it('stamps nothing on an uncited tile', () => {
+    expect(render('fact-1.json')).not.toContain('data-fact');
+  });
+});
+
 // Phase 2571 — option groups (WIRE_FORMAT §3.6.30): one <optgroup> per group in
 // list order, a group's options in `source` order, the ungrouped remainder last.
 describe('Select option groups', () => {

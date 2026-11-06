@@ -1105,7 +1105,11 @@ const renderDisplay = (
           : '');
       return el(
         'div',
-        [['class', `fuaran-fact fuaran-fact-${toneVar(spec.tone)}${emphasisSuffix}`]],
+        [
+          ['class', `fuaran-fact fuaran-fact-${toneVar(spec.tone)}${emphasisSuffix}`],
+          // WIRE_FORMAT 3.6.31 — the citation, through the ordinary attribute encoder.
+          ...(spec.reference !== undefined ? ([['data-fact', spec.reference]] as const) : []),
+        ],
         inner,
       );
     }

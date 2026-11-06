@@ -378,6 +378,14 @@ const updateField = (
             return patch(coerce.textSource(value), (x) =>
               disp({ kind: 'Fact', spec: { ...s, help: x } }),
             );
+          case 'Reference':
+            return patch(coerce.stringOption(value), (x) => {
+              const { reference: _reference, ...rest } = s;
+              return disp({
+                kind: 'Fact',
+                spec: { ...rest, ...(x !== undefined ? { reference: x } : {}) },
+              });
+            });
           default:
             return { tag: 'unknownField' };
         }
