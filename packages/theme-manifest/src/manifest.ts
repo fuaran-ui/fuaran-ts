@@ -89,6 +89,11 @@ export interface MotionBudget {
  *  - `UsageBudget`: a token's share of visible surface must stay within
  *    `targetPct ± tolerancePct` (the 60-30-10 formalisation).
  *  - `MotionVoice`: the theme's motion must stay within the `MotionBudget`.
+ *  - `Unknown` (Phase 2133): an invariant whose wire kind this host does not
+ *    know. It is KEPT — `name` is the wire kind as written, `members` its other
+ *    members except `weight`, as parsed — so it round-trips through decode and
+ *    encode, and `validateManifest` reports it as `INVARIANT_KIND_UNKNOWN`:
+ *    declared, and enforced by nothing here.
  */
 export type InvariantKind =
   | { readonly kind: 'ContrastFloor'; readonly role: string; readonly minRatio: number }
@@ -98,7 +103,12 @@ export type InvariantKind =
       readonly targetPct: number;
       readonly tolerancePct: number;
     }
-  | { readonly kind: 'MotionVoice'; readonly budget: MotionBudget };
+  | { readonly kind: 'MotionVoice'; readonly budget: MotionBudget }
+  | {
+      readonly kind: 'Unknown';
+      readonly name: string;
+      readonly members: Readonly<Record<string, unknown>>;
+    };
 
 /** One declared invariant + its soft weight. `weight` defaults to 1.0. */
 export interface Invariant {
@@ -118,8 +128,9 @@ export const weightedInvariant = (weight: number, kind: InvariantKind): Invarian
   weight,
 });
 
-/** Stable string discriminator for an invariant. */
-export const invariantKindName = (inv: Invariant): string => inv.kind.kind;
+/** Stable string discriminator for an invariant — the wire kind, as written, for an unknown one. */
+export const invariantKindName = (inv: Invariant): string =>
+  inv.kind.kind === 'Unknown' ? inv.kind.name : inv.kind.kind;
 
 // ─── ThemeManifest ──────────────────────────────────────────────────────────────
 
@@ -172,3 +183,72 @@ export const resolveNamedRole = (
 /** Every colour value declared in the palette — the membership set for the off-palette check. */
 export const paletteColours = (manifest: ThemeManifest): ReadonlySet<string> =>
   new Set(manifest.tokens.filter((t) => t.type === 'color').map((t) => t.value));
+
+// ─── Validation — what the decoded values MEAN (Phase 2133) ────────────────────
+
+/**
+ * The shared validation defect codes — the table in the corpus's WIRE_FORMAT
+ * §13 (the style-observer family's `manifest-validation` tier), identical on
+ * every manifest host:
+ *  - `CONTRAST_FLOOR_OUT_OF_RANGE`: a `ContrastFloor`'s `minRatio` lies outside
+ *    [1, 21] (an omitted one is 0); `subject` is the role.
+ *  - `CONTRAST_FLOOR_ROLE_EMPTY`: its `role` is empty; `subject` is `''`.
+ *  - `CONTRAST_FLOOR_ROLE_UNBOUND`: no role binding binds its non-empty role.
+ *  - `USAGE_BUDGET_TOKEN_UNDECLARED`: a `UsageBudget`'s token names no declared
+ *    token; `subject` is the token.
+ *  - `INVARIANT_KIND_UNKNOWN`: the kind is outside this host's vocabulary — kept,
+ *    and enforced by nothing; `subject` is the kind.
+ */
+export type ManifestDefectCode =
+  | 'CONTRAST_FLOOR_OUT_OF_RANGE'
+  | 'CONTRAST_FLOOR_ROLE_EMPTY'
+  | 'CONTRAST_FLOOR_ROLE_UNBOUND'
+  | 'USAGE_BUDGET_TOKEN_UNDECLARED'
+  | 'INVARIANT_KIND_UNKNOWN';
+
+/** One validation finding: which rule, which invariant (its position in the decoded list), and what it names. */
+export interface ManifestDefect {
+  readonly code: ManifestDefectCode;
+  readonly index: number;
+  readonly subject: string;
+}
+
+/** The range WCAG's contrast formula produces: below it every pair passes, above it none can. */
+const MIN_CONTRAST_RATIO = 1;
+const MAX_CONTRAST_RATIO = 21;
+
+/** Does any role binding bind `role`? A tone binding binds its tone's wire name, a named one its name. */
+const binds = (role: string, manifest: ThemeManifest): boolean =>
+  manifest.roles.some((b) => (b.role.kind === 'Tone' ? b.role.tone : b.role.name) === role);
+
+/**
+ * The validation pass, run after the tolerant decode (Phase 2133): every
+ * declared invariant that cannot mean what it says, as one shared code.
+ * Invariant by invariant in list order, and within one in the table's order.
+ * Never refuses and never repairs; a host decides what a defect costs it.
+ */
+export const validateManifest = (manifest: ThemeManifest): readonly ManifestDefect[] => {
+  const out: ManifestDefect[] = [];
+  manifest.invariants.forEach((inv, index) => {
+    const k = inv.kind;
+    switch (k.kind) {
+      case 'ContrastFloor':
+        if (!(k.minRatio >= MIN_CONTRAST_RATIO && k.minRatio <= MAX_CONTRAST_RATIO))
+          out.push({ code: 'CONTRAST_FLOOR_OUT_OF_RANGE', index, subject: k.role });
+        if (k.role === '') out.push({ code: 'CONTRAST_FLOOR_ROLE_EMPTY', index, subject: '' });
+        else if (!binds(k.role, manifest))
+          out.push({ code: 'CONTRAST_FLOOR_ROLE_UNBOUND', index, subject: k.role });
+        break;
+      case 'UsageBudget':
+        if (tryGetToken(k.token, manifest) === undefined)
+          out.push({ code: 'USAGE_BUDGET_TOKEN_UNDECLARED', index, subject: k.token });
+        break;
+      case 'Unknown':
+        out.push({ code: 'INVARIANT_KIND_UNKNOWN', index, subject: k.name });
+        break;
+      case 'MotionVoice':
+        break;
+    }
+  });
+  return out;
+};

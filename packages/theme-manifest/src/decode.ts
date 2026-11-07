@@ -9,13 +9,13 @@
 //  Detection: presence of a top-level `tokens` key selects shape (1).
 //
 //  A missing invariant / role-binding member decodes to its default (`0`, `''`,
-//  `Named('')`) and an unknown invariant kind is dropped. That is NOT an
-//  oversight to tighten here alone (Phase 2077 measured it): the cross-host
-//  manifest byte law this package's encoder certifies against omits a member
-//  at its default, so `{"kind":"ContrastFloor","role":"x"}` IS the canonical
-//  encoding of a ratio-0 floor on three hosts. Refusing it is a wire decision
-//  for every host at once, and `test/manifest.test.ts` pins the tolerance so a
-//  one-host tightening goes red.
+//  `Named('')`), and an invariant kind this host does not know is KEPT as an
+//  `Unknown` invariant. Decoding stays tolerant and total (Phase 2077 measured
+//  why): the cross-host manifest byte law omits a member at its default, so
+//  `{"kind":"ContrastFloor","role":"x"}` IS the canonical encoding of a ratio-0
+//  floor on every host. What the decoded values MEAN — a floor outside [1, 21],
+//  an empty or unbound role, an undeclared budget token, an unknown kind — is
+//  checked after decode by `validateManifest` (Phase 2133).
 // ============================================================================
 
 import {
@@ -100,7 +100,10 @@ const parseInvariant = (j: unknown): Invariant | undefined => {
   const weight = asNumber(obj['weight']) ?? DEFAULT_WEIGHT;
   const str = (name: string): string | undefined => asString(obj[name]);
   const num = (name: string): number | undefined => asNumber(obj[name]);
-  switch (str('kind')) {
+  const kind = str('kind');
+  // An object with no non-empty string `kind` is not an invariant of any kind.
+  if (kind === undefined || kind === '') return undefined;
+  switch (kind) {
     case 'ContrastFloor':
       return {
         kind: { kind: 'ContrastFloor', role: str('role') ?? '', minRatio: num('minRatio') ?? 0 },
@@ -127,8 +130,14 @@ const parseInvariant = (j: unknown): Invariant | undefined => {
         },
         weight,
       };
-    default:
-      return undefined;
+    default: {
+      // Phase 2133 — kept with its members, never dropped: validateManifest
+      // reports it unenforced.
+      const members = Object.fromEntries(
+        Object.entries(obj).filter(([k]) => k !== 'kind' && k !== 'weight'),
+      );
+      return { kind: { kind: 'Unknown', name: kind, members }, weight };
+    }
   }
 };
 

@@ -107,11 +107,12 @@ describe('decode', () => {
   });
 
   // Phase 2077 asked for a missing required member to be refused. Measured, the
-  // premise does not hold for this host alone: the cross-host byte law
-  // (`encode.test.ts`, bytes copied from the Rust oracle) OMITS a member at its
-  // default, so each input below is the CANONICAL encoding of the value it
-  // decodes to. Refusing them is a wire decision for every host at once; this
-  // pin goes red if one host tightens alone.
+  // premise does not hold: the cross-host byte law (`encode.test.ts`, bytes
+  // copied from the Rust oracle) OMITS a member at its default, so each input
+  // below is the CANONICAL encoding of the value it decodes to, and the decoder
+  // stays tolerant. Whether those values MEAN anything — the floor of 0 below,
+  // its unbound role, the unknown kind kept rather than dropped — is checked
+  // after decode by the validation pass (Phase 2133, `validate.test.ts`).
   it('decodes default-omitted members as the defaults the canonical encoder omitted', () => {
     const r = decodeManifest(
       '{"tokens":{},"roles":[{"token":"t"}],"invariants":[' +
@@ -127,6 +128,7 @@ describe('decode', () => {
       { kind: 'ContrastFloor', role: 'x', minRatio: 0 },
       { kind: 'UsageBudget', token: 't', targetPct: 0, tolerancePct: 0 },
       { kind: 'MotionVoice', budget: { maxDurationMs: 0 } },
+      { kind: 'Unknown', name: 'NotAKind', members: {} },
     ]);
   });
 });

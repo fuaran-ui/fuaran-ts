@@ -1991,6 +1991,39 @@ earlier `malformed:` wording; its code and path are unchanged. **Certified by** 
 `reject-transform-int-fractional`, `lenient-transform-int-whole-float-token` and
 `lenient-transform-int-inferred-past-int32`, in the re-synced snapshot.
 
+### Recorded breaking change — `@fuaran-ui/theme-manifest` 0.13.0 and `@fuaran-ui/conformance` 0.30.0, theme-manifest invariants are validated, not decoded strictly (Phase 2133)
+
+_Unreleased: ahead of the newest tag, `v0.32.0`, which published theme-manifest 0.12.4 and conformance 0.29.0._
+
+**What changed.** `InvariantKind` gains `{ kind: 'Unknown', name, members }`: an invariant whose wire kind
+this host does not know is KEPT, with its other members as parsed, and round-trips through `decodeManifest` and
+`encodeManifest`, where it used to be dropped. `invariantKindName` returns the wire kind for it. An object with no
+non-empty string `kind` is still not an invariant. `validateManifest` (exported, with `ManifestDefect`,
+`ManifestDefectCode` and `encodeManifestDefect`) is the validation pass every manifest host runs after its
+tolerant decode, with the shared code table of the corpus's WIRE_FORMAT §13: `CONTRAST_FLOOR_OUT_OF_RANGE`
+(`minRatio` outside [1, 21]), `CONTRAST_FLOOR_ROLE_EMPTY`, `CONTRAST_FLOOR_ROLE_UNBOUND`,
+`USAGE_BUDGET_TOKEN_UNDECLARED` and `INVARIANT_KIND_UNKNOWN`. Decoding is unchanged otherwise, and the wire
+bytes do not move.
+
+**Why.** The byte law omits a member at its default, so `{"kind":"ContrastFloor","role":"x"}` is the canonical
+encoding of a floor of 0, a floor every pair passes. A strict decoder would refuse every host's output and still
+miss an explicit `0.5`, an unbound role and a dropped unknown kind; the defect is in the meaning, so it is checked
+after decode.
+
+**What it costs a consumer.** An exhaustive `switch` over `InvariantKind['kind']` under a `default: never`
+pattern gains a case. Pre-1.0 that is a minor advance. The bundled corpus snapshot gains the style-observer
+family's seven `manifest-validation` vectors, an additive conformance minor.
+
+**What certifies it.** The corpus vectors `style-observer/manifest-validation-*.json`, run by
+`packages/style-observer/test/corpusConformance.test.ts`; this host's own cases in
+`packages/theme-manifest/test/validate.test.ts`; the tolerant-decode pin in
+`packages/theme-manifest/test/manifest.test.ts`.
+
+**Release-consistency patch.** `@fuaran-ui/style-observer` declares `@fuaran-ui/theme-manifest` as a
+`workspace:^` peer, which `v0.32.0` published as a 0.12 range that excludes 0.13.0. The package's own suite
+gains the new tier; its published code does not move. The repack writes `^0.13.0`: `@fuaran-ui/style-observer`
+0.11.3 → 0.11.4.
+
 ## Re-confirmation gate before public exposure
 
 Before this repo flips public (public GitHub repository, published-to-npm package, or marketing surface), the licensing posture declared in [`LICENSE`](LICENSE) must be re-confirmed by Diametrical Ltd.

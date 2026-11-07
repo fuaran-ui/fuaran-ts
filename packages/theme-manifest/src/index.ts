@@ -18,6 +18,8 @@ export {
   type InvariantKind,
   type Invariant,
   type ThemeManifest,
+  type ManifestDefectCode,
+  type ManifestDefect,
   anonymousMeta,
   emptyManifest,
   DEFAULT_WEIGHT,
@@ -30,11 +32,12 @@ export {
   resolveRole,
   resolveNamedRole,
   paletteColours,
+  validateManifest,
 } from './manifest.js';
 
 export { type DecodeManifestResult, manifestFromJson, decodeManifest } from './decode.js';
 
-export { encodeManifest } from './encode.js';
+export { encodeManifest, encodeManifestDefect } from './encode.js';
 
 export {
   type CssBlock,
