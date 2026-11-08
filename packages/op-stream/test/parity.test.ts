@@ -200,3 +200,27 @@ describe('shared chain corpus (Phase 407) — TS reproduces the canonical F# cha
     }
   });
 });
+
+// fuaran#1937 / fuaran-core#287 — the corpus carries actors with control characters (an
+// agent with a newline, a tab and a carriage return; a human with a NUL). The loop above
+// already reproduces their hashes; this pins that they are THERE, so the escape the three
+// hosts share cannot silently drop out of the cross-host check, and that the actor bytes
+// folded into the pre-image spell every control character as \u00xx, never raw.
+describe('shared chain corpus — control-character actors hash identically (fuaran#1937)', () => {
+  const corpus = JSON.parse(readFixture('chain/chain-corpus.json')) as ChainCorpus;
+  const hasControl = (s: string): boolean => [...s].some((c) => c.charCodeAt(0) < 0x20);
+  const fields = (a: Actor): readonly string[] =>
+    a.kind === 'human' ? [a.id] : [a.model, a.version, a.id];
+
+  it('the corpus holds at least one control-character actor of each kind', () => {
+    const controlled = corpus.records.filter((r) => fields(r.actor).some(hasControl));
+    expect(controlled.some((r) => r.actor.kind === 'agent')).toBe(true);
+    expect(controlled.some((r) => r.actor.kind === 'human')).toBe(true);
+
+    for (const r of controlled) {
+      const bytes = encodeActor(r.actor);
+      expect(hasControl(bytes)).toBe(false);
+      expect(bytes).toContain('\\u00');
+    }
+  });
+});
