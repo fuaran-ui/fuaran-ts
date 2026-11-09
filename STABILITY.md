@@ -1212,7 +1212,8 @@ them moved, so each takes a **patch** whose tarball differs only in the regenera
 0.14.2 → 0.14.3, `@fuaran-ui/charts` 0.15.0 → 0.15.1, `@fuaran-ui/client` 0.13.1 → 0.13.2, `@fuaran-ui/mcp` 0.14.3 →
 0.14.4, `@fuaran-ui/op-stream` 0.12.0 → 0.12.1, `@fuaran-ui/renderer` 0.29.0 → 0.29.1 and `@fuaran-ui/renderer-server`
 0.26.0 → 0.26.1. `@fuaran-ui/ui` 0.26.0 → 0.26.1 is a patch for the workspace-internal actor twin it bundles, whose
-doc comment now cites Core's `Actor.encode` (fuaran#1937); no byte it emits moves.
+doc comment now cites Core's `Actor.encode` (fuaran#1937); no byte it emits moves. The starter template's pins follow `renderer`
+0.29.1 and `ui` 0.26.1.
 
 ### Recorded breaking change — `@fuaran-ui/ops` 0.32.0, `UpdateAccessibility` and `UpdateTooltip`, the trait edits (Phase 2527)
 
