@@ -1184,6 +1184,36 @@ type changes: `'DuplicateNodeId'` was already a case.
 (`duplicateIdsApply`), run by `packages/ops/test/duplicate-ids-apply-corpus.test.ts`, and this host's
 own cases in `packages/ops/test/apply-duplicate-ids.test.ts`. Both failed on the previous engine.
 
+### `@fuaran-ui/ops` 0.33.0 — merge by fold: the base-aware footprint, the conflict report and the reconciliation policy (Phase 2641)
+
+_Unreleased: opens the `@fuaran-ui/ops` 0.33.0 slot, ahead of the newest tag, `v0.32.0`._
+
+**Additive.** No existing export changed shape, and the three-way tree merge (`merge3Way`) is untouched. The
+contract is `WIRE_FORMAT.md` §34, certified by the `foldFixtures` family of the merge-conformance corpus
+(`packages/ops/test/fold.test.ts`: every artefact byte for byte and by its sha256, the swap mirrored, the gated
+fixture through the validator gate).
+
+- **Footprint.** `footprintOf` (from the op alone) and `footprintIn` / `footprintEachIn` (at the tree the op
+  applies to) — the reference's base-aware projection, arm for arm, as the `Footprint` record with `emptyFootprint`
+  / `unionFootprint`. §34.2 makes the projection part of the contract: a coarser one refuses pairs the reference
+  admits, a finer one admits pairs it refuses.
+- **Conflict report.** `conflictsIn(base, a, b)` — every op pair whose footprints are not independent, with its
+  address and `OpConflictShape` (`ConcurrentUpdate`, `InsertPositionClash`, `MoveVsRemove`, `SlotClash` with the
+  slot), each delta threaded through `apply` from the base.
+- **Policy.** `reconcileFold` admits agreements and interleaves, orders an interleaved parent by the child-order
+  rule (recording `ReorderChildren` as the merge's `script`), runs the fold in both orders and refuses a
+  disagreement as `OrderSensitive`; every other pair is refused as `Conflict` or `DeleteModify`.
+  `reconcileFoldGated` adds the validator gate, `encodeFoldEnvelope` the §34.5 refusal envelope, and
+  `applyHeld` / `sortFoldRefusals` the two rules a host composes them from.
+
+**Minor, per the pre-1.0 rule (additive is a minor).** Leaving `^0.32.0` is what the release-consistency sweep
+answers: seven published packages declare `@fuaran-ui/ops` `^0.32.0` (a peer or a dependency) and nothing else in
+them moved, so each takes a **patch** whose tarball differs only in the regenerated range — `@fuaran-ui/ai-tools`
+0.14.2 → 0.14.3, `@fuaran-ui/charts` 0.15.0 → 0.15.1, `@fuaran-ui/client` 0.13.1 → 0.13.2, `@fuaran-ui/mcp` 0.14.3 →
+0.14.4, `@fuaran-ui/op-stream` 0.12.0 → 0.12.1, `@fuaran-ui/renderer` 0.29.0 → 0.29.1 and `@fuaran-ui/renderer-server`
+0.26.0 → 0.26.1. `@fuaran-ui/ui` 0.26.0 → 0.26.1 is a patch for the workspace-internal actor twin it bundles, whose
+doc comment now cites Core's `Actor.encode` (fuaran#1937); no byte it emits moves.
+
 ### Recorded breaking change — `@fuaran-ui/ops` 0.32.0, `UpdateAccessibility` and `UpdateTooltip`, the trait edits (Phase 2527)
 
 _Unreleased: rides the `@fuaran-ui/ops` 0.32.0 slot, ahead of the newest tag, `v0.31.0`._

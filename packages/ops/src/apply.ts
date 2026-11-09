@@ -1221,7 +1221,7 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
  * NODES, not ids: a payload whose ids repeat has fewer ids than nodes, so an id
  * set cannot say whether the op adds to the tree.
  */
-const insertedNodes = (op: TreeOp<unknown>): readonly N[] => {
+export const insertedNodes = (op: TreeOp<unknown>): readonly N[] => {
   switch (op.kind) {
     case 'InsertChild':
       return [op.child];
