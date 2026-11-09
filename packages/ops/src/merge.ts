@@ -76,7 +76,8 @@ import {
 } from '@fuaran-ui/schema';
 
 import { children, Reach, withOrderedChildren } from './children.js';
-import { encodeNode } from './encode.js';
+import { encodeNode, str } from './encode.js';
+import { ordinal } from './footprint.js';
 
 type N = Node<unknown>;
 
@@ -281,8 +282,6 @@ const alreadyRecorded = (
 ): boolean => conflicts.some((c) => c.nodeId === nodeId && c.facet === facet);
 
 // ─── facet pickers ───────────────────────────────────────────────────────────
-
-const ordinal = (x: string, y: string): number => (x < y ? -1 : x > y ? 1 : 0);
 
 /** `true` when `head` is `base` with zero removals and zero reorders. */
 const isPureAddition = (baseIds: readonly string[], headIds: readonly string[]): boolean => {
@@ -698,22 +697,8 @@ export const sortConflictsCanonical = (
 ): readonly MergeConflict[] =>
   [...conflicts].sort((x, y) => ordinal(x.nodeId, y.nodeId) || ordinal(x.facet, y.facet));
 
-/** Mirror of the canonical-JSON string escape, kept local for the same reason
- * the reference host keeps its own: the merge surface takes no dependency on a
- * codec for one escape. */
-const escapeJson = (s: string): string => {
-  let out = '"';
-  for (const ch of s) {
-    if (ch === '"') out += '\\"';
-    else if (ch === '\\') out += '\\\\';
-    else if (ch < ' ') out += `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`;
-    else out += ch;
-  }
-  return out + '"';
-};
-
 const encodeSide = (side: MergeSide): string =>
-  `{"tag":${side.tag === undefined ? 'null' : escapeJson(side.tag)},"value":${escapeJson(side.value)}}`;
+  `{"tag":${side.tag === undefined ? 'null' : str(side.tag)},"value":${str(side.value)}}`;
 
 /**
  * Canonical JSON of a REFUSAL envelope: the conflict set as a sorted array of
@@ -732,9 +717,9 @@ export const encodeMergeEnvelope = (conflicts: readonly MergeConflict[]): string
   sortConflictsCanonical(conflicts)
     .map(
       (c) =>
-        `{"a":${encodeSide(c.a)},"b":${encodeSide(c.b)},"base":${escapeJson(c.base)},` +
-        `"class":${escapeJson(c.class)},"facet":${escapeJson(c.facet)},` +
-        `"nodeId":${escapeJson(c.nodeId)},"primacyHeld":${c.primacyHeld ? 'true' : 'false'}}`,
+        `{"a":${encodeSide(c.a)},"b":${encodeSide(c.b)},"base":${str(c.base)},` +
+        `"class":${str(c.class)},"facet":${str(c.facet)},` +
+        `"nodeId":${str(c.nodeId)},"primacyHeld":${c.primacyHeld ? 'true' : 'false'}}`,
     )
     .join(',') +
   ']';
