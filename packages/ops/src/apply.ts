@@ -98,8 +98,8 @@ const idOf = (n: N): string => n.id as string;
 // ─── Tree walkers ────────────────────────────────────────────────────────────
 //
 // The walkers below fold over the one child enumeration in children.ts, at
-// `Reach.lookup` (layout children, the kind-held arms and the two `state`
-// alternatives). They are exported for intra-package reuse (the placement
+// `Reach.all`: every position, slot arguments and the envelope `fallback`
+// included, the reference's keyed walk (Phase 2704). They are exported for intra-package reuse (the placement
 // helpers in placement.ts pre-check against the SAME traversal the apply
 // engine runs, so helper verdicts and apply verdicts cannot drift). They are
 // deliberately not re-exported from the package index.
@@ -114,7 +114,7 @@ export const layoutChildren = (n: N): readonly N[] | undefined => orderedChildre
 const mapNode = (target: string, f: (n: N) => N, n: N): N | undefined => {
   if (idOf(n) === target) return f(n);
   let hit = false;
-  const rebuilt = mapChildren(n, Reach.lookup, (c) => {
+  const rebuilt = mapChildren(n, Reach.all, (c) => {
     if (hit) return c;
     const r = mapNode(target, f, c);
     if (r === undefined) return c;
@@ -132,12 +132,12 @@ const mapNode = (target: string, f: (n: N) => N, n: N): N | undefined => {
  */
 export const allNodeIds = (n: N): string[] => [
   idOf(n),
-  ...children(n, Reach.lookup).flatMap((c) => allNodeIds(c)),
+  ...children(n, Reach.all).flatMap((c) => allNodeIds(c)),
 ];
 
 export const findLayoutParent = (target: string, n: N): N | undefined => {
   if (children(n, Reach.structural).some((c) => idOf(c) === target)) return n;
-  for (const c of children(n, Reach.lookup)) {
+  for (const c of children(n, Reach.all)) {
     const r = findLayoutParent(target, c);
     if (r !== undefined) return r;
   }
@@ -147,7 +147,7 @@ export const findLayoutParent = (target: string, n: N): N | undefined => {
 export const isAncestor = (ancestorId: string, descendantId: string, root: N): boolean => {
   const a = findNode(root, ancestorId);
   if (a === undefined) return false;
-  return children(a, Reach.lookup).some((c) => allNodeIds(c).includes(descendantId));
+  return children(a, Reach.all).some((c) => allNodeIds(c).includes(descendantId));
 };
 
 // ─── UpdateProp field dispatch ───────────────────────────────────────────────
@@ -1315,7 +1315,7 @@ const treeLimitBreach = (tree: N): string | undefined => {
 // subtree repeats one (Phase 2172).
 //
 // The check reads the RESULT and charges the op only for the ids it installed
-// (`insertedNodes`), over the same `Reach.lookup` surface every other id check
+// (`insertedNodes`), over the same `Reach.all` surface every other id check
 // here walks. That is what lets an `EditNode` restate the children it replaces
 // and an `UpdateState` replace an alternative with one of the same id: the old
 // node leaves as the new one arrives. A duplicate already present before the
