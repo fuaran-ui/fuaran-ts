@@ -14,14 +14,27 @@
 //      appends a node to `p` (an `InsertChild` under it, or a `MoveNode` to it)
 //      and the two appended ids differ. Admitted, ordered by the child-order
 //      rule below.
-//   3. A REFUSAL — anything else. `DeleteModify` when exactly one of the two ops
+//   3. A REBASE (fuaran#2671) — one op is a `ReorderChildren(p, order)` and the
+//      other changes `p`'s child list: an `InsertChild` under `p`, a `MoveNode`
+//      to `p`, or a `RemoveNode` or `MoveNode` of a child `order` lists. Neither
+//      may be a `Batch`. Admitted: the fold applies the reorder REBASED to the
+//      children `p` holds when it is reached (the listed children still there,
+//      in the declared order, then the rest in held order).
+//   4. A REFUSAL — anything else. `DeleteModify` when exactly one of the two ops
 //      removes (a `RemoveNode`, or a `Batch` holding one), `Conflict` otherwise.
+//      Two reorders of one parent that differ stay refused.
 //
-//  THE CHILD-ORDER RULE (§34.4). Under an interleaved parent the children
-//  neither branch appended keep the fold's order and the appended ones follow:
-//  each branch's appends in its own order, the two runs merged by comparing
-//  heads ordinally by NodeId, the smaller first. Where that differs from the
-//  fold's order the merge records `ReorderChildren(p, order)`.
+//  THE CHILD-ORDER RULE (§34.4). Under an interleaved or rebased parent the
+//  children neither branch appended keep the fold's order (the rebased
+//  reorder's, where a branch reordered the parent) and the appended ones
+//  follow: each branch's run of appends in its own order, the two runs merged
+//  by comparing heads ordinally by NodeId, the smaller first, and a node both
+//  runs hold (two agreeing moves of it) listed once, where the merge first
+//  reaches it. An append a later reorder of the same parent on the same branch
+//  lists is settled by that reorder and leaves the run. The merge records
+//  `ReorderChildren(p, order)` for EVERY interleaved or rebased parent
+//  (fuaran#2645): a merge node is replayed by Core's closure fold in its own
+//  drain order, so the script — not the order a reconcile checked — fixes it.
 //
 //  CHECKED, not assumed: the admitted classes lie outside Core's independence
 //  theorem, so the fold runs in both orders, each followed by the script, and
@@ -29,6 +42,8 @@
 //
 //  The reference is fuaran-dotnet's `DagReconcile`; the `foldFixtures` family
 //  of the merge-conformance corpus certifies every host against the same bytes.
+//  Since fuaran#2645 this is the op DAG's ONLY merge: the three-way tree merge
+//  retired with its merge-conformance keys (fuaran#2646).
 // ============================================================================
 
 import type { Node, NodeId } from '@fuaran-ui/schema';
@@ -72,8 +87,10 @@ export type FoldFault<TMsg, D = never> =
   /** The derived tree carries defects neither branch head had. */
   | { readonly fault: 'IntroducedDefects'; readonly defects: readonly D[] };
 
-/** A derived merge: the tree, the script the merge records, how many distinct
- * agreeing ops the fold applied as no change, and how many parents it interleaved. */
+/** A derived merge: the tree, the script the merge records (one `ReorderChildren`
+ * per interleaved or rebased parent, parents in ordinal order), how many distinct
+ * agreeing ops the fold applied as no change, and how many parents it interleaved
+ * or rebased. */
 export interface FoldReconciled<TMsg> {
   readonly tree: Node<TMsg>;
   readonly script: readonly TreeOp<TMsg>[];
@@ -152,9 +169,29 @@ const foldOps = (ops: readonly Op[], start: N, step: (o: Op, t: N) => Applied): 
   return acc;
 };
 
-const foldHeld = (ops: readonly Op[], start: N): Applied =>
+/**
+ * A reorder rebased to the children its parent holds in `tree`: the listed
+ * children still there, in the declared order, then the others in held order.
+ * `op` itself where the parent is not in the tree.
+ */
+const rebased = (tree: N, op: Extract<Op, { kind: 'ReorderChildren' }>): Op => {
+  const p = findStructural(tree, op.parentId as string);
+  if (p === undefined) return op;
+  const kids = structural(p).map(idOf);
+  const listed = [...new Set(op.newOrder.map(String).filter((c) => kids.includes(c)))];
+  const order = [...listed, ...kids.filter((k) => !listed.includes(k))];
+  return { kind: 'ReorderChildren', parentId: op.parentId, newOrder: order as NodeId[] };
+};
+
+/**
+ * The fold: `applyHeld` op by op, with a reorder of a parent in `rebase`
+ * applied rebased to the children the parent holds when the fold reaches it.
+ */
+const foldHeld = (ops: readonly Op[], start: N, rebase: ReadonlySet<string> = new Set()): Applied =>
   foldOps(ops, start, (o, t) => {
-    const r = applyHeld(o, t);
+    const step =
+      o.kind === 'ReorderChildren' && rebase.has(o.parentId as string) ? rebased(t, o) : o;
+    const r = applyHeld(step, t);
     return r.ok ? { ok: true, tree: r.tree } : r;
   });
 
@@ -181,9 +218,31 @@ const appendInto = (parent: string, op: Op): string | undefined => {
   return undefined;
 };
 
+/**
+ * The parent whose child list `reorder` and `other` both change, when `reorder`
+ * is a `ReorderChildren` and `other` an append to its parent or a removal or
+ * move of a child it lists.
+ */
+const rebaseOf = (reorder: Op, other: Op): string | undefined => {
+  if (reorder.kind !== 'ReorderChildren') return undefined;
+  const p = reorder.parentId as string;
+  const listed = (c: string): boolean => reorder.newOrder.map(String).includes(c);
+  switch (other.kind) {
+    case 'InsertChild':
+      return (other.parentId as string) === p ? p : undefined;
+    case 'MoveNode':
+      return (other.newParentId as string) === p || listed(other.target as string) ? p : undefined;
+    case 'RemoveNode':
+      return listed(other.target as string) ? p : undefined;
+    default:
+      return undefined;
+  }
+};
+
 type Verdict =
   | { readonly v: 'Agreement' }
   | { readonly v: 'Interleave'; readonly parent: string }
+  | { readonly v: 'Rebase'; readonly parent: string }
   | { readonly v: 'Refuse'; readonly class: FoldRefusalClass };
 
 const judge = (c: OpConflict<unknown>): Verdict => {
@@ -192,6 +251,8 @@ const judge = (c: OpConflict<unknown>): Verdict => {
   const r = appendInto(c.address, c.right);
   if (c.shape.shape === 'InsertPositionClash' && l !== undefined && r !== undefined && l !== r)
     return { v: 'Interleave', parent: c.address };
+  const rebase = rebaseOf(c.left, c.right) ?? rebaseOf(c.right, c.left);
+  if (rebase !== undefined) return { v: 'Rebase', parent: rebase };
   return { v: 'Refuse', class: removes(c.left) !== removes(c.right) ? 'DeleteModify' : 'Conflict' };
 };
 
@@ -224,7 +285,11 @@ export const sortFoldRefusals = <TMsg>(
     .map(([, r]) => r);
 };
 
-/** The child-order rule's run-merge: each run in its own order, heads compared ordinally. */
+/**
+ * The child-order rule's run-merge: each run in its own order, heads compared
+ * ordinally. An id both runs hold appears twice; `reorderFor` keeps its first
+ * occurrence.
+ */
 const interleave = (a: readonly string[], b: readonly string[]): string[] => {
   const out: string[] = [];
   let i = 0;
@@ -233,7 +298,12 @@ const interleave = (a: readonly string[], b: readonly string[]): string[] => {
   return [...out, ...a.slice(i), ...b.slice(j)];
 };
 
-/** The `ReorderChildren` the rule asks of `parent`, or none when the fold's order is the rule's. */
+/**
+ * The `ReorderChildren` the rule asks of `parent`, or none when the parent is not
+ * in the tree. Recorded even where the fold already gives the rule's order
+ * (fuaran#2645): a merge node's replay applies the branches in Core's drain
+ * order, so the script has to fix the order.
+ */
 const reorderFor = (
   tree: N,
   parent: string,
@@ -248,10 +318,13 @@ const reorderFor = (
   const keep = (run: readonly string[]): string[] => [
     ...new Set(run.filter((x) => present.has(x))),
   ];
-  const order = [...kids.filter((k) => !appended.has(k)), ...interleave(keep(runA), keep(runB))];
-  return order.every((x, i) => x === kids[i])
-    ? []
-    : [{ kind: 'ReorderChildren', parentId: parent as NodeId, newOrder: order as NodeId[] }];
+  // A node both runs hold (two agreeing moves of it) is listed once, where the
+  // merge first reaches it — the same whichever run is named first.
+  const order = [
+    ...kids.filter((k) => !appended.has(k)),
+    ...new Set(interleave(keep(runA), keep(runB))),
+  ];
+  return [{ kind: 'ReorderChildren', parentId: parent as NodeId, newOrder: order as NodeId[] }];
 };
 
 /**
@@ -281,25 +354,35 @@ export const reconcileFold = <TMsg>(
   if (refusals.length > 0)
     return { ok: false, error: { fault: 'Refused', refusals: sortFoldRefusals(refusals) } };
 
+  const rebase = new Set(verdicts.flatMap(([, v]) => (v.v === 'Rebase' ? [v.parent] : [])));
   const parents = [
-    ...new Set(verdicts.flatMap(([, v]) => (v.v === 'Interleave' ? [v.parent] : []))),
+    ...new Set(
+      verdicts.flatMap(([, v]) => (v.v === 'Interleave' || v.v === 'Rebase' ? [v.parent] : [])),
+    ),
   ].sort(ordinal);
   // A pair is reported once per address it collides on: count distinct agreeing ops.
   const agreements = new Set(
     verdicts.flatMap(([c, v]) => (v.v === 'Agreement' ? [encodeOp(c.left)] : [])),
   ).size;
 
+  // A branch's run of appends into `parent`, in branch order. An append a later
+  // reorder of the same parent on the branch lists is settled by that reorder:
+  // the branch placed it, so it leaves the run.
   const appendsOf = (parent: string, delta: readonly Op[]): string[] =>
-    delta.flatMap((op) => {
+    delta.reduce<string[]>((run, op) => {
+      if (op.kind === 'ReorderChildren' && (op.parentId as string) === parent) {
+        const listed = op.newOrder.map(String);
+        return run.filter((id) => !listed.includes(id));
+      }
       const id = appendInto(parent, op);
-      return id === undefined ? [] : [id];
-    });
+      return id === undefined || run.includes(id) ? run : [...run, id];
+    }, []);
 
   const derive = (
     first: readonly Op[],
     second: readonly Op[],
   ): { ok: true; tree: N; script: Op[] } | { ok: false; error: ApplyError } => {
-    const folded = foldHeld([...first, ...second], b0);
+    const folded = foldHeld([...first, ...second], b0, rebase);
     if (!folded.ok) return folded;
     const script = parents.flatMap((p) =>
       reorderFor(folded.tree, p, appendsOf(p, a), appendsOf(p, b)),

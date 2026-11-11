@@ -1,7 +1,7 @@
 // ============================================================================
-//  The merge-conformance corpus's sample validator gate (Phase 184), shared by
-//  the tree-merge legs (merge.test.ts) and the merge-by-fold legs
-//  (fold.test.ts): one port of the F# `ValidatorGate` introduced-defect diff
+//  The merge-conformance corpus's sample validator gate (Phase 184), read by
+//  the merge-by-fold legs (fold.test.ts; the tree-merge legs retired with the
+//  tree merge, Phase 2646): one port of the F# `ValidatorGate` introduced-defect diff
 //  and verdict codec, and of the sample domain validator the gated fixtures
 //  certify against. Test-side, as the reference keeps it: the invariant is a
 //  documented sample, not a production API surface.
