@@ -429,6 +429,39 @@ required property the decoder restores, as `MetricSpec.comparisons` is, so a han
 - **Certified by** the corpus (`nodes/select-option-groups*.json`, `reject/reject-2571-*`), the client's corpus
   snapshot and `packages/renderer-server/test/render.test.ts`.
 
+### `@fuaran-ui/ui` 0.27.0 — the builders spell every member the wire carries for their kinds (Phase 2694)
+
+_Unreleased: a minor ahead of the newest tag, `v0.33.0`._
+
+**Additive**, a minor because exported option interfaces gain members. The wire already carried each member and
+the codec already read and wrote it; an author could not reach it without hand-writing a spec. Every new member is
+an ordinary optional (or omit-at-default), so a call that declares none encodes to the bytes it always did.
+
+- **`fuaran.fact`** — `reference` (fuaran#2593, a cited fact) and `icon`.
+- **`fuaran.select`** — `groups` (fuaran#2571; `[]` and absent are one fact and both omit the member) and
+  `affordance` (`WIRE_FORMAT.md` §31.1).
+- **`fuaran.button`** — `affordance`.
+- **`fuaran.chart`** — `valueFormat`, `xTitle`, `yTitle`, `subtitle`, `legendPosition`, `dataLabels`, `xScale` and
+  `annotations`.
+- **Certified by** `packages/ui/test/builders-corpus.test.ts`: `fact-cited`, `select-option-groups`,
+  `select-option-groups-remainder`, `fact-1` and five chart fixtures are built through the builders and encode
+  byte-identically to the corpus, and each has a falsifier that drops the new member and must miss the bytes.
+- **Release consistency.** `@fuaran-ui/mcp` 0.14.5 is a range-only patch (its `^0.26.1` excludes 0.27.0); the
+  starter template's pin follows `ui` 0.27.0.
+
+### `@fuaran-ui/ops` 0.33.1 — a decoder handed a value that is not text refuses it with a typed defect (Phase 2694)
+
+_Unreleased: a patch ahead of the newest tag, `v0.33.0`._
+
+**Fix**, no export or signature moves. Every decoder that takes the wire as text (`decodeNode`,
+`decodeNodeWithDefects`, `decodeNodeTolerant`, `decodeOp`, `decodeOps`, `decodeEnvelope`, `decodeDagRecord`,
+`decodeGridEdit`, `decodeElicitation`, `decodeElicitationOutcome`) reads it through `parse`. Handed a value that is
+not a string, an already-parsed object most often, the parser's cursor threw `TypeError: s.text.substring is not a
+function` from inside the decoder. `parse` now refuses it as a structural failure at offset 0, so the decoders
+return `INVALID_JSON` at `$` (or their own typed refusal) and none throws. Certified by
+`packages/ops/test/non-text-input.test.ts`, which also pins the Chart default wire a structural editor synthesises:
+as text it decodes and re-encodes to a fixed point; as the parsed object it is refused, not thrown.
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:
