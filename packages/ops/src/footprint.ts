@@ -33,6 +33,19 @@
 //    out. Anything the walk does not locate takes the pure arm. A `Batch` is
 //    threaded member by member, and from an op that does not apply onwards
 //    every op takes the pure arm.
+//  - THE CHILD LIST (fuaran#2691, Core 0.42.0 D246). Core compares a structure
+//    write of `p` against a slot access as a read and a write of
+//    `(p, '#children')`, so every arm that reads or rewrites a node's
+//    structural children by slot declares that slot: a resolved reorder and a
+//    resolved move's source parent (beside the `kind` slot the tier holds the
+//    list in), an `EditNode`, and any in-place edit whose held set moved.
+//  - A resolved MOVE (fuaran#2651, #2670, #2691) touches no parent whole: the
+//    target is read and written at its `parent` slot, the source parent at its
+//    `kind` and child-list slots, the destination and every ancestor above it
+//    are read at their `parent` slots (the cycle check reads the chain), and
+//    the destination keeps Core's named structure write and read. A resolved
+//    REORDER (fuaran#2670) reads and writes its parent at the `kind` and
+//    child-list slots and reads each listed child at its `parent` slot.
 //
 //  Ids are counted over EVERY position a node holds another in (`Reach.all`,
 //  the reference's keyed walk); the base-aware arms LOCATE through the ordered
@@ -110,6 +123,21 @@ const footprint = (parts: Partial<Footprint>): Footprint => ({ ...emptyFootprint
 
 const slots = (pairs: readonly Slot[]): ReadonlyMap<string, Slot> =>
   new Map(pairs.map((p) => [slotKey(p), p]));
+
+/** Core's child-list slot (`Footprint.childListSlot`, fuaran-core Phase 625). */
+const childListSlot = '#children';
+
+/** Core's `slotEdit`: a read and a write of one slot of a node. */
+const slotEdit = (node: string, slot: string): Footprint =>
+  footprint({ slotReads: slots([[node, slot]]), slotWrites: slots([[node, slot]]) });
+
+/** Core's `readingSlot`: a read of one slot of a node and no write. */
+const readingSlot = (node: string, slot: string): Footprint =>
+  footprint({ slotReads: slots([[node, slot]]) });
+
+/** `f` with a read and a write of `node`'s child-list slot beside it. */
+const childList = (node: string, f: Footprint): Footprint =>
+  unionFootprint(f, slotEdit(node, childListSlot));
 
 // ─── walks ──────────────────────────────────────────────────────────────────
 
@@ -249,6 +277,21 @@ const slotted = (
     slotWrites: slots(writes.map((s) => [target, s] as const)),
   });
 
+/**
+ * `slotted` for an op whose contract moves no node: where its held set moved
+ * anyway (`touched` non-empty), the child list is written too. Empty for every
+ * such op the engine has, so the slot is a guard, not an arm.
+ */
+const guarded = (
+  writes: readonly string[],
+  readSlots: readonly string[],
+  target: string,
+  touched: ReadonlySet<string>,
+): Footprint => {
+  const f = slotted(writes, readSlots, target, touched);
+  return touched.size === 0 ? f : childList(target, f);
+};
+
 /** The wire member names a `PatchStyle` delta sets. */
 const styleFields = (op: Extract<TreeOp<unknown>, { kind: 'PatchStyle' }>): string[] =>
   Object.entries(op.style)
@@ -276,8 +319,18 @@ const resolvedAt = (state: N, after: N | undefined, op: TreeOp<unknown>): Footpr
 
   switch (op.kind) {
     case 'InsertChild':
-    case 'ReorderChildren':
       return footprintOf(op);
+    case 'ReorderChildren': {
+      // A resolved reorder permutes the parent's child list, held in its
+      // `kind`, and touches no child: the parent at `kind` + the child list,
+      // each listed child read at its `parent` slot.
+      const p = op.parentId as string;
+      if (after === undefined || findStructural(state, p) === undefined) return footprintOf(op);
+      return op.newOrder.reduce<Footprint>(
+        (acc, c) => unionFootprint(acc, readingSlot(c as string, 'parent')),
+        childList(p, slotEdit(p, 'kind')),
+      );
+    }
     case 'RemoveNode': {
       const t = op.target as string;
       const sub = findStructural(state, t);
@@ -297,24 +350,41 @@ const resolvedAt = (state: N, after: N | undefined, op: TreeOp<unknown>): Footpr
       const parent = located ? structuralParentOf(state, t) : undefined;
       const destination = structuralPath(state, np);
       if (!located || parent === undefined || destination === undefined) return footprintOf(op);
+      // No parent is touched WHOLE: the target at its `parent` slot, the
+      // source parent at its `kind` and child-list slots, the destination and
+      // every ancestor above it read at `parent` (the cycle check reads the
+      // chain); the destination keeps Core's named read and structure write —
+      // the address the fold interleaves two appends at. A move within one
+      // parent keeps the parent whole.
       const p = idOf(parent);
-      return footprint({
-        reads: new Set([t, np, p, ...destination.slice(0, -1).map(idOf)]),
-        structureWrites: new Set([p, np]),
-        contentWrites: new Set([t]),
-      });
+      const source = p === np ? undefined : p;
+      let f = unionFootprint(
+        footprint({ reads: new Set([np]), structureWrites: new Set([np]) }),
+        slotEdit(t, 'parent'),
+      );
+      for (const a of new Set([...destination.slice(0, -1).map(idOf), np])) {
+        if (a !== t && a !== source) f = unionFootprint(f, readingSlot(a, 'parent'));
+      }
+      return source === undefined
+        ? f
+        : unionFootprint(f, childList(source, slotEdit(source, 'kind')));
     }
     case 'EditNode': {
       const id = op.target as string;
       return verticalAt(id, (node) => {
         const old = insertedNodes({ kind: 'EditNode', target: op.target, newKind: node.kind });
-        return slotted(['kind'], [], id, union(idsOf(old), idsOf(insertedNodes(op))));
+        return slotted(
+          ['kind', childListSlot],
+          [],
+          id,
+          union(idsOf(old), idsOf(insertedNodes(op))),
+        );
       });
     }
     case 'UpdateProp':
     case 'ReplaceBinding': {
       const id = op.target as string;
-      return verticalAt(id, (node) => slotted(['kind'], [], id, heldChange(id, node)));
+      return verticalAt(id, (node) => guarded(['kind'], [], id, heldChange(id, node)));
     }
     case 'UpdateState': {
       const id = op.target as string;
@@ -327,20 +397,20 @@ const resolvedAt = (state: N, after: N | undefined, op: TreeOp<unknown>): Footpr
     }
     case 'UpdateStyle': {
       const id = op.target as string;
-      return verticalAt(id, (node) => slotted(['style'], [], id, heldChange(id, node)));
+      return verticalAt(id, (node) => guarded(['style'], [], id, heldChange(id, node)));
     }
     case 'UpdateAccessibility': {
       const id = op.target as string;
-      return verticalAt(id, (node) => slotted(['accessibility'], [], id, heldChange(id, node)));
+      return verticalAt(id, (node) => guarded(['accessibility'], [], id, heldChange(id, node)));
     }
     case 'UpdateTooltip': {
       const id = op.target as string;
-      return verticalAt(id, (node) => slotted(['tooltip'], [], id, heldChange(id, node)));
+      return verticalAt(id, (node) => guarded(['tooltip'], [], id, heldChange(id, node)));
     }
     case 'PatchStyle': {
       const id = op.target as string;
       return verticalAt(id, (node) =>
-        slotted(
+        guarded(
           styleFields(op).map((f) => `style.${f}`),
           ['style'],
           id,
@@ -440,7 +510,15 @@ const intersect = (a: ReadonlySet<string>, b: ReadonlySet<string>): Set<string> 
 const slotNodes = (s: ReadonlyMap<string, Slot>): Set<string> =>
   new Set([...s.values()].map(([node]) => node));
 
-/** The slots one side writes and the other reads or writes — Core's `Footprint.slotClash`. */
+/** The child-list slots a footprint's structure writes denote — Core's `childListSlots`. */
+const childListSlots = (f: Footprint): ReadonlyMap<string, Slot> =>
+  slots([...f.structureWrites].map((p) => [p, childListSlot] as const));
+
+/**
+ * The slots one side writes and the other reads or writes, and the child-list
+ * slot of each parent one side structure-writes that the other accesses as a
+ * slot — Core's `Footprint.slotClash` (0.42.0).
+ */
 const slotClash = (a: Footprint, b: Footprint): Slot[] => {
   const hits = new Map<string, Slot>();
   const meet = (x: ReadonlyMap<string, Slot>, y: ReadonlyMap<string, Slot>): void => {
@@ -449,20 +527,29 @@ const slotClash = (a: Footprint, b: Footprint): Slot[] => {
   meet(a.slotWrites, b.slotWrites);
   meet(a.slotWrites, b.slotReads);
   meet(a.slotReads, b.slotWrites);
+  meet(childListSlots(a), unionSlots(b.slotWrites, b.slotReads));
+  meet(unionSlots(a.slotWrites, a.slotReads), childListSlots(b));
   return [...hits.values()].sort((x, y) => ordinal(x[0], y[0]) || ordinal(x[1], y[1]));
 };
 
-/** The nodes `a` accesses through a slot that `b` touches whole — Core's `slotsAgainstNode`. */
-const slotsAgainstNode = (a: Footprint, b: Footprint): Set<string> => {
-  const whole = union(union(b.contentWrites, b.reads), b.structureWrites);
-  return new Set([
-    ...intersect(slotNodes(a.slotWrites), whole),
-    ...intersect(slotNodes(a.slotReads), b.contentWrites),
-  ]);
-};
+/**
+ * The nodes `a` accesses through a slot that `b` WRITES WHOLE — Core's
+ * `slotsAgainstNode` (0.42.0): a read of the node is of its existence and a
+ * structure write is compared at the child-list slot, so only a content write
+ * collides here.
+ */
+const slotsAgainstNode = (a: Footprint, b: Footprint): Set<string> =>
+  intersect(slotNodes(unionSlots(a.slotWrites, a.slotReads)), b.contentWrites);
 
+/**
+ * Does `f` touch structure — a named parent's child list, an unknown source
+ * parent, or a child-list slot it reads or writes? Core's `Footprint.structural`
+ * non-empty (0.42.0), the set the unknown-parent clause meets.
+ */
 const writesStructure = (f: Footprint): boolean =>
-  f.structureWrites.size > 0 || f.unknownParentWrites.size > 0;
+  f.structureWrites.size > 0 ||
+  f.unknownParentWrites.size > 0 ||
+  [...unionSlots(f.slotWrites, f.slotReads).values()].some(([, slot]) => slot === childListSlot);
 
 /**
  * Core's `Dag.conflicts`: every op pair `(a ∈ left, b ∈ right)` whose footprints

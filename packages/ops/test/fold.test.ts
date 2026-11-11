@@ -17,7 +17,9 @@
 //     `verdictFile`, sha256 == `verdictHash`.
 //
 //  Counts are read from the manifest, never pinned; the family being non-empty
-//  is pinned, so a renamed key cannot pass by asserting nothing.
+//  is pinned, so a renamed key cannot pass by asserting nothing. Since Phase
+//  2645 it is the manifest's only family (version 2); the tree-merge legs
+//  retired with the tree merge (Phase 2646).
 // ============================================================================
 
 import { createHash } from 'node:crypto';
@@ -252,5 +254,62 @@ describe('merge by fold — the policy beyond the corpus', () => {
     expect(r.value.script.map((o) => encodeOp(o))).toEqual([
       '{"$type":"ReorderChildren","newOrder":["p","a","z"],"parentId":"root"}',
     ]);
+    // Swapped, the fold's order is already the rule's, and the script is
+    // recorded anyway (Phase 2645: the script fixes the order a replay reaches).
+    const swapped = reconcileFold(base.value, b, a);
+    if (!swapped.ok) throw new Error(JSON.stringify(swapped.error));
+    expect(swapped.value.script.map((o) => encodeOp(o))).toEqual(
+      r.value.script.map((o) => encodeOp(o)),
+    );
+  });
+
+  it('a reorder beside an append to its parent is rebased, and two differing reorders refuse', () => {
+    const two = decodeNode(
+      JSON.stringify({
+        id: 'root',
+        kind: {
+          $type: 'Box',
+          children: [pane('a'), pane('b')],
+          layout: { $type: 'Auto' },
+          role: 'Dashboard',
+        },
+      }),
+    );
+    if (!two.ok) throw new Error(JSON.stringify(two.error));
+    const reorder = ops([{ $type: 'ReorderChildren', newOrder: ['b', 'a'], parentId: 'root' }]);
+    const append = ops([{ $type: 'InsertChild', child: pane('c'), parentId: 'root' }]);
+    const want = decodeNode(
+      JSON.stringify({
+        id: 'root',
+        kind: {
+          $type: 'Box',
+          children: [pane('b'), pane('a'), pane('c')],
+          layout: { $type: 'Auto' },
+          role: 'Dashboard',
+        },
+      }),
+    );
+    if (!want.ok) throw new Error(JSON.stringify(want.error));
+    for (const [d1, d2] of [
+      [reorder, append],
+      [append, reorder],
+    ] as const) {
+      const r = reconcileFold(two.value, d1, d2);
+      if (!r.ok) throw new Error(JSON.stringify(r.error));
+      expect(encodeNode(r.value.tree)).toBe(encodeNode(want.value));
+      expect(r.value.interleaves).toBe(1);
+    }
+    const other = ops([{ $type: 'ReorderChildren', newOrder: ['a', 'b'], parentId: 'root' }]);
+    const refused = reconcileFold(two.value, reorder, other);
+    expect(!refused.ok && refused.error.fault).toBe('Refused');
+  });
+
+  it('the merge corpus is the fold family alone (manifest version 2)', () => {
+    const m = JSON.parse(
+      readFileSync(join(wireCorpusRoot(), 'merge-conformance', 'manifest.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(m['version']).toBe(2);
+    for (const retired of ['fixtures', 'refusalFixtures', 'totalityFixtures'])
+      expect(m).not.toHaveProperty(retired);
   });
 });

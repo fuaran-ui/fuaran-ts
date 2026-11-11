@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = '5defc2bc8886228c73a3f41b4b225de6df5b9e0068db44ac74378471ff9a6665';
+export const IDL_SHA256 = 'c694bd27beacf7d3f6a9c794ec15f03e02b78ca98bbbe56333b648410d14ef19';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────

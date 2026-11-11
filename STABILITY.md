@@ -1184,6 +1184,34 @@ type changes: `'DuplicateNodeId'` was already a case.
 (`duplicateIdsApply`), run by `packages/ops/test/duplicate-ids-apply-corpus.test.ts`, and this host's
 own cases in `packages/ops/test/apply-duplicate-ids.test.ts`. Both failed on the previous engine.
 
+### Rides `@fuaran-ui/ops` 0.33.0 — the three-way tree merge retires; merge by fold is the only merge (Phase 2646)
+
+_Unreleased: rides the `@fuaran-ui/ops` 0.33.0 slot Phase 2641 opened, ahead of the newest tag, `v0.32.0`._
+
+**Breaking**, which pre-1.0 is a minor, the class the draft already carries, so it rides. Since fuaran#2645 the op
+DAG's only merge is the fold (`WIRE_FORMAT.md` §34), and the merge-conformance manifest (version 2) carries the
+`foldFixtures` family alone.
+
+- **Removed.** `merge3Way`, `encodeMergeEnvelope`, `sortConflictsCanonical` and the `MergeResult`, `MergeConflict`,
+  `MergeConflictClass` and `MergeSide` types. A merge is `reconcileFold` over `conflictsIn`.
+- **The DAG record (`WIRE_FORMAT.md` §5.3.3).** `DagOpRecord` loses `outcomeHash` and `tombstoned`; a merge node's
+  `op` is its reconciliation script as a `Batch`. `decodeDagRecord` refuses a record carrying either retired member
+  by name, because a pre-2645 address does not recompute. Certified by the re-minted `dag/` records.
+- **Behavioural.** The footprint follows Core 0.42.0's child-list slot rules (fuaran#2651, #2670, #2691): a resolved
+  move and a resolved reorder touch no parent whole, `EditNode` writes the child-list slot, and the conflict report
+  compares a structure write at that slot. The policy rebases a reorder beside a concurrent append, removal or move
+  of a listed child (fuaran#2671), lists a node both branches move once, and the script records the child-order
+  reorder for every interleaved or rebased parent (fuaran#2645).
+
+### `@fuaran-ui/schema` 0.28.1 — the generated module re-stamped to the corpus `idl.json` (Phase 2646)
+
+_Unreleased: a patch ahead of the newest tag, `v0.32.0`._
+
+**Fix.** The corpus's `idl.json` moved under fuaran#2640 (three keyed slots declared, host-surface-only under §15.4),
+so `src/generated.ts` is regenerated and only its recorded `IDL_SHA256` moves; no generated type or table changes.
+Every dependent's `^0.28.0` range admits it, so nothing else advances; the starter template's pin follows `schema`
+0.28.1.
+
 ### `@fuaran-ui/ops` 0.33.0 — merge by fold: the base-aware footprint, the conflict report and the reconciliation policy (Phase 2641)
 
 _Unreleased: opens the `@fuaran-ui/ops` 0.33.0 slot, ahead of the newest tag, `v0.32.0`._

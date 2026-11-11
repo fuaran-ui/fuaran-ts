@@ -106,7 +106,7 @@ export const HOST_CORPUS_FAMILIES = {
   'laws/propagationLaws': pending(LAW_UNRUN),
   'laws/transformLaws': 'covered', // packages/ops/test/transformLaws.test.ts
   'lowers-to': pending("this host's suite does not yet run the lowers-to vectors"),
-  'merge-conformance': 'covered', // packages/ops/test/merge.test.ts
+  'merge-conformance': 'covered', // packages/ops/test/fold.test.ts (foldFixtures, manifest v2)
   repair: 'covered', // packages/ops/test/repair.test.ts
   'row-encode': 'covered', // packages/ops/test/rowEncode.test.ts
   sanitization: 'covered', // packages/renderer/test/sanitizationCorpus.test.ts

@@ -7,7 +7,9 @@
 //   - encode(decode(input)) is byte-identical to the committed payload.
 //
 //  Together with the F# Leg A (Fuaran.UI.OpStream.Dag.Tests ConformanceTests),
-//  this proves F# == TS byte-for-byte for the DAG record wire shape.
+//  this proves F# == TS byte-for-byte for the DAG record wire shape. Since
+//  Phase 2645 the records are Core DAG nodes (a merge node's op is its script as
+//  a Batch) and a pre-2645 record is refused by name (fuaran#2646).
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
@@ -63,7 +65,7 @@ describe('DAG record wire-format conformance (TS == corpus)', () => {
       'a'.repeat(64) +
       '","op":{"$type":"RemoveNode","target":"n1"},"parents":[],' +
       '"resultEnvelope":{"$type":"Success"},"streamId":"s1","timestamp":1700000000,' +
-      '"tombstoned":false,"userId":"u1"}';
+      '"userId":"u1"}';
 
     const decoded = decodeDagRecord(legacy);
     expect(decoded.ok).toBe(false);
@@ -77,11 +79,46 @@ describe('DAG record wire-format conformance (TS == corpus)', () => {
       '{"actor":{"kind":"robot","id":"r1"},"hash":"' +
       'a'.repeat(64) +
       '","op":{"$type":"RemoveNode","target":"n1"},"parents":[],' +
-      '"resultEnvelope":{"$type":"Success"},"streamId":"s1","timestamp":1700000000,"tombstoned":false}';
+      '"resultEnvelope":{"$type":"Success"},"streamId":"s1","timestamp":1700000000}';
 
     const decoded = decodeDagRecord(bad);
     expect(decoded.ok).toBe(false);
     if (decoded.ok) return;
     expect(decoded.error).toContain('actor');
+  });
+
+  // Phase 2645 retired `outcomeHash` and `tombstoned`: a record carrying either
+  // is a pre-2645 record whose address does not recompute, refused by name.
+  for (const [member, extra] of [
+    ['tombstoned', '"tombstoned":false'],
+    ['outcomeHash', '"outcomeHash":"o1"'],
+  ] as const) {
+    it(`refuses a pre-2645 record carrying ${member}`, () => {
+      const post =
+        '{"actor":{"kind":"human","id":"u1"},"hash":"' +
+        'a'.repeat(64) +
+        '","op":{"$type":"RemoveNode","target":"n1"},"parents":[],' +
+        '"resultEnvelope":{"$type":"Success"},"streamId":"s1","timestamp":1700000000';
+      const decoded = decodeDagRecord(`${post},${extra}}`);
+      expect(decoded.ok).toBe(false);
+      if (decoded.ok) return;
+      expect(decoded.error).toContain('pre-2645');
+      expect(decoded.error).toContain('do not carry forward');
+      expect(decodeDagRecord(`${post}}`).ok).toBe(true);
+    });
+  }
+
+  it('a merge node carries its script as a Batch', () => {
+    for (const [file, ops] of [
+      ['dag-merge.json', 0],
+      ['dag-merge-script.json', 1],
+    ] as const) {
+      const decoded = decodeDagRecord(read(file).replace(/\n$/, ''));
+      expect(decoded.ok).toBe(true);
+      if (!decoded.ok) return;
+      expect(decoded.value.parents).toHaveLength(2);
+      expect(decoded.value.op.kind).toBe('Batch');
+      if (decoded.value.op.kind === 'Batch') expect(decoded.value.op.ops).toHaveLength(ops);
+    }
   });
 });
