@@ -518,6 +518,25 @@ the codec already read and wrote every member; an author could not reach most of
 - **Release consistency.** `@fuaran-ui/mcp` 0.14.6 is a range-only patch (its published `^0.27.0` excludes 0.28.0);
   the starter template's pin follows `ui` 0.28.0.
 
+### `@fuaran-ui/ops` 0.33.3, `@fuaran-ui/conformance` 0.30.2 — `UpdateProp` reads a value through the decoder's own field rules (Phase 1925)
+
+_Unreleased: a patch ahead of the newest tag, `v0.33.2`, which published `ops` 0.33.2 and `conformance` 0.30.1, so
+the change advances both rather than riding a draft._
+
+**Fix**, no export or signature moves: tighter refusals on values that were already outside the specification. The
+`coerce.int` / `coerce.float` / `coerce.bool` / `coerce.string` `UpdateProp` helpers read through the decoder's
+`requireInt` / `requireFloat` / `requireBool` / `requireString` (`WIRE_FORMAT.md` §3.4), so an `UpdateProp` admits
+exactly what a decode admits. `coerce.int` used `Math.trunc`, so a `Heading` `Level` of `2.5` was stored as `2`; it
+is now refused as a kind mismatch, and `3.0` applies as `3`. `Skeleton.Rows` takes the decoder's §21.9 bound
+(`coerce.skeletonRows`): a count past `MaxSkeletonRows` is refused with `LimitExceeded` rather than stored for the
+renderer to loop over.
+
+- **Conformance statement.** The corpus `apply/updatePropApply` family runs in
+  `packages/ops/test/update-prop-apply-corpus.test.ts` and is declared `covered` in the host-capability manifest.
+- **`@fuaran-ui/conformance` 0.30.2.** The bundled snapshot is re-synced to the merged specification: only the
+  `corpus/snapshot.json` sentinel moves (the `apply/` family is not part of the bundled payload), and the
+  host-capability manifest gains the `apply/updatePropApply` row and the new `ops` version.
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:
