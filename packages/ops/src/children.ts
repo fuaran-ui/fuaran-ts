@@ -54,14 +54,25 @@ export const Reach = {
    */
   kindHeld: reachOf('Ordered', 'Arm'),
   /**
-   * The kind-held positions plus the two `state` alternatives: the surface node
-   * lookup, the apply engine's id checks, the clone remap and the renderers'
+   * The kind-held positions plus the two `state` alternatives: the fragment
+   * scope (the reference's `Reach.fragmentScope`), which the renderers'
    * fragment collection and namespacing descend through. The envelope
-   * `fallback` and slot arguments are outside it; that boundary is stated here
-   * once rather than in each walker.
+   * `fallback` and slot arguments are outside it: a slot argument belongs to
+   * the scope it is passed into.
+   *
+   * Node lookup is NOT this reach, whatever the name says. Since Phase 2704
+   * `findNode`, the apply engine's id checks and the clone remap walk `all`,
+   * the reference's keyed walk (WIRE_FORMAT §34.2), so an op addressed to a
+   * node held only in a slot argument (a `FragmentRef`'s args, a `Mount`'s
+   * inputs) or an envelope `fallback` applies. The name stays because it is
+   * published; the set it names did not move.
    */
   lookup: reachOf('Ordered', 'Arm', 'StateArm'),
-  /** Every position a node holds another node in. */
+  /**
+   * Every position a node holds another node in — the reference's keyed walk,
+   * and the surface node lookup, the apply engine's id checks, the clone remap,
+   * the footprint and the §21 bounds quantify over.
+   */
   all: reachOf('Ordered', 'Arm', 'StateArm', 'Fallback', 'Argument'),
 } as const;
 
@@ -72,11 +83,16 @@ interface Held<TMsg> {
   readonly rebuild: (nodes: readonly Node<TMsg>[]) => Node<TMsg>;
 }
 
-// A hand-built tree may omit an empty argument bag; it holds no slot then.
+// The slot trees of an argument bag, in ordinal key order (the reference's and
+// the wire's order, whatever order a hand-built bag was written in). A value
+// argument holds no node and is skipped. A hand-built tree may omit an empty
+// argument bag; it holds no slot then.
 const slotArgs = <TMsg>(
   bag: Readonly<Record<string, FragmentArg<TMsg>>> | undefined,
 ): readonly (readonly [string, Node<TMsg>])[] =>
-  Object.entries(bag ?? {}).flatMap(([k, a]) => (a.kind === 'slot' ? [[k, a.tree] as const] : []));
+  Object.entries(bag ?? {})
+    .sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0))
+    .flatMap(([k, a]) => (a.kind === 'slot' ? [[k, a.tree] as const] : []));
 
 const putSlotArgs = <TMsg>(
   bag: Readonly<Record<string, FragmentArg<TMsg>>>,
@@ -265,13 +281,13 @@ export const mapChildren = <TMsg>(
 };
 
 /**
- * The first node with `id` in `tree` (depth-first, root first), searching the
- * `Reach.lookup` positions — the surface the apply engine's id checks run on —
- * or `undefined`.
+ * The first node with `id` in `tree` (depth-first, root first), searching
+ * every position (`Reach.all`, the reference's keyed walk) — the surface the
+ * apply engine's id checks run on — or `undefined`.
  */
 export const findNode = <TMsg>(tree: Node<TMsg>, id: string): Node<TMsg> | undefined => {
   if ((tree.id as string) === id) return tree;
-  for (const c of children(tree, Reach.lookup)) {
+  for (const c of children(tree, Reach.all)) {
     const r = findNode(c, id);
     if (r !== undefined) return r;
   }

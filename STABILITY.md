@@ -462,6 +462,37 @@ return `INVALID_JSON` at `$` (or their own typed refusal) and none throws. Certi
 `packages/ops/test/non-text-input.test.ts`, which also pins the Chart default wire a structural editor synthesises:
 as text it decodes and re-encodes to a fixed point; as the parsed object it is refused, not thrown.
 
+### `@fuaran-ui/ops` 0.33.2, `@fuaran-ui/conformance` 0.30.1 — the apply engine reaches a node held in a slot argument (Phase 2704)
+
+_Unreleased: a patch ahead of the newest tag, `v0.33.1`, which published `ops` 0.33.1 and `conformance` 0.30.0, so
+the change advances both rather than riding a draft._
+
+**Fix**, no export or signature moves, and additive in behaviour: an op that did not apply now applies. `findNode`,
+the apply engine's walkers (`mapNode`, `allNodeIds`, `findLayoutParent`, `isAncestor`, the §8.1 installed-duplicate
+check) and the clone remap behind `duplicateOp` / `duplicateOpWith` walk every position a node holds another in
+(`ChildReach.all`, the reference's keyed walk, `WIRE_FORMAT.md` §34.2): the ordered lists, the kind's arms, the two
+`state` alternatives, the envelope `fallback`, and the slot trees of a `FragmentRef`'s `args` and a `Mount`'s
+`inputs`, in ordinal key order with a rebuild per position. A value argument holds no node and is skipped. Before,
+the walk stopped at the `state` alternatives, so an op addressed to a node held only in a slot argument or a
+`fallback` stopped as `NodeNotFound` / `ParentNotFound`, and the fold reported `DeltaDoesNotApply` before judging
+anything. The footprint already walked `ChildReach.all` and is unchanged.
+
+- **`ChildReach.lookup` keeps its set** (ordered, arms, `state` alternatives): the renderers' fragment collection and
+  namespacing still descend through it, as the reference's `fragmentScope` does. It no longer names the node
+  lookup's surface, and its doc comment says so.
+- **What a caller can now see.** An id held only in a slot argument or a `fallback` is found by `findNode`, counts
+  for the §8.1 duplicate check (an op installing such an id is refused `DuplicateNodeId`), and is remapped by a
+  clone.
+- **Conformance statement.** The `foldFixtures` leg (`packages/ops/test/fold.test.ts`) is green on the four
+  Mount-input fixtures `fold-mount-input-insert` (derives), `fold-refusal-mount-input-tone`,
+  `fold-refusal-mount-input-disjoint` and `fold-refusal-mount-input-delete-modify` (each refuses with the committed
+  envelope, mirrored under the swap), at corpus commit `d33b87d` (the fixtures landed at `0b2ec20`). The two edits
+  to different nodes inside one Mount's inputs are refused as the reference refuses them. The `mount-*` node
+  fixtures round-trip byte-identically, as before.
+- **`@fuaran-ui/conformance` 0.30.1.** The bundled snapshot is re-synced to `d33b87d`: the payload bytes were
+  already current, so only the `corpus/snapshot.json` sentinel moves. The merge-conformance family is not part of
+  the bundled payload.
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:
