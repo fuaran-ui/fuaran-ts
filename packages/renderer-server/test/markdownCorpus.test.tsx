@@ -49,7 +49,7 @@ import {
   type EgressPolicy,
 } from '@fuaran-ui/renderer';
 
-import { renderToHtml, toHtml, toHtmlWithEgress } from '../src/index.js';
+import { renderToHtml, toHtml, toHtmlCited, toHtmlWithEgress } from '../src/index.js';
 
 import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
 
@@ -62,6 +62,8 @@ interface Fixture {
   html: string;
   /** WIRE_FORMAT §14.1 — the destination policy the render is performed under. */
   policy?: string;
+  /** WIRE_FORMAT §3.6.32 — the figures the text cites. */
+  citations?: readonly { name: string; reference: string; label?: string }[];
 }
 
 const corpus = JSON.parse(readFileSync(corpusPath, 'utf8')) as { fixtures: Fixture[] };
@@ -89,9 +91,12 @@ const policyByName = (name: string | undefined): EgressPolicy => {
   }
 };
 
-const markdownNode = (source: string) => {
+const markdownNode = (source: string, citations?: readonly unknown[]) => {
   const decoded = decodeNode(
-    JSON.stringify({ id: 'md', kind: { $type: 'Markdown', text: source } }),
+    JSON.stringify({
+      id: 'md',
+      kind: { $type: 'Markdown', text: source, ...(citations ? { citations } : {}) },
+    }),
   );
   if (!decoded.ok) throw new Error(`decode failed: ${JSON.stringify(decoded.error)}`);
   return decoded.value;
@@ -111,13 +116,13 @@ describe('Leg 1 — the server markdown surface IS the deterministic corpus rend
   it.each(corpus.fixtures.map((f) => [f.id, f] as const))(
     '%s — server render is byte-identical to the corpus',
     (_id, f) => {
-      expect(toHtmlWithEgress(policyByName(f.policy), f.source)).toBe(f.html);
+      expect(toHtmlCited(policyByName(f.policy), f.citations ?? [], f.source)).toBe(f.html);
     },
   );
 
   it.each(
     corpus.fixtures
-      .filter((f) => (f.policy ?? 'permissive') === 'permissive')
+      .filter((f) => (f.policy ?? 'permissive') === 'permissive' && f.citations === undefined)
       .map((f) => [f.id, f] as const),
   )('%s — the pure toHtml IS the permissive case', (_id, f) => {
     expect(toHtml(f.source)).toBe(f.html);
@@ -128,7 +133,7 @@ describe('Leg 2 — a rendered Markdown node is byte-identical to the client ren
   it.each(corpus.fixtures.map((f) => [f.id, f] as const))(
     '%s — renderToHtml equals <FuaranRenderer> through renderToStaticMarkup',
     (_id, f) => {
-      const tree = markdownNode(f.source);
+      const tree = markdownNode(f.source, f.citations);
       const policy = policyByName(f.policy);
       expect(renderToHtml(tree, { egressPolicy: policy })).toBe(
         renderToStaticMarkup(<FuaranRenderer tree={tree} egressPolicy={policy} />),

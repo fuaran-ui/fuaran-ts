@@ -23,7 +23,7 @@ let main _ =
       { Defaults.metric with
           Label = TextSource.Literal "Revenue"
           Value = Binding.Static(Some 142500.0)
-          Format = CellFormat.Currency "GBP"
+          Format = CellFormat.Currency("GBP", None, None)
           Tone = ToneVariant.Brand }
 
   printfn "%s" (Fuaran.UI.Generated.encodeNode (Fuaran.dashboard "smoke" { Children = [ heading; metric ] }))

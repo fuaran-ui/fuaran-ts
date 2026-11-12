@@ -22,7 +22,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { decodeManifest, type ThemeManifest } from '@fuaran-ui/theme-manifest';
+import {
+  decodeManifest,
+  encodeManifestDefect,
+  type ThemeManifest,
+  validateManifest,
+} from '@fuaran-ui/theme-manifest';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -88,6 +93,8 @@ interface Vector {
     readonly area: number;
   }>;
   readonly expectedBudgetFlags?: readonly string[];
+  // manifest-validation (Phase 2133)
+  readonly expectedManifestDefects?: readonly string[];
 }
 
 const rows = (): ManifestRow[] => {
@@ -118,7 +125,7 @@ const manifestOf = (v: Vector): ThemeManifest => {
   return decoded.value;
 };
 
-const TIERS = ['observation', 'per-node-manifest', 'usage-budget'] as const;
+const TIERS = ['observation', 'per-node-manifest', 'usage-budget', 'manifest-validation'] as const;
 
 const all = rows();
 const tieIds = [
@@ -176,6 +183,12 @@ describe.skipIf(!corpusPresent)('style-observer corpus vectors', () => {
           const nodes = v.nodeAreas!.map((n) => [observationOf(n.observation), n.area] as const);
           const flags = verifyUsageBudgets(manifestOf(v), nodes);
           expect(flags.map(encodeStyleFlag)).toEqual(v.expectedBudgetFlags);
+          break;
+        }
+        case 'manifest-validation': {
+          // Phase 2133 — the tolerant decode, then the shared validation pass.
+          const defects = validateManifest(manifestOf(v)).map(encodeManifestDefect);
+          expect(defects).toEqual(v.expectedManifestDefects);
           break;
         }
         default:

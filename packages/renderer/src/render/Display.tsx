@@ -53,7 +53,7 @@ import { mathMl } from '../mathMl.js';
 import { CODE_HIGHLIGHT_TIER, codeHighlight } from '../codeHighlight.js';
 import { sanitizeEmbedSrcForEgress, sanitizeUrlForEgress } from '../egress.js';
 import { sanitizeLinkAnchor } from '../sanitize.js';
-import { toHtmlWithEgress } from '../markdown.js';
+import { toHtmlCited } from '../markdown.js';
 import { renderNode } from './core.js';
 import { iconHook } from './iconHook.js';
 
@@ -110,7 +110,15 @@ export const renderDisplay = <TMsg,>(
           className="fuaran-markdown"
           dangerouslySetInnerHTML={{
             __html: trustedHtml(
-              toHtmlWithEgress(ctx.egressPolicy, renderText(ctx.sources, display.spec.text)),
+              toHtmlCited(
+                ctx.egressPolicy,
+                display.spec.citations.map((c) => ({
+                  name: c.name,
+                  reference: c.reference,
+                  label: c.label === undefined ? undefined : renderText(ctx.sources, c.label),
+                })),
+                renderText(ctx.sources, display.spec.text),
+              ),
             ),
           }}
         />
@@ -179,8 +187,12 @@ export const renderDisplay = <TMsg,>(
       // renderText resolves Literal/Bound/I18n as for every label.
       const spec = display.spec;
       const emphasisSuffix = spec.emphasis ? ' fuaran-fact-emphasis' : '';
+      // WIRE_FORMAT 3.6.31 — `data-fact` carries the citation; undefined draws no attribute.
       return (
-        <div className={`fuaran-fact fuaran-fact-${toneVar(spec.tone)}${emphasisSuffix}`}>
+        <div
+          className={`fuaran-fact fuaran-fact-${toneVar(spec.tone)}${emphasisSuffix}`}
+          data-fact={spec.reference}
+        >
           <div className="fuaran-fact-label">{renderText(ctx.sources, spec.label)}</div>
           <div className="fuaran-fact-value">
             {spec.icon !== undefined ? iconHook('fuaran-fact-icon', spec.icon) : null}

@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = '08ca738ed16bd740e160879588ee8aa778a2d6724beffc08126fedf462d47019';
+export const IDL_SHA256 = 'c694bd27beacf7d3f6a9c794ec15f03e02b78ca98bbbe56333b648410d14ef19';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -38,6 +38,7 @@ const T_union_Binding_bool = {
   name: 'Binding',
   args: [T_bool],
 } as const satisfies IdlType;
+const T_record_Affordance = { $type: 'record', name: 'Affordance' } as const satisfies IdlType;
 const T_enum_ToneVariant = { $type: 'enum', name: 'ToneVariant' } as const satisfies IdlType;
 const T_enum_ChartKind = { $type: 'enum', name: 'ChartKind' } as const satisfies IdlType;
 const T_hosted = { $type: 'hosted', wire: 'json' } as const satisfies IdlType;
@@ -160,6 +161,14 @@ const T_union_Binding_list_record_MapMarker = {
   name: 'Binding',
   args: [T_list_record_MapMarker],
 } as const satisfies IdlType;
+const T_record_MarkdownCitation = {
+  $type: 'record',
+  name: 'MarkdownCitation',
+} as const satisfies IdlType;
+const T_list_record_MarkdownCitation = {
+  $type: 'list',
+  of: T_record_MarkdownCitation,
+} as const satisfies IdlType;
 const T_enum_MathDisplay = { $type: 'enum', name: 'MathDisplay' } as const satisfies IdlType;
 const T_union_MediaKind = {
   $type: 'union',
@@ -203,6 +212,14 @@ const T_union_Binding_list_str = {
   name: 'Binding',
   args: [T_list_str],
 } as const satisfies IdlType;
+const T_record_SelectOptionGroup = {
+  $type: 'record',
+  name: 'SelectOptionGroup',
+} as const satisfies IdlType;
+const T_list_record_SelectOptionGroup = {
+  $type: 'list',
+  of: T_record_SelectOptionGroup,
+} as const satisfies IdlType;
 const T_list_float = { $type: 'list', of: T_float } as const satisfies IdlType;
 const T_union_Binding_list_float = {
   $type: 'union',
@@ -223,6 +240,14 @@ const T_list_record_TabHeader = {
 const T_record_TreeItem = { $type: 'record', name: 'TreeItem' } as const satisfies IdlType;
 const T_list_record_TreeItem = { $type: 'list', of: T_record_TreeItem } as const satisfies IdlType;
 const T_enum_LiveRegionKind = { $type: 'enum', name: 'LiveRegionKind' } as const satisfies IdlType;
+const T_record_AffordanceAlias = {
+  $type: 'record',
+  name: 'AffordanceAlias',
+} as const satisfies IdlType;
+const T_list_record_AffordanceAlias = {
+  $type: 'list',
+  of: T_record_AffordanceAlias,
+} as const satisfies IdlType;
 const T_union_CellKindErased = {
   $type: 'union',
   name: 'CellKindErased',
@@ -262,6 +287,14 @@ const T_enum_ChannelDirection = {
 const T_enum_TextDirection = { $type: 'enum', name: 'TextDirection' } as const satisfies IdlType;
 const T_enum_StyleRole = { $type: 'enum', name: 'StyleRole' } as const satisfies IdlType;
 const T_enum_FontVoice = { $type: 'enum', name: 'FontVoice' } as const satisfies IdlType;
+const T_record_TableCitation = {
+  $type: 'record',
+  name: 'TableCitation',
+} as const satisfies IdlType;
+const T_list_record_TableCitation = {
+  $type: 'list',
+  of: T_record_TableCitation,
+} as const satisfies IdlType;
 const T_list_list_union_TextSource = {
   $type: 'list',
   of: T_list_union_TextSource,
@@ -372,6 +405,10 @@ const T_op = { $type: 'op' } as const satisfies IdlType;
 const T_list_op = { $type: 'list', of: T_op } as const satisfies IdlType;
 const T_kind = { $type: 'kind' } as const satisfies IdlType;
 const T_record_StyleDelta = { $type: 'record', name: 'StyleDelta' } as const satisfies IdlType;
+const T_record_Accessibility = {
+  $type: 'record',
+  name: 'Accessibility',
+} as const satisfies IdlType;
 const T_record_StateBehaviour = {
   $type: 'record',
   name: 'StateBehaviour',
@@ -379,10 +416,6 @@ const T_record_StateBehaviour = {
 const T_record_SemanticStyle = {
   $type: 'record',
   name: 'SemanticStyle',
-} as const satisfies IdlType;
-const T_record_Accessibility = {
-  $type: 'record',
-  name: 'Accessibility',
 } as const satisfies IdlType;
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
@@ -629,6 +662,7 @@ export const KIND_FIELDS = {
     { name: 'icon', opt: 'optional', type: T_str },
     { name: 'tooltip', opt: 'hostOnly', type: T_fn },
     { name: 'disabled', opt: 'optional', type: T_union_Binding_bool },
+    { name: 'affordance', opt: 'optional', type: T_record_Affordance },
   ],
   Callout: [
     { name: 'body', opt: 'required', type: T_union_TextSource },
@@ -771,6 +805,7 @@ export const KIND_FIELDS = {
       dflt: { $type: 'enum', case: 'Default' },
     },
     { name: 'value', opt: 'required', type: T_union_TextSource },
+    { name: 'reference', opt: 'optional', type: T_str },
   ],
   FileUpload: [
     { name: 'accept', opt: 'required', type: T_list_str },
@@ -916,7 +951,15 @@ export const KIND_FIELDS = {
     { name: 'zoom', opt: 'required', type: T_int },
     { name: 'onMarkerClick', opt: 'optional', type: T_fn },
   ],
-  Markdown: [{ name: 'text', opt: 'required', type: T_union_TextSource }],
+  Markdown: [
+    {
+      name: 'citations',
+      opt: 'omitDefault',
+      type: T_list_record_MarkdownCitation,
+      dflt: { $type: 'list', items: [] },
+    },
+    { name: 'text', opt: 'required', type: T_union_TextSource },
+  ],
   Math: [
     { name: 'source', opt: 'required', type: T_str },
     { name: 'display', opt: 'required', type: T_enum_MathDisplay },
@@ -1033,6 +1076,13 @@ export const KIND_FIELDS = {
     { name: 'disabled', opt: 'optional', type: T_union_Binding_bool },
     { name: 'multiple', opt: 'optional', type: T_bool },
     { name: 'values', opt: 'optional', type: T_union_Binding_list_str },
+    { name: 'affordance', opt: 'optional', type: T_record_Affordance },
+    {
+      name: 'groups',
+      opt: 'omitDefault',
+      type: T_list_record_SelectOptionGroup,
+      dflt: { $type: 'list', items: [] },
+    },
   ],
   Skeleton: [{ name: 'rows', opt: 'required', type: T_int }],
   Sparkline: [{ name: 'source', opt: 'required', type: T_union_Binding_list_float }],
@@ -1133,6 +1183,33 @@ export const RECORD_FIELDS = {
     { name: 'role', opt: 'optional', type: T_hosted },
     { name: 'speak', opt: 'optional', type: T_union_TextSource },
   ],
+  Affordance: [
+    { name: 'patterns', opt: 'omitDefault', type: T_list_str, dflt: { $type: 'list', items: [] } },
+    {
+      name: 'readPatterns',
+      opt: 'omitDefault',
+      type: T_list_str,
+      dflt: { $type: 'list', items: [] },
+    },
+    {
+      name: 'aliases',
+      opt: 'omitDefault',
+      type: T_list_record_AffordanceAlias,
+      dflt: { $type: 'list', items: [] },
+    },
+    { name: 'description', opt: 'optional', type: T_str },
+    { name: 'clearable', opt: 'omitDefault', type: T_bool, dflt: { $type: 'bool', value: false } },
+    {
+      name: 'neverControllable',
+      opt: 'omitDefault',
+      type: T_bool,
+      dflt: { $type: 'bool', value: false },
+    },
+  ],
+  AffordanceAlias: [
+    { name: 'alias', opt: 'required', type: T_str },
+    { name: 'value', opt: 'required', type: T_str },
+  ],
   ButtonGroupItem: [
     { name: 'label', opt: 'required', type: T_union_TextSource },
     { name: 'onClick', opt: 'optional', type: T_fn },
@@ -1215,6 +1292,7 @@ export const RECORD_FIELDS = {
     { name: 'required', opt: 'omitDefault', type: T_bool, dflt: { $type: 'bool', value: false } },
     { name: 'help', opt: 'optional', type: T_union_TextSource },
     { name: 'rule', opt: 'optional', type: T_record_FieldRule },
+    { name: 'affordance', opt: 'optional', type: T_record_Affordance },
   ],
   GuestChannel: [
     { name: 'direction', opt: 'required', type: T_enum_ChannelDirection },
@@ -1228,6 +1306,11 @@ export const RECORD_FIELDS = {
     { name: 'label', opt: 'required', type: T_str },
     { name: 'latitude', opt: 'required', type: T_float },
     { name: 'longitude', opt: 'required', type: T_float },
+  ],
+  MarkdownCitation: [
+    { name: 'label', opt: 'optional', type: T_union_TextSource },
+    { name: 'name', opt: 'required', type: T_str },
+    { name: 'reference', opt: 'required', type: T_str },
   ],
   MetricComparison: [
     { name: 'label', opt: 'required', type: T_union_TextSource },
@@ -1252,6 +1335,10 @@ export const RECORD_FIELDS = {
   SelectOption: [
     { name: 'label', opt: 'required', type: T_str },
     { name: 'value', opt: 'required', type: T_str },
+  ],
+  SelectOptionGroup: [
+    { name: 'label', opt: 'required', type: T_str },
+    { name: 'values', opt: 'required', type: T_list_str },
   ],
   SemanticStyle: [
     {
@@ -1301,6 +1388,12 @@ export const RECORD_FIELDS = {
     { name: 'onLoading', opt: 'optional', type: T_node },
   ],
   StaticRows: [
+    {
+      name: 'citations',
+      opt: 'omitDefault',
+      type: T_list_record_TableCitation,
+      dflt: { $type: 'list', items: [] },
+    },
     { name: 'defaultSort', opt: 'optional', type: T_record_DefaultSort },
     { name: 'headers', opt: 'required', type: T_list_union_TextSource },
     { name: 'rows', opt: 'required', type: T_list_list_union_TextSource },
@@ -1323,6 +1416,12 @@ export const RECORD_FIELDS = {
     { name: 'label', opt: 'required', type: T_union_TextSource },
     { name: 'icon', opt: 'optional', type: T_str },
     { name: 'disabled', opt: 'optional', type: T_union_Binding_bool },
+  ],
+  TableCitation: [
+    { name: 'column', opt: 'required', type: T_int },
+    { name: 'label', opt: 'optional', type: T_union_TextSource },
+    { name: 'reference', opt: 'required', type: T_str },
+    { name: 'row', opt: 'required', type: T_int },
   ],
   TrackEntry: [
     { name: 'default', opt: 'omitDefault', type: T_bool, dflt: { $type: 'bool', value: false } },
@@ -1885,6 +1984,10 @@ export const OP_FIELDS = {
     { name: 'target', opt: 'required', type: T_str },
   ],
   ReplaceRoot: [{ name: 'node', opt: 'required', type: T_node }],
+  UpdateAccessibility: [
+    { name: 'accessibility', opt: 'required', type: T_record_Accessibility },
+    { name: 'target', opt: 'required', type: T_str },
+  ],
   UpdateProp: [
     { name: 'path', opt: 'required', type: T_str },
     { name: 'target', opt: 'required', type: T_str },
@@ -1897,6 +2000,10 @@ export const OP_FIELDS = {
   UpdateStyle: [
     { name: 'style', opt: 'required', type: T_record_SemanticStyle },
     { name: 'target', opt: 'required', type: T_str },
+  ],
+  UpdateTooltip: [
+    { name: 'target', opt: 'required', type: T_str },
+    { name: 'tooltip', opt: 'optional', type: T_union_TextSource },
   ],
 } as const satisfies Record<string, readonly FieldRow[]>;
 export type OpName = keyof typeof OP_FIELDS;

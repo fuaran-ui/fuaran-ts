@@ -328,7 +328,7 @@ const displayKindArb: fc.Arbitrary<DisplayKind> = fc.oneof(
       variant: fc.constantFrom('Standard', 'Eyebrow', 'Caption', 'Lead'),
     })
     .map((spec) => ({ kind: 'Heading', spec }) as DisplayKind),
-  textSourceArb.map((text) => ({ kind: 'Markdown', spec: { text } }) as DisplayKind),
+  textSourceArb.map((text) => ({ kind: 'Markdown', spec: { citations: [], text } }) as DisplayKind),
   fc
     .record(
       {
@@ -773,7 +773,7 @@ const visKindArb: fc.Arbitrary<VisKind<unknown>> = fc.oneof(
           exportable: false,
           keepRowsTogether: false,
           repeatHeader: false,
-          staticRows: sr,
+          staticRows: { citations: [], ...sr },
         },
       }) as VisKind<unknown>,
   ),
@@ -818,7 +818,7 @@ function leafNode(id: string): N {
     id: nodeId(id),
     kind: {
       kind: 'Display',
-      display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: 'x' } } },
+      display: { kind: 'Markdown', spec: { citations: [], text: { kind: 'Literal', value: 'x' } } },
     },
     state: {},
     style: { tone: 'Default', weight: 'Standard', emphasis: 'Normal' },
@@ -1011,6 +1011,20 @@ function opArbAt(depth: number): fc.Arbitrary<TreeOp<unknown>> {
     fc
       .tuple(nodeIdArb, stateBehaviourArb(1))
       .map(([target, state]) => ({ kind: 'UpdateState', target, state }) as TreeOp<unknown>),
+    fc
+      .tuple(nodeIdArb, accessibilityArb)
+      .map(
+        ([target, accessibility]) =>
+          ({ kind: 'UpdateAccessibility', target, accessibility }) as TreeOp<unknown>,
+      ),
+    fc.tuple(nodeIdArb, fc.option(textSourceArb, { nil: undefined })).map(
+      ([target, tooltip]) =>
+        ({
+          kind: 'UpdateTooltip',
+          target,
+          ...(tooltip !== undefined ? { tooltip } : {}),
+        }) as TreeOp<unknown>,
+    ),
     fc
       .tuple(nodeIdArb, nodeArb(2))
       .map(([parentId, child]) => ({ kind: 'InsertChild', parentId, child }) as TreeOp<unknown>),

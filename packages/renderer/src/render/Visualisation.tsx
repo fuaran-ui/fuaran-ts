@@ -88,6 +88,7 @@ export const renderVis = <TMsg,>(
               ...(vis.spec.staticRows.defaultSort !== undefined
                 ? { defaultSort: vis.spec.staticRows.defaultSort }
                 : {}),
+              citations: vis.spec.staticRows.citations,
             },
             // Phase 1473 — the grid's own two declarations, passed from the
             // enclosing `GridSpec` because they live there and not on
@@ -1459,6 +1460,7 @@ const renderTable = <TMsg,>(
     else if (ctx.runtime.warn)
       ctx.runtime.warn(`grid '${nodeId}' selection — no runtime.setSelection wired.`);
   };
+  const citedAt = new Map((spec.citations ?? []).map((c) => [`${c.row}:${c.column}`, c]));
   return (
     <table
       className={`fuaran-table${printBreak}`}
@@ -1503,11 +1505,24 @@ const renderTable = <TMsg,>(
                   ? { onClick: () => select(texts) }
                   : {})}
             >
-              {texts.map((_, ci) => (
-                <td key={ci} className="fuaran-table-cell">
-                  {staticCell(columns, texts, ci)}
-                </td>
-              ))}
+              {texts.map((_, ci) => {
+                // Phase 2592 — the reference on the cell, a label as its first child.
+                const citation = citedAt.get(`${ri}:${ci}`);
+                const label =
+                  citation?.label === undefined ? '' : renderText(ctx.sources, citation.label);
+                return (
+                  <td
+                    key={ci}
+                    className="fuaran-table-cell"
+                    {...(citation !== undefined ? { 'data-fact': citation.reference } : {})}
+                  >
+                    {label !== '' ? (
+                      <span className="fuaran-cited-label">{`${label} `}</span>
+                    ) : null}
+                    {staticCell(columns, texts, ci)}
+                  </td>
+                );
+              })}
             </tr>
           );
         })}

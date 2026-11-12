@@ -13,6 +13,7 @@
 // ============================================================================
 
 import type {
+  Accessibility,
   Binding,
   Emphasis,
   FontVoice,
@@ -24,6 +25,7 @@ import type {
   StyleRole,
   StyleWeight,
   TextDirection,
+  TextSource,
   ToneVariant,
   JsonValue,
 } from '@fuaran-ui/schema';
@@ -62,6 +64,14 @@ export type TreeOp<TMsg> =
   | { readonly kind: 'UpdateStyle'; readonly target: NodeId; readonly style: SemanticStyle }
   | { readonly kind: 'PatchStyle'; readonly target: NodeId; readonly style: StyleDelta }
   | { readonly kind: 'UpdateState'; readonly target: NodeId; readonly state: StateBehaviour<TMsg> }
+  // Phase 2527 — the trait edits. The whole record replaces the trait, and a
+  // record setting no member removes it; an absent `tooltip` clears the tooltip.
+  | {
+      readonly kind: 'UpdateAccessibility';
+      readonly target: NodeId;
+      readonly accessibility: Accessibility;
+    }
+  | { readonly kind: 'UpdateTooltip'; readonly target: NodeId; readonly tooltip?: TextSource }
   | {
       readonly kind: 'InsertChild';
       readonly parentId: NodeId;

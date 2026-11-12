@@ -28,10 +28,10 @@
 //
 //  The clone verbs rewrite a copied subtree's ids to a fresh, collision-free
 //  set before `InsertChild`. The remap runs over the WHOLE traversal surface —
-//  the apply engine's own reach (`Reach.lookup` in children.ts), not just the
+//  the apply engine's own reach (`Reach.all` in children.ts), not just the
 //  structural child lists — because the id-uniqueness contract is tree-wide, and a clone that
-//  kept an old id inside a Switch case or an ErrorBoundary slot would smuggle
-//  a duplicate past it.
+//  kept an old id inside a Switch case, an ErrorBoundary slot, a slot argument
+//  or a fallback would smuggle a duplicate past it.
 // ============================================================================
 
 import type { Node, NodeId, Result } from '@fuaran-ui/schema';
@@ -351,7 +351,7 @@ const remapForInsert = (freshIds: FreshIds, targetRoot: N, incoming: N): N => {
   }
   if (rename.size === 0) return incoming;
   const rewrite = (node: N): N => {
-    const withChildren = mapChildren(node, Reach.lookup, rewrite);
+    const withChildren = mapChildren(node, Reach.all, rewrite);
     const fresh = rename.get(withChildren.id as string);
     return fresh === undefined ? withChildren : { ...withChildren, id: fresh as NodeId };
   };

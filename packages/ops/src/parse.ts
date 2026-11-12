@@ -581,6 +581,18 @@ const documentBytes = (input: string): number => {
   return total;
 };
 
+/** How a non-text input is named in its refusal: `null`, `an array`, `a number`, … */
+const describeNonText = (input: unknown): string =>
+  input === null
+    ? 'null'
+    : Array.isArray(input)
+      ? 'an array'
+      : typeof input === 'object'
+        ? 'an object'
+        : typeof input === 'undefined'
+          ? 'undefined'
+          : `a ${typeof input}`;
+
 /**
  * Parse a JSON document into the local AST. Mirrors the F# `tryParse`: empty /
  * whitespace-only input is a structural error; a document past the §21.7
@@ -590,6 +602,21 @@ const documentBytes = (input: string): number => {
  * remainder, which is a framing ambiguity rather than a tolerance.
  */
 export const parse = (input: string): Result<JsonAst, ParseError> => {
+  // Phase 2694: every decoder that takes wire TEXT reaches the wire through
+  // here, so this is where a value that is not text is refused. An untyped
+  // caller handing over an already-parsed object (or `null`, a number, an
+  // array) used to reach the cursor below and throw a `TypeError` from inside
+  // the parser (`s.text.substring is not a function`); it is a malformed input,
+  // and so a typed structural failure like any other.
+  if (typeof input !== 'string') {
+    return {
+      ok: false,
+      error: {
+        message: `input is not JSON text (got ${describeNonText(input)}); the decoder reads the wire as a string, not a parsed value`,
+        offset: 0,
+      },
+    };
+  }
   const bytes = documentBytes(input);
   if (bytes > MAX_DOCUMENT_BYTES) {
     return {

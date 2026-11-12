@@ -45,11 +45,17 @@
 //  like every other evalPipeline vector — a refusal among them is the unit
 //  check's, and an answer carries its schema's units, labels and descriptions.
 //
+//  THE `columnOp` VECTORS RUN (Phase 2500 gave this host the surface): the op
+//  decodes through `decodeColumnOpJson`, applies through `applyColumnOp` and is
+//  compared as an evalPipeline vector is (`expected.table` on `ok`, a refusal on
+//  `error`), and its decode re-encodes to `expected.op`.
+//
 //  WHAT IS NOT RUN, each by name and with its reason, never silently:
-//   - the `columnOp` and `delta` case kinds, per kind: this host carries no
-//     ColumnOp surface and no table-delta surface. The set of kinds the file
-//     carries is asserted exactly, so a new kind fails loudly.
-//  Every other `evalPipeline` vector is asserted. The named "not evaluable by
+//   - the `delta` case kind: a vector carries two tables and asks for their
+//     diff, and this host's `deltaOf` derives a row delta from an op over the
+//     before table, never from two tables. The set of kinds the file carries is
+//     asserted exactly, so a new kind fails loudly.
+//  Every other vector is asserted. The named "not evaluable by
 //  this host" skip a pipeline the codec cannot decode used to get is now
 //  itself a FAILURE: it is not a way to skip one.
 //
@@ -67,6 +73,7 @@ import type { Cell, DataSource, Table, Transform } from '@fuaran-ui/schema';
 import { decodeDataSource, decodePipelineCore } from '../src/decode.js';
 import { encodeDataSource } from '../src/encode.js';
 import { cellAt, columnCells, evalPipeline } from '../src/dataframe.js';
+import { applyColumnOp, decodeColumnOpJson, encodeColumnOp } from '../src/gridEdit.js';
 import { parse } from '../src/parse.js';
 
 import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
@@ -96,10 +103,12 @@ interface TransformVector {
   readonly input: {
     readonly source?: string;
     readonly pipeline?: string;
+    readonly op?: string;
   };
   readonly expected: {
     readonly verdict?: string;
     readonly table?: string;
+    readonly op?: string;
     readonly tolerance?: Readonly<Record<string, number>>;
   };
 }
@@ -129,8 +138,11 @@ const lawFile = family ? readJson<TransformLawFile>(join(lawsRoot, family.file))
 /** Every case kind the family carries, and what this host does with it. Exactly these. */
 const CASE_KINDS: Readonly<Record<string, { readonly run: true } | { readonly reason: string }>> = {
   evalPipeline: { run: true },
-  columnOp: { reason: 'this host carries no ColumnOp surface' },
-  delta: { reason: 'this host carries no table-delta surface' },
+  columnOp: { run: true },
+  delta: {
+    reason:
+      'this host derives a row delta from an op over the before table (deltaOf); it has no surface that diffs two tables',
+  },
 };
 
 // ─── decoding a vector through the shipped codec ─────────────────────────────
@@ -161,6 +173,33 @@ const decodePipelineOrReason = (
   if (!ast.ok) return { reason: 'input.pipeline is not well-formed JSON' };
   const decoded = decodePipelineCore(ast.value);
   return decoded.ok ? { pipeline: decoded.value } : { reason: decoded.error };
+};
+
+// ─── a columnOp vector ───────────────────────────────────────────────────────
+
+const runColumnOpVector = (v: TransformVector): void => {
+  if (v.input.op === undefined) throw new Error(`vector ${v.id}: no op in input`);
+  const ast = parse(v.input.op);
+  if (!ast.ok) throw new Error(`vector ${v.id}: input.op is not well-formed JSON`);
+  const op = decodeColumnOpJson(ast.value);
+  if (!op.ok) throw new Error(`vector ${v.id}: this host refused input.op — ${op.error}`);
+  expect(encodeColumnOp(op.value), `vector ${v.id}: the op does not re-encode`).toBe(v.expected.op);
+
+  const result = applyColumnOp(op.value, decodeSource(v.id, v.input.source));
+  if (v.expected.verdict === 'error') {
+    // The refusal is compared as a refusal, never as a class — see the header.
+    expect(result.ok, `the reference refused this op; this host applied it`).toBe(false);
+    return;
+  }
+  if (v.expected.verdict !== 'ok')
+    throw new Error(`vector ${v.id}: unrecognised verdict: ${String(v.expected.verdict)}`);
+  if (!result.ok)
+    throw new Error(
+      `vector ${v.id}: the reference applied this op; this host refused it — ${result.detail}`,
+    );
+  expect(canonical(result.value), `vector ${v.id}: the applied table diverges`).toBe(
+    v.expected.table,
+  );
 };
 
 // ─── the tolerance rule (Phase 2400) ─────────────────────────────────────────
@@ -307,6 +346,16 @@ describe('transformLaws vectors (shared corpus laws/ family)', () => {
     expect(notRun.filter((u) => unitIds.includes(u.id))).toEqual([]);
   });
 
+  it('this host runs every vector but the delta kind', () => {
+    const ids = (kind: string): readonly string[] =>
+      vectors.filter((v) => v.case === kind).map((v) => v.id);
+    expect(notRun.map((u) => u.id)).toEqual(ids('delta'));
+    expect(ids('columnOp').length, 'the family carries no columnOp vector').toBeGreaterThan(0);
+    expect(vectors.length - notRun.length).toBe(
+      ids('evalPipeline').length + ids('columnOp').length,
+    );
+  });
+
   it('no evalPipeline vector is unevaluable by this host', () => {
     expect(unevaluable).toEqual([]);
   });
@@ -319,6 +368,10 @@ describe('transformLaws vectors (shared corpus laws/ family)', () => {
     }
 
     it(v.id, () => {
+      if (v.case === 'columnOp') {
+        runColumnOpVector(v);
+        return;
+      }
       if (v.case !== 'evalPipeline')
         // Never a skip. A case this harness does not know is a case this host
         // is not certifying, and a green run must not be able to mean that.

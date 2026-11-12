@@ -146,15 +146,35 @@ export {
   type DagResultEnvelope,
   type DagActor,
 } from './dag.js';
+// Merge by fold (WIRE_FORMAT.md section 34) — the op DAG's only merge since
+// Phase 2645 (the three-way tree merge retired, Phase 2646): the base-aware op
+// footprint, Core's conflict report over two deltas, and the reconciliation
+// policy over it.
 export {
-  merge3Way,
-  encodeMergeEnvelope,
-  sortConflictsCanonical,
-  type MergeResult,
-  type MergeConflict,
-  type MergeConflictClass,
-  type MergeSide,
-} from './merge.js';
+  conflictsIn,
+  emptyFootprint,
+  footprintEachIn,
+  footprintIn,
+  footprintOf,
+  unionFootprint,
+  type Footprint,
+  type OpConflict,
+  type OpConflictShape,
+  type Slot,
+} from './footprint.js';
+export {
+  applyHeld,
+  encodeFoldEnvelope,
+  reconcileFold,
+  reconcileFoldGated,
+  sortFoldRefusals,
+  type FoldFault,
+  type FoldReconciled,
+  type FoldRefusal,
+  type FoldRefusalClass,
+  type FoldResult,
+  type FoldSide,
+} from './reconcile.js';
 export { renderAstCanonical } from './encode.js';
 export {
   // Wire versioning + forward-compat (WIRE_FORMAT.md §15).

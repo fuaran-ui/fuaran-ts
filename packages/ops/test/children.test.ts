@@ -20,7 +20,10 @@ const leaf = (id: string): N => ({
   id: nid(id),
   kind: {
     kind: 'Display',
-    display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: 'body' } } },
+    display: {
+      kind: 'Markdown',
+      spec: { citations: [], text: { kind: 'Literal', value: 'body' } },
+    },
   },
   state: {},
   style,
@@ -107,6 +110,32 @@ describe('children — one slot list, explicit reach', () => {
     expect(ids(children(fragmentRef('ref'), Reach.lookup))).toEqual([]);
   });
 
+  it('visits slot arguments in key order, skipping value arguments, and rebuilds each', () => {
+    const t: N = {
+      ...fragmentRef('ref'),
+      kind: {
+        kind: 'FragmentRef',
+        spec: {
+          name: 'card' as FragmentId,
+          args: {
+            zeta: { kind: 'slot', tree: leaf('z') },
+            mid: { kind: 'value', value: { kind: 'str', value: 'M' } },
+            alpha: { kind: 'slot', tree: leaf('a') },
+          },
+        },
+      },
+    };
+    expect(ids(children(t, Reach.all))).toEqual(['a', 'z']);
+    const renamed = mapChildren(t, Reach.all, (c) => ({ ...c, id: nid(`x-${c.id}`) }));
+    expect(ids(children(renamed, Reach.all))).toEqual(['x-a', 'x-z']);
+    if (renamed.kind.kind !== 'FragmentRef') throw new Error('kind changed');
+    expect(Object.keys(renamed.kind.spec.args)).toEqual(['zeta', 'mid', 'alpha']);
+    expect(renamed.kind.spec.args['mid']).toEqual({
+      kind: 'value',
+      value: { kind: 'str', value: 'M' },
+    });
+  });
+
   it('is exported from the package index under its public names', () => {
     expect(ChildReach.lookup).toBe(Reach.lookup);
     expect(exportedFindNode).toBe(findNode);
@@ -182,6 +211,24 @@ describe('the walks fold over the enumeration', () => {
     expect(allNodeIds(t)).toEqual(['root', 'grid', 'none-yet']);
   });
 
+  it('findNode reaches a node held only in a slot argument or a fallback (Phase 2704)', () => {
+    const t: N = { ...box('root', [fragmentRef('ref')]), fallback: leaf('fb') };
+    expect(findNode(t, 'slot-body')?.id).toBe('slot-body');
+    expect(findNode(t, 'fb')?.id).toBe('fb');
+    expect(allNodeIds(t)).toEqual(['root', 'ref', 'slot-body', 'fb']);
+  });
+
+  it('the clone remap rewrites an id inside a slot argument (Phase 2704)', () => {
+    const t = box('root', [fragmentRef('ref')]);
+    const r = duplicateOp(t, nid('ref'), { parentId: nid('root'), placement: { kind: 'Last' } });
+    if (!r.ok) throw new Error(`refused: ${JSON.stringify(r.error)}`);
+    const op = r.value;
+    if (op.kind !== 'InsertChild') throw new Error(`unexpected op ${op.kind}`);
+    const cloneIds = allNodeIds(op.child as N);
+    expect(cloneIds).toHaveLength(2);
+    expect(cloneIds.some((i) => i === 'ref' || i === 'slot-body')).toBe(false);
+  });
+
   it('the clone remap rewrites an id inside a state alternative', () => {
     const t = box('root', [{ ...leaf('grid'), state: { onEmpty: leaf('none-yet') } }]);
     const r = duplicateOp(t, nid('grid'), { parentId: nid('root'), placement: { kind: 'Last' } });
@@ -201,7 +248,10 @@ describe('the walks fold over the enumeration', () => {
           kind: 'Display',
           display: {
             kind: 'Markdown',
-            spec: { text: { kind: 'Bound', binding: { kind: 'State', key, defaultValue: 'v' } } },
+            spec: {
+              citations: [],
+              text: { kind: 'Bound', binding: { kind: 'State', key, defaultValue: 'v' } },
+            },
           },
         },
         state: {},

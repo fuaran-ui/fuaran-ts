@@ -103,7 +103,10 @@ describe('server semantics', () => {
       id: 'inner',
       kind: {
         kind: 'Display',
-        display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: 'hi' } } },
+        display: {
+          kind: 'Markdown',
+          spec: { citations: [], text: { kind: 'Literal', value: 'hi' } },
+        },
       },
       state: {},
       style,
@@ -145,7 +148,10 @@ describe('server semantics', () => {
       id,
       kind: {
         kind: 'Display',
-        display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: text } } },
+        display: {
+          kind: 'Markdown',
+          spec: { citations: [], text: { kind: 'Literal', value: text } },
+        },
       },
       state: {},
       style,
@@ -215,5 +221,84 @@ describe('BehindView (Phase 1812)', () => {
     if (!named.ok || !spoken.ok) throw new Error('both decode');
     expect(renderToHtml(spoken.value)).toBe(renderToHtml(named.value));
     expect(renderToHtml(spoken.value)).not.toContain('all systems operational');
+  });
+});
+
+// Phase 2591 — a figure cited inside a sentence (WIRE_FORMAT §3.6.32).
+describe('Markdown citations', () => {
+  it('draws each figure in the line of text, with no tile and no link', () => {
+    const html = render('markdown-citation-several.json');
+    expect(html).toContain(
+      '<span class="fuaran-cited" data-fact="fact:spend-q3">£412k</span> placed by <strong><span class="fuaran-cited" data-fact="fact:brands-q3"><span class="fuaran-cited-label">Brands placing </span>17</span></strong> brands',
+    );
+    expect(html).not.toContain('fuaran-kind-fact');
+    expect(html).not.toContain('<a ');
+  });
+
+  it('leaves a sentence citing nothing as a dead link', () => {
+    expect(render('markdown-citation-none.json')).toContain('<a href="about:blank">23%</a>');
+  });
+});
+
+// Phase 2535 — a cited figure (WIRE_FORMAT §3.6.31): `data-fact` on the tile's root.
+describe('Fact reference', () => {
+  it('stamps data-fact on the tile', () => {
+    expect(render('fact-cited.json')).toContain(
+      '<div class="fuaran-fact fuaran-fact-default" data-fact="9f04f29b27c86926a1c3e5d7b8f0a2c4e6d8f0a1b3c5d7e9f1a3b5c7d9e1f3a5">',
+    );
+  });
+
+  it('stamps nothing on an uncited tile', () => {
+    expect(render('fact-1.json')).not.toContain('data-fact');
+  });
+});
+
+// Phase 2571 — option groups (WIRE_FORMAT §3.6.30): one <optgroup> per group in
+// list order, a group's options in `source` order, the ungrouped remainder last.
+describe('Select option groups', () => {
+  it('serves each group as an optgroup and the remainder after the groups', () => {
+    const html = render('select-option-groups-remainder.json');
+    expect(html).toContain(
+      '<select class="fuaran-select-control"><optgroup label="Trend"><option value="revenue-trend">Revenue</option></optgroup><optgroup label="Breakdown"><option value="region-breakdown">By region</option></optgroup><option value="summary">Summary</option><option value="notes">Notes</option></select>',
+    );
+  });
+
+  it("draws a group's options in source order, not the order its values are written", () => {
+    const html = render('select-option-groups.json');
+    expect(html).toContain(
+      '<optgroup label="Trend"><option value="revenue-trend">Revenue</option><option value="orders-trend">Orders</option></optgroup>',
+    );
+  });
+
+  it('serves an ungrouped select with no optgroup', () => {
+    expect(render('select-1.json')).not.toContain('optgroup');
+  });
+});
+
+// Phase 2592 — a table cell cites its figure (WIRE_FORMAT §3.6.33).
+describe('table citations', () => {
+  it('stamps a cited cell on its td, with the label as first child, and draws no tile', () => {
+    const html = render('table-citation-all.json');
+    expect(html).toContain(
+      '<td class="fuaran-table-cell" data-fact="fact:online-share"><span class="fuaran-cited-label">Online share of category spend </span>23%</td>',
+    );
+    expect(html).toContain('<td class="fuaran-table-cell" data-fact="fact:online-brands">17</td>');
+    expect(html).toContain('<td class="fuaran-table-cell">Online</td>');
+    expect(html).not.toContain('fuaran-kind-fact');
+  });
+
+  it('keeps a cited toned cell its pill, after the label', () => {
+    expect(render('table-citation-some.json')).toContain(
+      'data-fact="fact:wholesale-change"><span class="fuaran-cited-label">Wholesale change </span><span class="fuaran-grid-cell-pill',
+    );
+  });
+
+  it('adds only the attribute and the span to the uncited twin', () => {
+    const all = render('table-citation-all.json');
+    const stripped = all
+      .replace(/ data-fact="[^"]*"/g, '')
+      .replace(/<span class="fuaran-cited-label">[^<]*<\/span>/g, '')
+      .replaceAll('table-citation-all', 'table-citation-none');
+    expect(stripped).toBe(render('table-citation-none.json'));
   });
 });

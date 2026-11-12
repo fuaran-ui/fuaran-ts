@@ -366,6 +366,133 @@ obligation is `WIRE_FORMAT.md` §3.6.27, over the schema-entry members §3.6.26 
 - **Certified by** `packages/renderer/test/fieldMetadata.test.tsx` and `packages/renderer-server/test/fieldMetadata.test.ts`
   over the `fm-*` cases of §3.6.27's parity table (`packages/renderer/test/fieldMetadataFixtures.json`).
 
+### Rides `@fuaran-ui/charts` 0.15.0 — a chart whose series are read from its rows (fuaran#2568)
+
+**Additive.** The draft is untagged and above `v0.31.0` (which published 0.14.5), so the change rides it. No wire
+change: `yFields` was always a list and an empty one always decoded; the lowering rule is `WIRE_FORMAT.md` §3.6.29.
+
+- **Lowering.** `lower` / `lowerNode` given an EMPTY `yFields` plot one series per numeric column of the rows other than
+  `xField` (a number or a decimal cell, no row carrying a string, boolean or date there), Ordinal-ordered and named by
+  column, and lower exactly as the chart naming those columns would. More than 32 such columns is the refusal drawing
+  (the canvas, no shapes, the count and the limit as the description), never a truncation. A non-empty `yFields` lowers
+  to the bytes it lowered to before.
+- **No export moves.** The derivation is module-internal; the package entry's export list is unchanged.
+- **Certified by** `packages/charts/test/chart-lowering.test.ts` over the `chart-lowering/derived-series/` goldens the F#
+  reference emits, byte for byte, the refusal included.
+
+### Rides the same drafts — a table cell cites its figure (fuaran#2592)
+
+**Additive.** `WIRE_FORMAT.md` §3.6.33: `DataGrid.staticRows` gains the optional `citations`, omitted when empty.
+`StaticRows.citations` is a required property the decoder restores, so a hand-written spec literal gains `citations: []`;
+both renderers read it as optional, so a hand-written spec without it renders as a table citing nothing.
+
+- **Ops.** The decoder reads each coordinate against the rows, and refuses an empty array, a negative or out-of-range
+  row or column, and two entries for one cell. A missing member is `MISSING_FIELD`.
+- **Renderers.** The client and the string server stamp `data-fact` on a cited `<td>`, with a label as a
+  `fuaran-cited-label` first child. A table citing nothing emits what it did.
+- **UI.** `fuaran.table({ ..., citations })`.
+
+### Rides `@fuaran-ui/schema` 0.28.0, `@fuaran-ui/ops` 0.32.0, `@fuaran-ui/renderer` 0.29.0, `@fuaran-ui/renderer-server` 0.26.0 and `@fuaran-ui/ui` 0.26.0 — a cited figure reads inside a sentence (fuaran#2591)
+
+**Additive.** Every draft is untagged and above `v0.31.0`, so the change rides them. The wire change is
+`WIRE_FORMAT.md` §3.6.32: `Markdown` gains the optional `citations`, omitted when empty. `MarkdownSpec.citations` is a
+required property the decoder restores, as `MetricSpec.comparisons` is, so a hand-written spec literal gains
+`citations: []`.
+
+- **Ops.** The codec reads and writes it through the field table, and refuses an empty array, a name outside the
+  grammar and a repeated name. `UpdateProp` gains the `Icon` field on `Fact`, the arm fuaran#2535 left out.
+- **Renderers.** `toHtmlCited` is new; `toHtmlWithEgress` is its no-citation case. The client and the string server
+  both draw `span.fuaran-cited[data-fact]` in the line of text, with a label as a visually hidden first child.
+- **UI.** `fuaran.markdown(id, body, citations?)`.
+
+### Rides `@fuaran-ui/schema` 0.28.0, `@fuaran-ui/ops` 0.32.0, `@fuaran-ui/renderer` 0.29.0 and `@fuaran-ui/renderer-server` 0.26.0 — a `Fact` carries its reference on the wire (fuaran#2535)
+
+**Additive.** Every draft is untagged and above `v0.31.0`, so the change rides them. The wire change is
+`WIRE_FORMAT.md` §3.6.31: `Fact` gains the optional `reference`.
+
+- **Schema.** The optional `FactSpec.reference`, from the generated field table.
+- **Ops.** The codec reads and writes it through the field table. `UpdateProp` gains the `Reference` field on `Fact`.
+- **Renderers.** The client and the string server both stamp `data-fact` on the tile's root; no reference, no attribute.
+
+### Rides `@fuaran-ui/schema` 0.28.0, `@fuaran-ui/ops` 0.32.0, `@fuaran-ui/renderer` 0.29.0 and `@fuaran-ui/renderer-server` 0.26.0 — a `Select` carries optional option groups (fuaran#2571)
+
+**Additive.** Every draft is untagged and above `v0.31.0`, so the change rides them. The wire change is
+`WIRE_FORMAT.md` §3.6.30: `Select` gains an omit-at-default `groups` list.
+
+- **Schema.** `SelectOptionGroup` (`label`, `values`) and the optional `SelectSpec.groups`. The IDL declares the
+  member omit-at-default; this host spells the default as absent, so every `SelectSpec` literal written before it
+  still type-checks. `SelectOption` is unchanged.
+- **Codec.** `groups` decodes and encodes through the spec table (omitted at `[]`); two refusals, both `WRONG_TYPE` at
+  the offending `values` element: a value named more than once, and over static options a value naming no option.
+- **Rendering.** Both tiers draw one `<optgroup label>` per group in list order holding the options it names in
+  `source` order, then the ungrouped remainder; no groups draws the flat list exactly as before.
+- **Certified by** the corpus (`nodes/select-option-groups*.json`, `reject/reject-2571-*`), the client's corpus
+  snapshot and `packages/renderer-server/test/render.test.ts`.
+
+### `@fuaran-ui/ui` 0.27.0 — the builders spell every member the wire carries for their kinds (Phase 2694)
+
+_Unreleased: a minor ahead of the newest tag, `v0.33.0`._
+
+**Additive**, a minor because exported option interfaces gain members. The wire already carried each member and
+the codec already read and wrote it; an author could not reach it without hand-writing a spec. Every new member is
+an ordinary optional (or omit-at-default), so a call that declares none encodes to the bytes it always did.
+
+- **`fuaran.fact`** — `reference` (fuaran#2593, a cited fact) and `icon`.
+- **`fuaran.select`** — `groups` (fuaran#2571; `[]` and absent are one fact and both omit the member) and
+  `affordance` (`WIRE_FORMAT.md` §31.1).
+- **`fuaran.button`** — `affordance`.
+- **`fuaran.chart`** — `valueFormat`, `xTitle`, `yTitle`, `subtitle`, `legendPosition`, `dataLabels`, `xScale` and
+  `annotations`.
+- **Certified by** `packages/ui/test/builders-corpus.test.ts`: `fact-cited`, `select-option-groups`,
+  `select-option-groups-remainder`, `fact-1` and five chart fixtures are built through the builders and encode
+  byte-identically to the corpus, and each has a falsifier that drops the new member and must miss the bytes.
+- **Release consistency.** `@fuaran-ui/mcp` 0.14.5 is a range-only patch (its `^0.26.1` excludes 0.27.0); the
+  starter template's pin follows `ui` 0.27.0.
+
+### `@fuaran-ui/ops` 0.33.1 — a decoder handed a value that is not text refuses it with a typed defect (Phase 2694)
+
+_Unreleased: a patch ahead of the newest tag, `v0.33.0`._
+
+**Fix**, no export or signature moves. Every decoder that takes the wire as text (`decodeNode`,
+`decodeNodeWithDefects`, `decodeNodeTolerant`, `decodeOp`, `decodeOps`, `decodeEnvelope`, `decodeDagRecord`,
+`decodeGridEdit`, `decodeElicitation`, `decodeElicitationOutcome`) reads it through `parse`. Handed a value that is
+not a string, an already-parsed object most often, the parser's cursor threw `TypeError: s.text.substring is not a
+function` from inside the decoder. `parse` now refuses it as a structural failure at offset 0, so the decoders
+return `INVALID_JSON` at `$` (or their own typed refusal) and none throws. Certified by
+`packages/ops/test/non-text-input.test.ts`, which also pins the Chart default wire a structural editor synthesises:
+as text it decodes and re-encodes to a fixed point; as the parsed object it is refused, not thrown.
+
+### `@fuaran-ui/ops` 0.33.2, `@fuaran-ui/conformance` 0.30.1 — the apply engine reaches a node held in a slot argument (Phase 2704)
+
+_Unreleased: a patch ahead of the newest tag, `v0.33.1`, which published `ops` 0.33.1 and `conformance` 0.30.0, so
+the change advances both rather than riding a draft._
+
+**Fix**, no export or signature moves, and additive in behaviour: an op that did not apply now applies. `findNode`,
+the apply engine's walkers (`mapNode`, `allNodeIds`, `findLayoutParent`, `isAncestor`, the §8.1 installed-duplicate
+check) and the clone remap behind `duplicateOp` / `duplicateOpWith` walk every position a node holds another in
+(`ChildReach.all`, the reference's keyed walk, `WIRE_FORMAT.md` §34.2): the ordered lists, the kind's arms, the two
+`state` alternatives, the envelope `fallback`, and the slot trees of a `FragmentRef`'s `args` and a `Mount`'s
+`inputs`, in ordinal key order with a rebuild per position. A value argument holds no node and is skipped. Before,
+the walk stopped at the `state` alternatives, so an op addressed to a node held only in a slot argument or a
+`fallback` stopped as `NodeNotFound` / `ParentNotFound`, and the fold reported `DeltaDoesNotApply` before judging
+anything. The footprint already walked `ChildReach.all` and is unchanged.
+
+- **`ChildReach.lookup` keeps its set** (ordered, arms, `state` alternatives): the renderers' fragment collection and
+  namespacing still descend through it, as the reference's `fragmentScope` does. It no longer names the node
+  lookup's surface, and its doc comment says so.
+- **What a caller can now see.** An id held only in a slot argument or a `fallback` is found by `findNode`, counts
+  for the §8.1 duplicate check (an op installing such an id is refused `DuplicateNodeId`), and is remapped by a
+  clone.
+- **Conformance statement.** The `foldFixtures` leg (`packages/ops/test/fold.test.ts`) is green on the four
+  Mount-input fixtures `fold-mount-input-insert` (derives), `fold-refusal-mount-input-tone`,
+  `fold-refusal-mount-input-disjoint` and `fold-refusal-mount-input-delete-modify` (each refuses with the committed
+  envelope, mirrored under the swap), at corpus commit `d33b87d` (the fixtures landed at `0b2ec20`). The two edits
+  to different nodes inside one Mount's inputs are refused as the reference refuses them. The `mount-*` node
+  fixtures round-trip byte-identically, as before.
+- **`@fuaran-ui/conformance` 0.30.1.** The bundled snapshot is re-synced to `d33b87d`: the payload bytes were
+  already current, so only the `corpus/snapshot.json` sentinel moves. The merge-conformance family is not part of
+  the bundled payload.
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:
@@ -1120,6 +1247,78 @@ type changes: `'DuplicateNodeId'` was already a case.
 **What certifies it.** The shared corpus family `apply/duplicate-ids-apply.json`
 (`duplicateIdsApply`), run by `packages/ops/test/duplicate-ids-apply-corpus.test.ts`, and this host's
 own cases in `packages/ops/test/apply-duplicate-ids.test.ts`. Both failed on the previous engine.
+
+### Rides `@fuaran-ui/ops` 0.33.0 — the three-way tree merge retires; merge by fold is the only merge (Phase 2646)
+
+_Unreleased: rides the `@fuaran-ui/ops` 0.33.0 slot Phase 2641 opened, ahead of the newest tag, `v0.32.0`._
+
+**Breaking**, which pre-1.0 is a minor, the class the draft already carries, so it rides. Since fuaran#2645 the op
+DAG's only merge is the fold (`WIRE_FORMAT.md` §34), and the merge-conformance manifest (version 2) carries the
+`foldFixtures` family alone.
+
+- **Removed.** `merge3Way`, `encodeMergeEnvelope`, `sortConflictsCanonical` and the `MergeResult`, `MergeConflict`,
+  `MergeConflictClass` and `MergeSide` types. A merge is `reconcileFold` over `conflictsIn`.
+- **The DAG record (`WIRE_FORMAT.md` §5.3.3).** `DagOpRecord` loses `outcomeHash` and `tombstoned`; a merge node's
+  `op` is its reconciliation script as a `Batch`. `decodeDagRecord` refuses a record carrying either retired member
+  by name, because a pre-2645 address does not recompute. Certified by the re-minted `dag/` records.
+- **Behavioural.** The footprint follows Core 0.42.0's child-list slot rules (fuaran#2651, #2670, #2691): a resolved
+  move and a resolved reorder touch no parent whole, `EditNode` writes the child-list slot, and the conflict report
+  compares a structure write at that slot. The policy rebases a reorder beside a concurrent append, removal or move
+  of a listed child (fuaran#2671), lists a node both branches move once, and the script records the child-order
+  reorder for every interleaved or rebased parent (fuaran#2645).
+
+### `@fuaran-ui/schema` 0.28.1 — the generated module re-stamped to the corpus `idl.json` (Phase 2646)
+
+_Unreleased: a patch ahead of the newest tag, `v0.32.0`._
+
+**Fix.** The corpus's `idl.json` moved under fuaran#2640 (three keyed slots declared, host-surface-only under §15.4),
+so `src/generated.ts` is regenerated and only its recorded `IDL_SHA256` moves; no generated type or table changes.
+Every dependent's `^0.28.0` range admits it, so nothing else advances; the starter template's pin follows `schema`
+0.28.1.
+
+### `@fuaran-ui/ops` 0.33.0 — merge by fold: the base-aware footprint, the conflict report and the reconciliation policy (Phase 2641)
+
+_Unreleased: opens the `@fuaran-ui/ops` 0.33.0 slot, ahead of the newest tag, `v0.32.0`._
+
+**Additive.** No existing export changed shape, and the three-way tree merge (`merge3Way`) is untouched. The
+contract is `WIRE_FORMAT.md` §34, certified by the `foldFixtures` family of the merge-conformance corpus
+(`packages/ops/test/fold.test.ts`: every artefact byte for byte and by its sha256, the swap mirrored, the gated
+fixture through the validator gate).
+
+- **Footprint.** `footprintOf` (from the op alone) and `footprintIn` / `footprintEachIn` (at the tree the op
+  applies to) — the reference's base-aware projection, arm for arm, as the `Footprint` record with `emptyFootprint`
+  / `unionFootprint`. §34.2 makes the projection part of the contract: a coarser one refuses pairs the reference
+  admits, a finer one admits pairs it refuses.
+- **Conflict report.** `conflictsIn(base, a, b)` — every op pair whose footprints are not independent, with its
+  address and `OpConflictShape` (`ConcurrentUpdate`, `InsertPositionClash`, `MoveVsRemove`, `SlotClash` with the
+  slot), each delta threaded through `apply` from the base.
+- **Policy.** `reconcileFold` admits agreements and interleaves, orders an interleaved parent by the child-order
+  rule (recording `ReorderChildren` as the merge's `script`), runs the fold in both orders and refuses a
+  disagreement as `OrderSensitive`; every other pair is refused as `Conflict` or `DeleteModify`.
+  `reconcileFoldGated` adds the validator gate, `encodeFoldEnvelope` the §34.5 refusal envelope, and
+  `applyHeld` / `sortFoldRefusals` the two rules a host composes them from.
+
+**Minor, per the pre-1.0 rule (additive is a minor).** Leaving `^0.32.0` is what the release-consistency sweep
+answers: seven published packages declare `@fuaran-ui/ops` `^0.32.0` (a peer or a dependency) and nothing else in
+them moved, so each takes a **patch** whose tarball differs only in the regenerated range — `@fuaran-ui/ai-tools`
+0.14.2 → 0.14.3, `@fuaran-ui/charts` 0.15.0 → 0.15.1, `@fuaran-ui/client` 0.13.1 → 0.13.2, `@fuaran-ui/mcp` 0.14.3 →
+0.14.4, `@fuaran-ui/op-stream` 0.12.0 → 0.12.1, `@fuaran-ui/renderer` 0.29.0 → 0.29.1 and `@fuaran-ui/renderer-server`
+0.26.0 → 0.26.1. `@fuaran-ui/ui` 0.26.0 → 0.26.1 is a patch for the workspace-internal actor twin it bundles, whose
+doc comment now cites Core's `Actor.encode` (fuaran#1937); no byte it emits moves. The starter template's pins follow `renderer`
+0.29.1 and `ui` 0.26.1.
+
+### Recorded breaking change — `@fuaran-ui/ops` 0.32.0, `UpdateAccessibility` and `UpdateTooltip`, the trait edits (Phase 2527)
+
+_Unreleased: rides the `@fuaran-ui/ops` 0.32.0 slot, ahead of the newest tag, `v0.31.0`._
+
+**What changed.** `TreeOp` gains `{ kind: 'UpdateAccessibility', target, accessibility }` and
+`{ kind: 'UpdateTooltip', target, tooltip? }` (WIRE_FORMAT.md §3.4). The first replaces the whole trait, and a
+record setting no member removes it. The second sets the tooltip, and an absent `tooltip` clears it. Each decodes
+through the node envelope's own decoder, so the trait's near-miss refusals hold on the op. Neither carries a node,
+so the tree limits do not measure them.
+
+**Why.** No op could reach either trait, so a host's diff had no way to spell an edit of one. An exhaustive `switch`
+over `TreeOp` in a consumer stops compiling until it handles the two cases.
 
 ### Recorded breaking change — `@fuaran-ui/ops` 0.31.0, `PatchStyle`, the field-level style edit (Phase 2291)
 
@@ -1914,6 +2113,39 @@ earlier `malformed:` wording; its code and path are unchanged. **Certified by** 
 `grid-transform-int-bounds`, `reject-transform-int-above-int32`, `reject-transform-int-below-int32`,
 `reject-transform-int-fractional`, `lenient-transform-int-whole-float-token` and
 `lenient-transform-int-inferred-past-int32`, in the re-synced snapshot.
+
+### Recorded breaking change — `@fuaran-ui/theme-manifest` 0.13.0 and `@fuaran-ui/conformance` 0.30.0, theme-manifest invariants are validated, not decoded strictly (Phase 2133)
+
+_Unreleased: ahead of the newest tag, `v0.32.0`, which published theme-manifest 0.12.4 and conformance 0.29.0._
+
+**What changed.** `InvariantKind` gains `{ kind: 'Unknown', name, members }`: an invariant whose wire kind
+this host does not know is KEPT, with its other members as parsed, and round-trips through `decodeManifest` and
+`encodeManifest`, where it used to be dropped. `invariantKindName` returns the wire kind for it. An object with no
+non-empty string `kind` is still not an invariant. `validateManifest` (exported, with `ManifestDefect`,
+`ManifestDefectCode` and `encodeManifestDefect`) is the validation pass every manifest host runs after its
+tolerant decode, with the shared code table of the corpus's WIRE_FORMAT §13: `CONTRAST_FLOOR_OUT_OF_RANGE`
+(`minRatio` outside [1, 21]), `CONTRAST_FLOOR_ROLE_EMPTY`, `CONTRAST_FLOOR_ROLE_UNBOUND`,
+`USAGE_BUDGET_TOKEN_UNDECLARED` and `INVARIANT_KIND_UNKNOWN`. Decoding is unchanged otherwise, and the wire
+bytes do not move.
+
+**Why.** The byte law omits a member at its default, so `{"kind":"ContrastFloor","role":"x"}` is the canonical
+encoding of a floor of 0, a floor every pair passes. A strict decoder would refuse every host's output and still
+miss an explicit `0.5`, an unbound role and a dropped unknown kind; the defect is in the meaning, so it is checked
+after decode.
+
+**What it costs a consumer.** An exhaustive `switch` over `InvariantKind['kind']` under a `default: never`
+pattern gains a case. Pre-1.0 that is a minor advance. The bundled corpus snapshot gains the style-observer
+family's seven `manifest-validation` vectors, an additive conformance minor.
+
+**What certifies it.** The corpus vectors `style-observer/manifest-validation-*.json`, run by
+`packages/style-observer/test/corpusConformance.test.ts`; this host's own cases in
+`packages/theme-manifest/test/validate.test.ts`; the tolerant-decode pin in
+`packages/theme-manifest/test/manifest.test.ts`.
+
+**Release-consistency patch.** `@fuaran-ui/style-observer` declares `@fuaran-ui/theme-manifest` as a
+`workspace:^` peer, which `v0.32.0` published as a 0.12 range that excludes 0.13.0. The package's own suite
+gains the new tier; its published code does not move. The repack writes `^0.13.0`: `@fuaran-ui/style-observer`
+0.11.3 → 0.11.4.
 
 ## Re-confirmation gate before public exposure
 

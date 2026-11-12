@@ -12,8 +12,8 @@
 /**
  * Who authored an op (Phase 320 — typed attested provenance). The Human/Agent
  * distinction is the load-bearing AI-accountability fact; `model`/`version`
- * doubles as corpus-quality metadata. Port of F# `Fuaran.UI.OpStream.Abstractions.Actor`
- * (and the `Fuaran.Core.OpStream.Actor` contract) — the canonical encoding
+ * doubles as corpus-quality metadata. Port of the `Fuaran.Core.OpStream.Actor` contract
+ * (the F# UI tier's `Actor` is an alias of it) — the canonical encoding
  * (`encodeActor`, below) is folded into the op-record hash, so the
  * cross-host hashed pre-image is byte-identical.
  */
@@ -34,8 +34,9 @@ export const humanActor = (id: string): Actor => ({ kind: 'human', id });
 
 /**
  * Canonical JSON string escaping — only `"` / `\` / control chars (control as
- * `\u00xx`), matching F# `CanonicalJson.appendRawString` / `StreamEntry` `jstr`
- * so every hashed pre-image is byte-identical across hosts.
+ * `\u00xx`), matching Fuaran Core's `JsonString.quote`, the escaper Core's
+ * `Actor.encode` spells every actor field with, so every hashed pre-image is
+ * byte-identical across hosts.
  */
 export const jsonString = (s: string): string => {
   let out = '"';
@@ -58,7 +59,7 @@ export const jsonString = (s: string): string => {
 /**
  * Canonical JSON encoding of the typed actor — folded into the op-record hash
  * (Phase 320). Field order is pinned (kind first, then case fields). MUST stay
- * byte-for-byte aligned with F# / Core `Actor.encode`.
+ * byte-for-byte aligned with Core's `Actor.encode`.
  */
 export const encodeActor = (a: Actor): string =>
   a.kind === 'human'

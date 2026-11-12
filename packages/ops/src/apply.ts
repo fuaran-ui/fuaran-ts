@@ -98,8 +98,8 @@ const idOf = (n: N): string => n.id as string;
 // ─── Tree walkers ────────────────────────────────────────────────────────────
 //
 // The walkers below fold over the one child enumeration in children.ts, at
-// `Reach.lookup` (layout children, the kind-held arms and the two `state`
-// alternatives). They are exported for intra-package reuse (the placement
+// `Reach.all`: every position, slot arguments and the envelope `fallback`
+// included, the reference's keyed walk (Phase 2704). They are exported for intra-package reuse (the placement
 // helpers in placement.ts pre-check against the SAME traversal the apply
 // engine runs, so helper verdicts and apply verdicts cannot drift). They are
 // deliberately not re-exported from the package index.
@@ -114,7 +114,7 @@ export const layoutChildren = (n: N): readonly N[] | undefined => orderedChildre
 const mapNode = (target: string, f: (n: N) => N, n: N): N | undefined => {
   if (idOf(n) === target) return f(n);
   let hit = false;
-  const rebuilt = mapChildren(n, Reach.lookup, (c) => {
+  const rebuilt = mapChildren(n, Reach.all, (c) => {
     if (hit) return c;
     const r = mapNode(target, f, c);
     if (r === undefined) return c;
@@ -132,12 +132,12 @@ const mapNode = (target: string, f: (n: N) => N, n: N): N | undefined => {
  */
 export const allNodeIds = (n: N): string[] => [
   idOf(n),
-  ...children(n, Reach.lookup).flatMap((c) => allNodeIds(c)),
+  ...children(n, Reach.all).flatMap((c) => allNodeIds(c)),
 ];
 
 export const findLayoutParent = (target: string, n: N): N | undefined => {
   if (children(n, Reach.structural).some((c) => idOf(c) === target)) return n;
-  for (const c of children(n, Reach.lookup)) {
+  for (const c of children(n, Reach.all)) {
     const r = findLayoutParent(target, c);
     if (r !== undefined) return r;
   }
@@ -147,7 +147,7 @@ export const findLayoutParent = (target: string, n: N): N | undefined => {
 export const isAncestor = (ancestorId: string, descendantId: string, root: N): boolean => {
   const a = findNode(root, ancestorId);
   if (a === undefined) return false;
-  return children(a, Reach.lookup).some((c) => allNodeIds(c).includes(descendantId));
+  return children(a, Reach.all).some((c) => allNodeIds(c).includes(descendantId));
 };
 
 // ─── UpdateProp field dispatch ───────────────────────────────────────────────
@@ -251,7 +251,9 @@ const updateField = (
       }
       case 'Markdown':
         return field === 'Text'
-          ? patch(coerce.textSource(value), (x) => disp({ kind: 'Markdown', spec: { text: x } }))
+          ? patch(coerce.textSource(value), (x) =>
+              disp({ kind: 'Markdown', spec: { ...d.spec, text: x } }),
+            )
           : { tag: 'unknownField' };
       case 'Badge': {
         const s = d.spec;
@@ -386,6 +388,18 @@ const updateField = (
             return patch(coerce.textSource(value), (x) =>
               disp({ kind: 'Fact', spec: { ...s, help: x } }),
             );
+          case 'Icon':
+            return patch(coerce.iconSource(value), (x) =>
+              disp({ kind: 'Fact', spec: { ...s, icon: x } }),
+            );
+          case 'Reference':
+            return patch(coerce.stringOption(value), (x) => {
+              const { reference: _reference, ...rest } = s;
+              return disp({
+                kind: 'Fact',
+                spec: { ...rest, ...(x !== undefined ? { reference: x } : {}) },
+              });
+            });
           default:
             return { tag: 'unknownField' };
         }
@@ -1031,6 +1045,38 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
       telem.push({ op: 'UpdateState', targetId: op.target });
       return ok(newTree);
     }
+    case 'UpdateAccessibility': {
+      // Phase 2527 — the whole record replaces the trait, and a record setting
+      // no member is the absent slot, which is how the trait is removed.
+      const empty = Object.values(op.accessibility).every((member) => member === undefined);
+      const newTree = mapNode(
+        op.target,
+        (n) => {
+          const { accessibility: _replaced, ...rest } = n;
+          return empty ? rest : { ...rest, accessibility: op.accessibility };
+        },
+        root,
+      );
+      if (newTree === undefined)
+        return fail('NodeNotFound', `Node '${op.target}' not found in tree.`);
+      telem.push({ op: 'UpdateAccessibility', targetId: op.target });
+      return ok(newTree);
+    }
+    case 'UpdateTooltip': {
+      // Phase 2527 — an absent `tooltip` clears the trait.
+      const newTree = mapNode(
+        op.target,
+        (n) => {
+          const { tooltip: _replaced, ...rest } = n;
+          return op.tooltip === undefined ? rest : { ...rest, tooltip: op.tooltip };
+        },
+        root,
+      );
+      if (newTree === undefined)
+        return fail('NodeNotFound', `Node '${op.target}' not found in tree.`);
+      telem.push({ op: 'UpdateTooltip', targetId: op.target });
+      return ok(newTree);
+    }
     case 'InsertChild': {
       const parent = findNode(root, op.parentId);
       if (parent === undefined)
@@ -1188,7 +1234,7 @@ const applyOne = (op: TreeOp<unknown>, root: N, telem: OpApplyTelemetryRecord[])
  * NODES, not ids: a payload whose ids repeat has fewer ids than nodes, so an id
  * set cannot say whether the op adds to the tree.
  */
-const insertedNodes = (op: TreeOp<unknown>): readonly N[] => {
+export const insertedNodes = (op: TreeOp<unknown>): readonly N[] => {
   switch (op.kind) {
     case 'InsertChild':
       return [op.child];
@@ -1207,6 +1253,8 @@ const insertedNodes = (op: TreeOp<unknown>): readonly N[] => {
     case 'ReplaceBinding':
     case 'UpdateStyle':
     case 'PatchStyle':
+    case 'UpdateAccessibility':
+    case 'UpdateTooltip':
     case 'RemoveNode':
     case 'MoveNode':
     case 'ReorderChildren':
@@ -1228,7 +1276,8 @@ const insertedNodes = (op: TreeOp<unknown>): readonly N[] => {
  * moving one branch under the other's leaf nests past `MAX_NODE_DEPTH`.
  *
  * Everything else cannot grow the tree: `UpdateProp`, `ReplaceBinding`,
- * `UpdateStyle` and `PatchStyle` carry no node (`UpdateProp` refuses every
+ * `UpdateStyle`, `PatchStyle`, `UpdateAccessibility` and `UpdateTooltip` carry no
+ * node (`UpdateProp` refuses every
  * node-valued field), `RemoveNode` shrinks, and `ReorderChildren` permutes
  * children in place.
  */
@@ -1279,7 +1328,7 @@ const treeLimitBreach = (tree: N): string | undefined => {
 // subtree repeats one (Phase 2172).
 //
 // The check reads the RESULT and charges the op only for the ids it installed
-// (`insertedNodes`), over the same `Reach.lookup` surface every other id check
+// (`insertedNodes`), over the same `Reach.all` surface every other id check
 // here walks. That is what lets an `EditNode` restate the children it replaces
 // and an `UpdateState` replace an alternative with one of the same id: the old
 // node leaves as the new one arrives. A duplicate already present before the

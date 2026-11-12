@@ -30,8 +30,10 @@ import {
   type ManifestMeta,
   type ManifestRole,
   type ManifestToken,
+  type ManifestDefect,
   type RoleBinding,
   type ThemeManifest,
+  invariantKindName,
 } from './manifest.js';
 
 // ─── JsonAst construction ─────────────────────────────────────────────────────
@@ -42,6 +44,20 @@ const jObj = (fields: ReadonlyMap<string, JsonAst>): JsonAst => ({ kind: 'JObjec
 const jArr = (items: readonly JsonAst[]): JsonAst => ({ kind: 'JArray', items });
 
 type Fields = Map<string, JsonAst>;
+
+/** A parsed JSON value as an AST — how an `Unknown` invariant's raw members are re-emitted. */
+const toAst = (v: unknown): JsonAst => {
+  if (v === null) return { kind: 'JNull' };
+  if (typeof v === 'boolean') return { kind: 'JBool', value: v };
+  if (typeof v === 'number') return jNum(v);
+  if (typeof v === 'string') return jStr(v);
+  if (Array.isArray(v)) return jArr(v.map(toAst));
+  if (typeof v === 'object')
+    return jObj(
+      new Map(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, toAst(x)])),
+    );
+  throw new Error(`theme-manifest: ${typeof v} is not a JSON value`);
+};
 
 /** Set a string member only when it is non-empty — the decoder reads an absent one as `''`. */
 const putStr = (fields: Fields, key: string, value: string): void => {
@@ -136,9 +152,9 @@ const roleBindingJson = (b: RoleBinding): JsonAst => {
 };
 
 const invariantJson = (inv: Invariant): JsonAst => {
-  // `kind` is the discriminator — an unrecognised or absent one drops the
-  // invariant at decode, so it is never omitted.
-  const fields: Fields = new Map([['kind', jStr(inv.kind.kind)]]);
+  // `kind` is the discriminator — an absent one drops the invariant at decode,
+  // so it is never omitted.
+  const fields: Fields = new Map([['kind', jStr(invariantKindName(inv))]]);
   switch (inv.kind.kind) {
     case 'ContrastFloor':
       putStr(fields, 'role', inv.kind.role);
@@ -152,6 +168,9 @@ const invariantJson = (inv: Invariant): JsonAst => {
     case 'MotionVoice':
       putNum(fields, 'maxDurationMs', inv.kind.budget.maxDurationMs, 0);
       if (inv.kind.budget.easing !== undefined) fields.set('easing', jStr(inv.kind.budget.easing));
+      break;
+    case 'Unknown':
+      for (const [k, v] of Object.entries(inv.kind.members)) fields.set(k, toAst(v));
       break;
   }
   putNum(fields, 'weight', inv.weight, DEFAULT_WEIGHT);
@@ -222,3 +241,19 @@ const manifestToAst = (m: ThemeManifest): JsonAst => {
  * not a change this tier makes alone.
  */
 export const encodeManifest = (m: ThemeManifest): string => renderAstCanonical(manifestToAst(m));
+
+/**
+ * One validation defect's canonical JSON — `{"code":…,"index":…,"subject":…}` —
+ * the bytes the corpus's `manifest-validation` vectors pin on every host
+ * (Phase 2133).
+ */
+export const encodeManifestDefect = (d: ManifestDefect): string =>
+  renderAstCanonical(
+    jObj(
+      new Map([
+        ['code', jStr(d.code)],
+        ['index', jNum(d.index)],
+        ['subject', jStr(d.subject)],
+      ]),
+    ),
+  );

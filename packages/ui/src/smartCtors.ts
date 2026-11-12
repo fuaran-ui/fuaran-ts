@@ -105,7 +105,15 @@ import type {
   ToneVariant,
   TrendPolarity,
   Transform,
+  MarkdownCitation,
   MetricComparison,
+  TableCitation,
+  Affordance,
+  ChartAnnotation,
+  ChartDataLabels,
+  ChartLegendPosition,
+  ChartXScale,
+  SelectOptionGroup,
 } from '@fuaran-ui/schema';
 
 // ─── Ergonomic input coercions ───────────────────────────────────────────────
@@ -1283,6 +1291,13 @@ export interface FactOptions {
   readonly tone?: ToneVariant;
   readonly emphasis?: boolean;
   readonly help?: TextInput;
+  /** Phase 2694 — an icon name beside the label; absent ⇒ none. */
+  readonly icon?: string;
+  /**
+   * Phase 2694 — the citation this figure carries (fuaran#2593): an opaque
+   * reference a narrative cites the fact by. Absent ⇒ an uncited fact.
+   */
+  readonly reference?: string;
 }
 
 export interface BadgeOptions {
@@ -1529,6 +1544,8 @@ export interface ButtonOptions<TMsg> {
   readonly tooltip?: TextInput;
   /** Phase 129 — optional bound disabled-state; absent means always enabled. */
   readonly disabled?: Binding<boolean>;
+  /** Phase 2694 — the control's declared affordance (WIRE_FORMAT §31.1); absent ⇒ none. */
+  readonly affordance?: Affordance;
 }
 
 export interface SelectOptions<TMsg> {
@@ -1552,6 +1569,14 @@ export interface SelectOptions<TMsg> {
   readonly values?: readonly string[] | Binding<readonly string[]>;
   /** Phase 426 — optional multi handler; omitted arms the `values` write-back default. */
   readonly onChangeMulti?: (values: readonly string[]) => Action<TMsg>;
+  /**
+   * Phase 2694 — option groups (WIRE_FORMAT §3.6.30, fuaran#2571): each names
+   * options of this select by `value`; options no group names render after the
+   * groups, ungrouped. Absent and `[]` are one fact and both omit the member.
+   */
+  readonly groups?: readonly SelectOptionGroup[];
+  /** Phase 2694 — the control's declared affordance (WIRE_FORMAT §31.1); absent ⇒ none. */
+  readonly affordance?: Affordance;
 }
 
 export interface FormOptions<TMsg> {
@@ -1617,6 +1642,18 @@ export interface ChartOptions<TMsg> {
   readonly title?: TextInput;
   readonly onPointClick?: (point: unknown) => Action<TMsg>;
   readonly stacked?: boolean;
+  // Phase 2694 — the presentation members the wire already carries; each is an
+  // ordinary optional, so a chart declaring none encodes to the bytes it always did.
+  /** How the value axis and tooltips format a figure. */
+  readonly valueFormat?: Format;
+  readonly xTitle?: TextInput;
+  readonly yTitle?: TextInput;
+  readonly subtitle?: TextInput;
+  readonly legendPosition?: ChartLegendPosition;
+  readonly dataLabels?: ChartDataLabels;
+  readonly xScale?: ChartXScale;
+  /** Reference lines, range bands and event markers drawn over the plot. */
+  readonly annotations?: readonly ChartAnnotation[];
 }
 
 export interface TableOptions<TMsg> {
@@ -1624,6 +1661,11 @@ export interface TableOptions<TMsg> {
   readonly headers: readonly TextInput[];
   readonly rows: readonly (readonly TextInput[])[];
   readonly onRowClick?: (index: number) => Action<TMsg>;
+  /**
+   * Phase 2592 — the cells that cite their figures, by zero-based `row` and `column` into
+   * `rows`. Omitted when empty; decode refuses a coordinate naming no cell.
+   */
+  readonly citations?: readonly TableCitation[];
   /**
    * Phase 2473 — how the cells render, read by POSITION: `columns[j]` describes every
    * row's cell `j`, and a static row reads as each column's `field` mapped to its cell's
@@ -2110,20 +2152,31 @@ export const fuaran = {
           tone: o.tone,
           emphasis: o.emphasis,
           ...(o.help !== undefined ? { help: text(o.help) } : {}),
+          // Phase 2694: ordinary optionals, so an uncited fact is byte-unchanged.
+          ...(o.icon !== undefined ? { icon: iconSource(o.icon) } : {}),
+          ...(o.reference !== undefined ? { reference: o.reference } : {}),
         }),
       },
     });
   },
-  markdown<TMsg>(id: NodeId | string, body: string): Node<TMsg> {
+  /**
+   * `citations` (Phase 2591) are the figures the body cites, each placed by a link whose
+   * destination is `cite:<name>`; the display text is the link's own.
+   */
+  markdown<TMsg>(
+    id: NodeId | string,
+    body: string,
+    citations: readonly MarkdownCitation[] = [],
+  ): Node<TMsg> {
     return buildNode(id, {
       kind: 'Display',
-      display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: body } } },
+      display: { kind: 'Markdown', spec: { citations, text: { kind: 'Literal', value: body } } },
     });
   },
   markdownSpec<TMsg>(id: NodeId | string, content: TextInput): Node<TMsg> {
     return buildNode(id, {
       kind: 'Display',
-      display: { kind: 'Markdown', spec: { text: text(content) } },
+      display: { kind: 'Markdown', spec: { citations: [], text: text(content) } },
     });
   },
   badge<TMsg>(o: BadgeOptions): Node<TMsg> {
@@ -2402,6 +2455,7 @@ export const fuaran = {
             ...(o.icon !== undefined ? { icon: iconSource(o.icon) } : {}),
             ...(o.tooltip !== undefined ? { tooltip: text(o.tooltip) } : {}),
             ...(o.disabled !== undefined ? { disabled: o.disabled } : {}),
+            ...(o.affordance !== undefined ? { affordance: o.affordance } : {}),
           },
         },
       },
@@ -2430,6 +2484,9 @@ export const fuaran = {
             ...(o.multiple !== undefined ? { multiple: o.multiple } : {}),
             ...(o.values !== undefined ? { values: stringArrayBinding(o.values) } : {}),
             ...(o.onChangeMulti !== undefined ? { onChangeMulti: o.onChangeMulti } : {}),
+            // Phase 2694: `groups` omits at its default (`[]`), as the encoder does.
+            ...(o.groups !== undefined && o.groups.length > 0 ? { groups: o.groups } : {}),
+            ...(o.affordance !== undefined ? { affordance: o.affordance } : {}),
           },
         },
       },
@@ -2507,6 +2564,14 @@ export const fuaran = {
             stacked: o.stacked,
             ...(o.title !== undefined ? { title: text(o.title) } : {}),
             ...(o.onPointClick !== undefined ? { onPointClick: o.onPointClick } : {}),
+            ...(o.valueFormat !== undefined ? { valueFormat: o.valueFormat } : {}),
+            ...(o.xTitle !== undefined ? { xTitle: text(o.xTitle) } : {}),
+            ...(o.yTitle !== undefined ? { yTitle: text(o.yTitle) } : {}),
+            ...(o.subtitle !== undefined ? { subtitle: text(o.subtitle) } : {}),
+            ...(o.legendPosition !== undefined ? { legendPosition: o.legendPosition } : {}),
+            ...(o.dataLabels !== undefined ? { dataLabels: o.dataLabels } : {}),
+            ...(o.xScale !== undefined ? { xScale: o.xScale } : {}),
+            ...(o.annotations !== undefined ? { annotations: o.annotations } : {}),
           }),
         },
       },
@@ -2538,6 +2603,7 @@ export const fuaran = {
             keepRowsTogether: false,
             repeatHeader: false,
             staticRows: {
+              citations: o.citations ?? [],
               headers: o.headers.map(text),
               rows: o.rows.map((row) => row.map(text)),
             },

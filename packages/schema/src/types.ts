@@ -1604,6 +1604,29 @@ export interface MetricComparison {
   readonly polarity: TrendPolarity;
 }
 
+/**
+ * Phase 2591 (WIRE_FORMAT.md §3.6.32) — one figure a `Markdown` text cites, placed by a
+ * `cite:<name>` link. `reference` is opaque, as on `Fact`; `label` is for a screen reader and
+ * is never printed. The list itself (`MarkdownSpec.citations`) is omitted when empty.
+ */
+export interface MarkdownCitation {
+  readonly name: string;
+  readonly reference: string;
+  readonly label?: TextSource;
+}
+
+/**
+ * Phase 2592 (WIRE_FORMAT.md §3.6.33) — one cell of a static table that cites its figure, by
+ * zero-based `row` and `column` into `staticRows.rows`. `reference` is opaque, as on `Fact`;
+ * `label` is for a screen reader and is never printed. The list is omitted when empty.
+ */
+export interface TableCitation {
+  readonly column: number;
+  readonly label?: TextSource;
+  readonly reference: string;
+  readonly row: number;
+}
+
 export interface BadgeSpec extends IdlSpec<'Badge'> {}
 
 // A crawlable hyperlink primitive (Phase 139). Renders a real `<a href>` in
@@ -2174,7 +2197,14 @@ export interface ButtonSpec<TMsg> extends IdlSpec<'Button', TMsg> {
   readonly disabled?: Binding<boolean>;
 }
 
-export interface SelectSpec<TMsg> extends Omit<IdlSpec<'Select', TMsg>, 'value'> {
+export interface SelectSpec<TMsg> extends Omit<IdlSpec<'Select', TMsg>, 'value' | 'groups'> {
+  /**
+   * Phase 2571 — option groups (WIRE_FORMAT §3.6.30). The IDL declares the member
+   * omit-at-default (`[]`); this host spells the default as ABSENT, so every
+   * `SelectSpec` written before the member existed still type-checks. Absent and
+   * `[]` are one fact and encode identically (the member is omitted).
+   */
+  readonly groups?: readonly SelectOptionGroup[];
   /**
    * The single-select selection. The IDL types it `Binding<string>`; this host
    * widens the payload to `string | undefined` because an unselected control is
@@ -2228,6 +2258,14 @@ export interface SelectOption {
   readonly value: string;
   readonly label: TextSource;
 }
+
+/**
+ * Phase 2571 — a named group of a `Select`'s options (WIRE_FORMAT §3.6.30).
+ * `values` names options of the same `Select` by their `value`; options no group
+ * names render after the groups, ungrouped. `SelectSpec.groups` is
+ * omit-at-default: absent and `[]` are one fact (no grouping).
+ */
+export interface SelectOptionGroup extends IdlRecord<'SelectOptionGroup'> {}
 
 export interface FormSpec<TMsg> extends IdlSpec<'Form', TMsg> {
   /**
@@ -2307,7 +2345,20 @@ export interface FormField<TMsg> {
   readonly help?: TextSource;
   /** Phase 864 — the declared constraint. Absent means unconstrained beyond `required`. */
   readonly rule?: FieldRule;
+  /** Phase 2517 — the field's operable surface (WIRE_FORMAT §31.1). Absent at `undefined`. */
+  readonly affordance?: Affordance;
 }
+
+/**
+ * Phase 2517 — the affordance a `Select`, `Button` or form field declares
+ * (WIRE_FORMAT §31.1): further set / read phrasings, spoken aliases, a
+ * description, `clearable` and the `neverControllable` opt-out. Every member is
+ * omit-at-default, so `{}` declares nothing beyond the node itself.
+ */
+export interface Affordance extends IdlRecord<'Affordance'> {}
+
+/** Phase 2517 — a spoken `alias` resolving to the canonical option `value`. */
+export interface AffordanceAlias extends IdlRecord<'AffordanceAlias'> {}
 
 // Every handler is optional (Phase 426 — the control write-back default, the Phase 423
 // filter-chip mechanics generalised; a chip's control is a FormFieldKind, so this is its slot).
@@ -3047,6 +3098,8 @@ export interface TableSpec<TMsg> {
   // renderer can surface it as data attributes. Both optional; both absent renders as before.
   readonly sortable?: boolean;
   readonly defaultSort?: DefaultSort;
+  // Phase 2592 — the cells that cite their figures.
+  readonly citations?: readonly TableCitation[];
 }
 
 export interface MapSpec<TMsg> extends IdlSpec<'Map', TMsg> {
@@ -3081,6 +3134,8 @@ export interface MapMarker {
 /** This host's type for each IDL record, by the IDL's name. */
 export interface RecordTypes<TMsg> {
   readonly Accessibility: Accessibility;
+  readonly Affordance: Affordance;
+  readonly AffordanceAlias: AffordanceAlias;
   /** Spelt inline on `CellKindErased.ButtonGroup` as a `[label, onClick]` pair. */
   readonly ButtonGroupItem: Extract<
     CellKindErased<TMsg>,
@@ -3102,9 +3157,12 @@ export interface RecordTypes<TMsg> {
   readonly InvokeArg: InvokeArg;
   readonly MapMarker: MapMarker;
   readonly MetricComparison: MetricComparison;
+  readonly MarkdownCitation: MarkdownCitation;
+  readonly TableCitation: TableCitation;
   /** Spelt as the `[low, high]` pair `FormFieldKind.Range` carries. */
   readonly RangePair: readonly [number, number];
   readonly SelectOption: SelectOption;
+  readonly SelectOptionGroup: SelectOptionGroup;
   readonly SemanticStyle: SemanticStyle;
   readonly SrcSetEntry: SrcSetEntry;
   readonly StateBehaviour: StateBehaviour<TMsg>;

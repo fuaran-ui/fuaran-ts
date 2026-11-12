@@ -116,6 +116,7 @@ import type {
   FormField,
   FormFieldKind,
   FieldRule,
+  Affordance,
   CompareRule,
   CompareOp,
   TextFormat,
@@ -150,6 +151,7 @@ import type {
   DefaultSort,
   TabHeader,
   Table,
+  TableCitation,
   TextSource,
   ToneVariant,
   VisKind,
@@ -4439,6 +4441,13 @@ const dialect = (() => {
   return () =>
     (tables ??= {
       records: {
+        // Phase 2517 — the set reading; a `Button` overrides its own member with
+        // the click reading (§31.2).
+        Affordance: decodeAffordanceSet,
+        AffordanceAlias: recordDecoder('AffordanceAlias'),
+        // Phase 2571 — a `Select`'s option group; the two cross-member refusals
+        // are the `Select`'s (`checkSelectGroups`).
+        SelectOptionGroup: recordDecoder('SelectOptionGroup'),
         ColumnErased: decodeColumnErased,
         ContentHash: decodeContentHash,
         DefaultSort: decodeDefaultSort,
@@ -4448,6 +4457,7 @@ const dialect = (() => {
         FormField: decodeFormField,
         GuestChannel: decodeGuestChannel,
         MetricComparison: decodeMetricComparison,
+        MarkdownCitation: decodeMarkdownCitation,
         SrcSetEntry: decodeSrcSetEntry,
         StaticRows: decodeStaticRows,
         TabHeader: decodeTabHeader,
@@ -4697,7 +4707,36 @@ const decodeLabelValueRowSpec = specDecoder('LabelValueRow', {
 
 const decodeFactSpec = specDecoder('Fact', { emphasis: { dec: decodeEmphasisFlag } });
 
-const decodeMarkdownSpec = specDecoder('Markdown');
+/** Phase 2591 — what a `cite:<name>` destination can say without escaping (§3.6.32). */
+const isCitationName = (name: string): boolean => /^[A-Za-z0-9_-]+$/.test(name);
+
+const decodeMarkdownCitation = recordDecoder('MarkdownCitation', {
+  name: {
+    dec: (w, p, j) =>
+      andThen(requireString(w, p, j), (name) =>
+        isCitationName(name)
+          ? ok(name)
+          : wrongType(p, "a citation name of letters, digits, '-' and '_'"),
+      ),
+  },
+});
+
+const decodeMarkdownSpec = specDecoder('Markdown', {}, (spec, _w, path, f) => {
+  if (tryField(f, 'citations') !== undefined && spec.citations.length === 0) {
+    return wrongType(`${path}.citations`, 'a non-empty citation list, or no member at all');
+  }
+  const seen = new Set<string>();
+  for (const [i, c] of spec.citations.entries()) {
+    if (seen.has(c.name)) {
+      return wrongType(
+        `${path}.citations[${i}].name`,
+        'a citation name no other citation in this list uses',
+      );
+    }
+    seen.add(c.name);
+  }
+  return ok(spec);
+});
 
 const decodeBadgeSpec = specDecoder('Badge');
 
@@ -5801,8 +5840,19 @@ const decodeFormField = (w: Walk, path: string, j: JsonAst): R<FormField<unknown
   // key rather than passing silently.
   const nm = checkFormFieldNearMisses(w, path, f);
   const rule = optField(w, path, f, 'rule', decodeFieldRule);
-  if (!kind.ok || !id.ok || !label.ok || !required.ok || !help.ok || !nm.ok || !rule.ok)
-    return failed(kind, id, label, required, help, nm, rule);
+  // Phase 2517 — a form field is a SET: its patterns name the slot (§31.2).
+  const affordance = optField(w, path, f, 'affordance', decodeAffordanceSet);
+  if (
+    !kind.ok ||
+    !id.ok ||
+    !label.ok ||
+    !required.ok ||
+    !help.ok ||
+    !nm.ok ||
+    !rule.ok ||
+    !affordance.ok
+  )
+    return failed(kind, id, label, required, help, nm, rule, affordance);
   return ok({
     id: id.value,
     kind: kind.value,
@@ -5810,6 +5860,7 @@ const decodeFormField = (w: Walk, path: string, j: JsonAst): R<FormField<unknown
     required: required.value,
     ...(help.value !== undefined ? { help: help.value } : {}),
     ...(rule.value !== undefined ? { rule: rule.value } : {}),
+    ...(affordance.value !== undefined ? { affordance: affordance.value } : {}),
   });
 };
 
@@ -5839,7 +5890,105 @@ const decodeFilterSpec = (w: Walk, path: string, j: JsonAst): R<FilterSpec<unkno
   return ok({ name: name.value, label: label.value, field: kind.value });
 };
 
-const decodeButtonSpec = specDecoder('Button');
+// ─── Phase 2517 — the `affordance` member (WIRE_FORMAT §31.1, §31.2) ─────────
+//
+// The record is decoded from its table; the SLOT RULE is the carrying kind's,
+// so it is checked after: a `Select` or a form field is a SET, and each of its
+// `patterns` names exactly one `{value}`; a `Button` is a CLICK, and none of
+// its `patterns` names one; no `readPatterns` entry names one. Any other brace,
+// and a blank pattern, is refused — the pattern grammar stays closed. Each
+// refusal is `WRONG_TYPE` at the offending entry, as on the reference host.
+const AFFORDANCE_SLOT = '{value}';
+
+const affordanceSlotCount = (pattern: string): number | undefined => {
+  const stripped = pattern.split(AFFORDANCE_SLOT).join('');
+  if (stripped.includes('{') || stripped.includes('}')) return undefined;
+  return (pattern.length - stripped.length) / AFFORDANCE_SLOT.length;
+};
+
+const affordanceDecoder = (setPatterns: boolean): Decoder<Affordance> =>
+  recordDecoder('Affordance', {}, (value, _w, path) => {
+    const check = (
+      key: 'patterns' | 'readPatterns',
+      slots: number,
+      expected: string,
+    ): R<never> | undefined => {
+      const list = (value[key] ?? []) as readonly string[];
+      for (let i = 0; i < list.length; i++) {
+        const p = list[i] as string;
+        if (affordanceSlotCount(p) !== slots || p.trim() === '')
+          return wrongType(`${path}.${key}[${i}]`, expected);
+      }
+      return undefined;
+    };
+    const patterns = setPatterns
+      ? check('patterns', 1, 'a set pattern naming exactly one {value} slot')
+      : check('patterns', 0, 'a click pattern naming no slot');
+    if (patterns !== undefined) return patterns;
+    const reads = check('readPatterns', 0, 'a read pattern naming no slot');
+    if (reads !== undefined) return reads;
+    return ok(value as Affordance);
+  });
+
+const decodeAffordanceSet = affordanceDecoder(true);
+const decodeAffordanceClick = affordanceDecoder(false);
+
+const decodeButtonSpec = specDecoder('Button', { affordance: { dec: decodeAffordanceClick } });
+
+/**
+ * Phase 2571 — the option-group refusals (WIRE_FORMAT §3.6.30), both
+ * `WRONG_TYPE` at the offending `values` element: a value named more than once
+ * (by two groups, or twice by one), and — over STATIC options only — a value
+ * naming no option. A bound source resolves at render; the decoder cannot judge
+ * it. Mirror of the reference host's `decodeSelectOptionGroups`.
+ */
+const checkSelectGroups = (spec: SelectSpec<unknown>, path: string): R<SelectSpec<unknown>> => {
+  const groups = spec.groups ?? [];
+  if (groups.length === 0) {
+    // Absent and `[]` are one fact: the canonical spec carries no member.
+    if (spec.groups === undefined) return ok(spec);
+    const { groups: _empty, ...clean } = spec;
+    void _empty;
+    return ok(clean as SelectSpec<unknown>);
+  }
+  const source = spec.source;
+  const options =
+    source.kind === 'Static'
+      ? ((source.value as readonly SelectOption[] | undefined) ?? [])
+      : undefined;
+  const known =
+    options !== undefined && !options.some((o) => o.value === OPAQUE)
+      ? new Set(options.map((o) => o.value))
+      : undefined;
+  const seen = new Map<string, [number, string]>();
+  for (let gi = 0; gi < groups.length; gi++) {
+    const g = groups[gi]!;
+    for (let vi = 0; vi < g.values.length; vi++) {
+      const value = g.values[vi]!;
+      const at = `${path}.groups[${gi}].values[${vi}]`;
+      const first = seen.get(value);
+      if (first !== undefined)
+        return makeError(
+          'WRONG_TYPE',
+          at,
+          `option value '${value}' is already named by group ${first[0]} ('${first[1]}'): an option belongs to at most one group`,
+          'a value no other group (and no earlier entry of this group) names',
+        );
+      if (known !== undefined && !known.has(value))
+        return makeError(
+          'WRONG_TYPE',
+          at,
+          `option value '${value}' names no option of this Select: a group can only gather the options its Select carries`,
+          `the value of one of this Select's options: ${[...known]
+            .sort()
+            .map((v) => `'${v}'`)
+            .join(', ')}`,
+        );
+      seen.set(value, [gi, g.label]);
+    }
+  }
+  return ok(spec);
+};
 
 const decodeSelectSpec = specDecoder<'Select', SelectSpec<unknown>>(
   'Select',
@@ -5852,6 +6001,8 @@ const decodeSelectSpec = specDecoder<'Select', SelectSpec<unknown>>(
     // `value` / `values`.
     onChange: { placeholder: onChangePlaceholder },
     onChangeMulti: { placeholder: onChangePlaceholder },
+    // Phase 2517 — a select is a SET: its patterns name the slot (§31.2).
+    affordance: { dec: decodeAffordanceSet },
   },
   // Phase 1962 — the `value` rule (WIRE_FORMAT §3.2), a relation between two
   // sibling keys the per-field table cannot state (the IDL marks `value`
@@ -5865,10 +6016,10 @@ const decodeSelectSpec = specDecoder<'Select', SelectSpec<unknown>>(
   // the presence rule is not layered over it.
   (spec, w, path, f) => {
     if (spec.multiple === true) {
-      if (spec.value === undefined) return ok(spec as SelectSpec<unknown>);
+      if (spec.value === undefined) return checkSelectGroups(spec as SelectSpec<unknown>, path);
       const { value, ...clean } = spec;
       void value;
-      return ok(clean as SelectSpec<unknown>);
+      return checkSelectGroups(clean as SelectSpec<unknown>, path);
     }
     const multipleKnown =
       tryField(f, 'multiple') === undefined || typeof spec.multiple === 'boolean';
@@ -5876,7 +6027,8 @@ const decodeSelectSpec = specDecoder<'Select', SelectSpec<unknown>>(
       const missing = reqField(w, path, f, 'value', 'Select value binding', decodeBindingStringOpt);
       if (!missing.ok) return missing;
     }
-    return ok(spec as SelectSpec<unknown>);
+    // Phase 2571 — the option groups, checked against the static options.
+    return checkSelectGroups(spec as SelectSpec<unknown>, path);
   },
 );
 
@@ -6247,6 +6399,7 @@ const decodeColumnErased = (w: Walk, path: string, j: JsonAst): R<ColumnErased<u
 // Phase 393 — decode the `{ headers, rows }` static-rows object of a read-only grid
 // (also the shape the legacy `Table` decode-upgrade reads). Cells are `TextSource`.
 type StaticRows = {
+  readonly citations: readonly TableCitation[];
   readonly headers: readonly TextSource[];
   readonly rows: readonly (readonly TextSource[])[];
   readonly sortable?: boolean;
@@ -6277,6 +6430,64 @@ const decodeDefaultSort = (w: Walk, path: string, j: JsonAst): R<DefaultSort> =>
   if (!column.ok || !direction.ok) return failed(column, direction);
   return ok({ column: column.value, direction: direction.value });
 };
+// Phase 2592 — one cited cell (§3.6.33). The coordinates are read as the header index is,
+// and a row or column naming no cell is refused against the rows they address.
+const decodeTableCitation =
+  (rows: readonly (readonly TextSource[])[]) =>
+  (w: Walk, path: string, j: JsonAst): R<TableCitation> => {
+    const fo = requireObject(w, path, j);
+    if (!fo.ok) return fo;
+    const f = fo.value;
+    const coordinate = (name: string, expected: string): R<number> =>
+      andThen(requireField(path, f, name, expected), (cv) =>
+        cv.kind !== 'JNumber' || cv.value < 0 || !Number.isInteger(cv.value)
+          ? wrongType(`${path}.${name}`, `JSON number (${expected})`)
+          : ok(cv.value),
+      );
+    const row = andThen(coordinate('row', 'non-negative row index'), (r) =>
+      r < rows.length ? ok(r) : wrongType(`${path}.row`, 'a row index this table has'),
+    );
+    const column = andThen(coordinate('column', 'non-negative column index'), (c) =>
+      row.ok && c >= (rows[row.value] ?? []).length
+        ? wrongType(`${path}.column`, 'a column index the cited row has')
+        : ok(c),
+    );
+    const reference = reqField(w, path, f, 'reference', 'citation reference', requireString);
+    const label = optField(w, path, f, 'label', decodeTextSource);
+    if (!row.ok || !column.ok || !reference.ok || !label.ok)
+      return failed(row, column, reference, label);
+    return ok({
+      column: column.value,
+      ...(label.value !== undefined ? { label: label.value } : {}),
+      reference: reference.value,
+      row: row.value,
+    });
+  };
+
+const decodeTableCitations = (
+  w: Walk,
+  path: string,
+  j: JsonAst,
+  rows: readonly (readonly TextSource[])[],
+): R<readonly TableCitation[]> =>
+  andThen(requireArray(w, path, j), (els) => {
+    if (els.length === 0) return wrongType(path, 'a non-empty citation list, or no member at all');
+    const decode = decodeTableCitation(rows);
+    return andThen(
+      traverseIndexed(els, (i, el) => decode(w, `${path}[${i}]`, el)),
+      (citations) => {
+        const seen = new Set<string>();
+        for (const [i, c] of citations.entries()) {
+          const cell = `${c.row}:${c.column}`;
+          if (seen.has(cell))
+            return wrongType(`${path}[${i}]`, 'a cell no other citation in this list names');
+          seen.add(cell);
+        }
+        return ok(citations);
+      },
+    );
+  });
+
 const decodeStaticRows = (w: Walk, path: string, j: JsonAst): R<StaticRows> => {
   const fo = requireObject(w, path, j);
   if (!fo.ok) return fo;
@@ -6303,9 +6514,16 @@ const decodeStaticRows = (w: Walk, path: string, j: JsonAst): R<StaticRows> => {
   );
   const sortable = optField(w, path, f, 'sortable', requireBool);
   const defaultSort = optField(w, path, f, 'defaultSort', decodeDefaultSort);
-  if (!headers.ok || !rows.ok || !sortable.ok || !defaultSort.ok)
-    return failed(headers, rows, sortable, defaultSort);
+  // Phase 2592 — read against the rows, so a bad row list is reported first.
+  const citationsJ = tryField(f, 'citations');
+  const citations: R<readonly TableCitation[]> =
+    citationsJ === undefined || !rows.ok
+      ? ok([])
+      : decodeTableCitations(w, `${path}.citations`, citationsJ, rows.value);
+  if (!headers.ok || !rows.ok || !citations.ok || !sortable.ok || !defaultSort.ok)
+    return failed(rows, citations, headers, sortable, defaultSort);
   return ok({
+    citations: citations.value,
     headers: headers.value,
     rows: rows.value,
     ...(sortable.value !== undefined ? { sortable: sortable.value } : {}),
@@ -7161,7 +7379,10 @@ const placeholderClosureNode: Node<unknown> = {
   id: CLOSURE as NodeId,
   kind: {
     kind: 'Display',
-    display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: CLOSURE } } },
+    display: {
+      kind: 'Markdown',
+      spec: { citations: [], text: { kind: 'Literal', value: CLOSURE } },
+    },
   },
   state: {},
   style: defaultSemanticStyle,
@@ -7383,6 +7604,34 @@ const decodeTreeOpAstInner = (w: Walk, path: string, j: JsonAst): R<TreeOp<unkno
       const state = reqField(w, path, f, 'state', 'StateBehaviour object', decodeStateBehaviour);
       return state.ok ? ok({ kind: 'UpdateState', target: t.value, state: state.value }) : state;
     }
+    case 'UpdateAccessibility': {
+      // Phase 2527 — the envelope slot's own decoder, near-miss refusals included.
+      const t = target();
+      if (!t.ok) return t;
+      const accessibility = reqField(
+        w,
+        path,
+        f,
+        'accessibility',
+        'Accessibility object',
+        decodeAccessibility,
+      );
+      return accessibility.ok
+        ? ok({ kind: 'UpdateAccessibility', target: t.value, accessibility: accessibility.value })
+        : accessibility;
+    }
+    case 'UpdateTooltip': {
+      // Phase 2527 — an absent `tooltip` is the edit that clears the trait.
+      const t = target();
+      if (!t.ok) return t;
+      const tooltip = optField(w, path, f, 'tooltip', decodeTextSource);
+      if (!tooltip.ok) return tooltip;
+      return ok({
+        kind: 'UpdateTooltip',
+        target: t.value,
+        ...(tooltip.value !== undefined ? { tooltip: tooltip.value } : {}),
+      });
+    }
     case 'InsertChild': {
       // Phase 687 CLOSED the migration window Phase 681 opened: a legacy
       // `position` is a decode error. See `retiredPositionalField`.
@@ -7440,7 +7689,7 @@ const decodeTreeOpAstInner = (w: Walk, path: string, j: JsonAst): R<TreeOp<unkno
       return unknownDuCase(
         path,
         d.value,
-        'EditNode | UpdateProp | ReplaceBinding | UpdateStyle | PatchStyle | UpdateState | InsertChild | RemoveNode | MoveNode | ReorderChildren | ReplaceRoot | Batch',
+        'EditNode | UpdateProp | ReplaceBinding | UpdateStyle | PatchStyle | UpdateState | UpdateAccessibility | UpdateTooltip | InsertChild | RemoveNode | MoveNode | ReorderChildren | ReplaceRoot | Batch',
       );
   }
 };

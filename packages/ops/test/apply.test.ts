@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { apply, decodeOp, encodeNode, encodeOp } from '../src/index.js';
+import { apply, decodeNode, decodeOp, encodeNode, encodeOp } from '../src/index.js';
 import type { Node, NodeId } from '@fuaran-ui/schema';
 import type { TreeOp } from '../src/treeOp.js';
 
@@ -20,7 +20,7 @@ const leaf = (id: string, text: string): Node<unknown> => ({
   id: nid(id),
   kind: {
     kind: 'Display',
-    display: { kind: 'Markdown', spec: { text: { kind: 'Literal', value: text } } },
+    display: { kind: 'Markdown', spec: { citations: [], text: { kind: 'Literal', value: text } } },
   },
   state: {},
   style: { tone: 'Default', weight: 'Standard', emphasis: 'Normal' },
@@ -178,6 +178,34 @@ describe('apply engine — field / binding / style / state ops', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('UpdateProp reaches a Fact icon (the arm Phase 2535 left out)', () => {
+    const fact: Node<unknown> = {
+      id: nid('f'),
+      kind: {
+        kind: 'Display',
+        display: {
+          kind: 'Fact',
+          spec: {
+            label: { kind: 'Literal', value: 'Revenue' },
+            value: { kind: 'Literal', value: '1' },
+            tone: 'Default',
+            emphasis: false,
+          },
+        },
+      },
+      state: {},
+      style: { tone: 'Default', weight: 'Standard', emphasis: 'Normal' },
+    };
+    const r = apply(dashboard('root', [fact]), {
+      kind: 'UpdateProp',
+      target: nid('f'),
+      path: 'Icon',
+      value: 'star',
+    });
+    expect(r.ok).toBe(true);
+    expect(JSON.stringify(r)).toContain('"icon":"star"');
+  });
+
   it('UpdateProp updates a top-level field', () => {
     const kpi: Node<unknown> = {
       id: nid('k'),
@@ -225,6 +253,43 @@ describe('apply engine — field / binding / style / state ops', () => {
           : undefined;
       expect(a?.style.tone).toBe('Brand');
     }
+  });
+
+  // Phase 2527 — the two trait ops replace their slot, and each has a spelling
+  // that removes it.
+  it.each([
+    [
+      '{"$type":"UpdateAccessibility","accessibility":{"describedBy":"h"},"target":"m"}',
+      '{"id":"m","kind":{"$type":"Markdown","text":"x"}}',
+      '{"accessibility":{"describedBy":"h"},"id":"m","kind":{"$type":"Markdown","text":"x"}}',
+    ],
+    [
+      '{"$type":"UpdateAccessibility","accessibility":{"labelledBy":"l"},"target":"m"}',
+      '{"accessibility":{"describedBy":"h"},"id":"m","kind":{"$type":"Markdown","text":"x"}}',
+      '{"accessibility":{"labelledBy":"l"},"id":"m","kind":{"$type":"Markdown","text":"x"}}',
+    ],
+    [
+      '{"$type":"UpdateAccessibility","accessibility":{},"target":"m"}',
+      '{"accessibility":{"describedBy":"h"},"id":"m","kind":{"$type":"Markdown","text":"x"}}',
+      '{"id":"m","kind":{"$type":"Markdown","text":"x"}}',
+    ],
+    [
+      '{"$type":"UpdateTooltip","target":"m","tooltip":"t"}',
+      '{"id":"m","kind":{"$type":"Markdown","text":"x"}}',
+      '{"id":"m","kind":{"$type":"Markdown","text":"x"},"tooltip":"t"}',
+    ],
+    [
+      '{"$type":"UpdateTooltip","target":"m"}',
+      '{"id":"m","kind":{"$type":"Markdown","text":"x"},"tooltip":"t"}',
+      '{"id":"m","kind":{"$type":"Markdown","text":"x"}}',
+    ],
+  ])('a trait op applies: %s', (op, before, after) => {
+    const decodedOp = decodeOp(op);
+    const decodedTree = decodeNode(before);
+    if (!decodedOp.ok || !decodedTree.ok) throw new Error('the vectors decode');
+    const result = apply(decodedTree.value, decodedOp.value);
+    if (!result.ok) throw new Error('the op applies');
+    expect(encodeNode(result.value.newTree)).toBe(after);
   });
 
   // Phase 2291 — PatchStyle sets exactly the fields it names and carries the

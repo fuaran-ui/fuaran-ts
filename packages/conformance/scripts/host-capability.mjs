@@ -54,6 +54,15 @@ const HOSTED_OPAQUE =
 export const HOST_CORPUS_FAMILIES = {
   'node-round-trip': 'covered', // packages/ops/test/corpus.test.ts
   'op-round-trip': 'covered', // packages/ops/test/corpus.test.ts
+  // Phase 2517 — the wire section runs (test/operability-wire-corpus.test.ts); the
+  // derivation and the matcher (WIRE_FORMAT 31.3-31.5) are not yet ported.
+  operability: pending(
+    'the codec round-trips and refuses the affordance member (WIRE_FORMAT 31.1, 31.2) and its suite runs the family wire section; the derivation and the matcher (31.3-31.5) are not yet ported',
+  ),
+  'page-document': notApplicable('this host renders no stored page'),
+  'server-driven': notApplicable(
+    'this host neither produces nor applies a server-driven frame (WIRE_FORMAT section 33); only the reference host does today',
+  ),
   reject: 'covered', // packages/ops/test/corpus.test.ts
   'lenient-accept': 'covered', // packages/ops/test/corpus.test.ts
   'envelope-round-trip': 'covered', // packages/ops/test/corpus.test.ts
@@ -98,7 +107,7 @@ export const HOST_CORPUS_FAMILIES = {
   'laws/propagationLaws': pending(LAW_UNRUN),
   'laws/transformLaws': 'covered', // packages/ops/test/transformLaws.test.ts
   'lowers-to': pending("this host's suite does not yet run the lowers-to vectors"),
-  'merge-conformance': 'covered', // packages/ops/test/merge.test.ts
+  'merge-conformance': 'covered', // packages/ops/test/fold.test.ts (foldFixtures, manifest v2)
   repair: 'covered', // packages/ops/test/repair.test.ts
   'row-encode': 'covered', // packages/ops/test/rowEncode.test.ts
   sanitization: 'covered', // packages/renderer/test/sanitizationCorpus.test.ts

@@ -119,7 +119,7 @@ import {
   withTip,
 } from './shapes.js';
 import type { ChartLowerSpec, ChartLowerStyle, ChartRow } from './spec.js';
-import { capitalise, numericOf, stringOf } from './spec.js';
+import { capitalise, derivedSeriesFields, numericOf, stringOf } from './spec.js';
 import {
   SUMMARY_CLAUSE_SEPARATOR,
   SUMMARY_MAX_ANNOTATIONS_NAMED,
@@ -139,9 +139,43 @@ import {
  * produces an empty drawing (its lowering rule lands with its own phase).
  * `stacked: true` on a kind where stacking is meaningless (`Line`, `Scatter`,
  * `Pie`) is ignored — the flag only changes `Bar` / `Area` geometry.
+ * An EMPTY `yFields` reads the series off the rows — every numeric column but
+ * `xField`, Ordinal-ordered and named by column (Phase 2568, WIRE_FORMAT
+ * §3.6.29) — and then lowers exactly as the chart naming those columns would.
+ * More derived series than {@link MAX_DERIVED_SERIES} is a typed refusal (the
+ * refusal drawing), never a truncation.
  * Wrap the result in a node with {@link lowerNode}.
  */
 export const lower = (
+  spec: ChartLowerSpec,
+  rows: readonly ChartRow[],
+  style?: ChartLowerStyle,
+): DrawingSpec => {
+  if (spec.yFields.length > 0) return lowerSeries(spec, rows, style);
+  const fields = derivedSeriesFields(spec.xField, rows);
+  return fields.length > MAX_DERIVED_SERIES
+    ? refusalDrawing(spec, fields.length, MAX_DERIVED_SERIES)
+    : lowerSeries({ ...spec, yFields: fields }, rows, style);
+};
+
+/**
+ * The series cap a derived list is held to — the reference host's
+ * `ChartLimits.defaults.MaxSeries`. 32 exceeds any legible categorical palette,
+ * so a chart past it is already unreadable.
+ */
+const MAX_DERIVED_SERIES = 32;
+
+/** The drawing a refused lowering produces: the canvas, no shapes, and the
+ * refusal as the accessible description — the reference host's refusal drawing. */
+const refusalDrawing = (spec: ChartLowerSpec, series: number, limit: number): DrawingSpec => ({
+  viewBox: { minX: 0.0, minY: 0.0, width: W, height: H },
+  shapes: [],
+  style: {},
+  ...(spec.title !== undefined ? { title: spec.title } : {}),
+  description: literal(`Chart not rendered: ${series} series exceeds the limit of ${limit}.`),
+});
+
+const lowerSeries = (
   spec: ChartLowerSpec,
   rows: readonly ChartRow[],
   style?: ChartLowerStyle,

@@ -177,7 +177,7 @@ import {
   stylesheetText,
 } from './csp.js';
 import { type Attr, el, escapeText, textEl, voidEl } from './html.js';
-import { toHtmlWithEgress } from './markdown.js';
+import { toHtmlCited } from './markdown.js';
 
 const EM_DASH = '—';
 
@@ -1028,7 +1028,15 @@ const renderDisplay = (
       return el(
         'div',
         [['class', 'fuaran-markdown']],
-        toHtmlWithEgress(ctx.egressPolicy, renderText(ctx.sources, display.spec.text)),
+        toHtmlCited(
+          ctx.egressPolicy,
+          display.spec.citations.map((c) => ({
+            name: c.name,
+            reference: c.reference,
+            label: c.label === undefined ? undefined : renderText(ctx.sources, c.label),
+          })),
+          renderText(ctx.sources, display.spec.text),
+        ),
       );
 
     case 'Metric':
@@ -1105,7 +1113,11 @@ const renderDisplay = (
           : '');
       return el(
         'div',
-        [['class', `fuaran-fact fuaran-fact-${toneVar(spec.tone)}${emphasisSuffix}`]],
+        [
+          ['class', `fuaran-fact fuaran-fact-${toneVar(spec.tone)}${emphasisSuffix}`],
+          // WIRE_FORMAT 3.6.31 — the citation, through the ordinary attribute encoder.
+          ...(spec.reference !== undefined ? ([['data-fact', spec.reference]] as const) : []),
+        ],
         inner,
       );
     }
@@ -1944,9 +1956,32 @@ const renderSelect = (
     spec.placeholder !== undefined
       ? textEl('option', [['value', '']], renderText(ctx.sources, spec.placeholder))
       : '';
-  const opts = options
-    .map((o) => textEl('option', [['value', o.value]], renderText(ctx.sources, o.label)))
-    .join('');
+  const option = (o: SelectOption): string =>
+    textEl('option', [['value', o.value]], renderText(ctx.sources, o.label));
+  // Phase 2571 — option groups (WIRE_FORMAT §3.6.30): one `<optgroup>` per group
+  // in list order, holding the options it names in `source` order, then the
+  // options no group names, ungrouped. No groups: the flat list as before.
+  const groups = spec.groups ?? [];
+  const named = new Set(groups.flatMap((g) => g.values));
+  const opts =
+    groups.length === 0
+      ? options.map(option).join('')
+      : groups
+          .map((g) =>
+            el(
+              'optgroup',
+              [['label', g.label]],
+              options
+                .filter((o) => g.values.includes(o.value))
+                .map(option)
+                .join(''),
+            ),
+          )
+          .join('') +
+        options
+          .filter((o) => !named.has(o.value))
+          .map(option)
+          .join('');
   // Phase 291 — multi-select. Emit the `multiple` attribute + the options with NO
   // placeholder and NO scalar value (a controlled multi-select rejects a string
   // value). Inert server-side (the multi onChange attaches on hydration).
@@ -3266,13 +3301,28 @@ const renderTable = (
     .map((h) => textEl('th', [['class', 'fuaran-table-header']], renderText(ctx.sources, h)))
     .join('');
   const head = el('thead', [], el('tr', [], headerCells));
+  const citedAt = new Map((spec.citations ?? []).map((c) => [`${c.row}:${c.column}`, c]));
   const bodyRows = spec.rows
-    .map((row) => {
+    .map((row, i) => {
       const texts = row.map((cell) => renderText(ctx.sources, cell));
       const cells = texts
-        .map((text, j) =>
-          el('td', [['class', 'fuaran-table-cell']], staticCell(columns, texts, j, text)),
-        )
+        .map((text, j) => {
+          // Phase 2592 — the reference on the cell, a label as its first child (§3.6.33).
+          const citation = citedAt.get(`${i}:${j}`);
+          const label =
+            citation?.label === undefined ? '' : renderText(ctx.sources, citation.label);
+          return el(
+            'td',
+            citation === undefined
+              ? [['class', 'fuaran-table-cell']]
+              : [
+                  ['class', 'fuaran-table-cell'],
+                  ['data-fact', citation.reference],
+                ],
+            (label === '' ? '' : textEl('span', [['class', 'fuaran-cited-label']], `${label} `)) +
+              staticCell(columns, texts, j, text),
+          );
+        })
         .join('');
       return selected !== undefined && texts[selected.keyAt] === selected.key
         ? el(

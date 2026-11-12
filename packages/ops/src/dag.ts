@@ -9,9 +9,16 @@
 //  (`encodeOp`):
 //
 //      {"actor":{…canonical Actor…},"hash":"…","op":{…canonical TreeOp…},
-//       "outcomeHash":"…"?,"parents":["…"],"promptId":"…"?,
-//       "resultEnvelope":{…},"streamId":"…","timestamp":<unixSeconds>,
-//       "tombstoned":false}
+//       "parents":["…"],"promptId":"…"?,
+//       "resultEnvelope":{…},"streamId":"…","timestamp":<unixSeconds>}
+//
+//  Phase 2645 (the cut) made a DAG record a Fuaran Core DAG node over the
+//  linear chain's provenance entry (WIRE_FORMAT §5.3.3): `hash` is Core's
+//  `Dag.nodeId`, a merge node's `op` is its reconciliation script as a `Batch`,
+//  and the `outcomeHash` and `tombstoned` members were retired. A record
+//  carrying either is a pre-2645 record whose address does not recompute, and
+//  `decodeDagRecord` refuses it by name (fuaran#2646). This host is a CODEC for
+//  the artefact (§5.3.5): it mints and verifies no DAG address.
 //
 //  Phase 1144 replaced the trailing `"userId":"…"` member with the leading
 //  `"actor":{…}` — the typed `human | agent` author, in the same canonical
@@ -57,22 +64,19 @@ export type DagResultEnvelope =
 /**
  * Content-addressed, multi-parent op-record — the branching-DAG generalisation
  * of the linear `OpRecord`. `parents` is in author order (head = primary
- * parent); `outcomeHash` is present only on a merge node (committed to the
- * canonical encoding of the resulting tree). A linear chain is the degenerate
- * single-parent case.
+ * parent); a two-parent record is a merge node whose `op` is its script as a
+ * `Batch`. A linear chain is the degenerate single-parent case.
  */
 export interface DagOpRecord<TMsg = unknown> {
   readonly streamId: string;
   readonly hash: string;
   readonly parents: readonly string[];
   readonly op: TreeOp<TMsg>;
-  readonly outcomeHash?: string;
   readonly promptId?: string;
   readonly actor: DagActor;
   /** Unix seconds. */
   readonly timestamp: number;
   readonly resultEnvelope: DagResultEnvelope;
-  readonly tombstoned: boolean;
 }
 
 /** Quote + escape a string per WIRE_FORMAT.md §2 rule 6 (only " \ control). */
@@ -107,9 +111,8 @@ const encodeEnvelope = (e: DagResultEnvelope): string =>
 
 /**
  * Encode a `DagOpRecord` to its canonical JSON wire form. Keys in Ordinal order
- * (actor < hash < op < outcomeHash < parents < promptId < resultEnvelope <
- * streamId < timestamp < tombstoned); `outcomeHash` / `promptId` omitted when
- * absent; `op` nests `encodeOp` and `actor` nests the canonical actor form
+ * (actor < hash < op < parents < promptId < resultEnvelope < streamId <
+ * timestamp); `promptId` omitted when absent; `op` nests `encodeOp` and `actor` nests the canonical actor form
  * verbatim. Byte-identical to the F# `DagWire.encodeRecord`.
  */
 export const encodeDagRecord = <TMsg>(record: DagOpRecord<TMsg>): string => {
@@ -117,13 +120,11 @@ export const encodeDagRecord = <TMsg>(record: DagOpRecord<TMsg>): string => {
   out += `"actor":${encodeActorValue(record.actor)}`;
   out += `,"hash":${str(record.hash)}`;
   out += `,"op":${encodeOp(record.op as TreeOp<unknown>)}`;
-  if (record.outcomeHash !== undefined) out += `,"outcomeHash":${str(record.outcomeHash)}`;
   out += `,"parents":[${record.parents.map(str).join(',')}]`;
   if (record.promptId !== undefined) out += `,"promptId":${str(record.promptId)}`;
   out += `,"resultEnvelope":${encodeEnvelope(record.resultEnvelope)}`;
   out += `,"streamId":${str(record.streamId)}`;
   out += `,"timestamp":${record.timestamp}`;
-  out += `,"tombstoned":${record.tombstoned ? 'true' : 'false'}`;
   return out + '}';
 };
 
@@ -196,6 +197,14 @@ export const decodeDagRecord = (json: string): DecodeResult<DagOpRecord<unknown>
   const parentsAst = field(f, 'parents');
   const tsAst = field(f, 'timestamp');
 
+  // A pre-2645 envelope is refused BY NAME: its address folded a merge outcome
+  // or a pre-cut pre-image, so it cannot recompute under the cut.
+  if (field(f, 'tombstoned') !== undefined || field(f, 'outcomeHash') !== undefined)
+    return {
+      ok: false,
+      error:
+        "dag envelope: pre-2645 record — 'tombstoned' / 'outcomeHash' were retired at the cut, and DAG content addresses do not carry forward (re-mint the store)",
+    };
   if (actorAst === undefined && field(f, 'userId') !== undefined)
     return {
       ok: false,
@@ -235,8 +244,6 @@ export const decodeDagRecord = (json: string): DecodeResult<DagOpRecord<unknown>
     }
   }
 
-  const tombAst = field(f, 'tombstoned');
-  const outcomeHash = asString(field(f, 'outcomeHash'));
   const promptId = asString(field(f, 'promptId'));
 
   // `exactOptionalPropertyTypes` — only include optional keys when present.
@@ -245,12 +252,10 @@ export const decodeDagRecord = (json: string): DecodeResult<DagOpRecord<unknown>
     hash,
     parents,
     op: opResult.value,
-    ...(outcomeHash !== undefined ? { outcomeHash } : {}),
     ...(promptId !== undefined ? { promptId } : {}),
     actor,
     timestamp: tsAst.value,
     resultEnvelope,
-    tombstoned: tombAst !== undefined && tombAst.kind === 'JBool' && tombAst.value,
   };
 
   return { ok: true, value };

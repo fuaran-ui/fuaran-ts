@@ -128,11 +128,28 @@ const renderSelect = <TMsg,>(ctx: RenderContext<TMsg>, spec: SelectSpec<TMsg>): 
   const isDisabled =
     spec.disabled !== undefined ? tryResolve(ctx.sources, spec.disabled) === true : false;
 
-  const optionEls = options.map((o: SelectOption, i) => (
+  const optionEl = (o: SelectOption, i: number) => (
     <option key={i} value={o.value}>
       {renderText(ctx.sources, o.label)}
     </option>
-  ));
+  );
+  // Phase 2571 — option groups (WIRE_FORMAT §3.6.30): one `<optgroup>` per group
+  // in list order, holding the options it names in `source` order, then the
+  // options no group names, ungrouped. No groups: the flat list as before.
+  const groups = spec.groups ?? [];
+  const named = new Set(groups.flatMap((g) => g.values));
+  const indexed = options.map((o: SelectOption, i) => [o, i] as const);
+  const optionEls =
+    groups.length === 0
+      ? options.map(optionEl)
+      : [
+          ...groups.map((g, gi) => (
+            <optgroup key={`optgroup:${gi}`} label={g.label}>
+              {indexed.filter(([o]) => g.values.includes(o.value)).map(([o, i]) => optionEl(o, i))}
+            </optgroup>
+          )),
+          ...indexed.filter(([o]) => !named.has(o.value)).map(([o, i]) => optionEl(o, i)),
+        ];
 
   const label = <span className="fuaran-select-label">{renderText(ctx.sources, spec.label)}</span>;
 
