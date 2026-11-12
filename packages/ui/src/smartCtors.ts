@@ -48,6 +48,7 @@ import type {
   ColumnWidth,
   ContentHash,
   DataSource,
+  DefaultSort,
   DateFieldConstraints,
   DateStyle,
   DateTimeVariant,
@@ -1691,13 +1692,35 @@ export interface MapOptions<TMsg> {
   readonly onMarkerClick?: (marker: MapMarker) => Action<TMsg>;
 }
 
-export interface GridOptions<TRow, TMsg> {
+/**
+ * Phase 2698 — the DataGrid's INTERACTIVE mode at the wire's own level: columns are
+ * the erased `ColumnErased` (a `field` names the row property a cell reads, so the
+ * grid needs no host code once decoded), and every declarative grid behaviour the
+ * wire carries is a member. The static-rows mode is `fuaran.table`'s; its members
+ * are refused here by type, so one options value cannot describe both modes.
+ *
+ * `rowKey` and `onRowClick` are the closure overrides; each crosses the wire only as
+ * the closure sentinel, so a grid that must survive decode names `rowKeyField`.
+ */
+export interface DataGridOptions<TRow, TMsg> {
   readonly id: NodeId | string;
   readonly source: Binding<readonly TRow[]>;
-  readonly rowKey: (row: TRow) => string;
-  readonly columns: readonly Column<TRow, TMsg>[];
+  readonly columns: readonly ColumnErased<TMsg>[];
+  /** Phase 425 — the row property whose value identifies each row. */
+  readonly rowKeyField?: string;
+  readonly rowKey?: (row: TRow) => string;
   readonly onRowClick?: (row: TRow) => Action<TMsg>;
   readonly editable?: boolean;
+  /** Phase 863 — the State key an edit commits the whole updated rows value to. */
+  readonly editStateKey?: string;
+  /** Phase 818 — the State key carrying `{"column", "direction"}`; sortable headers. */
+  readonly sortStateKey?: string;
+  /** Phase 861 — the initial order while the sort key carries nothing. */
+  readonly defaultSort?: DefaultSort;
+  /** Phase 862 — rows per page; with `pageStateKey` the renderer draws a pager. */
+  readonly pageSize?: number;
+  /** Phase 862 — the State key carrying `{"page": <1-based int>}`. */
+  readonly pageStateKey?: string;
   // Phase 934 — declarative row reorder; absent means off, as `editable`.
   readonly reorderable?: boolean;
   /**
@@ -1725,6 +1748,23 @@ export interface GridOptions<TRow, TMsg> {
    */
   readonly windowStateKey?: string;
   readonly rowTotal?: NumberInput;
+  // The static-rows mode's members — `fuaran.table`'s — are not this mode's.
+  readonly headers?: never;
+  readonly rows?: never;
+  readonly citations?: never;
+  readonly staticRows?: never;
+}
+
+/**
+ * The typed grid: `fuaran.dataGrid`'s members, with the columns and the row key
+ * typed by the row. `fuaran.grid` erases them and builds through `fuaran.dataGrid`.
+ */
+export interface GridOptions<TRow, TMsg> extends Omit<
+  DataGridOptions<TRow, TMsg>,
+  'columns' | 'rowKey'
+> {
+  readonly rowKey: (row: TRow) => string;
+  readonly columns: readonly Column<TRow, TMsg>[];
 }
 
 /**
@@ -2613,6 +2653,60 @@ export const fuaran = {
       defaults.accessibility.table,
     );
   },
+  /**
+   * Phase 2698 — the interactive DataGrid, beside `table`'s static one: a bound row
+   * source, erased columns and the grid's declarative behaviours (sort, page, edit,
+   * reorder, transfer, export, window, print breaks). Each optional member rides the
+   * wire only when declared, so a grid naming none encodes the pre-member bytes.
+   */
+  dataGrid<TRow, TMsg>(o: DataGridOptions<TRow, TMsg>): Node<TMsg> {
+    const rowKey = o.rowKey;
+    const onRowClick = o.onRowClick;
+    return buildNode(
+      o.id,
+      {
+        kind: 'Visualisation',
+        visualisation: {
+          kind: 'Grid',
+          spec: {
+            source: eraseSource(o.source),
+            columns: o.columns,
+            ...(rowKey !== undefined ? { rowKey: (row: unknown) => rowKey(row as TRow) } : {}),
+            ...(o.rowKeyField !== undefined ? { rowKeyField: o.rowKeyField } : {}),
+            editable: o.editable ?? false,
+            ...(o.editStateKey !== undefined ? { editStateKey: o.editStateKey } : {}),
+            ...(o.sortStateKey !== undefined ? { sortStateKey: o.sortStateKey } : {}),
+            ...(o.defaultSort !== undefined ? { defaultSort: o.defaultSort } : {}),
+            ...(o.pageSize !== undefined ? { pageSize: o.pageSize } : {}),
+            ...(o.pageStateKey !== undefined ? { pageStateKey: o.pageStateKey } : {}),
+            // Phase 934 — declarative row reorder; absent means off, as `editable`.
+            reorderable: o.reorderable ?? false,
+            // Phase 1125 — the export declaration; absent means off. It writes
+            // NOTHING, which is why it names no State key where every other
+            // grid-behaviour member does.
+            exportable: o.exportable ?? false,
+            // Phase 1473 — the grid's two paged-medium declarations, on the
+            // container pair's terms and separate from them because they name
+            // boundaries INSIDE this element.
+            keepRowsTogether: o.keepRowsTogether ?? false,
+            repeatHeader: o.repeatHeader ?? false,
+            // Phase 1123 — the two ends of one shared transfer key; each rides
+            // only when declared.
+            ...(o.transferOutKey !== undefined ? { transferOutKey: o.transferOutKey } : {}),
+            ...(o.transferInKey !== undefined ? { transferInKey: o.transferInKey } : {}),
+            // Phase 1892 — the row window and the declared total; each rides
+            // only when declared.
+            ...(o.windowStateKey !== undefined ? { windowStateKey: o.windowStateKey } : {}),
+            ...(o.rowTotal !== undefined ? { rowTotal: numberBinding(o.rowTotal) } : {}),
+            ...(onRowClick !== undefined
+              ? { onRowClick: (row: unknown) => onRowClick(row as TRow) }
+              : {}),
+          },
+        },
+      },
+      defaults.accessibility.grid,
+    );
+  },
   map<TMsg>(o: MapOptions<TMsg>): Node<TMsg> {
     return buildNode(
       o.id,
@@ -2635,47 +2729,11 @@ export const fuaran = {
   /**
    * Typed grid. Erases the row-typed `GridSpecOf<TRow, TMsg>` author surface
    * into the tree-level `GridSpec<TMsg>` (row = `unknown`), mirroring the F#
-   * `Fuaran.grid` `obj`-erasure.
+   * `Fuaran.grid` `obj`-erasure: the columns erase, and the rest is
+   * `fuaran.dataGrid`'s (Phase 2698), so the two builders spell one wire.
    */
   grid<TRow, TMsg>(o: GridOptions<TRow, TMsg>): Node<TMsg> {
-    return buildNode(
-      o.id,
-      {
-        kind: 'Visualisation',
-        visualisation: {
-          kind: 'Grid',
-          spec: {
-            source: eraseSource(o.source),
-            rowKey: (row: unknown) => o.rowKey(row as TRow),
-            columns: o.columns.map((c) => column.erase(c)),
-            editable: o.editable ?? false,
-            // Phase 934 — declarative row reorder; absent means off, as `editable`.
-            reorderable: o.reorderable ?? false,
-            // Phase 1125 — the export declaration; absent means off. It writes
-            // NOTHING, which is why it names no State key where every other
-            // grid-behaviour member does.
-            exportable: o.exportable ?? false,
-            // Phase 1473 — the grid's two paged-medium declarations, on the
-            // container pair's terms and separate from them because they name
-            // boundaries INSIDE this element.
-            keepRowsTogether: o.keepRowsTogether ?? false,
-            repeatHeader: o.repeatHeader ?? false,
-            // Phase 1123 — the two ends of one shared transfer key; each rides
-            // only when declared.
-            ...(o.transferOutKey !== undefined ? { transferOutKey: o.transferOutKey } : {}),
-            ...(o.transferInKey !== undefined ? { transferInKey: o.transferInKey } : {}),
-            // Phase 1892 — the row window and the declared total; each rides
-            // only when declared.
-            ...(o.windowStateKey !== undefined ? { windowStateKey: o.windowStateKey } : {}),
-            ...(o.rowTotal !== undefined ? { rowTotal: numberBinding(o.rowTotal) } : {}),
-            ...(o.onRowClick !== undefined
-              ? { onRowClick: (row: unknown) => o.onRowClick!(row as TRow) }
-              : {}),
-          },
-        },
-      },
-      defaults.accessibility.grid,
-    );
+    return fuaran.dataGrid<TRow, TMsg>({ ...o, columns: o.columns.map((c) => column.erase(c)) });
   },
 
   // ─── Custom / ErrorBoundary / Fragment ─────────────────────────────────

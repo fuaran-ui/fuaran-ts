@@ -493,6 +493,31 @@ anything. The footprint already walked `ChildReach.all` and is unchanged.
   already current, so only the `corpus/snapshot.json` sentinel moves. The merge-conformance family is not part of
   the bundled payload.
 
+### `@fuaran-ui/ui` 0.28.0 — the builders author the DataGrid's interactive mode (Phase 2698)
+
+_Unreleased: a minor ahead of the newest tag, `v0.33.2`, which published `ui` 0.27.0, so the change advances it
+rather than riding a draft._
+
+**Additive**, a minor because an exported option interface gains members and a builder is added. No wire byte moves:
+the codec already read and wrote every member; an author could not reach most of them without hand-writing a spec.
+
+- **`fuaran.dataGrid`** (new) — the interactive mode beside `fuaran.table`'s static one: a bound `source`, erased
+  `columns` (`ColumnErased`, so a column may name its row `field`), and every declarative member the wire carries —
+  `rowKeyField`, `editable`, `editStateKey`, `sortStateKey`, `defaultSort`, `pageSize`, `pageStateKey`,
+  `reorderable`, `transferOutKey`, `transferInKey`, `exportable`, `keepRowsTogether`, `repeatHeader`,
+  `windowStateKey`, `rowTotal` — plus the `rowKey` and `onRowClick` closure overrides. Each optional member rides the
+  wire only when declared. `DataGridOptions` types the static mode's `headers`, `rows`, `citations` and
+  `staticRows` as `never`, so one options value cannot describe both modes; `fuaran.table` is unchanged.
+- **`fuaran.grid`** builds through `fuaran.dataGrid` after erasing its typed columns, so `GridOptions` gains the six
+  members it lacked against the reference's typed grid: `rowKeyField`, `sortStateKey`, `defaultSort`, `pageSize`,
+  `pageStateKey` and `editStateKey`. A call declaring none encodes to the bytes it always did.
+- **Certified by** `packages/ui/test/data-grid-corpus.test.ts`: four fixtures (`grid-paged-sorted`,
+  `grid-windowed-sorted`, `grid-declared-edit`, `grid-1`) are built from typed values and encode byte-identically,
+  each with a falsifier; and every interactive grid in the corpus's node fixtures, nested ones included, is rebuilt
+  through `fuaran.dataGrid` from its decoded members and encodes as decoded, with one falsifier per declared member.
+- **Release consistency.** `@fuaran-ui/mcp` 0.14.6 is a range-only patch (its published `^0.27.0` excludes 0.28.0);
+  the starter template's pin follows `ui` 0.28.0.
+
 ### `@fuaran-ui/ops` 0.33.3, `@fuaran-ui/conformance` 0.30.2 — `UpdateProp` reads a value through the decoder's own field rules (Phase 1925)
 
 _Unreleased: a patch ahead of the newest tag, `v0.33.2`, which published `ops` 0.33.2 and `conformance` 0.30.1, so
