@@ -28,13 +28,41 @@ const tree = fuaran.dashboard({
 
 ### Namespaces
 
-- **`fuaran`** — components: `dashboard`, `stack`, `gridLayout`, `gridLayoutTemplated`, `splitPanel`, `tabs`, `tabsTagged`, `card`, `stepper`, `summaryList`, `disclosure`, `metric`, `heading`, `labelValueRow`, `markdown`, `markdownSpec`, `badge`, `sparkline`, `spacer`, `callout`, `progress`, `skeleton`, `button`, `select`, `form`, `filters`, `fileUpload`, `chart`, `table`, `map`, `grid`, `custom`, `errorBoundary`, `fragmentDecl`, `fragmentRef`.
+- **`fuaran`** — components: `dashboard`, `stack`, `gridLayout`, `gridLayoutTemplated`, `splitPanel`, `tabs`, `tabsTagged`, `card`, `stepper`, `summaryList`, `disclosure`, `metric`, `heading`, `labelValueRow`, `markdown`, `markdownSpec`, `badge`, `sparkline`, `spacer`, `callout`, `progress`, `skeleton`, `button`, `select`, `form`, `filters`, `fileUpload`, `chart`, `table`, `dataGrid`, `map`, `grid`, `custom`, `errorBoundary`, `fragmentDecl`, `fragmentRef`.
 - **`binding`** — `static`, `query`, `filter`, `selection`, `state`, `computed`, `i18n`, `local`.
 - **`action`** — `dispatch`, `call`, `notify`, `navigate`, `setState`, `aiTool`, `chain`, `commitLocal`, `writeToClipboard`.
 - **`format`** — `currency`, `percent`, `number`, `significantDigits`, `date`, `none`.
 - **`column`** — `text`, `numeric`, `date`, `bool`, `editable`, `withPill`, `withFormat`, `withWidth`, `erase`.
 - **`node`** — postfix modifiers: `onLoading`, `onEmpty`, `onError`, `withTone`, `withWeight`, `withEmphasis`, `withAccessibility`, `withMotion`, `withExtraAttribute`.
 - **`formFieldKind`** / **`filterKind`** — `rangedNumber`, `numberStepped`, `segmentedChoice`, `segmentedFilter`.
+
+### An interactive grid
+
+`fuaran.table` builds the static, read-only table; `fuaran.dataGrid` builds the interactive one. Its columns name the
+row property each cell reads, and each behaviour names the State key the grid both writes and reads, so the grid
+works once decoded with no host code. The two builders' options cannot be mixed.
+
+```ts
+const col = (label: string, field: string): ColumnErased<unknown> => ({
+  label,
+  field,
+  format: { kind: 'None' },
+  kind: { kind: 'Text' },
+  width: { kind: 'Auto' },
+});
+
+fuaran.dataGrid({
+  id: 'ledger',
+  source: binding.state<readonly unknown[]>('ledger', [{ month: 'Jan', revenue: 980 }]),
+  columns: [col('Month', 'month'), col('Revenue', 'revenue')],
+  rowKeyField: 'month',
+  sortStateKey: 'ledger-sort', // sortable headers
+  pageSize: 10,
+  pageStateKey: 'ledger-page', // a pager, one page at a time
+});
+```
+
+`fuaran.grid` is the same grid with the columns and row key typed by the row.
 
 ### Pre-emit validation
 
