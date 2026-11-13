@@ -537,6 +537,22 @@ renderer to loop over.
   `corpus/snapshot.json` sentinel moves (the `apply/` family is not part of the bundled payload), and the
   host-capability manifest gains the `apply/updatePropApply` row and the new `ops` version.
 
+### `@fuaran-ui/op-stream` 0.12.2, `@fuaran-ui/conformance` 0.30.3 — the checkpoint seal is cited, and the snapshot follows the specification (Phase 2652)
+
+_Unreleased: a patch ahead of the newest tag, `v0.33.3`, which published `op-stream` 0.12.1 and `conformance`
+0.30.2, so the change advances both rather than riding a draft._
+
+**No surface change**, no export, signature or behaviour moves in either package.
+
+- **`@fuaran-ui/op-stream` 0.12.2.** The doc comment on `Checkpoint<TMsg>` said `snapshotHash` is
+  `sha256Hex(encodeNode(snapshot))`, which was never the seal. It now cites the checkpoint seal `WIRE_FORMAT.md`
+  §5.3.6 specifies — Fuaran.Core's strict snapshot seal over the anchor and the canonical state — and says what this
+  package does with it: it stores and returns the value, and neither computes nor verifies it. The comment ships in
+  the published type declarations, which is why the package advances.
+- **`@fuaran-ui/conformance` 0.30.3.** The bundled snapshot is re-synced to the specification commit that adds
+  §5.3.6: only the `corpus/snapshot.json` sentinel moves (`chain/` and `corpus-producers.json` are not part of the
+  bundled payload).
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:
