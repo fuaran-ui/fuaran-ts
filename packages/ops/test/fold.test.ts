@@ -30,11 +30,13 @@ import type { Node } from '@fuaran-ui/schema';
 import { describe, expect, it } from 'vitest';
 
 import {
+  conflictsIn,
   decodeNode,
   decodeOps,
   encodeFoldEnvelope,
   encodeNode,
   encodeOp,
+  footprintIn,
   reconcileFold,
   reconcileFoldGated,
   type TreeOp,
@@ -302,6 +304,42 @@ describe('merge by fold — the policy beyond the corpus', () => {
     const other = ops([{ $type: 'ReorderChildren', newOrder: ['a', 'b'], parentId: 'root' }]);
     const refused = reconcileFold(two.value, reorder, other);
     expect(!refused.ok && refused.error.fault).toBe('Refused');
+  });
+
+  it('an unchanged reorder writes nothing, and still meets a removal of a listed child', () => {
+    const two = decodeNode(
+      JSON.stringify({
+        id: 'root',
+        kind: {
+          $type: 'Box',
+          children: [pane('a'), pane('b')],
+          layout: { $type: 'Auto' },
+          role: 'Dashboard',
+        },
+      }),
+    );
+    if (!two.ok) throw new Error(JSON.stringify(two.error));
+    const [restate] = ops([{ $type: 'ReorderChildren', newOrder: ['a', 'b'], parentId: 'root' }]);
+    const [swap] = ops([{ $type: 'ReorderChildren', newOrder: ['b', 'a'], parentId: 'root' }]);
+    const at = (f: ReturnType<typeof footprintIn>) => ({
+      reads: [...f.slotReads.values()].map((s) => s.join('/')).sort(),
+      writes: [...f.slotWrites.values()].map((s) => s.join('/')).sort(),
+    });
+    // The restated order reads the parent's two list slots and writes neither;
+    // a real reorder writes both (the go-red twin).
+    expect(at(footprintIn(two.value, restate!))).toEqual({
+      reads: ['a/parent', 'b/parent', 'root/#children', 'root/kind'],
+      writes: [],
+    });
+    expect(at(footprintIn(two.value, swap!)).writes).toEqual(['root/#children', 'root/kind']);
+    // A removal of a listed child is still seen: its structure write meets the
+    // child-list read, and its content write meets the child's `parent` read.
+    const remove = ops([{ $type: 'RemoveNode', target: 'b' }]);
+    const shapes = conflictsIn(two.value, [restate!], remove).map(
+      (c) =>
+        `${c.address}:${c.shape.shape}${c.shape.shape === 'SlotClash' ? `:${c.shape.slot}` : ''}`,
+    );
+    expect(shapes).toEqual(['b:ConcurrentUpdate', 'root:SlotClash:#children']);
   });
 
   it('the merge corpus is the fold family alone (manifest version 2)', () => {

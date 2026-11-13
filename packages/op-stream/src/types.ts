@@ -65,8 +65,11 @@ export interface OpRecord<TMsg> {
  * checkpoint ≤ target rather than from genesis. `previousChainHead` is the
  * chain head AT this op-index (equal to `OpRecord(sequence).hash`, or
  * `genesisPreviousHash` for a sequence-0 checkpoint over an initial tree);
- * `snapshotHash` is `sha256Hex(encodeNode(snapshot))`. Port of F#
- * `Checkpoint<'Msg>`.
+ * `snapshotHash` is the checkpoint seal of WIRE_FORMAT.md §5.3.6 — Fuaran.Core's
+ * strict snapshot seal, `sha256Hex(previousChainHead + "|" +
+ * {"snapshot":true,"seq":<sequence>,"state":<encodeNode(snapshot)>})` (Phase
+ * 2305). This package stores and returns it; it neither computes nor verifies
+ * it. Port of F# `Checkpoint<'Msg>`.
  */
 export interface Checkpoint<TMsg> {
   readonly streamId: string;

@@ -45,7 +45,9 @@
 //    are read at their `parent` slots (the cycle check reads the chain), and
 //    the destination keeps Core's named structure write and read. A resolved
 //    REORDER (fuaran#2670) reads and writes its parent at the `kind` and
-//    child-list slots and reads each listed child at its `parent` slot.
+//    child-list slots and reads each listed child at its `parent` slot; one
+//    whose list is the order the parent already holds reads both slots and
+//    writes neither (fuaran#2696).
 //
 //  Ids are counted over EVERY position a node holds another in (`Reach.all`,
 //  the reference's keyed walk); the base-aware arms LOCATE through the ordered
@@ -324,11 +326,25 @@ const resolvedAt = (state: N, after: N | undefined, op: TreeOp<unknown>): Footpr
       // A resolved reorder permutes the parent's child list, held in its
       // `kind`, and touches no child: the parent at `kind` + the child list,
       // each listed child read at its `parent` slot.
+      //
+      // An UNCHANGED reorder (fuaran#2696) — its list is the parent's child
+      // order in `state`: the same ids, in the same order, of the same length —
+      // changes nothing where it applies, so it reads both slots and writes
+      // neither. Every op that changes the child list writes one of them, so it
+      // stays ordered against it, a real reorder of the same parent included
+      // (applied second, the unchanged one restores the order it lists).
       const p = op.parentId as string;
-      if (after === undefined || findStructural(state, p) === undefined) return footprintOf(op);
+      const node = findStructural(state, p);
+      if (after === undefined || node === undefined) return footprintOf(op);
+      const held = children(node, Reach.structural).map(idOf);
+      const unchanged =
+        held.length === op.newOrder.length && held.every((c, i) => c === op.newOrder[i]);
+      const listSlots = unchanged
+        ? unionFootprint(readingSlot(p, 'kind'), readingSlot(p, childListSlot))
+        : childList(p, slotEdit(p, 'kind'));
       return op.newOrder.reduce<Footprint>(
         (acc, c) => unionFootprint(acc, readingSlot(c as string, 'parent')),
-        childList(p, slotEdit(p, 'kind')),
+        listSlots,
       );
     }
     case 'RemoveNode': {

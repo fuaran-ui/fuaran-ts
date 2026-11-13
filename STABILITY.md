@@ -537,6 +537,46 @@ renderer to loop over.
   `corpus/snapshot.json` sentinel moves (the `apply/` family is not part of the bundled payload), and the
   host-capability manifest gains the `apply/updatePropApply` row and the new `ops` version.
 
+### `@fuaran-ui/op-stream` 0.12.2, `@fuaran-ui/conformance` 0.30.3 — the checkpoint seal is cited, and the snapshot follows the specification (Phase 2652)
+
+_Unreleased: a patch ahead of the newest tag, `v0.33.3`, which published `op-stream` 0.12.1 and `conformance`
+0.30.2, so the change advances both rather than riding a draft._
+
+**No surface change**, no export, signature or behaviour moves in either package.
+
+- **`@fuaran-ui/op-stream` 0.12.2.** The doc comment on `Checkpoint<TMsg>` said `snapshotHash` is
+  `sha256Hex(encodeNode(snapshot))`, which was never the seal. It now cites the checkpoint seal `WIRE_FORMAT.md`
+  §5.3.6 specifies — Fuaran.Core's strict snapshot seal over the anchor and the canonical state — and says what this
+  package does with it: it stores and returns the value, and neither computes nor verifies it. The comment ships in
+  the published type declarations, which is why the package advances.
+- **`@fuaran-ui/conformance` 0.30.3.** The bundled snapshot is re-synced to the specification commit that adds
+  §5.3.6: only the `corpus/snapshot.json` sentinel moves (`chain/` and `corpus-producers.json` are not part of the
+  bundled payload).
+
+### `@fuaran-ui/ops` 0.33.4 — a reorder that leaves the order unchanged writes nothing (Phase 2717)
+
+_Unreleased: a patch ahead of the newest tag, `v0.33.3`, which published `ops` 0.33.3, so the change advances it
+rather than riding a draft._
+
+**Additive in behaviour**, no export or signature moves: a merge that was refused now derives, and nothing that
+derived changes. The base-aware footprint (`footprintIn`, `footprintEachIn`, and through them `conflictsIn` and the
+fold) follows the reference (fuaran#2696, `WIRE_FORMAT.md` §34.3): a resolved `ReorderChildren` whose list is the
+parent's child order in the tree it applies to (the same ids, in the same order, of the same length) reads the
+parent's `kind` and child-list slots and writes neither; each listed child is still read at its `parent` slot. A
+real reorder is unchanged.
+
+- **What it frees.** Two reorders of one parent that each restate the order their own branch holds are no longer
+  reported against each other; the fold derives them (`merge-conformance/fold-two-restated-orders`).
+- **What it does not.** Every op that changes the child list writes a slot the unchanged reorder still reads, so it
+  stays ordered against it: a real reorder of the same parent (`fold-refusal-two-reorders`; applied second, the
+  restated one would put the old order back), an insert, and a removal of a listed child, which a unit test in
+  `packages/ops/test/fold.test.ts` pins.
+- **Conformance statement.** The `foldFixtures` leg is green on `fold-two-restated-orders` (derives in both branch
+  orders), `fold-refusal-two-reorders` and `fold-refusal-two-real-reorders` (each refuses with the committed
+  envelope, mirrored under the swap), at corpus commit `5a9b4bb`. The bundled conformance snapshot does not carry
+  the merge-conformance family, so `@fuaran-ui/conformance` does not move; its unshipped host-capability manifest
+  records the new `ops` version.
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:
@@ -1426,6 +1466,27 @@ other refusal, a date-time naming no instant, cannot arise here: a `Date` always
 
 **What certifies it.** The `row-encode/` corpus family, run by `packages/ops/test/rowEncode.test.ts`, which names
 the one vector this host cannot express and fails on any other skip.
+
+### Recorded behaviour change — `@fuaran-ui/theme-manifest` 0.13.1, `decodeManifest` reads under WIRE_FORMAT §21.1 (Phase 2653)
+
+**Advances 0.13.0 → 0.13.1** (0.13.0 was published by `v0.33.3`). No exported signature moves.
+
+**What changed.** `decodeManifest` parsed with a bare `JSON.parse`, which bounded nothing: V8 parses a deeply nested
+document iteratively, and the token walk then recursed into a `RangeError` that escaped the function its doc comment
+said never throws. It now reads through `parse` from `@fuaran-ui/ops`, the tier's bounded reader, under §21.1's
+syntactic limits — JSON depth 256, strings 1,048,576 code points, arrays and objects 100,000, the document 33,554,432
+UTF-8 bytes — the values every host reads the same manifest string under. A breach is an `{ ok: false }` result naming
+the bound and its value as `LIMIT_EXCEEDED`; malformed text is `INVALID_JSON`.
+
+**What a host can observe.** A manifest past a §21.1 bound, or one `JSON.parse` admitted and §20 refuses (a repeated
+member, an unpaired surrogate), is now refused rather than decoded; a depth bomb is refused rather than thrown. The
+`error` string's wording changes. A manifest within the bounds decodes exactly as before.
+
+**What certifies it.** `packages/theme-manifest/test/limits.test.ts`: each bound at its §21.1 value and one past it.
+
+**Rides with it: `@fuaran-ui/conformance` 0.30.3.** The specification gains the sentence that states this rule, so
+the bundled snapshot is re-synced in the same change; no bundled file's bytes move, only `corpus/snapshot.json`'s
+recorded authority commit, which the package ships.
 
 ## Unstable surfaces
 
