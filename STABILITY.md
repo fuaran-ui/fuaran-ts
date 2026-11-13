@@ -1467,6 +1467,27 @@ other refusal, a date-time naming no instant, cannot arise here: a `Date` always
 **What certifies it.** The `row-encode/` corpus family, run by `packages/ops/test/rowEncode.test.ts`, which names
 the one vector this host cannot express and fails on any other skip.
 
+### Recorded behaviour change — `@fuaran-ui/theme-manifest` 0.13.1, `decodeManifest` reads under WIRE_FORMAT §21.1 (Phase 2653)
+
+**Advances 0.13.0 → 0.13.1** (0.13.0 was published by `v0.33.3`). No exported signature moves.
+
+**What changed.** `decodeManifest` parsed with a bare `JSON.parse`, which bounded nothing: V8 parses a deeply nested
+document iteratively, and the token walk then recursed into a `RangeError` that escaped the function its doc comment
+said never throws. It now reads through `parse` from `@fuaran-ui/ops`, the tier's bounded reader, under §21.1's
+syntactic limits — JSON depth 256, strings 1,048,576 code points, arrays and objects 100,000, the document 33,554,432
+UTF-8 bytes — the values every host reads the same manifest string under. A breach is an `{ ok: false }` result naming
+the bound and its value as `LIMIT_EXCEEDED`; malformed text is `INVALID_JSON`.
+
+**What a host can observe.** A manifest past a §21.1 bound, or one `JSON.parse` admitted and §20 refuses (a repeated
+member, an unpaired surrogate), is now refused rather than decoded; a depth bomb is refused rather than thrown. The
+`error` string's wording changes. A manifest within the bounds decodes exactly as before.
+
+**What certifies it.** `packages/theme-manifest/test/limits.test.ts`: each bound at its §21.1 value and one past it.
+
+**Rides with it: `@fuaran-ui/conformance` 0.30.3.** The specification gains the sentence that states this rule, so
+the bundled snapshot is re-synced in the same change; no bundled file's bytes move, only `corpus/snapshot.json`'s
+recorded authority commit, which the package ships.
+
 ## Unstable surfaces
 
 The following are explicitly **not** covered by semver and may change in any patch release without notice:
