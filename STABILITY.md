@@ -537,6 +537,30 @@ renderer to loop over.
   `corpus/snapshot.json` sentinel moves (the `apply/` family is not part of the bundled payload), and the
   host-capability manifest gains the `apply/updatePropApply` row and the new `ops` version.
 
+### `@fuaran-ui/ops` 0.33.4 — a reorder that leaves the order unchanged writes nothing (Phase 2717)
+
+_Unreleased: a patch ahead of the newest tag, `v0.33.3`, which published `ops` 0.33.3, so the change advances it
+rather than riding a draft._
+
+**Additive in behaviour**, no export or signature moves: a merge that was refused now derives, and nothing that
+derived changes. The base-aware footprint (`footprintIn`, `footprintEachIn`, and through them `conflictsIn` and the
+fold) follows the reference (fuaran#2696, `WIRE_FORMAT.md` §34.3): a resolved `ReorderChildren` whose list is the
+parent's child order in the tree it applies to (the same ids, in the same order, of the same length) reads the
+parent's `kind` and child-list slots and writes neither; each listed child is still read at its `parent` slot. A
+real reorder is unchanged.
+
+- **What it frees.** Two reorders of one parent that each restate the order their own branch holds are no longer
+  reported against each other; the fold derives them (`merge-conformance/fold-two-restated-orders`).
+- **What it does not.** Every op that changes the child list writes a slot the unchanged reorder still reads, so it
+  stays ordered against it: a real reorder of the same parent (`fold-refusal-two-reorders`; applied second, the
+  restated one would put the old order back), an insert, and a removal of a listed child, which a unit test in
+  `packages/ops/test/fold.test.ts` pins.
+- **Conformance statement.** The `foldFixtures` leg is green on `fold-two-restated-orders` (derives in both branch
+  orders), `fold-refusal-two-reorders` and `fold-refusal-two-real-reorders` (each refuses with the committed
+  envelope, mirrored under the swap), at corpus commit `5a9b4bb`. The bundled conformance snapshot does not carry
+  the merge-conformance family, so `@fuaran-ui/conformance` does not move; its unshipped host-capability manifest
+  records the new `ops` version.
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:
