@@ -265,7 +265,7 @@ describe('merge by fold — the policy beyond the corpus', () => {
     );
   });
 
-  it('a reorder beside an append to its parent is rebased, and two differing reorders refuse', () => {
+  it('a reorder beside an append to its parent is rebased', () => {
     const two = decodeNode(
       JSON.stringify({
         id: 'root',
@@ -301,9 +301,95 @@ describe('merge by fold — the policy beyond the corpus', () => {
       expect(encodeNode(r.value.tree)).toBe(encodeNode(want.value));
       expect(r.value.interleaves).toBe(1);
     }
-    const other = ops([{ $type: 'ReorderChildren', newOrder: ['a', 'b'], parentId: 'root' }]);
-    const refused = reconcileFold(two.value, reorder, other);
-    expect(!refused.ok && refused.error.fault).toBe('Refused');
+  });
+
+  // ---- the yield rule (Phase 2724, §34.3) ----------------------------------
+  const three = decodeNode(
+    JSON.stringify({
+      id: 'root',
+      kind: {
+        $type: 'Box',
+        children: [pane('a'), pane('b'), pane('c')],
+        layout: { $type: 'Auto' },
+        role: 'Dashboard',
+      },
+    }),
+  );
+  if (!three.ok) throw new Error(`three: ${JSON.stringify(three.error)}`);
+  const restate = ops([{ $type: 'ReorderChildren', newOrder: ['a', 'b', 'c'], parentId: 'root' }]);
+  const real = ops([{ $type: 'ReorderChildren', newOrder: ['c', 'b', 'a'], parentId: 'root' }]);
+  const kidsOf = (t: Node<unknown>): string[] =>
+    (JSON.parse(encodeNode(t)) as { kind: { children: { id: string }[] } }).kind.children.map(
+      (c) => c.id,
+    );
+
+  it('an unchanged reorder yields to a real reorder of its parent, and the script records the real order', () => {
+    for (const [x, y] of [
+      [restate, real],
+      [real, restate],
+    ] as const) {
+      const r = reconcileFold(three.value, x, y);
+      if (!r.ok) throw new Error(JSON.stringify(r.error));
+      expect(kidsOf(r.value.tree)).toEqual(['c', 'b', 'a']);
+      expect(r.value.script.map((o) => encodeOp(o))).toEqual([
+        '{"$type":"ReorderChildren","newOrder":["c","b","a"],"parentId":"root"}',
+      ]);
+      // A yield is not an interleave or a rebase: nothing was judged at the parent.
+      expect(r.value.interleaves).toBe(0);
+    }
+  });
+
+  it('two real reorders that differ still refuse', () => {
+    const other = ops([{ $type: 'ReorderChildren', newOrder: ['b', 'a', 'c'], parentId: 'root' }]);
+    for (const [x, y] of [
+      [real, other],
+      [other, real],
+    ] as const) {
+      const r = reconcileFold(three.value, x, y);
+      expect(!r.ok && r.error.fault).toBe('Refused');
+    }
+  });
+
+  it('an unchanged reorder beside a removal of a listed child still conflicts', () => {
+    const remove = ops([{ $type: 'RemoveNode', target: 'b' }]);
+    for (const [x, y] of [
+      [restate, remove],
+      [remove, restate],
+    ] as const) {
+      const r = reconcileFold(three.value, x, y);
+      // Judged as before the rule: a reorder beside a removal of a child it lists
+      // is a rebase, never a yield, so the restated op stays in its delta.
+      if (!r.ok) throw new Error(JSON.stringify(r.error));
+      expect(kidsOf(r.value.tree)).toEqual(['a', 'c']);
+      expect(r.value.interleaves).toBe(1);
+    }
+    // And Core still reports the pair: the rule dropped nothing.
+    expect(conflictsIn(three.value, restate, remove).length).toBeGreaterThan(0);
+  });
+
+  it('an unchanged reorder does not yield to a real reorder inside a Batch', () => {
+    const batched = ops([
+      {
+        $type: 'Batch',
+        ops: [{ $type: 'ReorderChildren', newOrder: ['c', 'b', 'a'], parentId: 'root' }],
+      },
+    ]);
+    const r = reconcileFold(three.value, restate, batched);
+    expect(!r.ok && r.error.fault).toBe('Refused');
+  });
+
+  it('a retired fold fixture id is absent from the live family', () => {
+    const m = JSON.parse(read('manifest.json')) as {
+      readonly retiredFoldFixtures?: readonly {
+        readonly id: string;
+        readonly successors?: readonly string[];
+      }[];
+    };
+    const live = new Set(foldFixtures.map((f) => f.id));
+    for (const r of m.retiredFoldFixtures ?? []) {
+      expect(live.has(r.id)).toBe(false);
+      for (const s of r.successors ?? []) expect(live.has(s)).toBe(true);
+    }
   });
 
   it('an unchanged reorder writes nothing, and still meets a removal of a listed child', () => {

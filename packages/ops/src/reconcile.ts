@@ -24,6 +24,14 @@
 //      removes (a `RemoveNode`, or a `Batch` holding one), `Conflict` otherwise.
 //      Two reorders of one parent that differ stay refused.
 //
+//  THE YIELD RULE (§34.3, Phase 2724), before Core is asked: a top-level
+//  `ReorderChildren` that leaves its parent's order as it was on its own branch
+//  carries no intent, so beside the other branch's top-level REAL reorder of the
+//  same parent it is dropped from its delta, the real order survives, and the
+//  script records it for that parent. Nothing else yields: an unchanged reorder
+//  beside an append or a removal in its parent, beside another unchanged
+//  reorder, or beside a reorder inside a `Batch` is judged as before.
+//
 //  THE CHILD-ORDER RULE (§34.4). Under an interleaved or rebased parent the
 //  children neither branch appended keep the fold's order (the rebased
 //  reorder's, where a branch reordered the parent) and the appended ones
@@ -328,6 +336,72 @@ const reorderFor = (
 };
 
 /**
+ * The parent a top-level `ReorderChildren` reorders, with whether its list is the
+ * parent's child order in `tree` — the same ids, in the same order, of the same
+ * length. Undefined for any other op, a `Batch` included, and for a reorder of a
+ * parent `tree` does not hold.
+ */
+const reorderIn = (
+  tree: N,
+  op: Op,
+): { readonly parent: string; readonly unchanged: boolean } | undefined => {
+  if (op.kind !== 'ReorderChildren') return undefined;
+  const p = findStructural(tree, op.parentId as string);
+  if (p === undefined) return undefined;
+  const kids = structural(p).map(idOf);
+  const order = op.newOrder.map(String);
+  return {
+    parent: op.parentId as string,
+    unchanged: kids.length === order.length && kids.every((k, i) => k === order[i]),
+  };
+};
+
+/**
+ * THE YIELD RULE (§34.3, Phase 2724): drop from each delta every top-level
+ * `ReorderChildren` that is unchanged in the tree its own branch applies it to,
+ * where the other delta holds a top-level reorder of the same parent that
+ * changes the order on its own branch. The dropped op is no change on its own
+ * branch, so every later tree of that branch is as it was. Returns the two
+ * deltas without the yielded reorders and the yielded parents (distinct,
+ * ordinal), whose surviving order the script records.
+ */
+const yieldUnchangedReorders = (
+  base: N,
+  deltaA: readonly Op[],
+  deltaB: readonly Op[],
+): { readonly a: Op[]; readonly b: Op[]; readonly yielded: string[] } => {
+  // Each op with the reorder reading of it in the tree its own branch applies it
+  // to. Both deltas were checked to apply from the base before this runs.
+  const threaded = (delta: readonly Op[]) => {
+    let t = base;
+    return delta.map((op) => {
+      const reading = reorderIn(t, op);
+      const r = applyOne(op, t);
+      if (r.ok) t = r.tree;
+      return { op, reading };
+    });
+  };
+  const ta = threaded(deltaA);
+  const tb = threaded(deltaB);
+  const realParents = (ops: ReturnType<typeof threaded>): Set<string> =>
+    new Set(ops.flatMap(({ reading }) => (reading && !reading.unchanged ? [reading.parent] : [])));
+  const yields = (otherReal: Set<string>, reading: ReturnType<typeof reorderIn>): boolean =>
+    reading !== undefined && reading.unchanged && otherReal.has(reading.parent);
+  const realA = realParents(ta);
+  const realB = realParents(tb);
+  const yielded = new Set<string>();
+  const split = (ops: ReturnType<typeof threaded>, otherReal: Set<string>): Op[] =>
+    ops.flatMap(({ op, reading }) => {
+      if (!yields(otherReal, reading)) return [op];
+      yielded.add(reading!.parent);
+      return [];
+    });
+  const a = split(ta, realB);
+  const b = split(tb, realA);
+  return { a, b, yielded: [...yielded].sort(ordinal) };
+};
+
+/**
  * Reconcile two branch deltas from their common base under the §34 policy: the
  * derived tree and the script a merge records, or a typed refusal. Both deltas
  * apply from `base`, op by op, as recorded on their branches.
@@ -338,14 +412,20 @@ export const reconcileFold = <TMsg>(
   deltaB: readonly TreeOp<TMsg>[],
 ): FoldResult<TMsg> => {
   const b0 = base as N;
-  const a = deltaA as readonly Op[];
-  const b = deltaB as readonly Op[];
-  const failA = firstFailure(a, b0);
+  const failA = firstFailure(deltaA as readonly Op[], b0);
   if (failA !== undefined)
     return { ok: false, error: { fault: 'DeltaDoesNotApply', side: 'A', ...failA } };
-  const failB = firstFailure(b, b0);
+  const failB = firstFailure(deltaB as readonly Op[], b0);
   if (failB !== undefined)
     return { ok: false, error: { fault: 'DeltaDoesNotApply', side: 'B', ...failB } };
+
+  // The yield rule runs first (Phase 2724): everything below judges and folds the
+  // deltas without the yielded reorders.
+  const { a, b, yielded } = yieldUnchangedReorders(
+    b0,
+    deltaA as readonly Op[],
+    deltaB as readonly Op[],
+  );
 
   const verdicts = conflictsIn(b0, a, b).map((c) => [c, judge(c)] as const);
   const refusals = verdicts.flatMap(([c, v]) =>
@@ -360,6 +440,9 @@ export const reconcileFold = <TMsg>(
       verdicts.flatMap(([, v]) => (v.v === 'Interleave' || v.v === 'Rebase' ? [v.parent] : [])),
     ),
   ].sort(ordinal);
+  // A parent whose reorder yielded is recorded too: its order in the fold is the
+  // surviving reorder's, which the script fixes for a merge node's replay.
+  const scripted = [...new Set([...parents, ...yielded])].sort(ordinal);
   // A pair is reported once per address it collides on: count distinct agreeing ops.
   const agreements = new Set(
     verdicts.flatMap(([c, v]) => (v.v === 'Agreement' ? [encodeOp(c.left)] : [])),
@@ -384,7 +467,7 @@ export const reconcileFold = <TMsg>(
   ): { ok: true; tree: N; script: Op[] } | { ok: false; error: ApplyError } => {
     const folded = foldHeld([...first, ...second], b0, rebase);
     if (!folded.ok) return folded;
-    const script = parents.flatMap((p) =>
+    const script = scripted.flatMap((p) =>
       reorderFor(folded.tree, p, appendsOf(p, a), appendsOf(p, b)),
     );
     const t = foldHeld(script, folded.tree);

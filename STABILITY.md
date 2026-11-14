@@ -577,6 +577,32 @@ real reorder is unchanged.
   the merge-conformance family, so `@fuaran-ui/conformance` does not move; its unshipped host-capability manifest
   records the new `ops` version.
 
+### `@fuaran-ui/ops` 0.33.5, `@fuaran-ui/conformance` 0.30.4 — an unchanged reorder yields to the other branch's real reorder (Phase 2735)
+
+_Unreleased: a patch ahead of the newest tag, `v0.33.4`, which published `ops` 0.33.4 and `conformance` 0.30.3, so
+the change advances both rather than riding a draft._
+
+**Additive in behaviour**, no export or signature moves: a merge that was refused now derives, and nothing that
+derived changes. `reconcileFold` (and through it `reconcileFoldGated`) follows the reference's yield rule
+(fuaran#2724, `WIRE_FORMAT.md` §34.3) before the conflict report: a top-level `ReorderChildren` whose list is its
+parent's child order in the tree its own branch applies it to (the same ids, in the same order, of the same length)
+is dropped from its delta when the other delta holds a top-level `ReorderChildren` of the same parent that changes
+the order on its own branch. The real order survives, and the merge script records `ReorderChildren` for each
+yielded parent, because a merge node's replay still applies the yielded op. A yield is not an interleave or a
+rebase, so `interleaves` does not count it.
+
+- **What it does not free.** Two real reorders that differ still refuse; an unchanged reorder beside an insert into
+  its parent or a removal of a child it lists is judged as before (a rebase); and a real reorder inside a `Batch`
+  frees nothing. Unit tests in `packages/ops/test/fold.test.ts` pin each.
+- **Conformance statement.** The `foldFixtures` leg is green on `fold-reorder-beside-restated-order`,
+  `fold-restated-order-beside-reorder` and `fold-append-restated-beside-reorder` (each derives in both branch
+  orders), at corpus commit `ff3b637`. The retired id `fold-refusal-two-reorders` is read from the manifest's
+  `retiredFoldFixtures`: the leg asserts it is absent from the live family and that its successors are present.
+  This host has no precedence merge and does not read the manifest's `precedenceFixtures` (§34.6).
+- **`@fuaran-ui/conformance` 0.30.4.** The bundled snapshot is re-synced to `ff3b637`: only the
+  `corpus/snapshot.json` sentinel moves (the merge-conformance family is not part of the bundled payload), and the
+  host-capability manifest records the new `ops` version.
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:
