@@ -51,6 +51,7 @@ export const SCHEMA_TYPE_ALLOWLIST: readonly string[] = [
   'InvokeArg',
   'Placement',
   'Result',
+  'Returns',
   'SchemaEntry',
   'SortKey',
   'Table',

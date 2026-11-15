@@ -44,10 +44,12 @@ const doubleSig: CapabilitySignature = {
   ],
   effect: { hostEffect: 'ReadsHost', determinism: determinismOf('RandomFactor') },
 };
-const doubleCap = createCapability('compute.double', doubleSig, {
-  kind: 'ClientIsland',
-  island: 'js',
-});
+const doubleCap = createCapability(
+  'compute.double',
+  doubleSig,
+  { kind: 'ClientIsland', island: 'js' },
+  { kind: 'Value', space: { kind: 'AnyString' } },
+);
 
 const registry = (() => {
   const r = registryOf([doubleCap]);

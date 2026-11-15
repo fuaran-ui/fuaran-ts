@@ -97,6 +97,7 @@ const capOf = (...holes: CapabilitySigEntry[]) =>
       effect: { hostEffect: 'Pure', determinism: determinismOf('ClockFactor') },
     },
     { kind: 'Server' },
+    { kind: 'Nothing' },
   );
 
 const verdict = (r: ReturnType<typeof validateArgs>) => (r.ok ? 'accept' : r.error.kind);

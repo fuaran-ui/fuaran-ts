@@ -1,6 +1,7 @@
 // ============================================================================
 //  Core twin — the capability runtime (Phase 284), moved behind the core-twins
-//  boundary in Phase 1861; @fuaran-ui/ui re-exports every name below.
+//  boundary in Phase 1861; @fuaran-ui/ui re-exports the declaration runtime
+//  (every name above the pipeline section at the foot of this file).
 //
 //  The native-TS reimplementation of the invocable-capability surface the F#
 //  reference owns in `Fuaran.Core.Function` (the `Capability` /
@@ -19,7 +20,12 @@
 //      injective pre-image of the addr-sorted args, each value in its canonical
 //      spelling — Phase 1860, the reference's fuaran-core#225 form),
 //      byte-identical to the F# arithmetic,
-//    - `toJsonSchema` (a signature's standard JSON-Schema projection).
+//    - `toJsonSchema` (a signature's standard JSON-Schema projection),
+//    - the declared result (Core 0.43.0, fuaran-core Phase 642) held to the
+//      admission gate, and the capability-pipeline type check that holds an
+//      invoke's declared output to it (`typeCheckPipeline`, over the space
+//      lattice `capabilitySpaceSubsumes`). The pipeline half is this twin's own: the
+//      conformance leg runs it, and no published package re-exports it.
 //
 //  The agent-tool half (validate / discover / makeCapabilityInvoker, a port of
 //  the UI tier's `AiTools.Capabilities`) stays in @fuaran-ui/ui: it builds the
@@ -37,6 +43,7 @@ import type {
   InvokeArg,
   Placement,
   Result,
+  Returns,
 } from '@fuaran-ui/schema';
 
 import { formatFiniteDouble } from './canonFloat.js';
@@ -55,11 +62,18 @@ import { err, ok } from './result.js';
  * invariant readers and canonical argument spelling the replay key hashes
  * (0.34.0, Phase 295), the admission gate, `DuplicateArg` and the reader's
  * `$type` check (0.35.1, Phase 307), and the entry read as its hole kind
- * (0.37.0, Phase 409). Not mirrored: the registry's policy gate (0.35.1, Phase
- * 318) and the action hole kind, which this host's signature entry does not
- * carry.
+ * (0.37.0, Phase 409). Raised to 0.43.0 by Phase 2741: a capability declares
+ * its result (fuaran-core Phase 642) — `Capability.result`, held to the
+ * admission gate (`EmptyResult` / `NonFiniteResult`), and the pipeline type
+ * check that refuses an invoke whose declared output does not admit it
+ * (`PipelineOutputContradicts`). 0.40.0–0.42.0 moved no rule this twin carries
+ * (inclusive-bound vectors, `answeredBy` stamps, IDL-derived codecs over an
+ * unchanged wire). Not mirrored: the registry's policy gate (0.35.1, Phase 318)
+ * with its decision context and grants (0.43.0, Phases 638 and 650), the
+ * function registry's derived result kind (0.43.0, Phase 642), and the action
+ * hole kind, which this host's signature entry does not carry.
  */
-export const mirroredCoreVersion = '0.39.0';
+export const mirroredCoreVersion = '0.43.0';
 
 /**
  * The value space a capability signature entry ranges over: a `HoleValueSpace`,
@@ -92,15 +106,23 @@ export type InvokeError =
   | { readonly kind: 'DuplicateArg'; readonly addr: string };
 
 /**
- * Why a declaration fails the admission gate's well-formedness half — the
- * signature-level cases of F# `DeclarationFault` (Core 0.35.1, fuaran-core
- * Phase 307): a hole whose space admits no value, a hole with a non-finite
- * bound, and two holes at one address (the second named).
+ * Why a declaration fails the admission gate's well-formedness half — the cases
+ * of F# `DeclarationFault` this host's entry can carry: a hole whose space
+ * admits no value, a hole with a non-finite bound, and two holes at one address
+ * (the second named) (Core 0.35.1, fuaran-core Phase 307); and a declared result
+ * whose space admits no value or has a non-finite bound (Core 0.43.0,
+ * fuaran-core Phase 642), which names no address.
  */
 export type DeclarationFault =
   | { readonly kind: 'EmptySpace'; readonly addr: string; readonly space: CapabilitySpace }
   | { readonly kind: 'NonFiniteBound'; readonly addr: string }
-  | { readonly kind: 'DuplicateHoleAddr'; readonly addr: string };
+  | { readonly kind: 'DuplicateHoleAddr'; readonly addr: string }
+  | { readonly kind: 'EmptyResult'; readonly space: CapabilitySpace }
+  | { readonly kind: 'NonFiniteResult' };
+
+/** Render a `DeclarationFault`: its case, and the address where it names one. */
+const describeFault = (f: DeclarationFault): string =>
+  'addr' in f ? `${f.kind}(${f.addr})` : f.kind;
 
 /** Render an `InvokeError` for a diagnostic — the named-refusal surface. */
 export const describeInvokeError = (e: InvokeError): string => {
@@ -122,7 +144,7 @@ export const describeInvokeError = (e: InvokeError): string => {
     case 'NonTotalCapability':
       return `NonTotalCapability(${e.id}; [${e.addrs.join(', ')}])`;
     case 'IllFormedCapability':
-      return `IllFormedCapability(${e.id}; ${e.fault.kind}(${e.fault.addr}))`;
+      return `IllFormedCapability(${e.id}; ${describeFault(e.fault)})`;
     case 'DuplicateArg':
       return `DuplicateArg(${e.addr})`;
   }
@@ -224,7 +246,7 @@ const isCount = (space: CapabilitySpace | undefined): boolean =>
  * `StringLen` whose max is negative, or an empty `Enum`; `undefined` when it is
  * well-formed. Mirrors F# `Space.wellFormed`.
  */
-const spaceFault = (space: CapabilitySpace): 'Empty' | 'NonFinite' | undefined => {
+export const spaceFault = (space: CapabilitySpace): 'Empty' | 'NonFinite' | undefined => {
   switch (space.kind) {
     case 'FloatRange':
       if (!Number.isFinite(space.min) || !Number.isFinite(space.max)) return 'NonFinite';
@@ -385,15 +407,19 @@ export const capabilityDeterminismTag = (cap: Capability): string =>
 
 /**
  * Build a capability, deriving `determinism` from the signature's effect class
- * (the two are never allowed to disagree). Port of F# `Capability.create`.
+ * (the two are never allowed to disagree). `result` is what it answers (Core
+ * 0.43.0): there is no capability without one, and `{ kind: 'Nothing' }` is how
+ * one that answers no value says so. Port of F# `Capability.create`.
  */
 export const createCapability = (
   id: string,
   signature: CapabilitySignature,
   placement: Placement,
+  result: Returns,
 ): Capability => ({
   id,
   signature,
+  result,
   determinism: signature.effect.determinism,
   placement,
 });
@@ -415,6 +441,28 @@ const invocationSpace = (hole: CapabilitySigEntry): CapabilitySpace | undefined 
   return hole.slotKind === undefined
     ? { kind: 'SlotTree' }
     : { kind: 'SlotTree', slotKind: hole.slotKind };
+};
+
+/**
+ * The refusal one argument earns on its own, by the rules `validateArgs` applies
+ * to it: it must address a declared hole whose space admits it. A spaceless hole
+ * is uninvocable; in a tree space an argument that is no tree at all is
+ * uninvocable and a tree of the wrong kind is out of the space (fuaran-core#229,
+ * the reference's order). Port of F# `Capability.argFault`.
+ */
+const argFault = (
+  holes: readonly CapabilitySigEntry[],
+  declared: readonly string[],
+  { addr, value }: InvokeArg,
+): InvokeError | undefined => {
+  const hole = holes.find((h) => h.addr === addr);
+  if (hole === undefined) return { kind: 'UnknownArg', addr, declared };
+  const space = invocationSpace(hole);
+  if (space === undefined) return { kind: 'UninvocableArg', addr };
+  if (space.kind === 'SlotTree' && slotKindOf(value) === undefined)
+    return { kind: 'UninvocableArg', addr };
+  if (!spaceValidate(space, value)) return { kind: 'ArgOutOfSpace', addr, space, got: value };
+  return undefined;
 };
 
 /**
@@ -441,18 +489,10 @@ export const validateArgs = (
     bound.add(addr);
   }
 
-  // 1. every arg addresses a declared hole that takes a scalar value in-space.
-  for (const { addr, value } of args) {
-    const hole = holes.find((h) => h.addr === addr);
-    if (hole === undefined) return err({ kind: 'UnknownArg', addr, declared });
-    const space = invocationSpace(hole);
-    if (space === undefined) return err({ kind: 'UninvocableArg', addr }); // a spaceless hole
-    // A tree space: an argument that is no tree at all is uninvocable; a tree of
-    // the wrong kind is out of the space (fuaran-core#229, the reference's order).
-    if (space.kind === 'SlotTree' && slotKindOf(value) === undefined)
-      return err({ kind: 'UninvocableArg', addr });
-    if (!spaceValidate(space, value))
-      return err({ kind: 'ArgOutOfSpace', addr, space, got: value });
+  // 1. every arg addresses a declared hole whose space admits it.
+  for (const arg of args) {
+    const fault = argFault(holes, declared, arg);
+    if (fault !== undefined) return err(fault);
   }
 
   // 2. every required hole is bound.
@@ -476,6 +516,22 @@ export interface CapabilityRegistry {
 /** The empty registry. */
 export const emptyRegistry: CapabilityRegistry = { capabilities: new Map() };
 
+/** "Returns nothing" — the one spelling of a capability that answers no value. */
+const NOTHING: Returns = { kind: 'Nothing' };
+
+/**
+ * Why a declared result is not well-formed (Core 0.43.0, fuaran-core Phase 642):
+ * a value space `spaceFault` refuses, named as the hole faults are; "returns
+ * nothing" is always well-formed. Port of F# `Capability.resultFault`.
+ */
+const resultFault = (result: Returns): DeclarationFault | undefined => {
+  if (result.kind === 'Nothing') return undefined;
+  const fault = spaceFault(result.space);
+  if (fault === 'NonFinite') return { kind: 'NonFiniteResult' };
+  if (fault === 'Empty') return { kind: 'EmptyResult', space: result.space };
+  return undefined;
+};
+
 /**
  * THE admission gate a declaration passes to be registered or read (Core
  * 0.35.1, fuaran-core Phase 307; F# `Capability.admissionOf`): totality first —
@@ -483,9 +539,16 @@ export const emptyRegistry: CapabilityRegistry = { capabilities: new Map() };
  * naming each one that does not — then well-formedness, the first entry in
  * declaration order whose address an earlier entry holds (`DuplicateHoleAddr`)
  * or whose space admits no value or has a non-finite bound (`EmptySpace` /
- * `NonFiniteBound`), refused `IllFormedCapability`. `undefined` admits.
+ * `NonFiniteBound`), then the declared result's space (Core 0.43.0:
+ * `EmptyResult` / `NonFiniteResult`), each refused `IllFormedCapability`.
+ * `undefined` admits. Without a `result` it is the gate over the signature
+ * alone (F# `Capability.signatureAdmissionOf`): "returns nothing" has no fault.
  */
-export const admissionOf = (id: string, sg: CapabilitySignature): InvokeError | undefined => {
+export const admissionOf = (
+  id: string,
+  sg: CapabilitySignature,
+  result: Returns = NOTHING,
+): InvokeError | undefined => {
   const nonTotal = sg.holes
     .filter((h) => h.kind === 'repeat' && !isCount(h.space))
     .map((h) => h.addr);
@@ -510,7 +573,8 @@ export const admissionOf = (id: string, sg: CapabilitySignature): InvokeError | 
       };
     seen.add(h.addr);
   }
-  return undefined;
+  const fault = resultFault(result);
+  return fault === undefined ? undefined : { kind: 'IllFormedCapability', id, fault };
 };
 
 /**
@@ -523,7 +587,7 @@ export const register = (
   reg: CapabilityRegistry,
 ): Result<CapabilityRegistry, InvokeError> => {
   if (reg.capabilities.has(cap.id)) return err({ kind: 'DuplicateCapability', id: cap.id });
-  const refused = admissionOf(cap.id, cap.signature);
+  const refused = admissionOf(cap.id, cap.signature, cap.result);
   if (refused !== undefined) return err(refused);
   const next = new Map(reg.capabilities);
   next.set(cap.id, cap);
@@ -609,4 +673,290 @@ export const toJsonSchema = (sg: CapabilitySignature): Record<string, unknown> =
     properties,
     required: sg.holes.filter((h) => h.required).map((h) => h.addr),
   };
+};
+
+// ─── The space lattice (port of Fuaran.Core.Space.subsumes) ──────────────────
+
+/**
+ * Does `required` admit every value `available` admits (Core 0.34.0,
+ * fuaran-core Phase 295)? The reference's lattice: a range admits a narrower
+ * range of its own kind, a float range admits an int range inside it, a
+ * `StringLen` admits a `StringLen` it bounds and an `Enum` whose every member it
+ * bounds (by UTF-16 length, as the reference's `String.Length`), an `Enum`
+ * admits a subset of itself, `AnyString` admits every scalar space, and the tree
+ * spaces are their own family (an unconstrained `SlotTree` admits every
+ * `SlotTree`, a constrained one only its own kind). Port of F# `Space.subsumes`.
+ *
+ * Not the function registry's `spaceSubsumes` (`function.ts`): that twin is
+ * certified by the shared function-registry goldens against an older, narrower
+ * relation (no int-in-float widening, no `StringLen` over an `Enum`, no tree
+ * spaces), and moving it would move a family this phase does not certify.
+ */
+export const capabilitySpaceSubsumes = (
+  required: CapabilitySpace,
+  available: CapabilitySpace,
+): boolean => {
+  switch (required.kind) {
+    case 'IntRange':
+      return (
+        available.kind === 'IntRange' &&
+        required.min <= available.min &&
+        available.max <= required.max
+      );
+    case 'FloatRange':
+      return (
+        (available.kind === 'FloatRange' || available.kind === 'IntRange') &&
+        required.min <= available.min &&
+        available.max <= required.max
+      );
+    case 'StringLen':
+      if (available.kind === 'StringLen')
+        return required.minLen <= available.minLen && available.maxLen <= required.maxLen;
+      if (available.kind === 'Enum')
+        return available.choices.every(
+          (x) => x.length >= required.minLen && x.length <= required.maxLen,
+        );
+      return false;
+    case 'Enum':
+      return (
+        available.kind === 'Enum' && available.choices.every((x) => required.choices.includes(x))
+      );
+    case 'AnyString':
+      return available.kind !== 'SlotTree';
+    case 'SlotTree':
+      return (
+        available.kind === 'SlotTree' &&
+        (required.slotKind === undefined || required.slotKind === available.slotKind)
+      );
+  }
+};
+
+// ─── The capability pipeline (port of Fuaran.Core.CapabilityPipeline) ───────
+//
+// A typed capability-DAG declared as data: `source` nodes the host supplies and
+// `invoke` nodes that call a registered capability, each argument a literal or
+// the output of an EARLIER node. This twin carries the pipeline's TYPE CHECK
+// (what the capability-law vectors draw); evaluation and the capture keys stay
+// with the reference.
+
+/** Where an invoke's argument comes from: a literal, or an upstream node's output. */
+export type PipelineArgSource =
+  | { readonly kind: 'Literal'; readonly value: string }
+  | { readonly kind: 'FromNode'; readonly node: string };
+
+/** One argument binding of an invoke node: a hole address and its source. */
+export interface PipelineArg {
+  readonly addr: string;
+  readonly source: PipelineArgSource;
+}
+
+/**
+ * A pipeline node. A `Source` is an input the host supplies under an opaque
+ * `dataRef`; an `Invoke` calls `capabilityId`. Each declares the `outputType`
+ * downstream edges are checked against. Port of F# `PipelineNode`.
+ */
+export type PipelineNode =
+  | {
+      readonly kind: 'Source';
+      readonly id: string;
+      readonly dataRef: string;
+      readonly outputType: CapabilitySpace;
+    }
+  | {
+      readonly kind: 'Invoke';
+      readonly id: string;
+      readonly capabilityId: string;
+      readonly outputType: CapabilitySpace;
+      readonly args: readonly PipelineArg[];
+    };
+
+/** A capability pipeline: its nodes in declaration (topological) order. */
+export interface CapabilityPipeline {
+  readonly nodes: readonly PipelineNode[];
+}
+
+/**
+ * Why a pipeline does not type-check — named, never a throw. Port of F#
+ * `PipelineError`; an argument refusal wraps the `InvokeError` the node's
+ * capability gives the same argument, and `EdgeTypeMismatch` names only the
+ * space FAMILIES (`int`, `float`, `string`, `enum`, `anyString`, `slotTree`).
+ */
+export type PipelineError =
+  | { readonly kind: 'DuplicateNode'; readonly id: string }
+  | { readonly kind: 'UnknownNode'; readonly id: string }
+  | {
+      readonly kind: 'PipelineNoSuchCapability';
+      readonly id: string;
+      readonly known: readonly string[];
+    }
+  | { readonly kind: 'PipelineArgRefused'; readonly node: string; readonly reason: InvokeError }
+  | { readonly kind: 'PipelineCycle'; readonly node: string; readonly cycle: readonly string[] }
+  | {
+      readonly kind: 'EdgeTypeMismatch';
+      readonly node: string;
+      readonly arg: string;
+      readonly producer: string;
+      readonly consumer: string;
+    }
+  | {
+      readonly kind: 'PipelineForwardEdge';
+      readonly node: string;
+      readonly arg: string;
+      readonly upstream: string;
+    }
+  | {
+      readonly kind: 'PipelineOutputContradicts';
+      readonly node: string;
+      readonly capability: string;
+      readonly declared: CapabilitySpace;
+      readonly result: Returns;
+    };
+
+const SPACE_FAMILY: Record<CapabilitySpace['kind'], string> = {
+  IntRange: 'int',
+  FloatRange: 'float',
+  StringLen: 'string',
+  Enum: 'enum',
+  AnyString: 'anyString',
+  SlotTree: 'slotTree',
+};
+
+/** The upstream ids an invoke's `FromNode` edges name, in argument order. */
+const upstreams = (n: PipelineNode): string[] =>
+  n.kind === 'Source'
+    ? []
+    : n.args.flatMap((a) => (a.source.kind === 'FromNode' ? [a.source.node] : []));
+
+/**
+ * Does a node's declared output state what its capability answers (Core
+ * 0.43.0)? It must admit every value of the declared result; a capability that
+ * answers nothing has no output a node could declare.
+ */
+const outputStates = (declared: CapabilitySpace, result: Returns): boolean =>
+  result.kind === 'Value' && capabilitySpaceSubsumes(declared, result.space);
+
+/**
+ * Type-check a pipeline against a registry. Node ids are unique; every
+ * invoke's capability resolves (default-deny); its declared output admits the
+ * capability's declared result (`PipelineOutputContradicts`, checked before the
+ * arguments); an address is bound once (`DuplicateArg`); a literal is refused
+ * as `validateArgs` refuses it; an edge names a node declared EARLIER — a
+ * self-edge or one closing a cycle is `PipelineCycle` naming the cycle, any
+ * other later node `PipelineForwardEdge` — whose output space feeds the hole's
+ * (`EdgeTypeMismatch` otherwise); every required hole is bound. Total; the first
+ * refusal in declaration order is the answer, `undefined` admits. Port of F#
+ * `CapabilityPipeline.typeCheck`.
+ */
+export const typeCheckPipeline = (
+  reg: CapabilityRegistry,
+  p: CapabilityPipeline,
+): PipelineError | undefined => {
+  const ids = p.nodes.map((n) => n.id);
+  const nodeById = new Map(p.nodes.map((n) => [n.id, n] as const));
+  const position = new Map(ids.map((id, i) => [id, i] as const));
+
+  // The path from `start` along edges to a node whose edge reaches `target`:
+  // [start, …, x] with x -> target. Each node is visited once.
+  const pathTo = (target: string, start: string): string[] | undefined => {
+    const seen = new Set<string>();
+    const walk = (cur: string): string[] | undefined => {
+      if (seen.has(cur)) return undefined;
+      seen.add(cur);
+      const node = nodeById.get(cur);
+      const ups = node === undefined ? [] : upstreams(node);
+      if (ups.includes(target)) return [cur];
+      for (const u of ups) {
+        const path = walk(u);
+        if (path !== undefined) return [cur, ...path];
+      }
+      return undefined;
+    };
+    return walk(start);
+  };
+
+  const counted = new Set<string>();
+  for (const id of ids) {
+    if (counted.has(id)) continue;
+    counted.add(id);
+    if (ids.filter((x) => x === id).length > 1) return { kind: 'DuplicateNode', id };
+  }
+
+  for (const n of p.nodes) {
+    if (n.kind === 'Source') continue;
+    const nid = n.id;
+    const cap = tryFind(n.capabilityId, reg);
+    if (cap === undefined)
+      return {
+        kind: 'PipelineNoSuchCapability',
+        id: n.capabilityId,
+        known: enumerate(reg).map((c) => c.id),
+      };
+    if (!outputStates(n.outputType, cap.result))
+      return {
+        kind: 'PipelineOutputContradicts',
+        node: nid,
+        capability: n.capabilityId,
+        declared: n.outputType,
+        result: cap.result,
+      };
+
+    const holes = cap.signature.holes;
+    const declared = holes.map((h) => h.addr);
+
+    const edgeFault = (
+      addr: string,
+      up: string,
+      argSpace: CapabilitySpace,
+    ): PipelineError | undefined => {
+      const upNode = nodeById.get(up);
+      if (upNode === undefined) return { kind: 'UnknownNode', id: up };
+      if (up === nid) return { kind: 'PipelineCycle', node: nid, cycle: [nid] };
+      if ((position.get(up) ?? 0) > (position.get(nid) ?? 0)) {
+        const path = pathTo(nid, up);
+        return path !== undefined
+          ? { kind: 'PipelineCycle', node: nid, cycle: [nid, ...path] }
+          : { kind: 'PipelineForwardEdge', node: nid, arg: addr, upstream: up };
+      }
+      return capabilitySpaceSubsumes(argSpace, upNode.outputType)
+        ? undefined
+        : {
+            kind: 'EdgeTypeMismatch',
+            node: nid,
+            arg: addr,
+            producer: SPACE_FAMILY[upNode.outputType.kind],
+            consumer: SPACE_FAMILY[argSpace.kind],
+          };
+    };
+
+    const refused = (reason: InvokeError): PipelineError => ({
+      kind: 'PipelineArgRefused',
+      node: nid,
+      reason,
+    });
+
+    // An address bound twice is `DuplicateArg`, at its second occurrence, first.
+    const bound = new Set<string>();
+    for (const { addr } of n.args) {
+      if (bound.has(addr)) return refused({ kind: 'DuplicateArg', addr });
+      bound.add(addr);
+    }
+
+    for (const { addr, source } of n.args) {
+      if (source.kind === 'Literal') {
+        const fault = argFault(holes, declared, { addr, value: source.value });
+        if (fault !== undefined) return refused(fault);
+        continue;
+      }
+      const hole = holes.find((h) => h.addr === addr);
+      if (hole === undefined) return refused({ kind: 'UnknownArg', addr, declared });
+      const argSpace = invocationSpace(hole);
+      if (argSpace === undefined) return refused({ kind: 'UninvocableArg', addr });
+      const fault = edgeFault(addr, source.node, argSpace);
+      if (fault !== undefined) return fault;
+    }
+
+    const unbound = holes.filter((h) => h.required && !bound.has(h.addr)).map((h) => h.addr);
+    if (unbound.length > 0) return refused({ kind: 'RequiredArgsUnbound', addrs: unbound });
+  }
+  return undefined;
 };
