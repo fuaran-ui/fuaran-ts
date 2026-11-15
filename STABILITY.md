@@ -603,6 +603,43 @@ rebase, so `interleaves` does not count it.
   `corpus/snapshot.json` sentinel moves (the merge-conformance family is not part of the bundled payload), and the
   host-capability manifest records the new `ops` version.
 
+### Recorded breaking change — `@fuaran-ui/schema` 0.29.0, `@fuaran-ui/ui` 0.29.0, `@fuaran-ui/ops` 0.34.0: a capability declares its result (Phase 2741)
+
+_Unreleased: minors ahead of the newest tag, `v0.33.5`, which published `schema` 0.28.1, `ui` 0.28.0 and `ops`
+0.33.5, so the change advances all three rather than riding a draft._
+
+**Breaking**, pre-1.0 so a minor. The capability twin now mirrors Fuaran.Core 0.43.0 (it mirrored 0.39.0), whose one
+rule change in this surface is fuaran-core Phase 642: a capability states what it answers.
+
+- **`@fuaran-ui/schema` 0.29.0.** `Capability` gains the REQUIRED member `result: Returns`, and `Returns` is new
+  (`{ kind: 'Nothing' }` or `{ kind: 'Value', space }`, the space in the vocabulary a hole is). A consumer that builds
+  a `Capability` literal by hand must now state its result.
+- **`@fuaran-ui/ui` 0.29.0.** `createCapability(id, signature, placement, result)` takes the result as a fourth,
+  required argument. `admissionOf` gains an optional third argument, the result, and refuses one whose space is empty
+  or has a non-finite bound (`IllFormedCapability` with the new `DeclarationFault` cases `EmptyResult` /
+  `NonFiniteResult`, which name no address), so `register` refuses such a capability. An exhaustive `switch` over
+  `DeclarationFault['kind']` gains two cases. `Returns` is re-exported beside the other declaration types.
+- **`@fuaran-ui/ops` 0.34.0.** `encodeCapabilityDeclaration` writes the `result` member (a value's space as the space
+  document, "returns nothing" as `{"$type":"nothing"}`), and `decodeCapabilityDeclaration` REQUIRES it: a
+  declaration this decoder accepted before, without `result`, is now refused. A result refusal names the reference
+  reader's decode `code` and `path` on the refusal (`MissingField` at `result`, `WrongKind`, `UnknownTag` at
+  `result.$type`, `OutOfRange` at `result` for a space the admission gate refuses); both members are optional on
+  `CapabilityDeclResult`, and the codec's other refusals stay sentences.
+- **Not on a published surface.** The capability-pipeline type check that holds an invoke's declared output to its
+  capability's result (`PipelineOutputContradicts`) and its wire reader are the twin's and the codec module's own;
+  the conformance leg runs them, and no package root exports them.
+- **Conformance statement.** `packages/ops/test/capabilityLaws.test.ts` runs all 144 vectors of
+  `laws/capability-laws.json` (kitVersion 0.43.0) with no skip, the two cases Core 0.43.0 added
+  (`declarationRefused`, `pipelineTypeCheck`) included, at corpus commit `54293d4`.
+- **`@fuaran-ui/conformance` 0.30.5.** The bundled snapshot is re-synced to `54293d4`: only the
+  `corpus/snapshot.json` sentinel moves (the payload's bytes and file set are unchanged; `laws/` and the
+  merge-conformance family are not part of it), and the host-capability manifest records the new `ops` version.
+- **Release consistency.** `@fuaran-ui/charts` 0.15.2 and `@fuaran-ui/op-stream` 0.12.3 bundle the twin package and
+  advance with it, with no change to their own surface. `@fuaran-ui/ai-tools` 0.14.4, `@fuaran-ui/client` 0.13.3,
+  `@fuaran-ui/mcp` 0.14.7, `@fuaran-ui/react` 0.13.3, `@fuaran-ui/renderer` 0.29.2, `@fuaran-ui/renderer-server`
+  0.26.2 and `@fuaran-ui/theme-manifest` 0.13.2 are range-only patches (their published ranges exclude the new
+  minors). The starter template's pins follow `schema` 0.29.0, `ui` 0.29.0 and `renderer` 0.29.2.
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:

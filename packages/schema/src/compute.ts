@@ -554,15 +554,28 @@ export type Placement =
   | { readonly kind: 'Precomputed' };
 
 /**
+ * What a capability answers (Core 0.43.0, fuaran-core Phase 642): a value in a
+ * space, or nothing. It is stated in the vocabulary a hole is, so a result that
+ * is a tree of a kind is `{ kind: 'Value', space: { kind: 'SlotTree', slotKind } }`.
+ * "Returns nothing" has one spelling here and one wire document,
+ * `{"$type":"nothing"}`. Port of F# `Returns`.
+ */
+export type Returns =
+  | { readonly kind: 'Nothing' }
+  | { readonly kind: 'Value'; readonly space: NonNullable<CapabilitySigEntry['space']> };
+
+/**
  * A registrable, invocable runtime capability. `signature` (incl. its effect) is
- * the artifact-function projection; `determinism` is the capture-keying axis
- * (always `= signature.effect.determinism`, enforced by `createCapability`);
- * `placement` routes the host body. The wire carries this declaration + a typed
- * invocation, never the body. Port of F# `Capability`.
+ * the artifact-function projection; `result` says what it answers (Core 0.43.0);
+ * `determinism` is the capture-keying axis (always `= signature.effect.determinism`,
+ * enforced by `createCapability`); `placement` routes the host body. The wire
+ * carries this declaration + a typed invocation, never the body. Port of F#
+ * `Capability`.
  */
 export interface Capability {
   readonly id: string;
   readonly signature: CapabilitySignature;
+  readonly result: Returns;
   readonly determinism: DeterminismSet;
   readonly placement: Placement;
 }

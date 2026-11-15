@@ -4,8 +4,8 @@
 //  The invocation half of the capability contract (`Binding.Invoke` /
 //  `Action.Invoke` and their `args`) has been in the canonical codec since
 //  Phase 283. This is the DECLARATION half: the `{"$type":"capability",…}`
-//  document that carries a capability's id, derived signature, determinism and
-//  placement — what a registry publishes, what a peer registers from, and what
+//  document that carries a capability's id, derived signature, declared result,
+//  determinism and placement — what a registry publishes, what a peer registers from, and what
 //  the reference's `declarationRoundTrip` conformance law compares against.
 //
 //  WHY IT LIVES HERE, and why the types it ranges over live in
@@ -29,14 +29,24 @@
 //  It admits what the reference's reader admits at the Core version the
 //  capability twin mirrors (`mirroredCoreVersion`): a document whose `$type` is
 //  `capability`, a determinism set in its canonical label, entries read as
-//  their hole kind, and a signature the registry's admission gate admits.
+//  their hole kind, a signature the registry's admission gate admits, and a
+//  REQUIRED declared result (Core 0.43.0) the gate admits too.
+//
+//  The capability-PIPELINE reader (`decodeCapabilityPipeline`) sits beside it
+//  because it reads value spaces through the same reader. It is this module's,
+//  not the package's: the conformance leg reads the reference's pipelines with
+//  it, and the package root does not export it.
 // ============================================================================
 
 import {
   admissionOf,
   describeInvokeError,
   determinismTag,
+  spaceFault,
   tryDeterminismOfTag,
+  type CapabilityPipeline,
+  type PipelineArg,
+  type PipelineNode,
 } from '@fuaran-ui/core-twins';
 import type {
   Capability,
@@ -45,17 +55,35 @@ import type {
   HostEffect,
   IslandKind,
   Placement,
+  Returns,
 } from '@fuaran-ui/schema';
 
 import { bool, caseObj, jArray, jObject, num, str, type Field } from './encode.js';
 
-/** A total codec result — a value, or a named refusal. Never a throw. */
+/**
+ * The reference reader's decode codes this codec names (F# `DecodeCode`), for
+ * the refusals it types: a member that is absent, one of the wrong JSON kind, a
+ * tag outside the set, and a value the admission gate refuses.
+ */
+export type CapabilityDeclCode = 'MissingField' | 'WrongKind' | 'UnknownTag' | 'OutOfRange';
+
+/**
+ * A total codec result — a value, or a named refusal. Never a throw. A refusal
+ * of the declared result (Core 0.43.0) also names its decode `code` and the
+ * `path` of member keys from the declaration root to the fault, as the
+ * reference's typed reader does and the shared law vectors pin; the codec's
+ * other refusals are sentences, and carry neither.
+ */
 export type CapabilityDeclResult<T> =
   | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: string };
+  | {
+      readonly ok: false;
+      readonly error: string;
+      readonly code?: CapabilityDeclCode;
+      readonly path?: readonly string[];
+    };
 
 const dok = <T>(value: T): CapabilityDeclResult<T> => ({ ok: true, value });
-const derr = (error: string): CapabilityDeclResult<never> => ({ ok: false, error });
 
 // ─── The wire vocabularies ───────────────────────────────────────────────────
 //
@@ -150,6 +178,12 @@ const placementJson = (p: Placement): string =>
     ? caseObj(PLACEMENT_WIRE[p.kind], [['island', str(p.island)]])
     : caseObj(PLACEMENT_WIRE[p.kind], []);
 
+// The declared result (Core 0.43.0): a value's space is the space document
+// itself, and "returns nothing" the one document `{"$type":"nothing"}`, whose
+// tag no value space uses.
+const resultJson = (r: Returns): string =>
+  r.kind === 'Nothing' ? caseObj('nothing', []) : spaceJson(r.space);
+
 const signatureJson = (sg: CapabilitySignature): string =>
   jObject([
     ['name', str(sg.name)],
@@ -171,6 +205,7 @@ export const encodeCapabilityDeclaration = (cap: Capability): string =>
   caseObj('capability', [
     ['id', str(cap.id)],
     ['signature', signatureJson(cap.signature)],
+    ['result', resultJson(cap.result)],
     ['determinism', str(determinismTag(cap.determinism))],
     ['placement', placementJson(cap.placement)],
   ]);
@@ -181,7 +216,15 @@ export const encodeCapabilityDeclaration = (cap: Capability): string =>
 // field of the wrong type, an unknown tag, or a member this host cannot carry
 // is a NAMED refusal, never a half-built capability.
 
-class DeclError extends Error {}
+class DeclError extends Error {
+  constructor(
+    message: string,
+    readonly code?: CapabilityDeclCode,
+    readonly path?: readonly string[],
+  ) {
+    super(message);
+  }
+}
 
 // The explicit annotation on the CONST is load-bearing, not decoration: TS only
 // treats a call as control-flow-terminating when the callee is a name with a
@@ -189,6 +232,15 @@ class DeclError extends Error {}
 // cast to convince the checker the refused branch cannot continue.
 const fail: (message: string) => never = (message) => {
   throw new DeclError(message);
+};
+
+/** A refusal that names the reference's decode code and the path to the fault. */
+const failAt: (code: CapabilityDeclCode, path: readonly string[], message: string) => never = (
+  code,
+  path,
+  message,
+) => {
+  throw new DeclError(`${code} at ${path.join('.')}: ${message}`, code, path);
 };
 
 const asObject = (v: unknown, what: string): Record<string, unknown> =>
@@ -286,6 +338,45 @@ const placementOf = (raw: unknown): Placement => {
   return { kind } as Placement;
 };
 
+/**
+ * The declared result, read as `resultJson` writes it and dispatched on
+ * `$type` (Core 0.43.0): `nothing`, or a value space. It is REQUIRED — absent is
+ * `MissingField` at `result` — JSON `null` is not a spelling of nothing
+ * (`WrongKind`), a tag outside the set is `UnknownTag` at `result.$type`, and a
+ * space the admission gate refuses is `OutOfRange` at `result`, refused with the
+ * registry's own error. A malformed space below the tag is the space reader's
+ * sentence.
+ */
+const resultOf = (o: Record<string, unknown>, id: string, sg: CapabilitySignature): Returns => {
+  if (!('result' in o)) failAt('MissingField', ['result'], 'a capability declares its result');
+  const raw = o['result'];
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+    failAt('WrongKind', ['result'], 'a declared result is an object');
+  const r = raw as Record<string, unknown>;
+  if (!('$type' in r))
+    failAt('MissingField', ['result', '$type'], 'a declared result names its $type');
+  const tag = r['$type'];
+  if (typeof tag !== 'string') failAt('WrongKind', ['result', '$type'], '$type is a string');
+  let result: Returns;
+  if (tag === 'nothing') result = { kind: 'Nothing' };
+  else if (SPACE_OF[tag as string] !== undefined) {
+    try {
+      result = { kind: 'Value', space: spaceOf(r) };
+    } catch (e) {
+      if (e instanceof DeclError) fail(`result: ${e.message}`);
+      throw e;
+    }
+  } else
+    failAt(
+      'UnknownTag',
+      ['result', '$type'],
+      `$type '${String(tag)}'; expected one of: ${[...Object.values(SPACE_WIRE), 'nothing'].join(', ')}`,
+    );
+  const refused = admissionOf(id, sg, result);
+  if (refused !== undefined) failAt('OutOfRange', ['result'], describeInvokeError(refused));
+  return result;
+};
+
 const declarationOf = (json: string): Capability => {
   let parsed: unknown;
   try {
@@ -326,10 +417,12 @@ const declarationOf = (json: string): Capability => {
 
   // The registry's admission gate runs over the signature just read, so a
   // declaration that decodes is one `register` admits, and a refused one is
-  // refused with the registry's own error.
+  // refused with the registry's own error — the signature first, then the
+  // declared result (Core 0.43.0), as the reference's reader orders them.
   const id = strAt(o, 'id');
   const refused = admissionOf(id, signature);
   if (refused !== undefined) fail(`signature.holes: ${describeInvokeError(refused)}`);
+  const result = resultOf(o, id, signature);
 
   // The capability's determinism is derivable from its signature's effect, so a
   // disagreement is a tampered or divergent payload rather than a spelling
@@ -346,6 +439,7 @@ const declarationOf = (json: string): Capability => {
   return {
     id,
     signature,
+    result,
     determinism,
     placement: placementOf(o['placement']),
   };
@@ -360,7 +454,88 @@ export const decodeCapabilityDeclaration = (json: string): CapabilityDeclResult<
   try {
     return dok(declarationOf(json));
   } catch (e) {
-    if (e instanceof DeclError) return derr(e.message);
+    if (e instanceof DeclError) return refusal(e);
+    throw e;
+  }
+};
+
+const refusal = (e: DeclError): CapabilityDeclResult<never> =>
+  e.code === undefined || e.path === undefined
+    ? { ok: false, error: e.message }
+    : { ok: false, error: e.message, code: e.code, path: e.path };
+
+// ─── The capability pipeline (Core's pipeline wire) ─────────────────────────
+//
+// `{"nodes":[…]}`, each node `{"$type":"source","id","dataRef","outputType"}` or
+// `{"$type":"invoke","id","capabilityId","outputType","args":[{"addr","source"}]}`,
+// a source `{"$type":"literal","value"}` or `{"$type":"fromNode","node"}`. A
+// declared `outputType` is held to the space admission check, so an empty or
+// non-finite one is refused on read.
+
+const outputTypeOf = (raw: unknown): CapabilitySpace => {
+  const space = spaceOf(raw);
+  const fault = spaceFault(space);
+  if (fault === 'Empty') fail('outputType: empty value-space');
+  if (fault === 'NonFinite') fail('outputType: value-space bound is not a finite number');
+  return space;
+};
+
+const pipelineArgOf = (raw: unknown): PipelineArg => {
+  const o = asObject(raw, 'pipeline argument');
+  const src = asObject(o['source'], 'argument source');
+  const tag = strAt(src, '$type');
+  if (tag === 'literal')
+    return { addr: strAt(o, 'addr'), source: { kind: 'Literal', value: strAt(src, 'value') } };
+  if (tag === 'fromNode')
+    return { addr: strAt(o, 'addr'), source: { kind: 'FromNode', node: strAt(src, 'node') } };
+  return fail(`unknown argument source: ${tag}; expected one of: literal, fromNode`);
+};
+
+const pipelineNodeOf = (raw: unknown): PipelineNode => {
+  const o = asObject(raw, 'pipeline node');
+  const tag = strAt(o, '$type');
+  if (tag === 'source')
+    return {
+      kind: 'Source',
+      id: strAt(o, 'id'),
+      dataRef: strAt(o, 'dataRef'),
+      outputType: outputTypeOf(o['outputType']),
+    };
+  if (tag === 'invoke') {
+    const args = o['args'];
+    if (!Array.isArray(args)) fail('missing or non-array field: args');
+    return {
+      kind: 'Invoke',
+      id: strAt(o, 'id'),
+      capabilityId: strAt(o, 'capabilityId'),
+      outputType: outputTypeOf(o['outputType']),
+      args: (args as unknown[]).map(pipelineArgOf),
+    };
+  }
+  return fail(`unknown pipeline node: ${tag}; expected one of: source, invoke`);
+};
+
+/**
+ * Decode a capability pipeline from its wire text. Total — a malformed pipeline
+ * yields `{ ok: false, error }` naming what was wrong, never a throw. It reads
+ * the shape only: whether the pipeline type-checks against a registry is the
+ * twin's `typeCheckPipeline`.
+ */
+export const decodeCapabilityPipeline = (
+  json: string,
+): CapabilityDeclResult<CapabilityPipeline> => {
+  try {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(json);
+    } catch {
+      return fail('capability pipeline is not well-formed JSON');
+    }
+    const nodes = asObject(parsed, 'capability pipeline')['nodes'];
+    if (!Array.isArray(nodes)) fail('missing or non-array field: nodes');
+    return dok({ nodes: (nodes as unknown[]).map(pipelineNodeOf) });
+  } catch (e) {
+    if (e instanceof DeclError) return refusal(e);
     throw e;
   }
 };

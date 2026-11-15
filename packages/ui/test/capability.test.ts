@@ -42,10 +42,12 @@ const doubleSig: CapabilitySignature = {
   ],
   effect: { hostEffect: 'ReadsHost', determinism: determinismOf('RandomFactor') },
 };
-const doubleCap = createCapability('compute.double', doubleSig, {
-  kind: 'ClientIsland',
-  island: 'js',
-});
+const doubleCap = createCapability(
+  'compute.double',
+  doubleSig,
+  { kind: 'ClientIsland', island: 'js' },
+  { kind: 'Value', space: { kind: 'AnyString' } },
+);
 
 // A capability with a slot hole — its arg is not scalar-invocable (UninvocableArg).
 const slotSig: CapabilitySignature = {
@@ -53,7 +55,12 @@ const slotSig: CapabilitySignature = {
   holes: [{ addr: 'body', name: 'body', kind: 'slot', slotKind: 'Layout', required: true }],
   effect: { hostEffect: 'Pure', determinism: determinismOf() },
 };
-const slotCap = createCapability('compute.wrap', slotSig, { kind: 'Server' });
+const slotCap = createCapability(
+  'compute.wrap',
+  slotSig,
+  { kind: 'Server' },
+  { kind: 'Value', space: { kind: 'SlotTree' } },
+);
 
 const reg = (() => {
   const r = registryOf([doubleCap, slotCap]);
@@ -198,7 +205,12 @@ describe('invocationKey — FNV-1a replay keying, byte-identical to the F# arith
       ],
       effect: { hostEffect: 'Pure', determinism: determinismOf() },
     };
-    const multi = createCapability('m', multiSig, { kind: 'ClientDeclarative' });
+    const multi = createCapability(
+      'm',
+      multiSig,
+      { kind: 'ClientDeclarative' },
+      { kind: 'Nothing' },
+    );
     expect(invocationKey(multi, a)).toBe(invocationKey(multi, b));
     expect(invocationKey(multi, a)).not.toBe(
       invocationKey(multi, [

@@ -59,6 +59,7 @@ export type {
   DeterminismSet,
   IslandKind,
   Placement,
+  Returns,
 } from '@fuaran-ui/schema';
 
 // ─── The Core-twin runtime (port of Fuaran.Core.Function) ────────────────────

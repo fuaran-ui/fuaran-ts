@@ -10,6 +10,8 @@
 //  at Core 0.38.1, the release the reference host pins, with its verdicts; the
 //  pre-0.37.0 form, which wrote a space on the slot entry, still reads and
 //  re-encodes to it (Phase 2329 re-derived both from the reference's tests).
+//  Since Core 0.43.0 every declaration carries its result (Phase 2741); these
+//  declare a tree of kind `Layout`, the space a tree result is stated in.
 //
 //  The runtime is read from `@fuaran-ui/ui`'s BUILT output, for the reasons
 //  `capabilityLaws.test.ts` gives beside the same import.
@@ -24,6 +26,7 @@ import { decodeCapabilityDeclaration, encodeCapabilityDeclaration } from '../src
 
 const SLOT_TREE_DECL =
   '{"$type":"capability","determinism":"random","id":"cap-tree","placement":{"$type":"server"},' +
+  '"result":{"$type":"slotTree","slotKind":"Layout"},' +
   '"signature":{"effect":{"determinism":"random","host":"readsHost"},"holes":[' +
   '{"addr":"body","kind":"slot","name":"body","required":true,"slotKind":"Layout"},' +
   '{"addr":"chart","kind":"value","name":"chart","required":false,"space":{"$type":"slotTree","slotKind":"Chart"}}' +
@@ -32,6 +35,7 @@ const SLOT_TREE_DECL =
 /** The same declaration as pinned before Core 0.37.0: the slot entry also wrote a `slotTree` space. */
 const SLOT_TREE_DECL_BEFORE_037 =
   '{"$type":"capability","determinism":"random","id":"cap-tree","placement":{"$type":"server"},' +
+  '"result":{"$type":"slotTree","slotKind":"Layout"},' +
   '"signature":{"effect":{"determinism":"random","host":"readsHost"},"holes":[' +
   '{"addr":"body","kind":"slot","name":"body","required":true,"slotKind":"Layout","space":{"$type":"slotTree"}},' +
   '{"addr":"chart","kind":"value","name":"chart","required":false,"space":{"$type":"slotTree","slotKind":"Chart"}}' +

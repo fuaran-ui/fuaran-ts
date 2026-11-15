@@ -9,20 +9,27 @@
 //  nothing could falsify. Running the reference's own sample here makes it
 //  falsifiable: a divergence names the vector id.
 //
-//  Four cases, all four run:
+//  Six cases, all six run:
 //    - validateArgs         — accept, or a named refusal at a named address.
 //    - invocationKey        — the replay key and the determinism tag (see the
 //                             named partial below).
 //    - declarationRoundTrip — decode-then-encode returns the REFERENCE's bytes.
 //    - registryEnumerate    — id-sorted enumeration, whatever the insertion order.
+//    - declarationRefused   — the declaration reader refuses with the
+//                             reference's decode code at the reference's path
+//                             (Core 0.43.0: no `result`, or an empty one).
+//    - pipelineTypeCheck    — a pipeline over the capability, registered alone,
+//                             type-checks or is refused naming the error class,
+//                             the node and the capability (Core 0.43.0: an
+//                             invoke's declared output must admit the result).
 //
 //  WHERE THE CODEC LIVES. Every case runs against SOURCE, never a build. The
-//  three runtime cases run against the capability twin in
-//  `@fuaran-ui/core-twins` (`validateArgs`, `invocationKey`,
-//  `capabilityDeterminismTag`, `registryOf` + `enumerate`), which
-//  `@fuaran-ui/ui` re-exports name for name and bundles, and
-//  `declarationRoundTrip` against this package's
-//  `decodeCapabilityDeclaration` / `encodeCapabilityDeclaration`. This
+//  runtime cases run against the capability twin in `@fuaran-ui/core-twins`
+//  (`validateArgs`, `invocationKey`, `capabilityDeterminismTag`, `registryOf`
+//  + `enumerate`, which `@fuaran-ui/ui` re-exports name for name and bundles,
+//  and the twin's own `typeCheckPipeline`), and the declaration cases against
+//  this package's `decodeCapabilityDeclaration` /
+//  `encodeCapabilityDeclaration` (with the module's pipeline reader). This
 //  package's vitest config resolves the twin to its sources: by its package
 //  name it would load the twin's build output, and the leg once reported the
 //  twin as mirroring Core `undefined` because that output predated the pin.
@@ -72,11 +79,16 @@ import {
   invocationKey,
   mirroredCoreVersion,
   registryOf,
+  typeCheckPipeline,
   validateArgs,
 } from '@fuaran-ui/core-twins';
 import type { Capability, InvokeArg } from '@fuaran-ui/schema';
 
-import { decodeCapabilityDeclaration, encodeCapabilityDeclaration } from '../src/capabilityDecl.js';
+import {
+  decodeCapabilityDeclaration,
+  decodeCapabilityPipeline,
+  encodeCapabilityDeclaration,
+} from '../src/capabilityDecl.js';
 
 import { wireCorpusRoot } from '../../../dev-scripts/corpus-root.mjs';
 
@@ -108,6 +120,7 @@ interface CapabilityVector {
     readonly declaration?: string;
     readonly declarations?: readonly string[];
     readonly args?: readonly InvokeArg[];
+    readonly pipeline?: string;
   };
   readonly expected: {
     readonly verdict?: string;
@@ -117,6 +130,10 @@ interface CapabilityVector {
     readonly determinismTag?: string;
     readonly declaration?: string;
     readonly ids?: readonly string[];
+    readonly code?: string;
+    readonly path?: readonly string[];
+    readonly node?: string;
+    readonly capability?: string;
   };
 }
 
@@ -173,9 +190,19 @@ const REFUSAL_WIRE: Record<string, string> = {
 /** The address a refusal names, where the class carries one. */
 const refusalAddr = (e: { kind: string; addr?: string }): string | undefined => e.addr;
 
+/** A pipeline refusal's wire class: its case, first letter lowered. */
+const pipelineErrorWire = (kind: string): string => kind.charAt(0).toLowerCase() + kind.slice(1);
+
 // ─── the leg ─────────────────────────────────────────────────────────────────
 
-const RUN_CASES = ['validateArgs', 'invocationKey', 'declarationRoundTrip', 'registryEnumerate'];
+const RUN_CASES = [
+  'validateArgs',
+  'invocationKey',
+  'declarationRoundTrip',
+  'registryEnumerate',
+  'declarationRefused',
+  'pipelineTypeCheck',
+];
 
 describe('capabilityLaws vectors (shared corpus laws/ family)', () => {
   // The corpus is a sibling checkout, absent in a standalone clone. Every other
@@ -286,6 +313,46 @@ describe('capabilityLaws vectors (shared corpus laws/ family)', () => {
           expect(reg.ok, 'registering the declarations was refused').toBe(true);
           if (reg.ok) {
             expect(enumerate(reg.value).map((c) => c.id)).toEqual([...(v.expected.ids ?? [])]);
+          }
+          break;
+        }
+
+        case 'declarationRefused': {
+          if (v.expected.verdict !== 'reject')
+            throw new Error(`unrecognised verdict: ${String(v.expected.verdict)}`);
+          const decoded = decodeCapabilityDeclaration(v.input.declaration ?? '');
+          expect(decoded.ok, `expected reject ${v.expected.code}, this host admitted it`).toBe(
+            false,
+          );
+          if (!decoded.ok) {
+            expect(decoded.code, `refused untyped: ${decoded.error}`).toBe(v.expected.code);
+            expect(decoded.path).toEqual(v.expected.path);
+          }
+          break;
+        }
+
+        case 'pipelineTypeCheck': {
+          const reg = registryOf([capOf(v.id, v.input.capability)]);
+          if (!reg.ok) throw new Error(`vector ${v.id}: registering the capability was refused`);
+          const pipeline = decodeCapabilityPipeline(v.input.pipeline ?? '');
+          if (!pipeline.ok)
+            throw new Error(`vector ${v.id}: the pipeline reader refused — ${pipeline.error}`);
+          const refused = typeCheckPipeline(reg.value, pipeline.value);
+          if (v.expected.verdict === 'accept') {
+            expect(refused, `expected accept, this host refused`).toBeUndefined();
+          } else if (v.expected.verdict === 'reject') {
+            expect(
+              refused,
+              `expected reject ${v.expected.error}, this host accepted`,
+            ).toBeDefined();
+            if (refused !== undefined) {
+              expect(pipelineErrorWire(refused.kind)).toBe(v.expected.error);
+              const named = refused as { node?: string; capability?: string };
+              expect(named.node).toBe(v.expected.node);
+              expect(named.capability).toBe(v.expected.capability);
+            }
+          } else {
+            throw new Error(`unrecognised verdict: ${String(v.expected.verdict)}`);
           }
           break;
         }

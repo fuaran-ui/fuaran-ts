@@ -24,6 +24,7 @@ const cap = (id: string): Capability => ({
     holes: [],
     effect: { hostEffect: 'Pure', determinism: determinismOf('RandomFactor') },
   },
+  result: { kind: 'Nothing' },
   determinism: determinismOf('RandomFactor'),
   placement: { kind: 'Server' },
 });

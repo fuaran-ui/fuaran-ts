@@ -40,7 +40,12 @@ const signature: CapabilitySignature = {
   effect: { hostEffect: 'Pure', determinism: determinismOf() },
 };
 
-const cap: Capability = createCapability('tpl-cap', signature, { kind: 'Server' });
+const cap: Capability = createCapability(
+  'tpl-cap',
+  signature,
+  { kind: 'Server' },
+  { kind: 'Nothing' },
+);
 
 const args = (slot: string): InvokeArg[] => [
   { addr: 'tpl/t', value: 'Hello' },
@@ -95,6 +100,7 @@ describe('a slot hole with no declared space (fuaran-core#229)', () => {
         effect: { hostEffect: 'Pure', determinism: determinismOf() },
       },
       { kind: 'Server' },
+      { kind: 'Nothing' },
     );
     expect(validateArgs(any, [{ addr: 's', value: '{"kind":"anything"}' }]).ok).toBe(true);
     expect(validateArgs(any, [{ addr: 's', value: 'anything' }])).toEqual({
