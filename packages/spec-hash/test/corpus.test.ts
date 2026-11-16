@@ -18,8 +18,27 @@ import { describe, expect, it } from 'vitest';
 import { ALGORITHM_ID, canonicalise, describeRefusal, mint, sha256Hex } from '../src/index.js';
 import { loadVector, manifest, specPayloadOf, type Vector } from './corpus.js';
 
-const specHashVectors = (): readonly Vector[] =>
+/** Every vector the family enumerates, under whichever registered rule it was minted. */
+const familyVectors = (): readonly Vector[] =>
   manifest().vectors.filter((v) => v.family === 'spec-hash');
+
+const algorithmOf = (v: Vector): string => specPayloadOf(loadVector(v)).specHashAlgorithm;
+
+/**
+ * The family's vectors minted under the rule THIS package implements.
+ *
+ * The specification's registry of minting rules is open (§7.4), and the family
+ * carries vectors under each registered rule. A vector names its rule in its own
+ * document, so the partition is read from the vector rather than assumed for the
+ * family: running another rule's payload through this one would be a wrong answer
+ * that looks like a failed vector.
+ */
+const specHashVectors = (): readonly Vector[] =>
+  familyVectors().filter((v) => algorithmOf(v) === ALGORITHM_ID);
+
+/** The family's vectors minted under a rule this package does not implement. */
+const otherRuleVectors = (): readonly Vector[] =>
+  familyVectors().filter((v) => algorithmOf(v) !== ALGORITHM_ID);
 
 const hashVectors = (): readonly Vector[] => specHashVectors().filter((v) => v.kind === 'hash');
 
@@ -59,11 +78,24 @@ describe('the corpus enumerates the family this gate runs', () => {
     expect(covered.length).toBe(family.length);
   });
 
+  it('partitions the family by the rule each vector names, and leaves none unaccounted for', () => {
+    // A vector under another registered rule is set aside BY ITS IDENTIFIER and
+    // counted, so a rule arriving in the registry neither fails this gate nor slips
+    // past it unseen.
+    expect(specHashVectors().length + otherRuleVectors().length).toBe(familyVectors().length);
+    for (const v of otherRuleVectors()) {
+      expect(algorithmOf(v), `${v.id}: names a rule other than this package's`).not.toBe(
+        ALGORITHM_ID,
+      );
+    }
+  });
+
   it('each vector is the bytes the manifest pins', () => {
     // The corpus records each file's own digest. Checking it means a fixture that
     // drifted from its manifest entry fails HERE, naming the file, rather than
     // downstream as an inexplicable hash disagreement.
-    for (const v of specHashVectors()) {
+    // Over the whole family: a fixture's bytes are pinned whichever rule minted it.
+    for (const v of familyVectors()) {
       expect(sha256Hex(loadVector(v)), `${v.id}: the fixture's own bytes`).toBe(v.sha256);
     }
   });
