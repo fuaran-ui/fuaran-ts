@@ -237,16 +237,24 @@ export const IDL_VERSION = ${idl.version};
   emit(`export const UNION_TRANSPARENT_CASE = {`);
   for (const u of transparent) emit(`  ${u.name}: ${q(u.transparentCase)},`);
   emit(`} as const satisfies Partial<Record<UnionName, string>>;`);
-  const annotated = idl.unions.flatMap((u) =>
-    u.cases.filter((c) => c.annotations !== undefined).map((c) => [u.name, c.tag, c.annotations]),
-  );
+  // A case's `doc` (fuaran#1869) is prose for a reader, not a fact a runtime acts on, so it stays out
+  // of this table; the facts that remain are grouped under their union, one key per union.
+  const facts = (a) => Object.entries(a ?? {}).filter(([k]) => k !== 'doc');
+  const annotated = idl.unions
+    .map((u) => [u.name, u.cases.filter((c) => facts(c.annotations).length > 0)])
+    .filter(([, cases]) => cases.length > 0);
   emit(`/** Per-case annotations the IDL declares. */`);
   emit(`export const UNION_CASE_ANNOTATIONS = {`);
-  for (const [u, tag, a] of annotated)
+  for (const [u, cases] of annotated)
     emit(
-      `  ${u}: { ${tag}: { ${Object.entries(a)
-        .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
-        .join(', ')} } },`,
+      `  ${u}: { ${cases
+        .map(
+          (c) =>
+            `${c.tag}: { ${facts(c.annotations)
+              .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+              .join(', ')} }`,
+        )
+        .join(', ')} },`,
     );
   emit(`} as const;`);
 
