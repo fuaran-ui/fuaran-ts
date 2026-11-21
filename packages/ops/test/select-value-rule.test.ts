@@ -62,25 +62,26 @@ describe('Phase 1962 — the Select value rule', () => {
     if (!d.ok) expect([d.error.code, d.error.path]).toEqual(['MISSING_FIELD', '$.kind.value']);
   });
 
-  // Phase 1962 amendment — `multiple` is emitted AS AUTHORED, never
-  // omit-at-default: absent stays absent, an explicit false and true are kept.
-  it('multiple round-trips as authored: absent vs false vs true', () => {
+  // Phase 2413 — `multiple` is omit-at-default (Phase 2300's one rule): absent
+  // stays absent, an explicit false decodes as a single-select and re-encodes
+  // WITHOUT the member, and true is kept.
+  it('multiple omits at its default: absent vs false vs true', () => {
     // Keys in canonical (sorted) order, so the re-encode is byte-comparable.
     const canon = (multiple: string, tail: string): string =>
       `{"id":"x","kind":{"$type":"Select","label":"Tags",${multiple}${SRC},${tail}}}`;
     const value = '"value":{"$type":"Static","value":"red"}';
     const values = '"values":{"$type":"State","key":"tags"}';
-    for (const [wire, expected] of [
-      [canon('', value), undefined],
-      [canon('"multiple":false,', value), false],
-      [canon('"multiple":true,', values), true],
+    for (const [wire, expected, canonical] of [
+      [canon('', value), false, canon('', value)],
+      [canon('"multiple":false,', value), false, canon('', value)],
+      [canon('"multiple":true,', values), true, canon('"multiple":true,', values)],
     ] as const) {
       const d = decodeNode(wire);
       expect(d.ok).toBe(true);
       if (!d.ok) continue;
       const kind = d.value.kind as { kind: string; input?: { spec?: { multiple?: boolean } } };
-      expect(kind.input?.spec?.multiple).toBe(expected);
-      expect(encodeNode(d.value)).toBe(wire);
+      expect(kind.input?.spec?.multiple ?? false).toBe(expected);
+      expect(encodeNode(d.value)).toBe(canonical);
     }
   });
 

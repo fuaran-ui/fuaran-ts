@@ -1916,9 +1916,9 @@ const buttonSpec = specEncoder('Button');
 const selectSpec = specEncoder<'Select', SelectSpec<unknown>>('Select', {
   // An unselected control is a `Static` binding carrying no value (Phase 677).
   // Phase 1962: optional in the IDL, so the table writes it only when present —
-  // a multi-select carries `values` and no `value`. `multiple` has no override
-  // for the same reason: an ordinary optional field, emitted as authored (an
-  // explicit `false` is kept; `nodes/select-multiple-false.json`).
+  // a multi-select carries `values` and no `value`. `multiple` has no override:
+  // Phase 2413 declares it omit-at-default, so the table omits an explicit
+  // `false` (`lenient/lenient-2413-select-multiple-false.json`).
   value: {
     enc: (v) =>
       v === undefined ? undefined : binding(v as Binding<string | undefined>, staticStringOpt),

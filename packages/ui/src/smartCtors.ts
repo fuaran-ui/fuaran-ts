@@ -2541,8 +2541,8 @@ export const fuaran = {
             ...(o.onChange !== undefined ? { onChange: o.onChange } : {}),
             ...(o.placeholder !== undefined ? { placeholder: text(o.placeholder) } : {}),
             ...(o.disabled !== undefined ? { disabled: o.disabled } : {}),
-            // Phase 1962: `multiple` is emitted as authored (an explicit `false` is kept).
-            ...(o.multiple !== undefined ? { multiple: o.multiple } : {}),
+            // Phase 2413: `multiple` omits at its default (`false`), as the encoder does.
+            ...(o.multiple === true ? { multiple: true } : {}),
             ...(o.values !== undefined ? { values: stringArrayBinding(o.values) } : {}),
             ...(o.onChangeMulti !== undefined ? { onChangeMulti: o.onChangeMulti } : {}),
             // Phase 2694: `groups` omits at its default (`[]`), as the encoder does.

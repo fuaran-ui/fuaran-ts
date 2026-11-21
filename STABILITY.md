@@ -668,6 +668,12 @@ verbatim from the rider's phase:
 
   `@fuaran-ui/ops`: `encodeNode` stops writing `"multiple": false`. An explicit `false` still decodes.
 
+  Landed with the rider: `@fuaran-ui/schema` regenerates `generated.ts` (the `Select.multiple` row is
+  `omitDefault false`), and `SelectSpec.multiple` stays an optional `boolean` in the type, spelled absent at its
+  default as `groups` is, so no consumer's code changes. `@fuaran-ui/ui`'s `select` writes `multiple` only when it
+  is `true`. `@fuaran-ui/conformance` re-syncs its snapshot: `nodes/select-multiple-false.json` becomes the
+  lenient vector `lenient/lenient-2413-select-multiple-false.json`.
+
 - **Phase 2811: the option and marker labels become `TextSource` in the IDL.**
 
   > breaking. This is 2345's label half, a rider of the announced cut (fuaran#2303). It lands on
