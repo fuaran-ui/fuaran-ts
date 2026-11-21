@@ -2222,7 +2222,10 @@ export interface ButtonSpec<TMsg> extends IdlSpec<'Button', TMsg> {
   readonly disabled?: Binding<boolean>;
 }
 
-export interface SelectSpec<TMsg> extends Omit<IdlSpec<'Select', TMsg>, 'value' | 'groups'> {
+export interface SelectSpec<TMsg> extends Omit<
+  IdlSpec<'Select', TMsg>,
+  'value' | 'groups' | 'multiple'
+> {
   /**
    * Phase 2571 — option groups (WIRE_FORMAT §3.6.30). The IDL declares the member
    * omit-at-default (`[]`); this host spells the default as ABSENT, so every
@@ -2258,9 +2261,11 @@ export interface SelectSpec<TMsg> extends Omit<IdlSpec<'Select', TMsg>, 'value' 
   /**
    * Multi-select flag (Phase 291). `false`/absent (the default) is
    * single-select — `value` / `onChange` carry the chosen option. The field is
-   * emitted as authored (Phase 1962): absent stays absent on the wire (the
+   * omit-at-default (Phase 2413): absent stays absent on the wire (the
    * degenerate case stays byte-identical to pre-multi-select fixtures) and an
-   * explicit `false` is kept — it is not omit-at-default. When `true`, the renderer emits a
+   * explicit `false` decodes and re-encodes without the member. Like `groups`, this
+   * host spells the default as ABSENT, so the member stays optional in the type and
+   * absent and `false` are one fact. When `true`, the renderer emits a
    * `<select multiple>` and the selection is carried by `values` (a list).
    */
   readonly multiple?: boolean;

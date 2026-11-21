@@ -5463,8 +5463,24 @@ const decodeFormFieldKind = (
         controlValueDefaults.range,
         'Binding<[number, number]> value',
       ) as R<Binding<readonly [number, number]>>;
-      if (!value.ok) return value;
-      return ok({ kind: 'Range', value: value.value, ...onChangeField });
+      // Phase 2811 — the optional bounds are read exactly as `RangedNumber`'s
+      // are; they were dropped here, so a bounded `Range` re-encoded without
+      // them (`form-unvalued-textarea-ranges` is the first vector to carry one).
+      const min = optField(w, path, f, 'min', requireFloat);
+      const max = optField(w, path, f, 'max', requireFloat);
+      const step = optField(w, path, f, 'step', requireFloat);
+      if (!value.ok || !min.ok || !max.ok || !step.ok) return failed(value, min, max, step);
+      const constraints = {
+        ...(min.value !== undefined ? { min: min.value } : {}),
+        ...(max.value !== undefined ? { max: max.value } : {}),
+        ...(step.value !== undefined ? { step: step.value } : {}),
+      };
+      return ok({
+        kind: 'Range',
+        value: value.value,
+        ...onChangeField,
+        ...(Object.keys(constraints).length > 0 ? { constraints } : {}),
+      });
     }
     case 'RangedNumber': {
       const value = valueOr(
