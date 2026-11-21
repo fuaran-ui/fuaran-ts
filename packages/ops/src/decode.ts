@@ -4160,6 +4160,42 @@ const decodeAction = (w: Walk, path: string, j: JsonAst): R<Action<unknown>> => 
       if (!r.ok || !target.ok) return failed(r, target);
       return ok({ kind: 'Navigate', route: r.value, target: target.value });
     }
+    case 'Choose': {
+      // Phase 2107 — the bounded core's SELECTION (WIRE_FORMAT.md §3.6.34).
+      // `condition` and `exit` are Bindings evaluated at dispatch (the
+      // `SetState.valueFrom` decoder); `whenTrue` is required and an absent
+      // `whenFalse` means nothing runs. Siblings decode independently (§29.1).
+      const condJ = requireField(path, f, 'condition', 'Binding evaluated at dispatch time');
+      const cond = condJ.ok
+        ? decodeBinding(w, `${path}.condition`, condJ.value, decodeJVal, undefined)
+        : condJ;
+      const trueJ = requireField(path, f, 'whenTrue', 'Action run when the condition is true');
+      const whenTrue = trueJ.ok ? decodeAction(w, `${path}.whenTrue`, trueJ.value) : trueJ;
+      const falseJ = tryField(f, 'whenFalse');
+      const whenFalse =
+        falseJ === undefined ? ok(undefined) : decodeAction(w, `${path}.whenFalse`, falseJ);
+      const exitJ = tryField(f, 'exit');
+      const exit =
+        exitJ === undefined
+          ? ok(undefined)
+          : decodeBinding(w, `${path}.exit`, exitJ, decodeJVal, undefined);
+      if (!cond.ok || !whenTrue.ok || !whenFalse.ok || !exit.ok)
+        return failed(cond, whenTrue, whenFalse, exit);
+      return ok({
+        kind: 'Choose',
+        condition: cond.value as Binding<JsonValue>,
+        whenTrue: whenTrue.value,
+        ...(whenFalse.value === undefined ? {} : { whenFalse: whenFalse.value }),
+        ...(exit.value === undefined ? {} : { exit: exit.value as Binding<JsonValue> }),
+      });
+    }
+    case 'Require': {
+      // Phase 2107 — the bounded core's halting GUARD: one Binding, never defaulted.
+      const condJ = requireField(path, f, 'condition', 'Binding that must resolve to true');
+      if (!condJ.ok) return condJ;
+      const cond = decodeBinding(w, `${path}.condition`, condJ.value, decodeJVal, undefined);
+      return cond.ok ? ok({ kind: 'Require', condition: cond.value as Binding<JsonValue> }) : cond;
+    }
     case 'SetState': {
       // Phase 818 — `value` (a literal JSON value, written verbatim) XOR
       // `valueFrom` (a Binding evaluated at dispatch time inside the existing
@@ -4267,6 +4303,12 @@ const decodeAction = (w: Walk, path: string, j: JsonAst): R<Action<unknown>> => 
             const found = nestedConfirmPath(`${p}.ops[${i}]`, a.actions[i]!);
             if (found !== undefined) return found;
           }
+        }
+        // Phase 2107 — a selection's arms are as reachable as a chain's members.
+        if (a.kind === 'Choose') {
+          const inTrue = nestedConfirmPath(`${p}.whenTrue`, a.whenTrue);
+          if (inTrue !== undefined) return inTrue;
+          if (a.whenFalse !== undefined) return nestedConfirmPath(`${p}.whenFalse`, a.whenFalse);
         }
         return undefined;
       };

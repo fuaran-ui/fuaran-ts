@@ -301,6 +301,10 @@ const containsUnwiredAction = (action: Action<unknown>): boolean => {
         containsUnwiredAction(action.onConfirm) ||
         (action.onCancel !== undefined && containsUnwiredAction(action.onCancel))
       );
+    // Phase 2107 — the client renderer refuses a gesture carrying control flow
+    // whole (it runs on the bounded loop only), so the slot reaches no substrate.
+    case 'Choose':
+    case 'Require':
     case 'Call':
     case 'Notify':
     case 'Navigate':
