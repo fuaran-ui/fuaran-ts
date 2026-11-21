@@ -43,7 +43,11 @@
 //  writes. Each is a JSON value by the schema — no binding can sit inside one,
 //  and the F# typed walk never looks there — so skipping them changes no seed
 //  a document declares, and stops the walk visiting every cell of every
-//  embedded table. The walk stays structural over everything else, so a
+//  embedded table. ONE exception, since Phase 2811: an option's or a marker's
+//  `label` is a `TextSource` (WIRE_FORMAT §5), so a `Static` option or marker
+//  list can carry a `Bound` label over a `State` binding, which declares a seed
+//  like any other (§24.4 rule 1). The state-seed walk reads each element's
+//  `label` of a `Static` list and nothing else of the payload. The walk stays structural over everything else, so a
 //  binding slot added tomorrow is still found. The result is also cached per
 //  tree identity: a tree is an immutable value, so the walk runs once per tree
 //  rather than once per render.
@@ -227,12 +231,33 @@ export const collectStateSeeds = <TMsg>(tree: Node<TMsg>): Readonly<Record<strin
 
     const dataMember = dataMemberOf(obj);
     for (const [k, v] of Object.entries(obj)) {
-      if (k === dataMember) continue;
+      if (k === dataMember) {
+        if (record['kind'] === 'Static') visitStaticLabels(v, autoBindFieldId, childNodes);
+        continue;
+      }
       // The id follows the field's own `kind` subtree, where the synthesised
       // binding sits (`kind.value`), and is otherwise inherited unchanged so it
       // reaches through the `FormFieldKind` wrapper to the value slot.
       const established = k === 'kind' && fieldId !== undefined ? fieldId : undefined;
       visit(v, established ?? autoBindFieldId, childNodes);
+    }
+  };
+
+  /**
+   * Phase 2811 — the `label` of each element of a `Static` list: an option's or a
+   * marker's label is a `TextSource`, so a `Bound` one carries a binding. A plain
+   * string label (the `Literal` form) is not an object and is passed over.
+   */
+  const visitStaticLabels = (
+    payload: unknown,
+    autoBindFieldId: string | undefined,
+    childNodes: ReadonlySet<unknown>,
+  ): void => {
+    if (!Array.isArray(payload)) return;
+    for (const item of payload) {
+      if (isPlainObject(item) && isPlainObject(item['label'])) {
+        visit(item['label'], autoBindFieldId, childNodes);
+      }
     }
   };
 

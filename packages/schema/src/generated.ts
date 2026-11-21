@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = 'b49eb7256c1f9ade11f0c4c26b117dc2979b71cae0c0c665f4dae312715c3ad1';
+export const IDL_SHA256 = '710cf74d1f084d3f0854c8d58f6cebbbbac629b97e9bfeeb379d40628b28197e';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -1303,7 +1303,7 @@ export const RECORD_FIELDS = {
     { name: 'value', opt: 'required', type: T_str },
   ],
   MapMarker: [
-    { name: 'label', opt: 'required', type: T_str },
+    { name: 'label', opt: 'required', type: T_union_TextSource },
     { name: 'latitude', opt: 'required', type: T_float },
     { name: 'longitude', opt: 'required', type: T_float },
   ],
@@ -1333,7 +1333,7 @@ export const RECORD_FIELDS = {
     { name: 'min', opt: 'required', type: T_float },
   ],
   SelectOption: [
-    { name: 'label', opt: 'required', type: T_str },
+    { name: 'label', opt: 'required', type: T_union_TextSource },
     { name: 'value', opt: 'required', type: T_str },
   ],
   SelectOptionGroup: [
