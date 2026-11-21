@@ -753,6 +753,31 @@ export type Action<TMsg> =
     }
   | {
       /**
+       * Phase 2107 — the bounded program core's SELECTION, spelled with its own
+       * name (WIRE_FORMAT.md §3.6.34). `condition` resolves at dispatch time;
+       * the boolean `true` runs `whenTrue`, anything else `whenFalse` (absent:
+       * nothing happens). `exit` is the core's optional exit assertion.
+       *
+       * Runs on the bounded path only: an interpreter without it refuses a
+       * gesture reaching this case WHOLE rather than evaluating it a second way.
+       */
+      readonly kind: 'Choose';
+      readonly condition: Binding<JsonValue>;
+      readonly whenTrue: Action<TMsg>;
+      readonly whenFalse?: Action<TMsg>;
+      readonly exit?: Binding<JsonValue>;
+    }
+  | {
+      /**
+       * Phase 2107 — the bounded program core's halting GUARD. `condition`
+       * resolves at dispatch time; anything but the boolean `true` halts the
+       * gesture. Bounded path only, as `Choose`.
+       */
+      readonly kind: 'Require';
+      readonly condition: Binding<JsonValue>;
+    }
+  | {
+      /**
        * Phase 136 — read a previously-selected file's body in `encoding`, then
        * dispatch `onRead body`. Mirrors `Call`'s return-channel shape: only
        * `file.id` + `encoding` cross the wire (the blob is host-held on

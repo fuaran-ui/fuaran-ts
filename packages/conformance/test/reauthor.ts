@@ -297,6 +297,21 @@ export const reauthorAction = (a: Action<unknown>, tally: ReauthorTally): Action
       );
     case 'Focus':
       return action.focus(a.nodeId);
+    // Phase 2107 — the core's selection and guard. `exit` has no smart-ctor
+    // argument (an author reaching for the reversible fragment writes the case
+    // literally), so it is carried across as authored.
+    case 'Choose': {
+      const chosen = action.choose(
+        reauthorBinding(a.condition, tally),
+        reauthorAction(a.whenTrue, tally),
+        a.whenFalse === undefined ? undefined : reauthorAction(a.whenFalse, tally),
+      );
+      return a.exit === undefined || chosen.kind !== 'Choose'
+        ? chosen
+        : { ...chosen, exit: reauthorBinding(a.exit, tally) };
+    }
+    case 'Require':
+      return action.require(reauthorBinding(a.condition, tally));
     case 'ReadFileBody':
       return action.readFileBody(a.file, a.encoding, a.onRead);
     case 'Invoke':
@@ -350,6 +365,14 @@ const ACTION_CASES: ReadonlyMap<string, readonly [readonly string[], readonly st
   ['Print', [[], []]],
   ['Confirm', [['prompt', 'onConfirm'], ['onCancel']]],
   ['Focus', [['nodeId'], []]],
+  [
+    'Choose',
+    [
+      ['condition', 'whenTrue'],
+      ['whenFalse', 'exit'],
+    ],
+  ],
+  ['Require', [['condition'], []]],
   ['ReadFileBody', [['file', 'encoding', 'onRead'], []]],
 ] as [string, readonly [readonly string[], readonly string[]]][]);
 
