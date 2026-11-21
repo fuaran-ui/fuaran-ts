@@ -566,6 +566,27 @@ export const action = {
     return { kind: 'Focus', nodeId };
   },
   /**
+   * Phase 2107 — run `whenTrue` when `condition` reads the boolean `true` at
+   * dispatch time, otherwise `whenFalse` (omitted: nothing happens). The
+   * bounded program core's `Choose`; it runs on the bounded loop only.
+   */
+  choose<TMsg>(
+    condition: Binding<JsonValue>,
+    whenTrue: Action<TMsg>,
+    whenFalse?: Action<TMsg>,
+  ): Action<TMsg> {
+    return whenFalse === undefined
+      ? { kind: 'Choose', condition, whenTrue }
+      : { kind: 'Choose', condition, whenTrue, whenFalse };
+  },
+  /**
+   * Phase 2107 — stop the gesture here unless `condition` reads the boolean
+   * `true` at dispatch time. The bounded program core's `Require`.
+   */
+  require<TMsg>(condition: Binding<JsonValue>): Action<TMsg> {
+    return { kind: 'Require', condition };
+  },
+  /**
    * Phase 136 — read a previously-selected file's body in `encoding`, then
    * dispatch `onRead body`. `file` is the opaque `FileRef` handed to the
    * author on a `FileSelection`. Routes through `FuaranRuntime.readFileBody`

@@ -963,6 +963,19 @@ const action = <T>(a: Action<T>): string => {
     case 'Focus':
       // Phase 1537 — a node id and nothing else, the `CommitLocal` shape.
       return caseObj('Focus', [['nodeId', str(a.nodeId)]]);
+    case 'Choose': {
+      // Phase 2107 — the third recursive arm. Keys sort to
+      // condition < exit < whenFalse < whenTrue; the two optional members ride
+      // only when present.
+      const fields: Field[] = [['condition', binding(a.condition, jsonValue)]];
+      if (a.exit !== undefined) fields.push(['exit', binding(a.exit, jsonValue)]);
+      if (a.whenFalse !== undefined) fields.push(['whenFalse', action(a.whenFalse)]);
+      fields.push(['whenTrue', action(a.whenTrue)]);
+      return caseObj('Choose', fields);
+    }
+    case 'Require':
+      // Phase 2107 — one binding, the guard's condition.
+      return caseObj('Require', [['condition', binding(a.condition, jsonValue)]]);
     case 'ReadFileBody':
       // Phase 136 — only file.id + encoding cross the wire; the blob is
       // host-held (file.handle) and onRead is the closure sentinel (§4).

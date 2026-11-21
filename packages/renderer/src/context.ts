@@ -126,6 +126,12 @@ export const containsUnwiredAction = <TMsg>(action: Action<TMsg>): boolean => {
       );
     case 'Chain':
       return action.actions.some(containsUnwiredAction);
+    // Phase 2107 — control flow runs on the bounded program loop only, and this
+    // interpreter is not it (Phase 2105 moves this renderer onto that loop): a
+    // gesture carrying either arm is refused whole, so it reaches no substrate.
+    case 'Choose':
+    case 'Require':
+      return true;
     case 'Call':
     case 'Notify':
     case 'Navigate':
@@ -200,9 +206,44 @@ export const treeNavigate = <TMsg>(
   return reason;
 };
 
+/**
+ * Phase 2107 — whether `action` reaches `Choose` or `Require` anywhere (a
+ * `Chain` member, a `Confirm` continuation, a `Choose` arm). Control flow is the
+ * bounded program core's alone (WIRE_FORMAT.md §3.6.34), and this interpreter
+ * does not run on it, so such a gesture is refused WHOLE: refusing only the arm
+ * would run the members after an unevaluated guard, the guard failing open.
+ */
+export const reachesControlFlow = <TMsg>(action: Action<TMsg>): boolean => {
+  switch (action.kind) {
+    case 'Choose':
+    case 'Require':
+      return true;
+    case 'Chain':
+      return action.actions.some(reachesControlFlow);
+    case 'Confirm':
+      return (
+        reachesControlFlow(action.onConfirm) ||
+        (action.onCancel !== undefined && reachesControlFlow(action.onCancel))
+      );
+    default:
+      return false;
+  }
+};
+
 /** Interpret an action: Dispatch/Chain/CommitLocal are native; the rest route through the runtime. */
 export const runAction = <TMsg>(ctx: RenderContext<TMsg>, action: Action<TMsg>): void => {
+  if (reachesControlFlow(action)) {
+    warn(
+      ctx as RenderContext<unknown>,
+      'this gesture carries Action.Choose / Action.Require, which run on the bounded program loop only — refused whole, nothing ran.',
+    );
+    return;
+  }
   switch (action.kind) {
+    case 'Choose':
+    case 'Require':
+      // Unreachable: refused above, before any member runs.
+      return;
     case 'Dispatch':
       ctx.dispatch(action.msg);
       return;
