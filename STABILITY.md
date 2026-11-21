@@ -640,6 +640,56 @@ rule change in this surface is fuaran-core Phase 642: a capability states what i
   0.26.2 and `@fuaran-ui/theme-manifest` 0.13.2 are range-only patches (their published ranges exclude the new
   minors). The starter template's pins follow `schema` 0.29.0, `ui` 0.29.0 and `renderer` 0.29.2.
 
+### The announced breaking cut — `@fuaran-ui/schema` 0.29.0, `@fuaran-ui/ops` 0.34.0, `@fuaran-ui/ui` 0.29.0 (Phase 2303)
+
+_Named for the cut, cut at release. Each version is that package's next minor after its newest published version
+(`schema` 0.28.1, `ops` 0.33.5 and `ui` 0.28.0, published at `v0.33.5`). Each is also the package's standing
+untagged draft, which Phase 2741 already advanced as breaking (above). The cut's TypeScript halves ride these drafts,
+and no `package.json` moves for them. If a release tags any of the three before the cut is frozen, the cut takes that
+package's following minor instead. The release act names the change in the same step._
+
+This is the TypeScript side of the announced breaking cut. The .NET record is the `## 0.105.0` section of
+fuaran-dotnet's `STABILITY.md`. That section quotes every rider's stability impact line, and its migration index is
+`docs/migrations/0.105.0-breaking-cut.md` there. The riders with a TypeScript half follow. Each impact line is quoted
+verbatim from the rider's phase:
+
+- **Phase 2107: `Choose` and `Require` actions.**
+
+  > Breaking change to `Fuaran.UI` (and every host's closed `Action` union): new cases break exhaustive matches in consumers, though every existing wire document is byte-identical. Requires the version advance the surface guard names. Satisfies and cites the [vocabulary-growth governance charter](../../fuaran-dotnet/docs/VOCABULARY.md) (demand evidence, irreducibility, cost, pre/post confusion delta).
+
+  `@fuaran-ui/schema`: the `Action` union gains `Choose` and `Require`, and an exhaustive `switch` over
+  `Action['kind']` gains two cases. `@fuaran-ui/ops`: decode and encode both arms. `@fuaran-ui/ui`: smart
+  constructors for both.
+
+- **Phase 2413: `Select.multiple` is omitted at its default.**
+
+  > breaking (canonical bytes) — rides the announced cut (2303). Decoding is unchanged: an explicit
+  > `false` still decodes, as a §16 lenient accept.
+
+  `@fuaran-ui/ops`: `encodeNode` stops writing `"multiple": false`. An explicit `false` still decodes.
+
+- **Phase 2811: the option and marker labels become `TextSource` in the IDL.**
+
+  > breaking. This is 2345's label half, a rider of the announced cut (fuaran#2303). It lands on
+  > the cut's claimed version.
+
+  This host already decodes the label as a full `TextSource`. What moves here is the regenerated
+  `@fuaran-ui/schema` vocabulary and the re-synced corpus snapshot. The rider states the class for this package when
+  it lands.
+
+- **Phase 2340: rules 2 and 3 of the canonical form, and the renames.**
+
+  > breaking — the renames change wire names and the presence rule removes placeholders; both ride
+  > the announced cut (fuaran#2303), with every old form still decoded.
+
+  `@fuaran-ui/schema` and `@fuaran-ui/ops` regenerate under the new names. The old names stay lenient decode aliases
+  and are never emitted. The rider lists each rename when it lands.
+
+**Not breaking here, and not named minors.** `@fuaran-ui/renderer` and `@fuaran-ui/renderer-server` refuse a
+gesture that reaches `Choose` or `Require`. That is behaviour for new cases only. `@fuaran-ui/conformance` re-syncs its
+bundled snapshot. These three advance as release-consistency patches beside the minors above, as Phase 2741 did. The
+riders that have no TypeScript half (2100, 2101, 2346 and 2110) are F# or C# only.
+
 ### `@fuaran-ui/conformance`
 
 The third-party certification kit ([`CONFORMANCE.md`](CONFORMANCE.md)). Two sub-surfaces are **stable** from first ship, because external certification claims depend on them:
