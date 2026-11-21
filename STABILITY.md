@@ -683,6 +683,14 @@ verbatim from the rider's phase:
   `@fuaran-ui/schema` vocabulary and the re-synced corpus snapshot. The rider states the class for this package when
   it lands.
 
+  Landed with the rider: `@fuaran-ui/schema` regenerates `generated.ts`, whose `SelectOption.label` and
+  `MapMarker.label` rows read `TextSource`. The hand-written `SelectOption` and `MapMarker` interfaces already typed
+  both labels `TextSource`, so no consumer's code changes, and for this package the change is **additive** (a
+  generated table row). `@fuaran-ui/ops` is a **patch**: its decoder dropped a `Range` field's optional
+  `min` / `max` / `step`, which no vector carried until `nodes/form-unvalued-textarea-ranges.json`, and now reads them
+  as `RangedNumber`'s are. `@fuaran-ui/conformance` re-syncs its snapshot with the rider's three node vectors
+  (`select-textsource-labels`, `map-textsource-labels`, `form-unvalued-textarea-ranges`).
+
 - **Phase 2340: rules 2 and 3 of the canonical form, and the renames.**
 
   > breaking — the renames change wire names and the presence rule removes placeholders; both ride
