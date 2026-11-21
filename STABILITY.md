@@ -654,24 +654,31 @@ fuaran-dotnet's `STABILITY.md`. That section quotes every rider's stability impa
 verbatim from the rider's phase:
 
 - **Phase 2107: `Choose` and `Require` actions.**
+
   > Breaking change to `Fuaran.UI` (and every host's closed `Action` union): new cases break exhaustive matches in consumers, though every existing wire document is byte-identical. Requires the version advance the surface guard names. Satisfies and cites the [vocabulary-growth governance charter](../../fuaran-dotnet/docs/VOCABULARY.md) (demand evidence, irreducibility, cost, pre/post confusion delta).
 
   `@fuaran-ui/schema`: the `Action` union gains `Choose` and `Require`, and an exhaustive `switch` over
   `Action['kind']` gains two cases. `@fuaran-ui/ops`: decode and encode both arms. `@fuaran-ui/ui`: smart
   constructors for both.
+
 - **Phase 2413: `Select.multiple` is omitted at its default.**
+
   > breaking (canonical bytes) — rides the announced cut (2303). Decoding is unchanged: an explicit
   > `false` still decodes, as a §16 lenient accept.
 
   `@fuaran-ui/ops`: `encodeNode` stops writing `"multiple": false`. An explicit `false` still decodes.
+
 - **Phase 2811: the option and marker labels become `TextSource` in the IDL.**
+
   > breaking. This is 2345's label half, a rider of the announced cut (fuaran#2303). It lands on
   > the cut's claimed version.
 
   This host already decodes the label as a full `TextSource`. What moves here is the regenerated
   `@fuaran-ui/schema` vocabulary and the re-synced corpus snapshot. The rider states the class for this package when
   it lands.
+
 - **Phase 2340: rules 2 and 3 of the canonical form, and the renames.**
+
   > breaking — the renames change wire names and the presence rule removes placeholders; both ride
   > the announced cut (fuaran#2303), with every old form still decoded.
 
