@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = '243a7fc91cf5a737aea3ca3b6c6e6b6a7eb4cb46aa96eaa771ba1b62d44f3cef';
+export const IDL_SHA256 = 'a8dd5c77f261a21c83e87122c4f3c3aa76939d858d358df60db940e6173d4057';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -1507,6 +1507,13 @@ export const UNION_CASES = {
       { name: 'onCancel', opt: 'optional', type: T_union_Action },
     ],
     Focus: [{ name: 'nodeId', opt: 'required', type: T_str }],
+    Choose: [
+      { name: 'condition', opt: 'required', type: T_union_Binding_json },
+      { name: 'whenTrue', opt: 'required', type: T_union_Action },
+      { name: 'whenFalse', opt: 'optional', type: T_union_Action },
+      { name: 'exit', opt: 'optional', type: T_union_Binding_json },
+    ],
+    Require: [{ name: 'condition', opt: 'required', type: T_union_Binding_json }],
   },
   Binding: {
     Static: [{ name: 'value', opt: 'optional', type: T_var_T }],
