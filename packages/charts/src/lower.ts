@@ -1790,6 +1790,18 @@ const lowerSeries = (
     return fits ? [label(r2(x), r2(baseline), t, annotationLabelStyle)] : [];
   };
 
+  /** For vertical lines at `xs`, the x each one's label must not reach: its
+   * successor in `(x, index)` order, or the plot's right edge for the last. One
+   * rule for the event markers and the x reference lines (Phase 2654). */
+  const labelRightOf = (xs: readonly number[]): number[] => {
+    const order = xs
+      .map((_, i) => i)
+      .sort((a, b) => (xs[a]! - xs[b]! !== 0 ? xs[a]! - xs[b]! : a - b));
+    const right = xs.map(() => PLOT_X1);
+    for (let r = 0; r < order.length - 1; r++) right[order[r]!] = xs[order[r + 1]!]!;
+    return right;
+  };
+
   const referenceLineShapes: Shape[] = [
     ...referenceLines.map(([v], i) => {
       const y = yScale(v);
@@ -1814,16 +1826,8 @@ const lowerSeries = (
   ];
 
   /** Phase 2654 — the x each x reference line's label must not reach: the next
-   * line to its right, the event markers' rule exactly. */
-  const referenceXLabelRight: number[] = (() => {
-    const xs = referenceLinesX.map(([v]) => xScale(v));
-    const order = xs
-      .map((_, i) => i)
-      .sort((a, b) => (xs[a]! - xs[b]! !== 0 ? xs[a]! - xs[b]! : a - b));
-    const right = xs.map(() => PLOT_X1);
-    for (let r = 0; r < order.length - 1; r++) right[order[r]!] = xs[order[r + 1]!]!;
-    return right;
-  })();
+   * line to its right, the event markers' rule exactly (`labelRightOf`). */
+  const referenceXLabelRight: number[] = labelRightOf(referenceLinesX.map(([v]) => xScale(v)));
 
   /** The range bands as PLOT RECTANGLES — `(index, x0, y0, x1, y1, label)`,
    * ordered by the per-case index both arms were numbered with, so the paint
@@ -1910,15 +1914,7 @@ const lowerSeries = (
    * why identity is an ordinal rather than the address). They fall out of the same
    * rule rather than needing one of their own: the earlier gets a budget of zero
    * and is suppressed, the later runs to the next distinct position. */
-  const eventLabelRight: number[] = (() => {
-    const xs = eventMarkers.map((_, i) => eventMarkerX(i));
-    const order = xs
-      .map((_, i) => i)
-      .sort((a, b) => (xs[a]! - xs[b]! !== 0 ? xs[a]! - xs[b]! : a - b));
-    const right = xs.map(() => PLOT_X1);
-    for (let r = 0; r < order.length - 1; r++) right[order[r]!] = xs[order[r + 1]!]!;
-    return right;
-  })();
+  const eventLabelRight: number[] = labelRightOf(eventMarkers.map((_, i) => eventMarkerX(i)));
 
   const annotationLabelShapes: Shape[] = [
     ...referenceLines.flatMap(([v, lbl]) => {
