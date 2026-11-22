@@ -1,7 +1,7 @@
 // ============================================================================
 //  Phase 2006 — a decimal series plots the exact values.
 //
-//  `numericOf` is the ONE place a row's exact decimal (`DecimalCell`) becomes a
+//  `presentValueOf` is the ONE place a row's exact decimal (`DecimalCell`) becomes a
 //  number: a screen coordinate. A decimal chart therefore lowers to exactly the
 //  drawing the same values as JS numbers lower to, and not to the flat zero
 //  bars a decimal read as text used to draw. Twin of the reference host's

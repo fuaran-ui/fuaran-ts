@@ -140,6 +140,8 @@ const BRIDGE_DISPOSITIONS: Record<keyof ChartSpec<never>, BridgeDisposition> = {
   annotations: 'threaded',
   // Phase 2655 — a heatmap's declared colour scale crosses as-is.
   scale: 'threaded',
+  // Phase 2809 — the withheld flag column crosses as-is.
+  withheldField: 'threaded',
 };
 
 const currencyRows = [
@@ -227,6 +229,22 @@ const fieldCases: ReadonlyArray<
       scale: { kind: 'Diverging', midpoint: 14000000 },
     },
     { kind: 'Diverging', midpoint: 14000000 },
+  ],
+  [
+    // Phase 2809 — the flag column names rows, so the case carries one withheld
+    // row: its bars become placeholders, which is the picture leg below.
+    'withheldField',
+    {
+      source: {
+        kind: 'Static',
+        value: [
+          { ...currencyRows[0]!, suppressed: false },
+          { ...currencyRows[1]!, suppressed: true },
+        ],
+      },
+      withheldField: 'suppressed',
+    },
+    'suppressed',
   ],
 ];
 

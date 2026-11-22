@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = 'b63cc2baad57c2036ad56bb91071b6594f35d80d47af10ff99d82a6acedfc17d';
+export const IDL_SHA256 = '3382d69213dfc1dc55896169cd64a22c7388eb14f111cb2441e85bc1d69f84b9';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -702,6 +702,7 @@ export const KIND_FIELDS = {
     { name: 'xScale', opt: 'optional', type: T_enum_ChartXScale },
     { name: 'annotations', opt: 'optional', type: T_list_union_ChartAnnotation },
     { name: 'scale', opt: 'optional', type: T_union_ChartScale },
+    { name: 'withheldField', opt: 'optional', type: T_str },
     { name: 'onPointClick', opt: 'optional', type: T_fn },
   ],
   CodeBlock: [

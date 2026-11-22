@@ -99,5 +99,8 @@ export const chartLowerSpecOf = <TMsg>(
     // Phase 2655 — a heatmap's declared colour scale, carried as declared: the
     // lowering resolves its bounds against the rows and picks the ramp stop.
     ...(spec.scale !== undefined ? { scale: spec.scale } : {}),
+    // Phase 2809 — the withheld flag column, carried as declared: the lowering
+    // reads each row's flag and never a withheld row's values.
+    ...(spec.withheldField !== undefined ? { withheldField: spec.withheldField } : {}),
   };
 };

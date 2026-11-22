@@ -120,7 +120,15 @@ import {
 } from './shapes.js';
 import { lowerHeatmap } from './heatmap.js';
 import type { ChartLowerSpec, ChartLowerStyle, ChartRow } from './spec.js';
-import { capitalise, derivedSeriesFields, numericOf, stringOf } from './spec.js';
+import {
+  WITHHELD_MARK_SIZE,
+  WITHHELD_WORD,
+  capitalise,
+  derivedSeriesFields,
+  isWithheldRow,
+  presentValueOf,
+  stringOf,
+} from './spec.js';
 import {
   SUMMARY_CLAUSE_SEPARATOR,
   SUMMARY_MAX_ANNOTATIONS_NAMED,
@@ -177,6 +185,36 @@ const refusalDrawing = (spec: ChartLowerSpec, series: number, limit: number): Dr
   description: literal(`Chart not rendered: ${series} series exceeds the limit of ${limit}.`),
 });
 
+/** Phase 2809 (D38) — the readout of a WITHHELD datum: "Series · Category ·
+ * withheld", with no number, because the number is what the gate suppressed. */
+const withheldTip = (seriesField: string, categoryKey: string, style: DrawStyle): DrawStyle =>
+  withTip(`${seriesField}${TIP_SEPARATOR}${categoryKey}${TIP_SEPARATOR}${WITHHELD_WORD}`, style);
+
+/** Phase 2809 — the WITHHELD placeholder's paint: no fill, outlined in the
+ * axis's own ink at the axis's opacity — surface-relative, so it reads on every
+ * theme, and never a series colour, so it never reads as data. */
+const withheldStyle = (): DrawStyle => ({
+  ...styleFill('none'),
+  ...styleStrokeInk(AXIS_OPACITY, 1.0),
+});
+
+/** Phase 2809 — the maximal runs of consecutive indices `0 .. n-1` for which
+ * `present` holds, as `[first, last]` pairs in order. A Line or an Area draws
+ * each run exactly as it drew a whole series before. */
+const presentRuns = (n: number, present: (i: number) => boolean): (readonly [number, number])[] => {
+  const runs: (readonly [number, number])[] = [];
+  let start = -1;
+  for (let i = 0; i <= n; i++) {
+    if (i < n && present(i)) {
+      if (start < 0) start = i;
+    } else if (start >= 0) {
+      runs.push([start, i - 1] as const);
+      start = -1;
+    }
+  }
+  return runs;
+};
+
 const lowerSeries = (
   spec: ChartLowerSpec,
   rows: readonly ChartRow[],
@@ -187,7 +225,13 @@ const lowerSeries = (
   const categories = rows.map((r) => stringOf(r, spec.xField));
   const n = rows.length;
 
-  const series = spec.yFields.map((yf) => rows.map((r) => numericOf(r, yf)));
+  // Phase 2809 (D38) — a withheld row's values are never read, so they join the
+  // missing ones as `undefined` here and every reader below treats them alike;
+  // only the placeholder marks and the summary ask which of the two it was.
+  const withheld = rows.map((r) => isWithheldRow(spec.withheldField, r));
+  const series: (number | undefined)[][] = spec.yFields.map((yf) =>
+    rows.map((r, i) => (withheld[i] ? undefined : presentValueOf(r, yf))),
+  );
   const m = series.length;
 
   // Stacking applies to Bar + Area only (Phase 637). Values stack as-is by
@@ -197,12 +241,13 @@ const lowerSeries = (
   const stacked = (spec.stacked ?? false) && (spec.kind === 'Bar' || spec.kind === 'Area');
 
   /** Per-category running sums across the series, INCLUDING the leading 0
-   * baseline: `cumsFor(i)` has length m+1. */
+   * baseline: `cumsFor(i)` has length m+1. A missing or withheld value adds
+   * nothing (Phase 2809): the stack is a sum of what is drawn. */
   const cumsFor = (i: number): number[] => {
     const out = [0.0];
     let acc = 0.0;
     for (let j = 0; j < m; j++) {
-      acc += series[j]![i]!;
+      acc += series[j]![i] ?? 0.0;
       out.push(acc);
     }
     return out;
@@ -268,7 +313,9 @@ const lowerSeries = (
     );
 
   const allValuesRaw = [
-    ...(stacked ? Array.from({ length: n }, (_, i) => cumsFor(i)).flat() : series.flat()),
+    ...(stacked
+      ? Array.from({ length: n }, (_, i) => cumsFor(i)).flat()
+      : series.flat().filter((v): v is number => v !== undefined)),
     // §4l rule 3 — AN ADDRESS PARTICIPATES IN THE DOMAIN IT ADDRESSES, on the
     // same terms the series data does, and BEFORE the axis is nice-d. A
     // threshold above every bar is still drawn, and the axis says so; clamping
@@ -463,7 +510,9 @@ const lowerSeries = (
   const xValues = isTemporal
     ? dayValues
     : isScatter
-      ? rows.map((r) => numericOf(r, spec.xField))
+      ? // A MISSING x (Phase 2809) has no position: it is NaN here, read by
+        // nothing but the domain's filter below and the marks' skip.
+        rows.map((r) => presentValueOf(r, spec.xField) ?? NaN)
       : [];
 
   // The chosen calendar rung, on a temporal axis only. ONE value decides both
@@ -499,9 +548,12 @@ const lowerSeries = (
         };
       })()
     : isScatter
-      ? xValues.length === 0
-        ? niceDomain(0.0, 1.0)
-        : niceDomain(...extentOf(xValues))
+      ? ((
+          presentXs: number[],
+        ): { niceLo: number; niceHi: number; step: number; ticks: number[] } =>
+          presentXs.length === 0 ? niceDomain(0.0, 1.0) : niceDomain(...extentOf(presentXs)))(
+          xValues.filter((x) => !Number.isNaN(x)),
+        )
       : { niceLo: 0.0, niceHi: 1.0, step: 1.0, ticks: [] as number[] };
 
   // The Scatter arm's x IS a value axis, so its ticks take the same canonical
@@ -617,32 +669,57 @@ const lowerSeries = (
   // (`isPie` itself was hoisted to the annotation block above by Phase 1490 —
   // the annotation slots are neutralised on the polar arm, so the answer is
   // needed before the value domain.)
-  const pieValues = isPie && m === 1 ? series[0]! : [];
-  const pieTotal = pieValues.reduce((a, b) => a + b, 0.0);
+  // Phase 2809 — a missing or withheld category (`undefined`) takes no share.
+  const pieValues: readonly (number | undefined)[] = isPie && m === 1 ? series[0]! : [];
+  const pieTotal = pieValues.reduce((a: number, b) => a + (b ?? 0.0), 0.0);
   // The Phase-638 bounded-v1 guard, unchanged and merely lifted. A refused pie
   // draws no geometry AND no legend — a legend for a picture that was refused
   // would be a claim about data the drawing declined to show.
-  const pieRefused = isPie && (m !== 1 || pieValues.some((v) => v < 0.0) || pieTotal <= 0.0);
-  const pieFractions = isPie && !pieRefused ? pieValues.map((v) => v / pieTotal) : [];
+  const pieRefused =
+    isPie && (m !== 1 || pieValues.some((v) => v !== undefined && v < 0.0) || pieTotal <= 0.0);
+  const pieFractions = isPie && !pieRefused ? pieValues.map((v) => (v ?? 0.0) / pieTotal) : [];
 
   // The legend's rows in draw order — `[colour, label]`. TWO sources, ONE shape:
   // the cartesian arms legend their SERIES and only when there is more than one
   // (with a single series the title already names it — the pre-880 rule), while
   // the pie arm legends its CATEGORIES, which is why a single-series pie legends
   // and a single-series bar does not.
-  const legendEntries: (readonly [string, string])[] = isPie
-    ? pieFractions.map(
-        (f, i) =>
-          [
-            colourFor(i),
-            // Routed through the canonical formatter (Phase 876) — one rounding
-            // rule for every number this module prints.
-            `${categories[i]!} (${formatValue(undefined, 1.0, false, 1.0, f * 100.0)}%)`,
-          ] as const,
+  //
+  // Phase 2809 (D38) — on the pie a MISSING category has no entry at all (a `0%`
+  // entry would be the zero the gap rule removes), and a WITHHELD one has the
+  // entry `name (withheld)`, whose outlined swatch IS the datum's placeholder.
+  // Each entry carries its swatch's paint beside its colour and label.
+  type LegendRow = readonly [string, string, DrawStyle];
+  const legendRows: LegendRow[] = isPie
+    ? pieFractions.flatMap((f, i): LegendRow[] =>
+        withheld[i]
+          ? [
+              [
+                colourFor(i),
+                `${categories[i]!} (${WITHHELD_WORD})`,
+                withheldTip(
+                  spec.yFields[0]!,
+                  categories[i]!,
+                  withMark(spec.yFields[0]!, categories[i]!, withheldStyle()),
+                ),
+              ] as const,
+            ]
+          : pieValues[i] === undefined
+            ? []
+            : [
+                [
+                  colourFor(i),
+                  // Routed through the canonical formatter (Phase 876) — one
+                  // rounding rule for every number this module prints.
+                  `${categories[i]!} (${formatValue(undefined, 1.0, false, 1.0, f * 100.0)}%)`,
+                  styleFill(colourFor(i)),
+                ] as const,
+              ],
       )
     : m > 1
-      ? spec.yFields.map((yf, j) => [colourFor(j), yf] as const)
+      ? spec.yFields.map((yf, j) => [colourFor(j), yf, styleFill(colourFor(j))] as const)
       : [];
+  const legendEntries: (readonly [string, string])[] = legendRows.map(([c, t]) => [c, t] as const);
 
   // The placement the author ASKED FOR: their explicit value where there is one,
   // else the host default. With no entries the answer is `None` whatever either
@@ -1100,6 +1177,45 @@ const lowerSeries = (
         (groupedSubW - groupedBarW) / 2.0,
     );
 
+  // ── The WITHHELD placeholder (Phase 2809, D38) ──────────────────────────────
+  //
+  // An outlined square of WITHHELD_MARK_SIZE, centred on the zero line: a fixed
+  // size, so no height implies a value. `x` and `w` are the slot it spans — a
+  // grouped bar's own slot, a stacked bar's slot split between its series, or one
+  // square per series side by side on the point arms. It carries the datum's OWN
+  // mark identity, so a click on it resolves the withheld row.
+  const zeroY = yScale(0.0);
+  const withheldMark = (x: number, w: number, seriesField: string, categoryKey: string): Shape =>
+    rectangle(
+      r2(x),
+      r2(zeroY - WITHHELD_MARK_SIZE / 2.0),
+      r2(w),
+      WITHHELD_MARK_SIZE,
+      undefined,
+      withheldTip(seriesField, categoryKey, withMark(seriesField, categoryKey, withheldStyle())),
+    );
+  /** The point arms' placeholders, after their series (painter's order): one
+   * square per series, side by side and centred on the datum's x. */
+  const pushWithheldStrips = (
+    centreOf: (i: number) => number | undefined,
+    keyOf: (i: number) => string,
+  ): void => {
+    for (let i = 0; i < n; i++) {
+      if (!withheld[i]) continue;
+      const cx = centreOf(i);
+      if (cx === undefined) continue;
+      for (let j = 0; j < m; j++)
+        seriesShapes.push(
+          withheldMark(
+            cx - (m * WITHHELD_MARK_SIZE) / 2.0 + j * WITHHELD_MARK_SIZE,
+            WITHHELD_MARK_SIZE,
+            spec.yFields[j]!,
+            keyOf(i),
+          ),
+        );
+    }
+  };
+
   // ── Series geometry ──
   const seriesShapes: Shape[] = [];
   if (spec.kind === 'Bar' && stacked) {
@@ -1110,15 +1226,28 @@ const lowerSeries = (
     const bw = stackedBarW;
     for (let i = 0; i < n; i++) {
       const bx = stackedBarX(i);
+      if (withheld[i]) {
+        // Phase 2809 — the stack's slot split evenly between its series.
+        for (let j = 0; j < m; j++)
+          seriesShapes.push(
+            withheldMark(bx + (j * bw) / m, bw / m, spec.yFields[j]!, categories[i]!),
+          );
+        continue;
+      }
       const cums = cumsFor(i);
       for (let j = 0; j < m; j++) {
+        const v = series[j]![i];
+        if (v === undefined) continue;
         const y0 = yScale(cums[j]!);
         const y1 = yScale(cums[j + 1]!);
         // The gap comes off the far side from the baseline, and only where
-        // another segment follows — so the stack's outer tip keeps its full
-        // height and the total stays honest. Math.max(0, …) covers a segment
-        // thinner than the gap.
-        const gap = j < m - 1 ? STACK_SEGMENT_GAP : 0.0;
+        // another DRAWN segment follows (Phase 2809: a missing one draws
+        // nothing) — so the stack's outer tip keeps its full height and the
+        // total stays honest. Math.max(0, …) covers a segment thinner than the
+        // gap.
+        let followed = false;
+        for (let k = j + 1; k < m; k++) if (series[k]![i] !== undefined) followed = true;
+        const gap = followed ? STACK_SEGMENT_GAP : 0.0;
         const top = r2(Math.min(y0, y1) + (y1 < y0 ? gap : 0.0));
         const hgt = r2(Math.max(0.0, Math.abs(y1 - y0) - gap));
         seriesShapes.push(
@@ -1135,7 +1264,7 @@ const lowerSeries = (
             datumTip(
               spec.yFields[j]!,
               categories[i]!,
-              series[j]![i]!,
+              v,
               withMark(spec.yFields[j]!, categories[i]!, styleFill(colourFor(j))),
             ),
           ),
@@ -1149,7 +1278,12 @@ const lowerSeries = (
       const colour = colourFor(j);
       const seriesValues = series[j]!;
       for (let i = 0; i < n; i++) {
-        const v = seriesValues[i]!;
+        if (withheld[i]) {
+          seriesShapes.push(withheldMark(groupedBarX(i, j), bw, spec.yFields[j]!, categories[i]!));
+          continue;
+        }
+        const v = seriesValues[i];
+        if (v === undefined) continue;
         const bx = groupedBarX(i, j);
         const vy = yScale(v);
         const top = Math.min(vy, baseY);
@@ -1174,82 +1308,101 @@ const lowerSeries = (
   } else if (spec.kind === 'Area' && stacked) {
     // Cumulative bands, bottom band first (painter's order): band j fills
     // between boundary j (below) and boundary j+1 (above); its upper boundary
-    // carries the full-strength series edge (Phase 637).
+    // carries the full-strength series edge (Phase 637). Phase 2809 — one band
+    // per run of present values.
     if (n > 0) {
       const cums = Array.from({ length: n }, (_, i) => cumsFor(i));
       for (let j = 0; j < m; j++) {
         const colour = colourFor(j);
         const yf = spec.yFields[j]!;
-        const upper: DrawPoint[] = [];
-        for (let i = 0; i < n; i++) upper.push({ x: xCentre(i), y: yScale(cums[i]![j + 1]!) });
-        const lowerBoundary: DrawPoint[] = [];
-        for (let i = n - 1; i >= 0; i--)
-          lowerBoundary.push({ x: xCentre(i), y: yScale(cums[i]![j]!) });
-        seriesShapes.push(
-          polygon(
-            [...upper, ...lowerBoundary],
-            seriesTip(yf, withSeriesMark(yf, styleFillOpacity(colour, AREA_FILL_OPACITY))),
-          ),
-        );
-        seriesShapes.push(
-          polyline(upper, seriesTip(yf, withSeriesMark(yf, styleStroke(colour, 2.0)))),
-        );
+        for (const [first, last] of presentRuns(n, (i) => series[j]![i] !== undefined)) {
+          const upper: DrawPoint[] = [];
+          for (let i = first; i <= last; i++)
+            upper.push({ x: xCentre(i), y: yScale(cums[i]![j + 1]!) });
+          const lowerBoundary: DrawPoint[] = [];
+          for (let i = last; i >= first; i--)
+            lowerBoundary.push({ x: xCentre(i), y: yScale(cums[i]![j]!) });
+          seriesShapes.push(
+            polygon(
+              [...upper, ...lowerBoundary],
+              seriesTip(yf, withSeriesMark(yf, styleFillOpacity(colour, AREA_FILL_OPACITY))),
+            ),
+          );
+          seriesShapes.push(
+            polyline(upper, seriesTip(yf, withSeriesMark(yf, styleStroke(colour, 2.0)))),
+          );
+        }
       }
+      pushWithheldStrips(xCentre, (i) => categories[i]!);
     }
   } else if (spec.kind === 'Area') {
     // Overlaid baseline-closed bands in palette order (painter's order: later
     // series draw over earlier); the translucent fill keeps the overlap
-    // legible, the Polyline edge keeps each series distinct.
+    // legible, the Polyline edge keeps each series distinct. Phase 2809 — one
+    // band per run of present values.
     if (n > 0) {
       const baseY = yScale(0.0);
       for (let j = 0; j < m; j++) {
         const colour = colourFor(j);
         const seriesValues = series[j]!;
         const yf = spec.yFields[j]!;
-        const points: DrawPoint[] = [];
-        for (let i = 0; i < n; i++) points.push({ x: xCentre(i), y: yScale(seriesValues[i]!) });
-        const band: DrawPoint[] = [
-          { x: xCentre(0), y: baseY },
-          ...points,
-          { x: xCentre(n - 1), y: baseY },
-        ];
-        seriesShapes.push(
-          polygon(
-            band,
-            seriesTip(yf, withSeriesMark(yf, styleFillOpacity(colour, AREA_FILL_OPACITY))),
-          ),
-        );
-        seriesShapes.push(
-          polyline(points, seriesTip(yf, withSeriesMark(yf, styleStroke(colour, 2.0)))),
-        );
+        for (const [first, last] of presentRuns(n, (i) => seriesValues[i] !== undefined)) {
+          const points: DrawPoint[] = [];
+          for (let i = first; i <= last; i++)
+            points.push({ x: xCentre(i), y: yScale(seriesValues[i]!) });
+          const band: DrawPoint[] = [
+            { x: xCentre(first), y: baseY },
+            ...points,
+            { x: xCentre(last), y: baseY },
+          ];
+          seriesShapes.push(
+            polygon(
+              band,
+              seriesTip(yf, withSeriesMark(yf, styleFillOpacity(colour, AREA_FILL_OPACITY))),
+            ),
+          );
+          seriesShapes.push(
+            polyline(points, seriesTip(yf, withSeriesMark(yf, styleStroke(colour, 2.0)))),
+          );
+        }
       }
+      pushWithheldStrips(xCentre, (i) => categories[i]!);
     }
   } else if (spec.kind === 'Line') {
+    // Phase 2809 — one polyline per run of present values: a gap BREAKS the line
+    // rather than dropping it to zero.
     for (let j = 0; j < m; j++) {
       const colour = colourFor(j);
       const seriesValues = series[j]!;
-      const points: DrawPoint[] = [];
-      for (let i = 0; i < n; i++) points.push({ x: xCentre(i), y: yScale(seriesValues[i]!) });
-      seriesShapes.push(
-        polyline(
-          points,
-          seriesTip(spec.yFields[j]!, withSeriesMark(spec.yFields[j]!, styleStroke(colour, 2.0))),
-        ),
-      );
+      for (const [first, last] of presentRuns(n, (i) => seriesValues[i] !== undefined)) {
+        const points: DrawPoint[] = [];
+        for (let i = first; i <= last; i++)
+          points.push({ x: xCentre(i), y: yScale(seriesValues[i]!) });
+        seriesShapes.push(
+          polyline(
+            points,
+            seriesTip(spec.yFields[j]!, withSeriesMark(spec.yFields[j]!, styleStroke(colour, 2.0))),
+          ),
+        );
+      }
     }
+    pushWithheldStrips(xCentre, (i) => categories[i]!);
   } else if (spec.kind === 'Scatter') {
-    // Fixed-radius point marks per datum (Phase 636). A non-numeric x/y cell
-    // reads 0.0 (`numericOf`'s posture, shared with the other arms) — grounded
-    // validation makes that loud upstream, not here.
+    // Fixed-radius point marks per datum (Phase 636). A missing x or y cell draws
+    // NO point (Phase 2809, D38) — a point at 0.0 would be a datum the table never
+    // stated; grounded validation makes a non-numeric column loud upstream.
+    const xPresent = (i: number): boolean => !Number.isNaN(xValues[i]!);
     for (let j = 0; j < m; j++) {
       const colour = colourFor(j);
       const seriesValues = series[j]!;
       const yf = spec.yFields[j]!;
       for (let i = 0; i < n; i++) {
+        const v = seriesValues[i];
+        if (v === undefined || !xPresent(i)) continue;
         seriesShapes.push(
           circle(
             xScale(xValues[i]!),
-            yScale(seriesValues[i]!),
+            yScale(v),
             4.0,
             // The tip's middle part is the x cell as PROJECTED
             // (`categories[i]`), not the mark id's canonical numeric form: the
@@ -1258,13 +1411,19 @@ const lowerSeries = (
             datumTip(
               yf,
               categories[i]!,
-              seriesValues[i]!,
+              v,
               withMark(yf, formatNum(xValues[i]!), styleFill(colour)),
             ),
           ),
         );
       }
     }
+    // A withheld row keys its placeholder as its point would have been keyed, and
+    // a row with no x has no position to draw one at.
+    pushWithheldStrips(
+      (i) => (xPresent(i) ? xScale(xValues[i]!) : undefined),
+      (i) => formatNum(xValues[i]!),
+    );
   }
 
   // ── Data labels (Phase 881) — the values, written selectively ───────────────
@@ -1348,7 +1507,7 @@ const lowerSeries = (
    * x, so the thing they collide with is each other. A label is admitted only
    * when its line clears every ALREADY-ADMITTED one — series order decides who
    * yields, which makes the outcome deterministic. */
-  const pushEndpointLabels = (valueAt: (j: number) => number): void => {
+  const pushEndpointLabels = (valueAt: (j: number) => number | undefined): void => {
     if (n === 0) return;
     const labelX = xCentre(n - 1) + DATA_LABEL_END_OFFSET_X;
     // The budget runs to the PLOT's right edge, not the canvas's: beyond it lies
@@ -1357,6 +1516,9 @@ const lowerSeries = (
     const admitted: number[] = [];
     for (let j = 0; j < m; j++) {
       const v = valueAt(j);
+      // Phase 2809 — a series whose LAST value is missing or withheld has no
+      // endpoint to label: a number there would belong to no mark.
+      if (v === undefined) continue;
       const baseline = yScale(v) - DATA_LABEL_END_NUDGE_Y;
       const separated = admitted.every(
         (b) => Math.abs(b - baseline) >= dataLabelLine + DATA_LABEL_PADDING,
@@ -1379,20 +1541,24 @@ const lowerSeries = (
   if (dataLabelsOn) {
     if (spec.kind === 'Bar' && stacked) {
       // The TOTAL at the stack cap, once per category.
+      // A category with no drawn segment (Phase 2809) has no cap.
       for (let i = 0; i < n; i++)
-        pushCapLabel(stackedBarX(i) + stackedBarW / 2.0, bandW, cumsFor(i)[m]!);
+        if (series.some((sv) => sv[i] !== undefined))
+          pushCapLabel(stackedBarX(i) + stackedBarW / 2.0, bandW, cumsFor(i)[m]!);
     } else if (spec.kind === 'Bar') {
       for (let j = 0; j < m; j++)
-        for (let i = 0; i < n; i++)
-          pushCapLabel(groupedBarX(i, j) + groupedBarW / 2.0, groupedSubW, series[j]![i]!);
+        for (let i = 0; i < n; i++) {
+          const v = series[j]![i];
+          if (v !== undefined) pushCapLabel(groupedBarX(i, j) + groupedBarW / 2.0, groupedSubW, v);
+        }
     } else if (spec.kind === 'Area' && stacked) {
       // The band's own UPPER boundary is the edge that was drawn, so it is the
       // cumulative value there — not the series' own datum, which is nowhere on
       // the picture.
       const lastCums = n > 0 ? cumsFor(n - 1) : [];
-      pushEndpointLabels((j) => lastCums[j + 1]!);
+      pushEndpointLabels((j) => (series[j]![n - 1] !== undefined ? lastCums[j + 1]! : undefined));
     } else if (spec.kind === 'Line' || spec.kind === 'Area') {
-      pushEndpointLabels((j) => series[j]![n - 1]!);
+      pushEndpointLabels((j) => series[j]![n - 1]);
     }
   }
 
@@ -1649,9 +1815,7 @@ const lowerSeries = (
     const swatchX = PLOT_X1 + LEGEND_COLUMN_GAP;
     for (let j = 0; j < legendEntries.length; j++) {
       const rowTop = PLOT_Y0 + LEGEND_ROW_PITCH_Y * j;
-      legend.push(
-        rectangle(r2(swatchX), r2(rowTop), 10.0, 10.0, 2.0, styleFill(legendEntries[j]![0])),
-      );
+      legend.push(rectangle(r2(swatchX), r2(rowTop), 10.0, 10.0, 2.0, legendRows[j]![2]));
       legend.push(
         label(
           r2(swatchX + LEGEND_LABEL_OFFSET_X),
@@ -1674,7 +1838,7 @@ const lowerSeries = (
       // The label offsets from the ROUNDED swatch x, exactly as the reference
       // does — rounding the sum instead can differ in the last 2 dp.
       const sx = r2(lx);
-      legend.push(rectangle(sx, r2(rowTop), 10.0, 10.0, 2.0, styleFill(legendEntries[j]![0])));
+      legend.push(rectangle(sx, r2(rowTop), 10.0, 10.0, 2.0, legendRows[j]![2]));
       legend.push(
         label(
           r2(sx + LEGEND_LABEL_OFFSET_X),
@@ -1785,7 +1949,7 @@ const lowerSeries = (
         const markStyle = datumTip(
           yf,
           categories[i]!,
-          pieValues[i]!,
+          pieValues[i] ?? 0.0,
           withMark(yf, categories[i]!, styleFill(colour)),
         );
         if (f >= 1.0 - 1e-9) {
@@ -1914,20 +2078,17 @@ const lowerSeries = (
 
     const clauses = [summaryKindWords(spec.kind, stacked), seriesClause, extentClause];
 
-    if (n > 0 && m > 0) {
-      let bi = 0;
-      let bj = 0;
-      let bv = series[0]![0]!;
-      for (let i = 0; i < n; i++) {
-        for (let j = 0; j < m; j++) {
-          const v = series[j]![i]!;
-          if (v > bv) {
-            bv = v;
-            bi = i;
-            bj = j;
-          }
-        }
+    // Phase 2809 — over PRESENT values only: a missing or withheld value is no
+    // datum, and a chart with none has no peak clause.
+    let best: readonly [number, number, number] | undefined;
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < m; j++) {
+        const v = series[j]![i];
+        if (v !== undefined && (best === undefined || v > best[2])) best = [i, j, v] as const;
       }
+    }
+    if (best !== undefined) {
+      const [bi, bj, bv] = best;
       clauses.push(
         `Peak ${clampText(SUMMARY_MAX_NAME_CHARS, spec.yFields[bj]!)} at ${clampText(
           SUMMARY_MAX_NAME_CHARS,
@@ -1935,6 +2096,12 @@ const lowerSeries = (
         )}, ${yTickText(bv)}${unitSuffix}`,
       );
     }
+
+    // Phase 2809 (D38) — the withheld clause: every series value of a withheld
+    // row, counted. A chart with nothing withheld gains no clause.
+    const withheldValues = withheld.filter((w) => w).length * m;
+    if (withheldValues === 1) clauses.push(`1 value ${WITHHELD_WORD}`);
+    else if (withheldValues > 1) clauses.push(`${withheldValues} values ${WITHHELD_WORD}`);
 
     // ── The annotation clauses (Phase 1494 — §4i, extended) ──
     //

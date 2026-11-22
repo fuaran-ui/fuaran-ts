@@ -31,7 +31,7 @@
 //      the whole render with it rather than drawing a wrong picture.
 //
 //    * NaN IS NOT REACHABLE at any of the three, because three separate guards
-//      stand in front of them: `numericOf`'s Phase-640 non-finite clamp on every
+//      stand in front of them: `presentValueOf`'s Phase-640 non-finite guard on every
 //      series cell, Phase 1490's `Number.isFinite` filter on reference lines,
 //      Phase 1492's on value-band ends — and a temporal `days` entry is an
 //      integer day number that cannot be NaN at all. That is why Phase 1099's

@@ -129,6 +129,12 @@ export interface ChartLowerSpec {
    * Absent means sequential over the data's extent. Read by `Heatmap` only.
    */
   readonly scale?: ChartScale;
+  /**
+   * Phase 2809 (D38) — the column whose boolean `true` marks a row WITHHELD by a
+   * disclosure gate: the row draws a placeholder and the readout "withheld",
+   * never its value and never a zero. Absent means nothing is withheld.
+   */
+  readonly withheldField?: string;
 }
 
 /**
@@ -155,21 +161,41 @@ export const isLowered = (_kind: ChartKind): boolean => true;
 
 // ─── Row field extraction ─────────────────────────────────────────────────────
 
-export const numericOf = (row: ChartRow, field: string): number => {
+/**
+ * Phase 2809 (D38) — a value cell, or `undefined` when it is MISSING. Present is a
+ * finite number, an exact decimal the float range holds, or a boolean (1/0, as
+ * FUARAN087 and the Heatmap arm read it); everything else — an empty cell, a
+ * string, a date, a non-finite number — is missing, and a missing value is drawn
+ * as a GAP on every arm, never as a zero. Until this phase the series arms read it
+ * as `0.0`, so a bar whose value was missing was drawn at height zero.
+ *
+ * Non-finite (Phase 640): NaN/Infinity would poison every domain computation.
+ * Wire-carried data can never be non-finite, so that arm covers host-side rows
+ * only. Phase 2006 — THE one place an exact decimal becomes a number: a screen
+ * coordinate is a display projection of the number, and the row is untouched.
+ */
+export const presentValueOf = (row: ChartRow, field: string): number | undefined => {
   const v = row[field];
+  if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
   if (typeof v === 'boolean') return v ? 1.0 : 0.0;
-  // Non-finite guard (Phase 640): NaN/Infinity would poison every domain
-  // computation and emit NaN geometry into the SVG. Wire-carried data can
-  // never be non-finite (the canonical-float codec rejects it), so this covers
-  // only host-side rows — coerced to the same 0.0 the non-numeric posture uses.
-  if (typeof v === 'number') return Number.isFinite(v) ? v : 0.0;
-  // Phase 2006 — THE one place an exact decimal becomes a number. A chart maps a value to a screen
-  // coordinate, which is a display projection of the number, not the number: the nearest double is
-  // exact to far below a pixel. Nothing else in the lowering reads a decimal numerically, and the
-  // row it came from is untouched. A text past the float range takes the non-numeric 0.0.
-  if (isDecimalCell(v)) return decimalToFloat(v.text) ?? 0.0;
-  return 0.0;
+  if (isDecimalCell(v)) return decimalToFloat(v.text) ?? undefined;
+  return undefined;
 };
+
+/** Phase 2809 (D38) — whether a row is WITHHELD: its cell in the declared
+ * `withheldField` is the boolean `true`. Any other cell, or no declaration, leaves
+ * the row to its values. A withheld row's values are never read. */
+export const isWithheldRow = (withheldField: string | undefined, row: ChartRow): boolean =>
+  withheldField !== undefined && row[withheldField] === true;
+
+/** Phase 2809 — the word a WITHHELD datum's readout ends in, where a released
+ * datum's ends in its number. */
+export const WITHHELD_WORD = 'withheld';
+
+/** Phase 2809 — the side of a WITHHELD value's placeholder: an outlined, unfilled
+ * square centred on the value axis's zero line. A fixed size, so no height implies
+ * a value. The reference host's `ChartStyle.WithheldMarkSize`. */
+export const WITHHELD_MARK_SIZE = 8.0;
 
 // ─── Series read from the rows (Phase 2568, WIRE_FORMAT §3.6.29) ──────────────
 //

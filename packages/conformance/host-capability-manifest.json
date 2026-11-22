@@ -518,6 +518,7 @@
     "Kind.Chart.subtitle",
     "Kind.Chart.title",
     "Kind.Chart.valueFormat",
+    "Kind.Chart.withheldField",
     "Kind.Chart.xField",
     "Kind.Chart.xScale",
     "Kind.Chart.xTitle",

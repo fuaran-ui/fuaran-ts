@@ -82,6 +82,9 @@ interface ChartInput {
   // canonical `$type` JSON; omitted when absent (so every pre-2655 input AND
   // golden is byte-unchanged).
   readonly scale?: WireCase;
+  // Phase 2809 — the withheld flag column, a WIRE field carried as a string;
+  // omitted when absent (so every pre-2809 input AND golden is byte-unchanged).
+  readonly withheldField?: string;
   readonly data: readonly ChartRow[];
 }
 
@@ -238,6 +241,7 @@ const specAndRows = (
     // Phase 1490/1491/1492 — same omitted-when-absent posture; a real wire field.
     ...(inp.annotations !== undefined ? { annotations: inp.annotations.map(annotationOf) } : {}),
     ...(inp.scale !== undefined ? { scale: scaleOf(inp.scale) } : {}),
+    ...(inp.withheldField !== undefined ? { withheldField: inp.withheldField } : {}),
   },
   rows: inp.data,
   style: inp.axisUnitMode !== undefined ? { axisUnitMode: inp.axisUnitMode } : {},
@@ -261,6 +265,7 @@ const KNOWN_INPUT_MEMBERS: ReadonlySet<string> = new Set([
   'xScale',
   'annotations',
   'scale',
+  'withheldField',
   'data',
 ]);
 
@@ -467,5 +472,60 @@ describe('chart lowering — Heatmap (Phase 2655)', () => {
     expect(encodeNode(lowerNode('c', spec, rows, style))).toBe(
       encodeNode(lowerNode('c', { ...spec, scale: { kind: 'Sequential' } }, rows, style)),
     );
+  });
+});
+
+// Phase 2809 — missing and withheld values (`chart-lowering/withheld/`,
+// WIRE_FORMAT §3.6.36). A subfamily for the heatmap's reason: the top-level
+// enumeration above does not reach it. A missing value is a gap on every arm,
+// never a zero; a withheld row draws an outlined placeholder with its own mark
+// and a "withheld" readout, and the summary counts it.
+describe('chart lowering — missing and withheld values (Phase 2809)', () => {
+  const dir = join(CHART_LOWERING_DIR, 'withheld');
+  const names = existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => f.endsWith('.input.json'))
+        .map((f) => f.slice(0, -'.input.json'.length))
+        .sort()
+    : [];
+
+  it.runIf(existsSync(CHART_LOWERING_DIR))('the subfamily is present', () => {
+    expect(names.length).toBeGreaterThan(0);
+  });
+
+  it.each(names)('%s — TS lowering is byte-identical to the golden', (name) => {
+    const expected = readFileSync(join(dir, `${name}.expected.json`), 'utf8');
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    expect(encodeNode(lowerNode(`chart-${name}`, spec, rows, style))).toBe(expected);
+  });
+
+  it.each(names)('%s — the member order a row writes does not matter', (name) => {
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    const reversedRows = rows.map(
+      (r) => Object.fromEntries(Object.entries(r).reverse()) as ChartRow,
+    );
+    expect(encodeNode(lowerNode('c', spec, reversedRows, style))).toBe(
+      encodeNode(lowerNode('c', spec, rows, style)),
+    );
+  });
+
+  it('a declared withheld field no row sets lowers byte-identically to no declaration', () => {
+    const name = 'bar-missing';
+    if (!names.includes(name)) return;
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    const flagged = rows.map((r) => ({ ...r, suppressed: false }));
+    expect(
+      encodeNode(lowerNode('c', { ...spec, withheldField: 'suppressed' }, flagged, style)),
+    ).toBe(encodeNode(lowerNode('c', spec, rows, style)));
+  });
+
+  it('a withheld number reaches no tip and no summary', () => {
+    const name = 'bar-withheld';
+    if (!names.includes(name)) return;
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    const json = encodeNode(lowerNode('c', spec, rows, style));
+    expect(json).not.toContain('900');
+    expect(json).toContain('train · 10-20 · withheld');
+    expect(json).toContain('2 values withheld');
   });
 });

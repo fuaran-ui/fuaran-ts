@@ -3138,6 +3138,10 @@ export interface ChartSpec<TMsg> extends IdlSpec<'Chart', TMsg> {
   // every pre-2655 chart is byte-identical; any kind but `Heatmap` carrying it is
   // refused pre-emit (FUARAN169).
   readonly scale?: ChartScale;
+  // Phase 2809 (D38) — the column whose boolean `true` marks a row WITHHELD by a
+  // disclosure gate: the row draws a placeholder, never its value and never a
+  // zero. Absent OMITS on the wire, so every pre-2809 chart is byte-identical.
+  readonly withheldField?: string;
   readonly onPointClick?: (point: unknown) => Action<TMsg>;
 }
 

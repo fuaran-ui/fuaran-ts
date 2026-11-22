@@ -27,8 +27,6 @@ import type {
   TextAnchor,
   TextSource,
 } from '@fuaran-ui/schema';
-import { isDecimalCell } from '@fuaran-ui/schema';
-import { decimalToFloat } from '@fuaran-ui/core-twins';
 
 import {
   AXIS_LABEL_PADDING,
@@ -72,7 +70,7 @@ import {
   withTip,
 } from './shapes.js';
 import type { ChartLowerSpec, ChartRow } from './spec.js';
-import { capitalise, stringOf } from './spec.js';
+import { capitalise, presentValueOf, stringOf } from './spec.js';
 import {
   SUMMARY_CLAUSE_SEPARATOR,
   SUMMARY_MAX_CHARS,
@@ -122,15 +120,6 @@ export const MAX_HEATMAP_CELLS = 10_000;
 
 // ─── The grid ─────────────────────────────────────────────────────────────────
 
-/** A heatmap value cell, or `undefined` when absent: empty, text, non-finite. */
-const heatmapValueOf = (row: ChartRow, field: string): number | undefined => {
-  const v = row[field];
-  if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
-  if (typeof v === 'boolean') return v ? 1.0 : 0.0;
-  if (isDecimalCell(v)) return decimalToFloat(v.text) ?? undefined;
-  return undefined;
-};
-
 interface HeatmapGrid {
   readonly rowField: string;
   readonly valueField: string;
@@ -171,7 +160,7 @@ const heatmapGrid = (spec: ChartLowerSpec, rows: readonly ChartRow[]): HeatmapGr
     const key = at(xIndex.get(x)!, rowIndex.get(y)!);
     if (seen.has(key)) continue;
     seen.add(key);
-    const v = heatmapValueOf(r, valueField);
+    const v = presentValueOf(r, valueField);
     if (v !== undefined) cells.set(key, v);
   }
   return { rowField, valueField, xKeys, rowKeys, cells };
