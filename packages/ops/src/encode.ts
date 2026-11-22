@@ -55,6 +55,7 @@ import type {
   CellKindErased,
   ChartAnnotation,
   ChartAnnotationRange,
+  ChartScale,
   ChartAnnotationX,
   ColumnErased,
   ColumnWidth,
@@ -1203,6 +1204,9 @@ const encDialect = (() => {
       records: {
         Affordance: affordanceRecord as Enc,
         AffordanceAlias: affordanceAlias as Enc,
+        // Phase 2654 — the chart channels' two records, generic over the IDL.
+        ChartInterval: chartInterval as Enc,
+        ChartSort: chartSort as Enc,
         ColumnErased: columnErased as Enc,
         DefaultSort: defaultSortJson as Enc,
         DrawStyle: drawStyle as Enc,
@@ -1228,6 +1232,7 @@ const encDialect = (() => {
         BoxLayout: boxLayout as Enc,
         CellFormat: cellFormat as Enc,
         ChartAnnotation: chartAnnotation as Enc,
+        ChartScale: chartScale as Enc,
         Format: formatIntent as Enc,
         HoleDecl: holeDecl as Enc,
         MediaKind: mediaKind as Enc,
@@ -2177,9 +2182,24 @@ const chartAnnotation = (a: ChartAnnotation): string => {
       return caseObj('ReferenceLine', [['value', num(a.value)], ...label]);
     case 'EventMarker':
       return caseObj('EventMarker', [['at', chartAnnotationX(a.at)], ...label]);
+    case 'ReferenceLineX':
+      return caseObj('ReferenceLineX', [['value', num(a.value)], ...label]);
     default:
       return caseObj('RangeBand', [['range', chartAnnotationRange(a.range)], ...label]);
   }
+};
+
+/** Phase 2655 — a chart's declared colour scale; an absent bound is omitted. */
+const chartScale = (s: ChartScale): string => {
+  const bound = (key: string, v: number | undefined): Field[] =>
+    v !== undefined ? [[key, num(v)]] : [];
+  return s.kind === 'Sequential'
+    ? caseObj('Sequential', [...bound('min', s.min), ...bound('max', s.max)])
+    : caseObj('Diverging', [
+        ...bound('midpoint', s.midpoint),
+        ...bound('min', s.min),
+        ...bound('max', s.max),
+      ]);
 };
 
 const chartSpec = specEncoder('Chart');
@@ -2399,6 +2419,8 @@ const metricComparison = recordEncoder('MetricComparison');
 const markdownCitation = recordEncoder('MarkdownCitation');
 // Phase 2517 — the operable-surface declaration on a form field (WIRE_FORMAT §31.1);
 // `Select` / `Button` carry it through their spec tables.
+const chartInterval = recordEncoder('ChartInterval');
+const chartSort = recordEncoder('ChartSort');
 const affordanceRecord = recordEncoder('Affordance');
 const affordanceAlias = recordEncoder('AffordanceAlias');
 // Phase 2571 — a `Select`'s option group (WIRE_FORMAT §3.6.30); the `Select`

@@ -89,6 +89,7 @@ import type {
   CellKindErased,
   ChartAnnotation,
   ChartAnnotationRange,
+  ChartScale,
   ChartAnnotationX,
   ColumnErased,
   ColumnWidth,
@@ -1152,6 +1153,48 @@ const decodeChartAnnotationRange = (w: Walk, path: string, j: JsonAst): R<ChartA
 };
 
 /**
+ * A chart's declared colour scale (Phase 2655). Every bound is an optional float
+ * at §7's ordinary (sentinel-widened) slot: what a bound MEANS against the rows
+ * is the lowering's — a non-finite one reads as absent there — and whether the
+ * kind admits a scale at all is the validator's (FUARAN169). The reference
+ * host's `decodeChartScale` reads the same shape.
+ */
+const decodeChartScale = (w: Walk, path: string, j: JsonAst): R<ChartScale> => {
+  const fo = requireObject(w, path, j);
+  if (!fo.ok) return fo;
+  const f = fo.value;
+  const disc = requireDiscriminator(path, f);
+  if (!disc.ok) return disc;
+  const bound = (key: string): R<number | undefined> => optField(w, path, f, key, requireFloat);
+  switch (disc.value) {
+    case 'Sequential': {
+      const min = bound('min');
+      const max = bound('max');
+      if (!min.ok || !max.ok) return failed(min, max);
+      return ok({
+        kind: 'Sequential',
+        ...(min.value !== undefined ? { min: min.value } : {}),
+        ...(max.value !== undefined ? { max: max.value } : {}),
+      });
+    }
+    case 'Diverging': {
+      const midpoint = bound('midpoint');
+      const min = bound('min');
+      const max = bound('max');
+      if (!midpoint.ok || !min.ok || !max.ok) return failed(midpoint, min, max);
+      return ok({
+        kind: 'Diverging',
+        ...(midpoint.value !== undefined ? { midpoint: midpoint.value } : {}),
+        ...(min.value !== undefined ? { min: min.value } : {}),
+        ...(max.value !== undefined ? { max: max.value } : {}),
+      });
+    }
+    default:
+      return unknownDuCase(path, disc.value, 'Sequential, Diverging');
+  }
+};
+
+/**
  * A chart's data-addressed annotation (Phase 1490, §4l). One closed
  * `$type`-discriminated union.
  *
@@ -1174,7 +1217,12 @@ const decodeChartAnnotation = (w: Walk, path: string, j: JsonAst): R<ChartAnnota
   if (!label.ok) return label;
   const withLabel = label.value !== undefined ? { label: label.value } : {};
   switch (disc.value) {
-    case 'ReferenceLine': {
+    // Phase 2654 — `ReferenceLineX` is the same line on the continuous x axis, so
+    // the two cases share one finite-value rule.
+    case 'ReferenceLine':
+    case 'ReferenceLineX': {
+      const kind = disc.value;
+      const axis = kind === 'ReferenceLine' ? 'value' : 'x';
       const value = reqField(
         w,
         path,
@@ -1187,12 +1235,12 @@ const decodeChartAnnotation = (w: Walk, path: string, j: JsonAst): R<ChartAnnota
               ? ok(n)
               : wrongType(
                   p,
-                  "a FINITE JSON number — a reference line names a place on the value axis, and NaN / Infinity names none; give the value in the axis's own units, or drop the annotation",
+                  `a FINITE JSON number — a reference line names a place on the ${axis} axis, and NaN / Infinity names none; give the value in the axis's own units, or drop the annotation`,
                 ),
           ),
       );
       if (!value.ok) return value;
-      return ok({ kind: 'ReferenceLine', value: value.value, ...withLabel });
+      return ok({ kind, value: value.value, ...withLabel });
     }
     case 'EventMarker': {
       const at = reqField(
@@ -1219,7 +1267,11 @@ const decodeChartAnnotation = (w: Walk, path: string, j: JsonAst): R<ChartAnnota
       return ok({ kind: 'RangeBand', range: range.value, ...withLabel });
     }
     default:
-      return unknownDuCase(path, disc.value, 'ReferenceLine, EventMarker, RangeBand');
+      return unknownDuCase(
+        path,
+        disc.value,
+        'ReferenceLine, EventMarker, RangeBand, ReferenceLineX',
+      );
   }
 };
 
@@ -4490,6 +4542,9 @@ const dialect = (() => {
         // Phase 2571 — a `Select`'s option group; the two cross-member refusals
         // are the `Select`'s (`checkSelectGroups`).
         SelectOptionGroup: recordDecoder('SelectOptionGroup'),
+        // Phase 2654 — the chart channels' two records, generic over the IDL.
+        ChartInterval: recordDecoder('ChartInterval'),
+        ChartSort: recordDecoder('ChartSort'),
         ColumnErased: decodeColumnErased,
         ContentHash: decodeContentHash,
         DefaultSort: decodeDefaultSort,
@@ -4512,6 +4567,7 @@ const dialect = (() => {
         BoxLayout: decodeBoxLayout,
         CellFormat: decodeCellFormat,
         ChartAnnotation: decodeChartAnnotation,
+        ChartScale: decodeChartScale,
         Format: decodeFormat,
         HoleDecl: decodeHoleDecl,
         MediaKind: decodeMediaKind,

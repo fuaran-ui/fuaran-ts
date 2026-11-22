@@ -13,7 +13,8 @@ import type {
   TextSource,
 } from '@fuaran-ui/schema';
 
-import { CHART_FONT, INK } from './layout.js';
+import { AXIS_OPACITY, CHART_FONT, INK } from './layout.js';
+import { WITHHELD_WORD } from './spec.js';
 
 // ─── DrawStyle + shape builders ──────────────────────────────────────────────
 
@@ -68,6 +69,24 @@ export const styleStrokeInk = (opacity: number, width: number): DrawStyle => ({
   stroke: staticBinding(INK),
   strokeWidth: staticBinding(width),
   opacity: staticBinding(opacity),
+});
+
+/** Phase 2809 (D38) — the readout of a WITHHELD datum: "Series · Category ·
+ * withheld", with no number, because the number is what the gate suppressed.
+ * Phase 2810 — shared by the series arms and the Heatmap arm ("Row · X · withheld"). */
+export const withheldTip = (
+  seriesField: string,
+  categoryKey: string,
+  style: DrawStyle,
+): DrawStyle =>
+  withTip(`${seriesField}${TIP_SEPARATOR}${categoryKey}${TIP_SEPARATOR}${WITHHELD_WORD}`, style);
+
+/** Phase 2809 — the WITHHELD placeholder's paint: no fill, outlined in the
+ * axis's own ink at the axis's opacity — surface-relative, so it reads on every
+ * theme, and never a series colour, so it never reads as data. */
+export const withheldStyle = (): DrawStyle => ({
+  ...styleFill('none'),
+  ...styleStrokeInk(AXIS_OPACITY, 1.0),
 });
 
 /** Surface-relative text-label style: `currentColor` + optional per-role opacity. */

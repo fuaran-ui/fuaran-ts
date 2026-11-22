@@ -126,10 +126,9 @@ export const tryParseDay = (text: string): number | undefined => {
 };
 
 /** The day number a row's x cell carries, with an UNPARSEABLE cell reading as
- * the epoch. That mirrors `numericOf`'s posture for a non-numeric value-axis
- * cell — the lowering stays total and the grounding rule (FUARAN097) is what
- * makes a non-date column loud, upstream, before any picture is drawn. Silence
- * here is not the design; refusing here would be. */
+ * the epoch. The lowering stays total here, and the grounding rule (FUARAN097)
+ * is what makes a non-date column loud, upstream, before any picture is drawn.
+ * Silence here is not the design; refusing here would be. */
 export const temporalDayOf = (text: string): number => tryParseDay(text) ?? 0;
 
 /** The step's NOMINAL length in days (rule 4) — a mean Gregorian month and
@@ -268,9 +267,10 @@ export const temporalTicks = (step: TemporalStep, lo: number, hi: number): numbe
  *
  *    At these three call sites that difference is currently UNOBSERVABLE, and
  *    saying so is more useful than implying otherwise: every contributor to them
- *    is already guarded — series cells by `numericOf`'s Phase-640 non-finite
- *    clamp, reference lines by Phase 1490's `Number.isFinite` filter, value bands
- *    by Phase 1492's, and a temporal `days` entry is an integer day number that
+ *    is already guarded — series cells by `presentValueOf`'s Phase-640
+ *    non-finite guard (a non-finite cell is missing, Phase 2809), reference
+ *    lines by Phase 1490's `Number.isFinite` filter, value bands by Phase
+ *    1492's, and a temporal `days` entry is an integer day number that
  *    cannot be NaN at all. So this half of the fix is not a live bug fix; it is
  *    what makes the three sites structurally identical to the reference, so that
  *    removing or widening any of those guards later cannot silently reintroduce

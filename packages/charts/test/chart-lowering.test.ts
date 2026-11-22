@@ -27,6 +27,7 @@ import type {
   ChartAnnotation,
   ChartAnnotationRange,
   ChartAnnotationX,
+  ChartScale,
   TextSource,
 } from '@fuaran-ui/schema';
 
@@ -77,6 +78,19 @@ interface ChartInput {
   // in canonical `$type` JSON; omitted when absent (so every pre-1490 input AND
   // golden is byte-unchanged).
   readonly annotations?: readonly WireCase[];
+  // Phase 2655 — a heatmap's declared colour scale, a WIRE field carried in
+  // canonical `$type` JSON; omitted when absent (so every pre-2655 input AND
+  // golden is byte-unchanged).
+  readonly scale?: WireCase;
+  // Phase 2809 — the withheld flag column, a WIRE field carried as a string;
+  // omitted when absent (so every pre-2809 input AND golden is byte-unchanged).
+  readonly withheldField?: string;
+  // Phase 2654 — the mark channels, WIRE fields carried in canonical JSON;
+  // omitted when absent (so every pre-2654 input AND golden is byte-unchanged).
+  readonly interval?: { readonly low: string; readonly high: string };
+  readonly sizeField?: string;
+  readonly sortBy?: { readonly field: string; readonly direction: 'asc' | 'desc' };
+  readonly pathField?: string;
   readonly data: readonly ChartRow[];
 }
 
@@ -113,6 +127,21 @@ const annotationRangeOf = (raw: WireCase): ChartAnnotationRange => {
   }
 };
 
+/** The corpus carries a heatmap scale in canonical wire JSON; the lowering takes
+ * the host's tagged-union shape. */
+const scaleOf = (raw: WireCase): ChartScale => {
+  const bound = (key: string): Record<string, number> =>
+    raw[key] !== undefined ? { [key]: raw[key] as number } : {};
+  switch (raw['$type']) {
+    case 'Sequential':
+      return { kind: 'Sequential', ...bound('min'), ...bound('max') };
+    case 'Diverging':
+      return { kind: 'Diverging', ...bound('midpoint'), ...bound('min'), ...bound('max') };
+    default:
+      throw new Error(`chart-lowering input: unsupported ChartScale ${String(raw['$type'])}`);
+  }
+};
+
 /** Every annotation's label crosses UNRESOLVED, whichever arm it carries — the
  * Phase 1143 text contract at a new slot. */
 const annotationOf = (raw: WireCase): ChartAnnotation => {
@@ -125,6 +154,8 @@ const annotationOf = (raw: WireCase): ChartAnnotation => {
       return { kind: 'EventMarker', at: annotationXOf(raw['at'] as WireCase), ...label };
     case 'RangeBand':
       return { kind: 'RangeBand', range: annotationRangeOf(raw['range'] as WireCase), ...label };
+    case 'ReferenceLineX':
+      return { kind: 'ReferenceLineX', value: raw['value'] as number, ...label };
     default:
       throw new Error(`chart-lowering input: unsupported ChartAnnotation ${String(raw['$type'])}`);
   }
@@ -217,6 +248,13 @@ const specAndRows = (
     ...(inp.xScale !== undefined ? { xScale: inp.xScale } : {}),
     // Phase 1490/1491/1492 — same omitted-when-absent posture; a real wire field.
     ...(inp.annotations !== undefined ? { annotations: inp.annotations.map(annotationOf) } : {}),
+    ...(inp.scale !== undefined ? { scale: scaleOf(inp.scale) } : {}),
+    ...(inp.withheldField !== undefined ? { withheldField: inp.withheldField } : {}),
+    // Phase 2654 — same omitted-when-absent posture; real wire fields.
+    ...(inp.interval !== undefined ? { interval: inp.interval } : {}),
+    ...(inp.sizeField !== undefined ? { sizeField: inp.sizeField } : {}),
+    ...(inp.sortBy !== undefined ? { sortBy: inp.sortBy } : {}),
+    ...(inp.pathField !== undefined ? { pathField: inp.pathField } : {}),
   },
   rows: inp.data,
   style: inp.axisUnitMode !== undefined ? { axisUnitMode: inp.axisUnitMode } : {},
@@ -239,6 +277,12 @@ const KNOWN_INPUT_MEMBERS: ReadonlySet<string> = new Set([
   'dataLabels',
   'xScale',
   'annotations',
+  'scale',
+  'withheldField',
+  'interval',
+  'sizeField',
+  'sortBy',
+  'pathField',
   'data',
 ]);
 
@@ -399,5 +443,203 @@ describe('chart lowering — series read from the rows (Phase 2568)', () => {
         { x: 'b', b: null, a: 3, t: 'more', f: false, n: 4 },
       ]),
     ).toEqual(['a', 'b', 'n']);
+  });
+});
+
+// Phase 2655 — the Heatmap arm (`chart-lowering/heatmap/`, WIRE_FORMAT §3.6.35). A
+// subfamily for the derived-series reason: the top-level enumeration above does
+// not reach it. A cell grid under a declared scale, binned onto the ramp; an
+// absent pair or an empty value cell draws the surface; a grid over the cell
+// budget is the refusal drawing.
+describe('chart lowering — Heatmap (Phase 2655)', () => {
+  const dir = join(CHART_LOWERING_DIR, 'heatmap');
+  const names = existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => f.endsWith('.input.json'))
+        .map((f) => f.slice(0, -'.input.json'.length))
+        .sort()
+    : [];
+
+  it.runIf(existsSync(CHART_LOWERING_DIR))('the subfamily is present', () => {
+    expect(names.length).toBeGreaterThan(0);
+  });
+
+  it.each(names)('%s — TS lowering is byte-identical to the golden', (name) => {
+    const expected = readFileSync(join(dir, `${name}.expected.json`), 'utf8');
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    expect(spec.kind).toBe('Heatmap');
+    expect(encodeNode(lowerNode(`chart-${name}`, spec, rows, style))).toBe(expected);
+  });
+
+  it.each(names)('%s — the member order a row writes does not matter', (name) => {
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    const reversedRows = rows.map(
+      (r) => Object.fromEntries(Object.entries(r).reverse()) as ChartRow,
+    );
+    expect(encodeNode(lowerNode('c', spec, reversedRows, style))).toBe(
+      encodeNode(lowerNode('c', spec, rows, style)),
+    );
+  });
+
+  it('an absent scale lowers as an explicit sequential scale over the data', () => {
+    const name = 'heatmap-sequential';
+    if (!names.includes(name)) return;
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    expect(spec.scale).toBeUndefined();
+    expect(encodeNode(lowerNode('c', spec, rows, style))).toBe(
+      encodeNode(lowerNode('c', { ...spec, scale: { kind: 'Sequential' } }, rows, style)),
+    );
+  });
+
+  // Phase 2810 — a withheld cell is drawn apart from an absent one. The goldens
+  // above carry the byte-parity; these say what the bytes mean.
+  it.runIf(existsSync(CHART_LOWERING_DIR))('the withheld vectors are present', () => {
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'heatmap-withheld-cells',
+        'heatmap-withheld-diverging',
+        'heatmap-withheld-only',
+      ]),
+    );
+  });
+
+  it('a withheld cell carries its mark and a numberless readout; the key appears', () => {
+    const name = 'heatmap-withheld-cells';
+    if (!names.includes(name)) return;
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    const json = encodeNode(lowerNode('c', spec, rows, style));
+    expect(json).toContain('Q2 · A · withheld');
+    expect(json).toContain('"text":"withheld"');
+    expect(json).toContain('3 values withheld');
+    expect(json).toContain('5 cells empty');
+    expect(json).not.toContain('500');
+  });
+
+  it('a declared withheld field no row sets lowers byte-identically to no declaration', () => {
+    for (const name of names.filter((n) => !n.startsWith('heatmap-withheld'))) {
+      const { spec, rows, style } = specAndRows(readInput(name, dir));
+      const flagged = rows.map((r) => ({ ...r, suppressed: false }));
+      expect(
+        encodeNode(lowerNode('c', { ...spec, withheldField: 'suppressed' }, flagged, style)),
+      ).toBe(encodeNode(lowerNode('c', spec, rows, style)));
+    }
+  });
+});
+
+// Phase 2809 — missing and withheld values (`chart-lowering/withheld/`,
+// WIRE_FORMAT §3.6.36). A subfamily for the heatmap's reason: the top-level
+// enumeration above does not reach it. A missing value is a gap on every arm,
+// never a zero; a withheld row draws an outlined placeholder with its own mark
+// and a "withheld" readout, and the summary counts it.
+describe('chart lowering — missing and withheld values (Phase 2809)', () => {
+  const dir = join(CHART_LOWERING_DIR, 'withheld');
+  const names = existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => f.endsWith('.input.json'))
+        .map((f) => f.slice(0, -'.input.json'.length))
+        .sort()
+    : [];
+
+  it.runIf(existsSync(CHART_LOWERING_DIR))('the subfamily is present', () => {
+    expect(names.length).toBeGreaterThan(0);
+  });
+
+  it.each(names)('%s — TS lowering is byte-identical to the golden', (name) => {
+    const expected = readFileSync(join(dir, `${name}.expected.json`), 'utf8');
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    expect(encodeNode(lowerNode(`chart-${name}`, spec, rows, style))).toBe(expected);
+  });
+
+  it.each(names)('%s — the member order a row writes does not matter', (name) => {
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    const reversedRows = rows.map(
+      (r) => Object.fromEntries(Object.entries(r).reverse()) as ChartRow,
+    );
+    expect(encodeNode(lowerNode('c', spec, reversedRows, style))).toBe(
+      encodeNode(lowerNode('c', spec, rows, style)),
+    );
+  });
+
+  it('a declared withheld field no row sets lowers byte-identically to no declaration', () => {
+    const name = 'bar-missing';
+    if (!names.includes(name)) return;
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    const flagged = rows.map((r) => ({ ...r, suppressed: false }));
+    expect(
+      encodeNode(lowerNode('c', { ...spec, withheldField: 'suppressed' }, flagged, style)),
+    ).toBe(encodeNode(lowerNode('c', spec, rows, style)));
+  });
+
+  it('a withheld number reaches no tip and no summary', () => {
+    const name = 'bar-withheld';
+    if (!names.includes(name)) return;
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    const json = encodeNode(lowerNode('c', spec, rows, style));
+    expect(json).not.toContain('900');
+    expect(json).toContain('train · 10-20 · withheld');
+    expect(json).toContain('2 values withheld');
+  });
+});
+
+// Phase 2654 — the mark channels (`chart-lowering/channels/`, WIRE_FORMAT
+// §3.6.37, D39): the interval, the size, the declared order, the path and the x
+// reference line. A subfamily for the heatmap's reason: the top-level enumeration
+// above does not reach it.
+describe('chart lowering — mark channels (Phase 2654)', () => {
+  const dir = join(CHART_LOWERING_DIR, 'channels');
+  const names = existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => f.endsWith('.input.json'))
+        .map((f) => f.slice(0, -'.input.json'.length))
+        .sort()
+    : [];
+
+  it.runIf(existsSync(CHART_LOWERING_DIR))('the subfamily is present', () => {
+    expect(names.length).toBeGreaterThan(0);
+  });
+
+  it.each(names)('%s — TS lowering is byte-identical to the golden', (name) => {
+    const expected = readFileSync(join(dir, `${name}.expected.json`), 'utf8');
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    expect(encodeNode(lowerNode(`chart-${name}`, spec, rows, style))).toBe(expected);
+  });
+
+  it.each(names)('%s — the member order a row writes does not matter', (name) => {
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    const reversedRows = rows.map(
+      (r) => Object.fromEntries(Object.entries(r).reverse()) as ChartRow,
+    );
+    expect(encodeNode(lowerNode('c', spec, reversedRows, style))).toBe(
+      encodeNode(lowerNode('c', spec, rows, style)),
+    );
+  });
+
+  it('a neutralised channel lowers byte-identically to its absence', () => {
+    for (const name of names.filter((n) => n.endsWith('-neutralised'))) {
+      const { spec, rows, style } = specAndRows(readInput(name, dir));
+      const {
+        interval: _interval,
+        sizeField: _sizeField,
+        sortBy: _sortBy,
+        pathField: _pathField,
+        ...bare
+      } = spec;
+      const annotations = (spec.annotations ?? []).filter((a) => a.kind !== 'ReferenceLineX');
+      const plain = {
+        ...bare,
+        ...(annotations.length > 0 ? { annotations } : {}),
+      };
+      expect(encodeNode(lowerNode('c', spec, rows, style))).toBe(
+        encodeNode(lowerNode('c', plain, rows, style)),
+      );
+    }
+  });
+
+  it('a withheld row reaches no channel readout', () => {
+    if (!names.includes('bar-interval')) return;
+    const { spec, rows, style } = specAndRows(readInput('bar-interval', dir));
+    const json = encodeNode(lowerNode('c', spec, rows, style));
+    expect(json).not.toContain('11 – 19');
+    expect(json).toContain('effect · E · 6 – 13');
   });
 });

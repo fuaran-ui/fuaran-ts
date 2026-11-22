@@ -322,6 +322,41 @@ export type ChartAnnotation =
       readonly kind: 'RangeBand';
       readonly range: ChartAnnotationRange;
       readonly label?: TextSource;
+    }
+  // Phase 2654 — a vertical line at a NUMERIC x on a continuous (Scatter) x
+  // axis: the `ReferenceLine` mirrored onto x. A category or a date on x is
+  // `EventMarker`'s address.
+  | { readonly kind: 'ReferenceLineX'; readonly value: number; readonly label?: TextSource };
+
+/** Phase 2654 (D39) — a chart's INTERVAL channel (`ChartSpec.interval`): the
+ * columns holding each datum's low and high ends, on the single series. */
+export interface ChartInterval {
+  readonly low: string;
+  readonly high: string;
+}
+
+/** Phase 2654 (D39) — a chart's declared row ORDER (`ChartSpec.sortBy`): the
+ * column whose numeric value orders the rows before layout, and the direction. */
+export interface ChartSort {
+  readonly field: string;
+  readonly direction: SortDirection;
+}
+
+/**
+ * Phase 2655 — a chart's DECLARED colour scale (`ChartSpec.scale`), closing the
+ * "Gap 6" deferral as a scale rather than a per-cell colour. `Sequential` runs
+ * light to dark from `min` to `max`; `Diverging` meets at a light neutral
+ * `midpoint` (absent: zero). Every absent bound is the data's own extent. No
+ * colour crosses the wire: the lowering picks the ramp. Meaningful on `Heatmap`
+ * only; any other kind carrying it is refused pre-emit (FUARAN169).
+ */
+export type ChartScale =
+  | { readonly kind: 'Sequential'; readonly min?: number; readonly max?: number }
+  | {
+      readonly kind: 'Diverging';
+      readonly midpoint?: number;
+      readonly min?: number;
+      readonly max?: number;
     };
 
 /** `aria-live` politeness. Wire form is lower-case (WIRE_FORMAT.md §3.5). */
@@ -3117,6 +3152,22 @@ export interface ChartSpec<TMsg> extends IdlSpec<'Chart', TMsg> {
   // absent field and round-trips as `"annotations":[]` — it is what an author
   // who declared a list and then removed its last member wrote.
   readonly annotations?: readonly ChartAnnotation[];
+  // Phase 2655 — a heatmap's declared colour scale. Absent OMITS on the wire, so
+  // every pre-2655 chart is byte-identical; any kind but `Heatmap` carrying it is
+  // refused pre-emit (FUARAN169).
+  readonly scale?: ChartScale;
+  // Phase 2809 (D38) — the column whose boolean `true` marks a row WITHHELD by a
+  // disclosure gate: the row draws a placeholder, never its value and never a
+  // zero. Absent OMITS on the wire, so every pre-2809 chart is byte-identical.
+  readonly withheldField?: string;
+  // Phase 2654 (D39) — the mark channels: an interval on the single series, a
+  // Scatter point's size, the rows' declared order and a Scatter series' path.
+  // Each absent OMITS on the wire, so every pre-2654 chart is byte-identical;
+  // which kinds read each is the validator's (FUARAN172-FUARAN174).
+  readonly interval?: ChartInterval;
+  readonly sizeField?: string;
+  readonly sortBy?: ChartSort;
+  readonly pathField?: string;
   readonly onPointClick?: (point: unknown) => Action<TMsg>;
 }
 
@@ -3171,6 +3222,8 @@ export interface RecordTypes<TMsg> {
     CellKindErased<TMsg>,
     { kind: 'ButtonGroup' }
   >['buttons'][number];
+  readonly ChartInterval: ChartInterval;
+  readonly ChartSort: ChartSort;
   readonly ColumnErased: ColumnErased<TMsg>;
   readonly CompareRule: CompareRule;
   readonly ContentHash: ContentHash;
@@ -3217,6 +3270,7 @@ export interface UnionTypes<TMsg> {
   readonly ChartAnnotation: ChartAnnotation;
   readonly ChartAnnotationRange: ChartAnnotationRange;
   readonly ChartAnnotationX: ChartAnnotationX;
+  readonly ChartScale: ChartScale;
   readonly ColumnWidth: ColumnWidth;
   readonly CurveCommand: CurveCommand;
   readonly FormFieldKind: FormFieldKind<TMsg>;

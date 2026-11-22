@@ -9,6 +9,7 @@ import type {
   ChartDataLabels,
   ChartKind,
   ChartLegendPosition,
+  ChartScale,
   ChartXScale,
   Format,
   TextSource,
@@ -120,6 +121,32 @@ export interface ChartLowerSpec {
    * Absent (and empty) draws nothing, so a pre-1490 spec lowers byte-for-byte.
    */
   readonly annotations?: readonly ChartAnnotation[];
+  /**
+   * Phase 2655 — a `Heatmap`'s DECLARED colour scale: sequential from a floor,
+   * or diverging about a midpoint. The author states what the value means; the
+   * lowering picks the ramp stop. No colour crosses the wire ("Gap 6").
+   *
+   * Absent means sequential over the data's extent. Read by `Heatmap` only.
+   */
+  readonly scale?: ChartScale;
+  /**
+   * Phase 2809 (D38) — the column whose boolean `true` marks a row WITHHELD by a
+   * disclosure gate: the row draws a placeholder and the readout "withheld",
+   * never its value and never a zero. Absent means nothing is withheld.
+   */
+  readonly withheldField?: string;
+  /**
+   * Phase 2654 (D39) — the mark channels. `interval` names the low and high
+   * columns of the single series (Bar, Line, Area, Scatter); `sizeField` sizes a
+   * Scatter point by area; `sortBy` orders the rows before layout (Bar, Line,
+   * Area, Pie on a non-temporal x); `pathField` joins a Scatter series' points in
+   * that column's order. A channel on a kind that does not read it is
+   * NEUTRALISED; every one obeys the gap rule.
+   */
+  readonly interval?: { readonly low: string; readonly high: string };
+  readonly sizeField?: string;
+  readonly sortBy?: { readonly field: string; readonly direction: 'asc' | 'desc' };
+  readonly pathField?: string;
 }
 
 /**
@@ -141,24 +168,110 @@ export type ChartRow = Readonly<Record<string, unknown>>;
  * (client + server) consults THIS — so the first-party render branch and the
  * lowering's arm set can never drift apart.
  */
-export const isLowered = (kind: ChartKind): boolean => kind !== 'Heatmap';
+/** Every `ChartKind` lowers first-party since `Heatmap` gained its arm (Phase 2655). */
+export const isLowered = (_kind: ChartKind): boolean => true;
 
 // ─── Row field extraction ─────────────────────────────────────────────────────
 
-export const numericOf = (row: ChartRow, field: string): number => {
+/**
+ * Phase 2809 (D38) — a value cell, or `undefined` when it is MISSING. Present is a
+ * finite number, an exact decimal the float range holds, or a boolean (1/0, as
+ * FUARAN087 and the Heatmap arm read it); everything else — an empty cell, a
+ * string, a date, a non-finite number — is missing, and a missing value is drawn
+ * as a GAP on every arm, never as a zero. Until this phase the series arms read it
+ * as `0.0`, so a bar whose value was missing was drawn at height zero.
+ *
+ * Non-finite (Phase 640): NaN/Infinity would poison every domain computation.
+ * Wire-carried data can never be non-finite, so that arm covers host-side rows
+ * only. Phase 2006 — THE one place an exact decimal becomes a number: a screen
+ * coordinate is a display projection of the number, and the row is untouched.
+ */
+export const presentValueOf = (row: ChartRow, field: string): number | undefined => {
   const v = row[field];
+  if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
   if (typeof v === 'boolean') return v ? 1.0 : 0.0;
-  // Non-finite guard (Phase 640): NaN/Infinity would poison every domain
-  // computation and emit NaN geometry into the SVG. Wire-carried data can
-  // never be non-finite (the canonical-float codec rejects it), so this covers
-  // only host-side rows — coerced to the same 0.0 the non-numeric posture uses.
-  if (typeof v === 'number') return Number.isFinite(v) ? v : 0.0;
-  // Phase 2006 — THE one place an exact decimal becomes a number. A chart maps a value to a screen
-  // coordinate, which is a display projection of the number, not the number: the nearest double is
-  // exact to far below a pixel. Nothing else in the lowering reads a decimal numerically, and the
-  // row it came from is untouched. A text past the float range takes the non-numeric 0.0.
-  if (isDecimalCell(v)) return decimalToFloat(v.text) ?? 0.0;
-  return 0.0;
+  if (isDecimalCell(v)) return decimalToFloat(v.text) ?? undefined;
+  return undefined;
+};
+
+/** Phase 2809 (D38) — whether a row is WITHHELD: its cell in the declared
+ * `withheldField` is the boolean `true`. Any other cell, or no declaration, leaves
+ * the row to its values. A withheld row's values are never read. */
+export const isWithheldRow = (withheldField: string | undefined, row: ChartRow): boolean =>
+  withheldField !== undefined && row[withheldField] === true;
+
+/** Phase 2809 — the word a WITHHELD datum's readout ends in, where a released
+ * datum's ends in its number. */
+export const WITHHELD_WORD = 'withheld';
+
+/** Phase 2654 — the dash between an interval's two ends in a readout. */
+export const INTERVAL_DASH = ' – ';
+
+/** Phase 2654 — the readout of an interval band (a series-level mark). */
+export const INTERVAL_WORD = 'interval';
+
+/** Phase 2809 — the side of a WITHHELD value's placeholder: an outlined, unfilled
+ * square centred on the value axis's zero line. A fixed size, so no height implies
+ * a value. The reference host's `ChartStyle.WithheldMarkSize`. */
+export const WITHHELD_MARK_SIZE = 8.0;
+
+// ─── The mark channels (Phase 2654, D39, WIRE_FORMAT §3.6.37) ─────────────────
+
+/** The smallest radius a SIZED Scatter point takes: a floor, so a small value
+ * still draws a visible point. The reference host's `ChartStyle.ScatterMinRadius`. */
+export const SCATTER_MIN_RADIUS = 2.0;
+
+/** The radius of the largest size drawn; above the floor a point's AREA is
+ * proportional to its size. The reference host's `ChartStyle.ScatterMaxRadius`. */
+export const SCATTER_MAX_RADIUS = 16.0;
+
+/** The width of an interval's end caps (an error bar). `ChartStyle.IntervalCapWidth`. */
+export const INTERVAL_CAP_WIDTH = 8.0;
+
+/** The fill opacity of an interval BAND on a Line or an Area. `ChartStyle.IntervalBandOpacity`. */
+export const INTERVAL_BAND_OPACITY = 0.2;
+
+/** Whether the chart's `interval` is read: one series on a Bar, Line, Area or Scatter. */
+export const intervalApplies = (spec: ChartLowerSpec): boolean =>
+  spec.interval !== undefined &&
+  spec.yFields.length === 1 &&
+  (spec.kind === 'Bar' || spec.kind === 'Line' || spec.kind === 'Area' || spec.kind === 'Scatter');
+
+/** A Scatter-only channel's column, or `undefined` off Scatter. */
+export const scatterChannel = (
+  spec: ChartLowerSpec,
+  field: string | undefined,
+): string | undefined => (spec.kind === 'Scatter' ? field : undefined);
+
+/** The chart's `sortBy` when it is read: a Bar, Line, Area or Pie whose x is not
+ * temporal (a temporal axis places each row at its date). */
+export const sortApplies = (spec: ChartLowerSpec): ChartLowerSpec['sortBy'] =>
+  spec.xScale === 'Temporal'
+    ? undefined
+    : spec.kind === 'Bar' || spec.kind === 'Line' || spec.kind === 'Area' || spec.kind === 'Pie'
+      ? spec.sortBy
+      : undefined;
+
+/** Phase 2654 (D39) — the rows in the declared `sortBy` order: by the row's
+ * PRESENT numeric value in the sort column; rows whose key is missing, and every
+ * WITHHELD row, follow in source order. Stable, so equal keys keep their source
+ * order. A chart that declares no order, or whose kind does not read one, keeps
+ * its source order. */
+export const sortedRows = (
+  spec: ChartLowerSpec,
+  rows: readonly ChartRow[],
+): readonly ChartRow[] => {
+  const sort = sortApplies(spec);
+  if (sort === undefined) return rows;
+  const present: (readonly [number, ChartRow])[] = [];
+  const missing: ChartRow[] = [];
+  for (const r of rows) {
+    const k = isWithheldRow(spec.withheldField, r) ? undefined : presentValueOf(r, sort.field);
+    if (k === undefined) missing.push(r);
+    else present.push([k, r] as const);
+  }
+  present.sort(sort.direction === 'asc' ? (a, b) => a[0] - b[0] : (a, b) => b[0] - a[0]);
+  return [...present.map(([, r]) => r), ...missing];
 };
 
 // ─── Series read from the rows (Phase 2568, WIRE_FORMAT §3.6.29) ──────────────
