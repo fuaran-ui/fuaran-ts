@@ -117,6 +117,8 @@ import {
   withMark,
   withSeriesMark,
   withTip,
+  withheldStyle,
+  withheldTip,
 } from './shapes.js';
 import { lowerHeatmap } from './heatmap.js';
 import type { ChartLowerSpec, ChartLowerStyle, ChartRow } from './spec.js';
@@ -137,6 +139,7 @@ import {
   SUMMARY_MAX_SERIES_NAMED,
   clampText,
   summaryKindWords,
+  withheldClause,
 } from './summary.js';
 
 // ─── The lowering ─────────────────────────────────────────────────────────────
@@ -183,19 +186,6 @@ const refusalDrawing = (spec: ChartLowerSpec, series: number, limit: number): Dr
   style: {},
   ...(spec.title !== undefined ? { title: spec.title } : {}),
   description: literal(`Chart not rendered: ${series} series exceeds the limit of ${limit}.`),
-});
-
-/** Phase 2809 (D38) — the readout of a WITHHELD datum: "Series · Category ·
- * withheld", with no number, because the number is what the gate suppressed. */
-const withheldTip = (seriesField: string, categoryKey: string, style: DrawStyle): DrawStyle =>
-  withTip(`${seriesField}${TIP_SEPARATOR}${categoryKey}${TIP_SEPARATOR}${WITHHELD_WORD}`, style);
-
-/** Phase 2809 — the WITHHELD placeholder's paint: no fill, outlined in the
- * axis's own ink at the axis's opacity — surface-relative, so it reads on every
- * theme, and never a series colour, so it never reads as data. */
-const withheldStyle = (): DrawStyle => ({
-  ...styleFill('none'),
-  ...styleStrokeInk(AXIS_OPACITY, 1.0),
 });
 
 /** Phase 2809 — the maximal runs of consecutive indices `0 .. n-1` for which
@@ -2099,9 +2089,7 @@ const lowerSeries = (
 
     // Phase 2809 (D38) — the withheld clause: every series value of a withheld
     // row, counted. A chart with nothing withheld gains no clause.
-    const withheldValues = withheld.filter((w) => w).length * m;
-    if (withheldValues === 1) clauses.push(`1 value ${WITHHELD_WORD}`);
-    else if (withheldValues > 1) clauses.push(`${withheldValues} values ${WITHHELD_WORD}`);
+    clauses.push(...withheldClause(withheld.filter((w) => w).length * m));
 
     // ── The annotation clauses (Phase 1494 — §4i, extended) ──
     //

@@ -14,6 +14,12 @@
 // a row whose value cell is empty, text or non-finite — is ABSENT and draws the
 // surface (`fill: 'none'` under a gridline-weight outline), never a zero.
 //
+// A WITHHELD cell (Phase 2810, WIRE_FORMAT §3.6.36 rule 8) — a pair whose first
+// row is withheld — is drawn apart from an absent one: the withheld placeholder's
+// paint over the cell, with the cell's mark and the readout `row · x · withheld`.
+// Its value is never read. Any withheld cell adds the key under the ramp and the
+// summary's withheld clause; a chart with none draws exactly 2655's picture.
+//
 // The colour is a BIN, not an interpolation: the declared scale maps a value to
 // a fraction and the fraction to one ramp stop by `floor(t · n)`, clamped to the
 // last stop — plain IEEE arithmetic in a fixed order, so every host picks the
@@ -68,15 +74,18 @@ import {
   textStyle,
   withMark,
   withTip,
+  withheldStyle,
+  withheldTip,
 } from './shapes.js';
 import type { ChartLowerSpec, ChartRow } from './spec.js';
-import { capitalise, presentValueOf, stringOf } from './spec.js';
+import { WITHHELD_WORD, capitalise, isWithheldRow, presentValueOf, stringOf } from './spec.js';
 import {
   SUMMARY_CLAUSE_SEPARATOR,
   SUMMARY_MAX_CHARS,
   SUMMARY_MAX_NAME_CHARS,
   clampText,
   summaryKindWords,
+  withheldClause,
 } from './summary.js';
 import { textFitsBox, textLineHeight, textWidth, truncateToWidth } from './textMetrics.js';
 
@@ -127,6 +136,9 @@ interface HeatmapGrid {
   readonly rowKeys: readonly string[];
   /** `${column},${row}` → the first row's value, for the PRESENT cells only. */
   readonly cells: ReadonlyMap<string, number>;
+  /** Phase 2810 — the `${column},${row}` pairs whose first row is WITHHELD
+   * (`isWithheldRow`); their values are never read. */
+  readonly withheld: ReadonlySet<string>;
 }
 
 const at = (i: number, j: number): string => `${i},${j}`;
@@ -155,15 +167,20 @@ const heatmapGrid = (spec: ChartLowerSpec, rows: readonly ChartRow[]): HeatmapGr
   const xIndex = new Map(xKeys.map((k, i) => [k, i] as const));
   const rowIndex = new Map(rowKeys.map((k, j) => [k, j] as const));
   const cells = new Map<string, number>();
+  const withheld = new Set<string>();
   const seen = new Set<string>();
   for (const [x, y, r] of keyed) {
     const key = at(xIndex.get(x)!, rowIndex.get(y)!);
     if (seen.has(key)) continue;
     seen.add(key);
+    if (isWithheldRow(spec.withheldField, r)) {
+      withheld.add(key);
+      continue;
+    }
     const v = presentValueOf(r, valueField);
     if (v !== undefined) cells.set(key, v);
   }
-  return { rowField, valueField, xKeys, rowKeys, cells };
+  return { rowField, valueField, xKeys, rowKeys, cells, withheld };
 };
 
 // ─── The scale ────────────────────────────────────────────────────────────────
@@ -301,8 +318,13 @@ const drawHeatmap = (spec: ChartLowerSpec, grid: HeatmapGrid): DrawingSpec => {
     ...(scale.midpoint !== undefined ? [valueText(scale.midpoint)] : []),
     valueText(scale.low),
   ];
+  // Phase 2810 — a chart with any withheld cell keys it under the ramp, so the
+  // column is wide enough for that entry's word too.
+  const anyWithheld = grid.withheld.size > 0;
   const legendReserve = showLegend
-    ? LEGEND_COLUMN_GAP + LEGEND_LABEL_OFFSET_X + widestOf(tickSize, legendTexts)
+    ? LEGEND_COLUMN_GAP +
+      LEGEND_LABEL_OFFSET_X +
+      widestOf(tickSize, anyWithheld ? [...legendTexts, WITHHELD_WORD] : legendTexts)
     : 0.0;
 
   const plotX1 = r2(W - MARGIN_RIGHT - legendReserve);
@@ -327,9 +349,26 @@ const drawHeatmap = (spec: ChartLowerSpec, grid: HeatmapGrid): DrawingSpec => {
       const w = r2(Math.max(0.0, cellW - gap));
       const h = r2(Math.max(0.0, cellH - gap));
       const v = grid.cells.get(at(i, j));
-      if (v !== undefined) {
-        const xKey = grid.xKeys[i]!;
-        const rowKey = grid.rowKeys[j]!;
+      const xKey = grid.xKeys[i]!;
+      const rowKey = grid.rowKeys[j]!;
+      if (grid.withheld.has(at(i, j))) {
+        // Phase 2810 (D38) — a WITHHELD cell: the withheld placeholder fitted to
+        // the cell, with the cell's own mark and a readout that carries no number.
+        cells.push(
+          rectangle(
+            x,
+            y,
+            w,
+            h,
+            undefined,
+            withheldTip(
+              rowKey,
+              xKey,
+              withMark(grid.valueField, heatmapCellKey(xKey, rowKey), withheldStyle()),
+            ),
+          ),
+        );
+      } else if (v !== undefined) {
         cells.push(
           rectangle(
             x,
@@ -456,6 +495,23 @@ const drawHeatmap = (spec: ChartLowerSpec, grid: HeatmapGrid): DrawingSpec => {
     if (scale.midpoint !== undefined)
       legend.push(labelAt((plotY0 + plotY1) / 2.0, valueText(scale.midpoint)));
     legend.push(labelAt(plotY1, valueText(scale.low)));
+    // Phase 2810 — the withheld KEY, when any cell is withheld: the placeholder's
+    // paint as a swatch, worded `withheld`, on the column labels' line below the
+    // ramp. Chrome, so it carries no mark.
+    if (anyWithheld) {
+      const keyY = plotY1 + CATEGORY_LABEL_OFFSET_Y - TICK_LABEL_BASELINE_DY;
+      legend.push(
+        rectangle(
+          swatchX,
+          r2(keyY - LEGEND_SWATCH_SIZE / 2.0),
+          LEGEND_SWATCH_SIZE,
+          LEGEND_SWATCH_SIZE,
+          undefined,
+          withheldStyle(),
+        ),
+      );
+      legend.push(labelAt(keyY, WITHHELD_WORD));
+    }
   }
 
   // ── Title + subtitle (the shipped Left alignment) ──
@@ -484,7 +540,7 @@ const drawHeatmap = (spec: ChartLowerSpec, grid: HeatmapGrid): DrawingSpec => {
 
   // ── The accessible summary ──
   const name = (s: string): string => clampText(SUMMARY_MAX_NAME_CHARS, s);
-  const absent = n * m - grid.cells.size;
+  const absent = n * m - grid.cells.size - grid.withheld.size;
   const clauses = [
     `${summaryKindWords('Heatmap', false)} of ${name(grid.valueField)} by ${name(spec.xField)} and ${name(grid.rowField)}`,
     `${n} columns by ${m} rows`,
@@ -492,6 +548,7 @@ const drawHeatmap = (spec: ChartLowerSpec, grid: HeatmapGrid): DrawingSpec => {
       ? 'no values'
       : `values from ${valueText(values.reduce((a, b) => Math.min(a, b)))} to ${valueText(values.reduce((a, b) => Math.max(a, b)))}`,
     ...(absent > 0 ? [`${absent} cells empty`] : []),
+    ...withheldClause(grid.withheld.size),
   ];
 
   return {

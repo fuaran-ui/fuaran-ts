@@ -5,6 +5,7 @@
 
 import { ELLIPSIS } from './textMetrics.js';
 import type { ChartLowerSpec } from './spec.js';
+import { WITHHELD_WORD } from './spec.js';
 
 // ─── The accessible summary (Phase 921) ──────────────────────────────────────
 //
@@ -73,3 +74,9 @@ export const summaryKindWords = (kind: ChartLowerSpec['kind'], stacked: boolean)
       return 'Heatmap chart';
   }
 };
+
+/** Phase 2809 (D38) — the summary clause that counts `k` withheld values: none
+ * when nothing is withheld, so a chart with no withheld value gains no clause.
+ * Phase 2810 — shared by the series arms and the Heatmap arm (one value a cell). */
+export const withheldClause = (k: number): string[] =>
+  k === 0 ? [] : k === 1 ? [`1 value ${WITHHELD_WORD}`] : [`${k} values ${WITHHELD_WORD}`];

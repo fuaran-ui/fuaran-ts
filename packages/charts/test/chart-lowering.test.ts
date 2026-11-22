@@ -473,6 +473,40 @@ describe('chart lowering — Heatmap (Phase 2655)', () => {
       encodeNode(lowerNode('c', { ...spec, scale: { kind: 'Sequential' } }, rows, style)),
     );
   });
+
+  // Phase 2810 — a withheld cell is drawn apart from an absent one. The goldens
+  // above carry the byte-parity; these say what the bytes mean.
+  it.runIf(existsSync(CHART_LOWERING_DIR))('the withheld vectors are present', () => {
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'heatmap-withheld-cells',
+        'heatmap-withheld-diverging',
+        'heatmap-withheld-only',
+      ]),
+    );
+  });
+
+  it('a withheld cell carries its mark and a numberless readout; the key appears', () => {
+    const name = 'heatmap-withheld-cells';
+    if (!names.includes(name)) return;
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    const json = encodeNode(lowerNode('c', spec, rows, style));
+    expect(json).toContain('Q2 · A · withheld');
+    expect(json).toContain('"text":"withheld"');
+    expect(json).toContain('3 values withheld');
+    expect(json).toContain('5 cells empty');
+    expect(json).not.toContain('500');
+  });
+
+  it('a declared withheld field no row sets lowers byte-identically to no declaration', () => {
+    for (const name of names.filter((n) => !n.startsWith('heatmap-withheld'))) {
+      const { spec, rows, style } = specAndRows(readInput(name, dir));
+      const flagged = rows.map((r) => ({ ...r, suppressed: false }));
+      expect(
+        encodeNode(lowerNode('c', { ...spec, withheldField: 'suppressed' }, flagged, style)),
+      ).toBe(encodeNode(lowerNode('c', spec, rows, style)));
+    }
+  });
 });
 
 // Phase 2809 — missing and withheld values (`chart-lowering/withheld/`,
