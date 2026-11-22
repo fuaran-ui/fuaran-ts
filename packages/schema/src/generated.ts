@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = '3382d69213dfc1dc55896169cd64a22c7388eb14f111cb2441e85bc1d69f84b9';
+export const IDL_SHA256 = 'e5e867dc804adc9788f1f80c00f9b3ad29403370d28dc28ee87bda98991132fa';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -72,6 +72,11 @@ const T_union_ChartScale = {
   name: 'ChartScale',
   args: [],
 } as const satisfies IdlType;
+const T_record_ChartInterval = {
+  $type: 'record',
+  name: 'ChartInterval',
+} as const satisfies IdlType;
+const T_record_ChartSort = { $type: 'record', name: 'ChartSort' } as const satisfies IdlType;
 const T_int = { $type: 'int' } as const satisfies IdlType;
 const T_list_int = { $type: 'list', of: T_int } as const satisfies IdlType;
 const T_json = { $type: 'json' } as const satisfies IdlType;
@@ -253,6 +258,7 @@ const T_list_record_AffordanceAlias = {
   $type: 'list',
   of: T_record_AffordanceAlias,
 } as const satisfies IdlType;
+const T_enum_SortDirection = { $type: 'enum', name: 'SortDirection' } as const satisfies IdlType;
 const T_union_CellKindErased = {
   $type: 'union',
   name: 'CellKindErased',
@@ -270,7 +276,6 @@ const T_union_Binding_json = {
 } as const satisfies IdlType;
 const T_enum_CompareOp = { $type: 'enum', name: 'CompareOp' } as const satisfies IdlType;
 const T_enum_HashStrictness = { $type: 'enum', name: 'HashStrictness' } as const satisfies IdlType;
-const T_enum_SortDirection = { $type: 'enum', name: 'SortDirection' } as const satisfies IdlType;
 const T_enum_TextAnchor = { $type: 'enum', name: 'TextAnchor' } as const satisfies IdlType;
 const T_enum_DeterminismSource = {
   $type: 'enum',
@@ -703,6 +708,10 @@ export const KIND_FIELDS = {
     { name: 'annotations', opt: 'optional', type: T_list_union_ChartAnnotation },
     { name: 'scale', opt: 'optional', type: T_union_ChartScale },
     { name: 'withheldField', opt: 'optional', type: T_str },
+    { name: 'interval', opt: 'optional', type: T_record_ChartInterval },
+    { name: 'sizeField', opt: 'optional', type: T_str },
+    { name: 'sortBy', opt: 'optional', type: T_record_ChartSort },
+    { name: 'pathField', opt: 'optional', type: T_str },
     { name: 'onPointClick', opt: 'optional', type: T_fn },
   ],
   CodeBlock: [
@@ -1221,6 +1230,14 @@ export const RECORD_FIELDS = {
     { name: 'label', opt: 'required', type: T_union_TextSource },
     { name: 'onClick', opt: 'optional', type: T_fn },
   ],
+  ChartInterval: [
+    { name: 'low', opt: 'required', type: T_str },
+    { name: 'high', opt: 'required', type: T_str },
+  ],
+  ChartSort: [
+    { name: 'field', opt: 'required', type: T_str },
+    { name: 'direction', opt: 'required', type: T_enum_SortDirection },
+  ],
   ColumnErased: [
     { name: 'field', opt: 'optional', type: T_str },
     { name: 'sortable', opt: 'optional', type: T_bool },
@@ -1674,6 +1691,10 @@ export const UNION_CASES = {
     ],
     RangeBand: [
       { name: 'range', opt: 'required', type: T_union_ChartAnnotationRange },
+      { name: 'label', opt: 'optional', type: T_union_TextSource },
+    ],
+    ReferenceLineX: [
+      { name: 'value', opt: 'required', type: T_float },
       { name: 'label', opt: 'optional', type: T_union_TextSource },
     ],
   },

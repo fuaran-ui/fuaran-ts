@@ -1217,7 +1217,12 @@ const decodeChartAnnotation = (w: Walk, path: string, j: JsonAst): R<ChartAnnota
   if (!label.ok) return label;
   const withLabel = label.value !== undefined ? { label: label.value } : {};
   switch (disc.value) {
-    case 'ReferenceLine': {
+    // Phase 2654 — `ReferenceLineX` is the same line on the continuous x axis, so
+    // the two cases share one finite-value rule.
+    case 'ReferenceLine':
+    case 'ReferenceLineX': {
+      const kind = disc.value;
+      const axis = kind === 'ReferenceLine' ? 'value' : 'x';
       const value = reqField(
         w,
         path,
@@ -1230,12 +1235,12 @@ const decodeChartAnnotation = (w: Walk, path: string, j: JsonAst): R<ChartAnnota
               ? ok(n)
               : wrongType(
                   p,
-                  "a FINITE JSON number — a reference line names a place on the value axis, and NaN / Infinity names none; give the value in the axis's own units, or drop the annotation",
+                  `a FINITE JSON number — a reference line names a place on the ${axis} axis, and NaN / Infinity names none; give the value in the axis's own units, or drop the annotation`,
                 ),
           ),
       );
       if (!value.ok) return value;
-      return ok({ kind: 'ReferenceLine', value: value.value, ...withLabel });
+      return ok({ kind, value: value.value, ...withLabel });
     }
     case 'EventMarker': {
       const at = reqField(
@@ -1262,7 +1267,11 @@ const decodeChartAnnotation = (w: Walk, path: string, j: JsonAst): R<ChartAnnota
       return ok({ kind: 'RangeBand', range: range.value, ...withLabel });
     }
     default:
-      return unknownDuCase(path, disc.value, 'ReferenceLine, EventMarker, RangeBand');
+      return unknownDuCase(
+        path,
+        disc.value,
+        'ReferenceLine, EventMarker, RangeBand, ReferenceLineX',
+      );
   }
 };
 
@@ -4533,6 +4542,9 @@ const dialect = (() => {
         // Phase 2571 — a `Select`'s option group; the two cross-member refusals
         // are the `Select`'s (`checkSelectGroups`).
         SelectOptionGroup: recordDecoder('SelectOptionGroup'),
+        // Phase 2654 — the chart channels' two records, generic over the IDL.
+        ChartInterval: recordDecoder('ChartInterval'),
+        ChartSort: recordDecoder('ChartSort'),
         ColumnErased: decodeColumnErased,
         ContentHash: decodeContentHash,
         DefaultSort: decodeDefaultSort,

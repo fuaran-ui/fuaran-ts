@@ -102,5 +102,13 @@ export const chartLowerSpecOf = <TMsg>(
     // Phase 2809 — the withheld flag column, carried as declared: the lowering
     // reads each row's flag and never a withheld row's values.
     ...(spec.withheldField !== undefined ? { withheldField: spec.withheldField } : {}),
+    // Phase 2654 — the mark channels, carried as declared: the lowering reads each
+    // only on the kinds that admit it.
+    ...(spec.interval !== undefined ? { interval: spec.interval } : {}),
+    ...(spec.sizeField !== undefined ? { sizeField: spec.sizeField } : {}),
+    ...(spec.sortBy !== undefined
+      ? { sortBy: { field: spec.sortBy.field, direction: spec.sortBy.direction } }
+      : {}),
+    ...(spec.pathField !== undefined ? { pathField: spec.pathField } : {}),
   };
 };

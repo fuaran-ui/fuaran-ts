@@ -123,12 +123,22 @@ import {
 import { lowerHeatmap } from './heatmap.js';
 import type { ChartLowerSpec, ChartLowerStyle, ChartRow } from './spec.js';
 import {
+  INTERVAL_BAND_OPACITY,
+  INTERVAL_CAP_WIDTH,
+  INTERVAL_DASH,
+  INTERVAL_WORD,
+  SCATTER_MAX_RADIUS,
+  SCATTER_MIN_RADIUS,
   WITHHELD_MARK_SIZE,
   WITHHELD_WORD,
   capitalise,
   derivedSeriesFields,
+  intervalApplies,
   isWithheldRow,
   presentValueOf,
+  scatterChannel,
+  sortApplies,
+  sortedRows,
   stringOf,
 } from './spec.js';
 import {
@@ -207,9 +217,12 @@ const presentRuns = (n: number, present: (i: number) => boolean): (readonly [num
 
 const lowerSeries = (
   spec: ChartLowerSpec,
-  rows: readonly ChartRow[],
+  sourceRows: readonly ChartRow[],
   style?: ChartLowerStyle,
 ): DrawingSpec => {
+  // Phase 2654 (D39) — a declared order is applied BEFORE layout, so every stage
+  // below reads the rows in it and nothing else needs to know.
+  const rows = sortedRows(spec, sourceRows);
   const axisUnitMode: ChartAxisUnitMode = style?.axisUnitMode ?? 'Words';
   const minUnitExponent = style?.displayUnitMinExponent ?? DISPLAY_UNIT_MIN_EXPONENT;
   const categories = rows.map((r) => stringOf(r, spec.xField));
@@ -302,6 +315,44 @@ const lowerSeries = (
         : [],
     );
 
+  // ── The mark channels (Phase 2654, D39) ────────────────────────────────────
+  //
+  // A withheld row reads NO channel value: its interval and its size are values
+  // of the datum, so they are withheld with it (the path order is a position,
+  // read below on its own terms).
+  const readChannel = (field: string): (number | undefined)[] =>
+    rows.map((r, i) => (withheld[i] ? undefined : presentValueOf(r, field)));
+  const intervals: (readonly [number, number] | undefined)[] = (() => {
+    if (spec.interval === undefined || !intervalApplies(spec)) return rows.map(() => undefined);
+    const los = readChannel(spec.interval.low);
+    const his = readChannel(spec.interval.high);
+    return los.map((lo, i) => {
+      const hi = his[i];
+      return lo !== undefined && hi !== undefined
+        ? ([Math.min(lo, hi), Math.max(lo, hi)] as const)
+        : undefined;
+    });
+  })();
+  const sizeField = scatterChannel(spec, spec.sizeField);
+  const sizes: (number | undefined)[] =
+    sizeField === undefined
+      ? []
+      : readChannel(sizeField).map((v) => (v !== undefined && v >= 0.0 ? v : undefined));
+  // The path order is read off every row, withheld or not: it is WHERE the row
+  // sits on the path, and a withheld row's missing point then BREAKS the path.
+  const pathField = scatterChannel(spec, spec.pathField);
+  const pathKeys: (number | undefined)[] =
+    pathField === undefined ? [] : rows.map((r) => presentValueOf(r, pathField));
+  // A vertical line at a NUMERIC x: read on a Scatter whose x is numeric.
+  const referenceLinesX: readonly (readonly [number, TextSource | undefined])[] =
+    spec.kind === 'Scatter' && spec.xScale !== 'Temporal'
+      ? annotationsDeclared.flatMap((a) =>
+          a.kind === 'ReferenceLineX' && Number.isFinite(a.value)
+            ? [[a.value, a.label] as const]
+            : [],
+        )
+      : [];
+
   const allValuesRaw = [
     ...(stacked
       ? Array.from({ length: n }, (_, i) => cumsFor(i)).flat()
@@ -316,6 +367,8 @@ const lowerSeries = (
     // rule. Clipping it at the data's own maximum would draw a band that ends
     // where the author did not end it.
     ...valueBands.flatMap(([, lo, hi]) => [lo, hi]),
+    // Phase 2654 — an interval's ends join the domain on the same rule.
+    ...intervals.flatMap((iv) => (iv !== undefined ? [iv[0], iv[1]] : [])),
   ];
   const values = allValuesRaw.length > 0 ? allValuesRaw : [0.0];
   const [dataMin, dataMax] = extentOf(values);
@@ -385,6 +438,32 @@ const lowerSeries = (
    * chosen would show for a hover anywhere along the line. */
   const seriesTip = (seriesField: string, style: DrawStyle): DrawStyle =>
     withTip(seriesField, style);
+
+  /** Phase 2654 — a datum's readout with a trailing part (a sized point's size). */
+  const datumTipWith = (
+    seriesField: string,
+    categoryKey: string,
+    v: number,
+    suffix: string,
+    style: DrawStyle,
+  ): DrawStyle =>
+    withTip(
+      `${seriesField}${TIP_SEPARATOR}${categoryKey}${TIP_SEPARATOR}${tipValueText(v)}${TIP_SEPARATOR}${suffix}`,
+      style,
+    );
+
+  /** Phase 2654 — an interval's readout: "Series · Category · low – high". */
+  const intervalTip = (
+    seriesField: string,
+    categoryKey: string,
+    lo: number,
+    hi: number,
+    style: DrawStyle,
+  ): DrawStyle =>
+    withTip(
+      `${seriesField}${TIP_SEPARATOR}${categoryKey}${TIP_SEPARATOR}${tipValueText(lo)}${INTERVAL_DASH}${tipValueText(hi)}`,
+      style,
+    );
 
   // ── Linear x-scale (Phase 636 — the Scatter arm's numeric x axis) ──
   // Scatter reads the x-field NUMERICALLY and plots on a linear x-domain (the
@@ -542,7 +621,8 @@ const lowerSeries = (
           presentXs: number[],
         ): { niceLo: number; niceHi: number; step: number; ticks: number[] } =>
           presentXs.length === 0 ? niceDomain(0.0, 1.0) : niceDomain(...extentOf(presentXs)))(
-          xValues.filter((x) => !Number.isNaN(x)),
+          // Phase 2654 — an x reference line's value joins the x domain.
+          [...xValues.filter((x) => !Number.isNaN(x)), ...referenceLinesX.map(([v]) => v)],
         )
       : { niceLo: 0.0, niceHi: 1.0, step: 1.0, ticks: [] as number[] };
 
@@ -1206,6 +1286,50 @@ const lowerSeries = (
     }
   };
 
+  // ── The interval (Phase 2654, D39) ──
+  //
+  // An ERROR BAR on the per-datum arms (Bar, Scatter): a stem from the low end to
+  // the high end and a cap at each, in the axis ink, after the mark it qualifies.
+  // A BAND on the series arms (Line, Area): one translucent polygon per run of
+  // present intervals, in the series colour, BEHIND the series.
+  const intervalInk = styleStrokeInk(AXIS_OPACITY, REFERENCE_STROKE_WIDTH);
+  const pushErrorBar = (cx: number, i: number): void => {
+    const iv = intervals[i];
+    if (iv === undefined) return;
+    const [lo, hi] = iv;
+    const x = r2(cx);
+    const yLo = yScale(lo);
+    const yHi = yScale(hi);
+    const half = INTERVAL_CAP_WIDTH / 2.0;
+    const ink = intervalTip(spec.yFields[0]!, categories[i]!, lo, hi, intervalInk);
+    seriesShapes.push(
+      line(x, yHi, x, yLo, ink),
+      line(r2(cx - half), yLo, r2(cx + half), yLo, ink),
+      line(r2(cx - half), yHi, r2(cx + half), yHi, ink),
+    );
+  };
+  const pushIntervalBands = (): void => {
+    if (m !== 1 || n === 0) return;
+    const yf = spec.yFields[0]!;
+    for (const [first, last] of presentRuns(n, (i) => intervals[i] !== undefined)) {
+      const upper: DrawPoint[] = [];
+      for (let i = first; i <= last; i++)
+        upper.push({ x: xCentre(i), y: yScale(intervals[i]![1]) });
+      const lowerBoundary: DrawPoint[] = [];
+      for (let i = last; i >= first; i--)
+        lowerBoundary.push({ x: xCentre(i), y: yScale(intervals[i]![0]) });
+      seriesShapes.push(
+        polygon(
+          [...upper, ...lowerBoundary],
+          withTip(
+            `${yf}${TIP_SEPARATOR}${INTERVAL_WORD}`,
+            styleFillOpacity(colourFor(0), INTERVAL_BAND_OPACITY),
+          ),
+        ),
+      );
+    }
+  };
+
   // ── Series geometry ──
   const seriesShapes: Shape[] = [];
   if (spec.kind === 'Bar' && stacked) {
@@ -1261,6 +1385,8 @@ const lowerSeries = (
         );
       }
     }
+    // Phase 2654 — the error bars, after every bar (one series).
+    for (let i = 0; i < n; i++) pushErrorBar(stackedBarX(i) + bw / 2.0, i);
   } else if (spec.kind === 'Bar') {
     const bw = groupedBarW;
     const baseY = yScale(0.0);
@@ -1295,6 +1421,8 @@ const lowerSeries = (
         );
       }
     }
+    // Phase 2654 — the error bars, after every bar (one series).
+    for (let i = 0; i < n; i++) pushErrorBar(groupedBarX(i, 0) + bw / 2.0, i);
   } else if (spec.kind === 'Area' && stacked) {
     // Cumulative bands, bottom band first (painter's order): band j fills
     // between boundary j (below) and boundary j+1 (above); its upper boundary
@@ -1302,6 +1430,7 @@ const lowerSeries = (
     // per run of present values.
     if (n > 0) {
       const cums = Array.from({ length: n }, (_, i) => cumsFor(i));
+      pushIntervalBands();
       for (let j = 0; j < m; j++) {
         const colour = colourFor(j);
         const yf = spec.yFields[j]!;
@@ -1332,6 +1461,7 @@ const lowerSeries = (
     // band per run of present values.
     if (n > 0) {
       const baseY = yScale(0.0);
+      pushIntervalBands();
       for (let j = 0; j < m; j++) {
         const colour = colourFor(j);
         const seriesValues = series[j]!;
@@ -1361,6 +1491,7 @@ const lowerSeries = (
   } else if (spec.kind === 'Line') {
     // Phase 2809 — one polyline per run of present values: a gap BREAKS the line
     // rather than dropping it to zero.
+    pushIntervalBands();
     for (let j = 0; j < m; j++) {
       const colour = colourFor(j);
       const seriesValues = series[j]!;
@@ -1382,32 +1513,83 @@ const lowerSeries = (
     // NO point (Phase 2809, D38) — a point at 0.0 would be a datum the table never
     // stated; grounded validation makes a non-numeric column loud upstream.
     const xPresent = (i: number): boolean => !Number.isNaN(xValues[i]!);
+    // Phase 2654 (D39) — the SIZE channel: above SCATTER_MIN_RADIUS a point's area
+    // is proportional to its size, the largest size drawn taking
+    // SCATTER_MAX_RADIUS; a missing or negative size draws no point.
+    const maxSize = sizes.reduce<number>(
+      (acc, v) => (v !== undefined ? Math.max(acc, v) : acc),
+      0.0,
+    );
+    const radiusOf = (i: number): number | undefined => {
+      if (sizes.length === 0) return 4.0;
+      const v = sizes[i];
+      if (v === undefined) return undefined;
+      return maxSize > 0.0
+        ? r2(Math.max(SCATTER_MIN_RADIUS, SCATTER_MAX_RADIUS * Math.sqrt(v / maxSize)))
+        : SCATTER_MIN_RADIUS;
+    };
+    // Phase 2654 (D39) — the PATH channel: each series' points joined in ascending
+    // path order (stable); a row on the path whose point is missing or withheld
+    // BREAKS it, and a run of one point draws nothing. Painted under the points.
+    const pathOrder: number[] =
+      pathKeys.length === 0
+        ? []
+        : rows
+            .map((_, i) => i)
+            .filter((i) => pathKeys[i] !== undefined)
+            .sort((a, b) => pathKeys[a]! - pathKeys[b]!);
+    for (let j = 0; j < m; j++) {
+      const colour = colourFor(j);
+      const seriesValues = series[j]!;
+      const yf = spec.yFields[j]!;
+      const vertex = (k: number): boolean =>
+        xPresent(pathOrder[k]!) && seriesValues[pathOrder[k]!] !== undefined;
+      for (const [first, last] of presentRuns(pathOrder.length, vertex)) {
+        if (last <= first) continue;
+        const points: DrawPoint[] = [];
+        for (let k = first; k <= last; k++) {
+          const i = pathOrder[k]!;
+          points.push({ x: xScale(xValues[i]!), y: yScale(seriesValues[i]!) });
+        }
+        seriesShapes.push(
+          polyline(points, seriesTip(yf, withSeriesMark(yf, styleStroke(colour, 2.0)))),
+        );
+      }
+    }
     for (let j = 0; j < m; j++) {
       const colour = colourFor(j);
       const seriesValues = series[j]!;
       const yf = spec.yFields[j]!;
       for (let i = 0; i < n; i++) {
         const v = seriesValues[i];
-        if (v === undefined || !xPresent(i)) continue;
+        const radius = radiusOf(i);
+        if (v === undefined || !xPresent(i) || radius === undefined) continue;
+        const markStyle = withMark(yf, formatNum(xValues[i]!), styleFill(colour));
+        const size = sizes[i];
         seriesShapes.push(
           circle(
             xScale(xValues[i]!),
             yScale(v),
-            4.0,
+            radius,
             // The tip's middle part is the x cell as PROJECTED
             // (`categories[i]`), not the mark id's canonical numeric form: the
             // id is for object constancy, the tip is for a human, and on a
             // temporal axis the projection is the ISO date, not a day count.
-            datumTip(
-              yf,
-              categories[i]!,
-              v,
-              withMark(yf, formatNum(xValues[i]!), styleFill(colour)),
-            ),
+            size === undefined
+              ? datumTip(yf, categories[i]!, v, markStyle)
+              : datumTipWith(
+                  yf,
+                  categories[i]!,
+                  v,
+                  `${sizeField!} ${formatValue(undefined, 1.0, false, size, size)}`,
+                  markStyle,
+                ),
           ),
         );
       }
     }
+    // Phase 2654 — the error bars, after the points (one series).
+    for (let i = 0; i < n; i++) if (xPresent(i)) pushErrorBar(xScale(xValues[i]!), i);
     // A withheld row keys its placeholder as its point would have been keyed, and
     // a row with no x has no position to draw one at.
     pushWithheldStrips(
@@ -1608,17 +1790,40 @@ const lowerSeries = (
     return fits ? [label(r2(x), r2(baseline), t, annotationLabelStyle)] : [];
   };
 
-  const referenceLineShapes: Shape[] = referenceLines.map(([v], i) => {
-    const y = yScale(v);
-    // Phase 642 identity: `annotation|<case>|<n>`, with `<n>` the document-order
-    // index within this case. NOT the value itself — a float has no canonical
-    // string form the wire defines, and an ordinal is unique by construction and
-    // moved by no data change.
-    return line(r2(PLOT_X0), y, r2(PLOT_X1), y, {
-      ...referenceStyle,
-      markId: `annotation|reference|${i}`,
-    });
-  });
+  const referenceLineShapes: Shape[] = [
+    ...referenceLines.map(([v], i) => {
+      const y = yScale(v);
+      // Phase 642 identity: `annotation|<case>|<n>`, with `<n>` the document-order
+      // index within this case. NOT the value itself — a float has no canonical
+      // string form the wire defines, and an ordinal is unique by construction and
+      // moved by no data change.
+      return line(r2(PLOT_X0), y, r2(PLOT_X1), y, {
+        ...referenceStyle,
+        markId: `annotation|reference|${i}`,
+      });
+    }),
+    // Phase 2654 — the x reference lines: the same line standing across the
+    // plot's height at a numeric x, numbered in their own case.
+    ...referenceLinesX.map(([v], i) => {
+      const x = xScale(v);
+      return line(x, r2(PLOT_Y0), x, r2(PLOT_Y1), {
+        ...referenceStyle,
+        markId: `annotation|referencex|${i}`,
+      });
+    }),
+  ];
+
+  /** Phase 2654 — the x each x reference line's label must not reach: the next
+   * line to its right, the event markers' rule exactly. */
+  const referenceXLabelRight: number[] = (() => {
+    const xs = referenceLinesX.map(([v]) => xScale(v));
+    const order = xs
+      .map((_, i) => i)
+      .sort((a, b) => (xs[a]! - xs[b]! !== 0 ? xs[a]! - xs[b]! : a - b));
+    const right = xs.map(() => PLOT_X1);
+    for (let r = 0; r < order.length - 1; r++) right[order[r]!] = xs[order[r + 1]!]!;
+    return right;
+  })();
 
   /** The range bands as PLOT RECTANGLES — `(index, x0, y0, x1, y1, label)`,
    * ordered by the per-case index both arms were numbered with, so the paint
@@ -1776,6 +1981,20 @@ const lowerSeries = (
         // fit inside it. Suppressed, per Phase 881, and the band still draws.
         Math.max(0.0, x1 - x - ANNOTATION_LABEL_PADDING),
         Math.max(0.0, y1 - y0 - ANNOTATION_LABEL_PADDING),
+        lbl,
+      );
+    }),
+    // Phase 2654 — the x reference lines' labels, last of the rung: at the top of
+    // the plot beside the line, the width budget running to the next line.
+    ...referenceLinesX.flatMap(([v, lbl], i) => {
+      if (lbl === undefined) return [];
+      const x = xScale(v) + ANNOTATION_LABEL_OFFSET_X;
+      const baseline = PLOT_Y0 + ANNOTATION_LABEL_FONT_SIZE + ANNOTATION_LABEL_NUDGE_Y;
+      return annotationLabelShape(
+        x,
+        baseline,
+        Math.max(0.0, referenceXLabelRight[i]! - x - ANNOTATION_LABEL_PADDING),
+        Math.max(0.0, PLOT_Y1 - PLOT_Y0 - ANNOTATION_LABEL_PADDING),
         lbl,
       );
     }),
@@ -2168,7 +2387,25 @@ const lowerSeries = (
           .sort((p, q) => p[0] - q[0])
           .map(([, address, lbl]) => `${address}${annotationLabelWords(lbl)}`),
       ),
+      // Phase 2654 — the x reference lines, in the x axis's own words.
+      ...annotationClause(
+        'x reference line',
+        'x reference lines',
+        referenceLinesX.map(([v, lbl]) => `${xTickText(v)}${annotationLabelWords(lbl)}`),
+      ),
     );
+
+    // Phase 2654 (D39) — each channel read names its column.
+    const named = (f: string): string => clampText(SUMMARY_MAX_NAME_CHARS, f);
+    if (spec.interval !== undefined && intervalApplies(spec))
+      clauses.push(`Interval ${named(spec.interval.low)} to ${named(spec.interval.high)}`);
+    if (sizeField !== undefined) clauses.push(`Sized by ${named(sizeField)}`);
+    if (pathField !== undefined) clauses.push(`Path in ${named(pathField)} order`);
+    const sort = sortApplies(spec);
+    if (sort !== undefined)
+      clauses.push(
+        `Sorted by ${named(sort.field)}, ${sort.direction === 'asc' ? 'ascending' : 'descending'}`,
+      );
 
     return clampText(SUMMARY_MAX_CHARS, `${clauses.join(SUMMARY_CLAUSE_SEPARATOR)}.`);
   })();

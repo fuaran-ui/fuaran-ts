@@ -85,6 +85,12 @@ interface ChartInput {
   // Phase 2809 — the withheld flag column, a WIRE field carried as a string;
   // omitted when absent (so every pre-2809 input AND golden is byte-unchanged).
   readonly withheldField?: string;
+  // Phase 2654 — the mark channels, WIRE fields carried in canonical JSON;
+  // omitted when absent (so every pre-2654 input AND golden is byte-unchanged).
+  readonly interval?: { readonly low: string; readonly high: string };
+  readonly sizeField?: string;
+  readonly sortBy?: { readonly field: string; readonly direction: 'asc' | 'desc' };
+  readonly pathField?: string;
   readonly data: readonly ChartRow[];
 }
 
@@ -148,6 +154,8 @@ const annotationOf = (raw: WireCase): ChartAnnotation => {
       return { kind: 'EventMarker', at: annotationXOf(raw['at'] as WireCase), ...label };
     case 'RangeBand':
       return { kind: 'RangeBand', range: annotationRangeOf(raw['range'] as WireCase), ...label };
+    case 'ReferenceLineX':
+      return { kind: 'ReferenceLineX', value: raw['value'] as number, ...label };
     default:
       throw new Error(`chart-lowering input: unsupported ChartAnnotation ${String(raw['$type'])}`);
   }
@@ -242,6 +250,11 @@ const specAndRows = (
     ...(inp.annotations !== undefined ? { annotations: inp.annotations.map(annotationOf) } : {}),
     ...(inp.scale !== undefined ? { scale: scaleOf(inp.scale) } : {}),
     ...(inp.withheldField !== undefined ? { withheldField: inp.withheldField } : {}),
+    // Phase 2654 — same omitted-when-absent posture; real wire fields.
+    ...(inp.interval !== undefined ? { interval: inp.interval } : {}),
+    ...(inp.sizeField !== undefined ? { sizeField: inp.sizeField } : {}),
+    ...(inp.sortBy !== undefined ? { sortBy: inp.sortBy } : {}),
+    ...(inp.pathField !== undefined ? { pathField: inp.pathField } : {}),
   },
   rows: inp.data,
   style: inp.axisUnitMode !== undefined ? { axisUnitMode: inp.axisUnitMode } : {},
@@ -266,6 +279,10 @@ const KNOWN_INPUT_MEMBERS: ReadonlySet<string> = new Set([
   'annotations',
   'scale',
   'withheldField',
+  'interval',
+  'sizeField',
+  'sortBy',
+  'pathField',
   'data',
 ]);
 
@@ -561,5 +578,68 @@ describe('chart lowering — missing and withheld values (Phase 2809)', () => {
     expect(json).not.toContain('900');
     expect(json).toContain('train · 10-20 · withheld');
     expect(json).toContain('2 values withheld');
+  });
+});
+
+// Phase 2654 — the mark channels (`chart-lowering/channels/`, WIRE_FORMAT
+// §3.6.37, D39): the interval, the size, the declared order, the path and the x
+// reference line. A subfamily for the heatmap's reason: the top-level enumeration
+// above does not reach it.
+describe('chart lowering — mark channels (Phase 2654)', () => {
+  const dir = join(CHART_LOWERING_DIR, 'channels');
+  const names = existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => f.endsWith('.input.json'))
+        .map((f) => f.slice(0, -'.input.json'.length))
+        .sort()
+    : [];
+
+  it.runIf(existsSync(CHART_LOWERING_DIR))('the subfamily is present', () => {
+    expect(names.length).toBeGreaterThan(0);
+  });
+
+  it.each(names)('%s — TS lowering is byte-identical to the golden', (name) => {
+    const expected = readFileSync(join(dir, `${name}.expected.json`), 'utf8');
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    expect(encodeNode(lowerNode(`chart-${name}`, spec, rows, style))).toBe(expected);
+  });
+
+  it.each(names)('%s — the member order a row writes does not matter', (name) => {
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    const reversedRows = rows.map(
+      (r) => Object.fromEntries(Object.entries(r).reverse()) as ChartRow,
+    );
+    expect(encodeNode(lowerNode('c', spec, reversedRows, style))).toBe(
+      encodeNode(lowerNode('c', spec, rows, style)),
+    );
+  });
+
+  it('a neutralised channel lowers byte-identically to its absence', () => {
+    for (const name of names.filter((n) => n.endsWith('-neutralised'))) {
+      const { spec, rows, style } = specAndRows(readInput(name, dir));
+      const {
+        interval: _interval,
+        sizeField: _sizeField,
+        sortBy: _sortBy,
+        pathField: _pathField,
+        ...bare
+      } = spec;
+      const annotations = (spec.annotations ?? []).filter((a) => a.kind !== 'ReferenceLineX');
+      const plain = {
+        ...bare,
+        ...(annotations.length > 0 ? { annotations } : {}),
+      };
+      expect(encodeNode(lowerNode('c', spec, rows, style))).toBe(
+        encodeNode(lowerNode('c', plain, rows, style)),
+      );
+    }
+  });
+
+  it('a withheld row reaches no channel readout', () => {
+    if (!names.includes('bar-interval')) return;
+    const { spec, rows, style } = specAndRows(readInput('bar-interval', dir));
+    const json = encodeNode(lowerNode('c', spec, rows, style));
+    expect(json).not.toContain('11 – 19');
+    expect(json).toContain('effect · E · 6 – 13');
   });
 });

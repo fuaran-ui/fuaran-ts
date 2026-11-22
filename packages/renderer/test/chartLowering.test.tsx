@@ -142,6 +142,11 @@ const BRIDGE_DISPOSITIONS: Record<keyof ChartSpec<never>, BridgeDisposition> = {
   scale: 'threaded',
   // Phase 2809 — the withheld flag column crosses as-is.
   withheldField: 'threaded',
+  // Phase 2654 — the mark channels cross as declared.
+  interval: 'threaded',
+  sizeField: 'threaded',
+  sortBy: 'threaded',
+  pathField: 'threaded',
 };
 
 const currencyRows = [
@@ -245,6 +250,28 @@ const fieldCases: ReadonlyArray<
       withheldField: 'suppressed',
     },
     'suppressed',
+  ],
+  // Phase 2654 — the mark channels. The interval rides one series; the size and
+  // the path are read by a Scatter; the declared order reorders the bars.
+  [
+    'interval',
+    { yFields: ['revenue'], interval: { low: 'cost', high: 'revenue' } },
+    { low: 'cost', high: 'revenue' },
+  ],
+  [
+    'sizeField',
+    { kind: 'Scatter', xField: 'revenue', yFields: ['cost'], sizeField: 'revenue' },
+    'revenue',
+  ],
+  [
+    'sortBy',
+    { sortBy: { field: 'revenue', direction: 'desc' } },
+    { field: 'revenue', direction: 'desc' },
+  ],
+  [
+    'pathField',
+    { kind: 'Scatter', xField: 'revenue', yFields: ['cost'], pathField: 'revenue' },
+    'revenue',
   ],
 ];
 
