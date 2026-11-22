@@ -68,12 +68,12 @@ describe('Chart first-party lowering (Phase 534 tail)', () => {
     expect(html).not.toContain('fuaran-chart-placeholder');
   });
 
-  it('keeps the placeholder for a not-yet-lowered chart kind (Heatmap)', () => {
-    // Phase 636/637/638 — Area / Scatter / Pie now lower; Heatmap is the one
-    // remaining placeholder kind (its lowering rule lands with its own phase).
+  it('lowers a Heatmap first-party too — no kind keeps the placeholder (Phase 2655)', () => {
+    // Phase 636/637/638 lowered Area / Scatter / Pie; Phase 2655 gave Heatmap,
+    // the last placeholder kind, its cell-grid arm.
     const html = renderToStaticMarkup(<FuaranRenderer tree={chartNode('Heatmap', revenueRows)} />);
-    expect(html).toContain('fuaran-chart-placeholder');
-    expect(html).not.toContain('<svg');
+    expect(html).toContain('<svg');
+    expect(html).not.toContain('fuaran-chart-placeholder');
   });
 
   it('keeps the placeholder when the source resolves to no rows', () => {
@@ -138,6 +138,8 @@ const BRIDGE_DISPOSITIONS: Record<keyof ChartSpec<never>, BridgeDisposition> = {
   // the lowering's fit gate is confined to the `Literal` arm precisely so it
   // never has to.
   annotations: 'threaded',
+  // Phase 2655 — a heatmap's declared colour scale crosses as-is.
+  scale: 'threaded',
 };
 
 const currencyRows = [
@@ -214,6 +216,18 @@ const fieldCases: ReadonlyArray<
     },
     [{ kind: 'ReferenceLine', value: 14000000, label: { kind: 'Literal', value: 'Target' } }],
   ],
+  [
+    // Phase 2655 — a scale is read by a Heatmap alone, so the case declares one:
+    // the picture leg below is then trivially met by the kind, and the dedicated
+    // Heatmap assertion further down is the one that pins the scale itself.
+    'scale',
+    {
+      kind: 'Heatmap',
+      yFields: ['cost', 'revenue'],
+      scale: { kind: 'Diverging', midpoint: 14000000 },
+    },
+    { kind: 'Diverging', midpoint: 14000000 },
+  ],
 ];
 
 describe('the node → lowering bridge threads every declared chart field', () => {
@@ -268,6 +282,19 @@ describe('the node → lowering bridge threads every declared chart field', () =
 });
 
 describe('the threaded fields reach the drawing with their declared meaning', () => {
+  it('bins a Heatmap under its declared scale (Phase 2655)', () => {
+    const heatmap: ChartSpec<never> = {
+      ...baseSpec,
+      kind: 'Heatmap',
+      yFields: ['cost', 'revenue'],
+    };
+    const sequential = renderSpec(heatmap);
+    const diverging = renderSpec({ ...heatmap, scale: { kind: 'Diverging', midpoint: 14000000 } });
+    expect(sequential).toContain('#e8f2f7');
+    expect(diverging).not.toEqual(sequential);
+    expect(diverging).toContain('#f2f2f0');
+  });
+
   it('renders the declared currency unit on the value axis (Phase 876)', () => {
     const html = renderSpec({ ...baseSpec, valueFormat: { kind: 'Currency', isoCode: 'GBP' } });
     expect(html).toContain('£');

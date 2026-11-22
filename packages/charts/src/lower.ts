@@ -118,6 +118,7 @@ import {
   withSeriesMark,
   withTip,
 } from './shapes.js';
+import { lowerHeatmap } from './heatmap.js';
 import type { ChartLowerSpec, ChartLowerStyle, ChartRow } from './spec.js';
 import { capitalise, derivedSeriesFields, numericOf, stringOf } from './spec.js';
 import {
@@ -135,8 +136,8 @@ import {
 /**
  * Lower a resolved chart spec + data rows to a canonical `DrawingSpec`.
  * Lowered arms: `Bar` (grouped + stacked), `Line`, `Area` (overlaid + stacked),
- * `Scatter` (linear numeric x), `Pie` (polar, single-series). `Heatmap`
- * produces an empty drawing (its lowering rule lands with its own phase).
+ * `Scatter` (linear numeric x), `Pie` (polar, single-series), and `Heatmap`
+ * (Phase 2655 — a cell grid under a declared scale, `heatmap.ts`).
  * `stacked: true` on a kind where stacking is meaningless (`Line`, `Scatter`,
  * `Pie`) is ignored — the flag only changes `Bar` / `Area` geometry.
  * An EMPTY `yFields` reads the series off the rows — every numeric column but
@@ -151,6 +152,7 @@ export const lower = (
   rows: readonly ChartRow[],
   style?: ChartLowerStyle,
 ): DrawingSpec => {
+  if (spec.kind === 'Heatmap') return lowerHeatmap(spec, rows);
   if (spec.yFields.length > 0) return lowerSeries(spec, rows, style);
   const fields = derivedSeriesFields(spec.xField, rows);
   return fields.length > MAX_DERIVED_SERIES

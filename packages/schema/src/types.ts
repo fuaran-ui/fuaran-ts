@@ -324,6 +324,23 @@ export type ChartAnnotation =
       readonly label?: TextSource;
     };
 
+/**
+ * Phase 2655 — a chart's DECLARED colour scale (`ChartSpec.scale`), closing the
+ * "Gap 6" deferral as a scale rather than a per-cell colour. `Sequential` runs
+ * light to dark from `min` to `max`; `Diverging` meets at a light neutral
+ * `midpoint` (absent: zero). Every absent bound is the data's own extent. No
+ * colour crosses the wire: the lowering picks the ramp. Meaningful on `Heatmap`
+ * only; any other kind carrying it is refused pre-emit (FUARAN169).
+ */
+export type ChartScale =
+  | { readonly kind: 'Sequential'; readonly min?: number; readonly max?: number }
+  | {
+      readonly kind: 'Diverging';
+      readonly midpoint?: number;
+      readonly min?: number;
+      readonly max?: number;
+    };
+
 /** `aria-live` politeness. Wire form is lower-case (WIRE_FORMAT.md §3.5). */
 export type LiveRegionKind = EnumCase<'LiveRegionKind'>;
 
@@ -3117,6 +3134,10 @@ export interface ChartSpec<TMsg> extends IdlSpec<'Chart', TMsg> {
   // absent field and round-trips as `"annotations":[]` — it is what an author
   // who declared a list and then removed its last member wrote.
   readonly annotations?: readonly ChartAnnotation[];
+  // Phase 2655 — a heatmap's declared colour scale. Absent OMITS on the wire, so
+  // every pre-2655 chart is byte-identical; any kind but `Heatmap` carrying it is
+  // refused pre-emit (FUARAN169).
+  readonly scale?: ChartScale;
   readonly onPointClick?: (point: unknown) => Action<TMsg>;
 }
 
@@ -3217,6 +3238,7 @@ export interface UnionTypes<TMsg> {
   readonly ChartAnnotation: ChartAnnotation;
   readonly ChartAnnotationRange: ChartAnnotationRange;
   readonly ChartAnnotationX: ChartAnnotationX;
+  readonly ChartScale: ChartScale;
   readonly ColumnWidth: ColumnWidth;
   readonly CurveCommand: CurveCommand;
   readonly FormFieldKind: FormFieldKind<TMsg>;

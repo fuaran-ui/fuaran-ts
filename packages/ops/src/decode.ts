@@ -89,6 +89,7 @@ import type {
   CellKindErased,
   ChartAnnotation,
   ChartAnnotationRange,
+  ChartScale,
   ChartAnnotationX,
   ColumnErased,
   ColumnWidth,
@@ -1148,6 +1149,48 @@ const decodeChartAnnotationRange = (w: Walk, path: string, j: JsonAst): R<ChartA
     }
     default:
       return unknownDuCase(path, disc.value, 'ValueRange, XRange');
+  }
+};
+
+/**
+ * A chart's declared colour scale (Phase 2655). Every bound is an optional float
+ * at §7's ordinary (sentinel-widened) slot: what a bound MEANS against the rows
+ * is the lowering's — a non-finite one reads as absent there — and whether the
+ * kind admits a scale at all is the validator's (FUARAN169). The reference
+ * host's `decodeChartScale` reads the same shape.
+ */
+const decodeChartScale = (w: Walk, path: string, j: JsonAst): R<ChartScale> => {
+  const fo = requireObject(w, path, j);
+  if (!fo.ok) return fo;
+  const f = fo.value;
+  const disc = requireDiscriminator(path, f);
+  if (!disc.ok) return disc;
+  const bound = (key: string): R<number | undefined> => optField(w, path, f, key, requireFloat);
+  switch (disc.value) {
+    case 'Sequential': {
+      const min = bound('min');
+      const max = bound('max');
+      if (!min.ok || !max.ok) return failed(min, max);
+      return ok({
+        kind: 'Sequential',
+        ...(min.value !== undefined ? { min: min.value } : {}),
+        ...(max.value !== undefined ? { max: max.value } : {}),
+      });
+    }
+    case 'Diverging': {
+      const midpoint = bound('midpoint');
+      const min = bound('min');
+      const max = bound('max');
+      if (!midpoint.ok || !min.ok || !max.ok) return failed(midpoint, min, max);
+      return ok({
+        kind: 'Diverging',
+        ...(midpoint.value !== undefined ? { midpoint: midpoint.value } : {}),
+        ...(min.value !== undefined ? { min: min.value } : {}),
+        ...(max.value !== undefined ? { max: max.value } : {}),
+      });
+    }
+    default:
+      return unknownDuCase(path, disc.value, 'Sequential, Diverging');
   }
 };
 
@@ -4512,6 +4555,7 @@ const dialect = (() => {
         BoxLayout: decodeBoxLayout,
         CellFormat: decodeCellFormat,
         ChartAnnotation: decodeChartAnnotation,
+        ChartScale: decodeChartScale,
         Format: decodeFormat,
         HoleDecl: decodeHoleDecl,
         MediaKind: decodeMediaKind,

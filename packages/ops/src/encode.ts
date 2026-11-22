@@ -55,6 +55,7 @@ import type {
   CellKindErased,
   ChartAnnotation,
   ChartAnnotationRange,
+  ChartScale,
   ChartAnnotationX,
   ColumnErased,
   ColumnWidth,
@@ -1228,6 +1229,7 @@ const encDialect = (() => {
         BoxLayout: boxLayout as Enc,
         CellFormat: cellFormat as Enc,
         ChartAnnotation: chartAnnotation as Enc,
+        ChartScale: chartScale as Enc,
         Format: formatIntent as Enc,
         HoleDecl: holeDecl as Enc,
         MediaKind: mediaKind as Enc,
@@ -2180,6 +2182,19 @@ const chartAnnotation = (a: ChartAnnotation): string => {
     default:
       return caseObj('RangeBand', [['range', chartAnnotationRange(a.range)], ...label]);
   }
+};
+
+/** Phase 2655 — a chart's declared colour scale; an absent bound is omitted. */
+const chartScale = (s: ChartScale): string => {
+  const bound = (key: string, v: number | undefined): Field[] =>
+    v !== undefined ? [[key, num(v)]] : [];
+  return s.kind === 'Sequential'
+    ? caseObj('Sequential', [...bound('min', s.min), ...bound('max', s.max)])
+    : caseObj('Diverging', [
+        ...bound('midpoint', s.midpoint),
+        ...bound('min', s.min),
+        ...bound('max', s.max),
+      ]);
 };
 
 const chartSpec = specEncoder('Chart');

@@ -96,5 +96,8 @@ export const chartLowerSpecOf = <TMsg>(
     // the `TextSource` rule above — the lowering's fit gate is confined to the
     // `Literal` arm precisely so it never has to measure text it cannot know.
     ...(spec.annotations !== undefined ? { annotations: spec.annotations } : {}),
+    // Phase 2655 — a heatmap's declared colour scale, carried as declared: the
+    // lowering resolves its bounds against the rows and picks the ramp stop.
+    ...(spec.scale !== undefined ? { scale: spec.scale } : {}),
   };
 };

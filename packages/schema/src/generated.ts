@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = '710cf74d1f084d3f0854c8d58f6cebbbbac629b97e9bfeeb379d40628b28197e';
+export const IDL_SHA256 = 'b63cc2baad57c2036ad56bb91071b6594f35d80d47af10ff99d82a6acedfc17d';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -66,6 +66,11 @@ const T_union_ChartAnnotation = {
 const T_list_union_ChartAnnotation = {
   $type: 'list',
   of: T_union_ChartAnnotation,
+} as const satisfies IdlType;
+const T_union_ChartScale = {
+  $type: 'union',
+  name: 'ChartScale',
+  args: [],
 } as const satisfies IdlType;
 const T_int = { $type: 'int' } as const satisfies IdlType;
 const T_list_int = { $type: 'list', of: T_int } as const satisfies IdlType;
@@ -696,6 +701,7 @@ export const KIND_FIELDS = {
     { name: 'dataLabels', opt: 'optional', type: T_enum_ChartDataLabels },
     { name: 'xScale', opt: 'optional', type: T_enum_ChartXScale },
     { name: 'annotations', opt: 'optional', type: T_list_union_ChartAnnotation },
+    { name: 'scale', opt: 'optional', type: T_union_ChartScale },
     { name: 'onPointClick', opt: 'optional', type: T_fn },
   ],
   CodeBlock: [
@@ -1683,6 +1689,17 @@ export const UNION_CASES = {
   ChartAnnotationX: {
     Category: [{ name: 'key', opt: 'required', type: T_str }],
     Date: [{ name: 'iso', opt: 'required', type: T_str }],
+  },
+  ChartScale: {
+    Sequential: [
+      { name: 'min', opt: 'optional', type: T_float },
+      { name: 'max', opt: 'optional', type: T_float },
+    ],
+    Diverging: [
+      { name: 'midpoint', opt: 'optional', type: T_float },
+      { name: 'min', opt: 'optional', type: T_float },
+      { name: 'max', opt: 'optional', type: T_float },
+    ],
   },
   ColumnWidth: {
     Auto: [],

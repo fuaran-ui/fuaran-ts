@@ -27,6 +27,7 @@ import type {
   ChartAnnotation,
   ChartAnnotationRange,
   ChartAnnotationX,
+  ChartScale,
   TextSource,
 } from '@fuaran-ui/schema';
 
@@ -77,6 +78,10 @@ interface ChartInput {
   // in canonical `$type` JSON; omitted when absent (so every pre-1490 input AND
   // golden is byte-unchanged).
   readonly annotations?: readonly WireCase[];
+  // Phase 2655 — a heatmap's declared colour scale, a WIRE field carried in
+  // canonical `$type` JSON; omitted when absent (so every pre-2655 input AND
+  // golden is byte-unchanged).
+  readonly scale?: WireCase;
   readonly data: readonly ChartRow[];
 }
 
@@ -110,6 +115,21 @@ const annotationRangeOf = (raw: WireCase): ChartAnnotationRange => {
       throw new Error(
         `chart-lowering input: unsupported ChartAnnotationRange ${String(raw['$type'])}`,
       );
+  }
+};
+
+/** The corpus carries a heatmap scale in canonical wire JSON; the lowering takes
+ * the host's tagged-union shape. */
+const scaleOf = (raw: WireCase): ChartScale => {
+  const bound = (key: string): Record<string, number> =>
+    raw[key] !== undefined ? { [key]: raw[key] as number } : {};
+  switch (raw['$type']) {
+    case 'Sequential':
+      return { kind: 'Sequential', ...bound('min'), ...bound('max') };
+    case 'Diverging':
+      return { kind: 'Diverging', ...bound('midpoint'), ...bound('min'), ...bound('max') };
+    default:
+      throw new Error(`chart-lowering input: unsupported ChartScale ${String(raw['$type'])}`);
   }
 };
 
@@ -217,6 +237,7 @@ const specAndRows = (
     ...(inp.xScale !== undefined ? { xScale: inp.xScale } : {}),
     // Phase 1490/1491/1492 — same omitted-when-absent posture; a real wire field.
     ...(inp.annotations !== undefined ? { annotations: inp.annotations.map(annotationOf) } : {}),
+    ...(inp.scale !== undefined ? { scale: scaleOf(inp.scale) } : {}),
   },
   rows: inp.data,
   style: inp.axisUnitMode !== undefined ? { axisUnitMode: inp.axisUnitMode } : {},
@@ -239,6 +260,7 @@ const KNOWN_INPUT_MEMBERS: ReadonlySet<string> = new Set([
   'dataLabels',
   'xScale',
   'annotations',
+  'scale',
   'data',
 ]);
 
@@ -399,5 +421,51 @@ describe('chart lowering — series read from the rows (Phase 2568)', () => {
         { x: 'b', b: null, a: 3, t: 'more', f: false, n: 4 },
       ]),
     ).toEqual(['a', 'b', 'n']);
+  });
+});
+
+// Phase 2655 — the Heatmap arm (`chart-lowering/heatmap/`, WIRE_FORMAT §3.6.35). A
+// subfamily for the derived-series reason: the top-level enumeration above does
+// not reach it. A cell grid under a declared scale, binned onto the ramp; an
+// absent pair or an empty value cell draws the surface; a grid over the cell
+// budget is the refusal drawing.
+describe('chart lowering — Heatmap (Phase 2655)', () => {
+  const dir = join(CHART_LOWERING_DIR, 'heatmap');
+  const names = existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => f.endsWith('.input.json'))
+        .map((f) => f.slice(0, -'.input.json'.length))
+        .sort()
+    : [];
+
+  it.runIf(existsSync(CHART_LOWERING_DIR))('the subfamily is present', () => {
+    expect(names.length).toBeGreaterThan(0);
+  });
+
+  it.each(names)('%s — TS lowering is byte-identical to the golden', (name) => {
+    const expected = readFileSync(join(dir, `${name}.expected.json`), 'utf8');
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    expect(spec.kind).toBe('Heatmap');
+    expect(encodeNode(lowerNode(`chart-${name}`, spec, rows, style))).toBe(expected);
+  });
+
+  it.each(names)('%s — the member order a row writes does not matter', (name) => {
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    const reversedRows = rows.map(
+      (r) => Object.fromEntries(Object.entries(r).reverse()) as ChartRow,
+    );
+    expect(encodeNode(lowerNode('c', spec, reversedRows, style))).toBe(
+      encodeNode(lowerNode('c', spec, rows, style)),
+    );
+  });
+
+  it('an absent scale lowers as an explicit sequential scale over the data', () => {
+    const name = 'heatmap-sequential';
+    if (!names.includes(name)) return;
+    const { spec, rows, style } = specAndRows(readInput(name, dir));
+    expect(spec.scale).toBeUndefined();
+    expect(encodeNode(lowerNode('c', spec, rows, style))).toBe(
+      encodeNode(lowerNode('c', { ...spec, scale: { kind: 'Sequential' } }, rows, style)),
+    );
   });
 });

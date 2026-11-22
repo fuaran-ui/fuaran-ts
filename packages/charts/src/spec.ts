@@ -9,6 +9,7 @@ import type {
   ChartDataLabels,
   ChartKind,
   ChartLegendPosition,
+  ChartScale,
   ChartXScale,
   Format,
   TextSource,
@@ -120,6 +121,14 @@ export interface ChartLowerSpec {
    * Absent (and empty) draws nothing, so a pre-1490 spec lowers byte-for-byte.
    */
   readonly annotations?: readonly ChartAnnotation[];
+  /**
+   * Phase 2655 — a `Heatmap`'s DECLARED colour scale: sequential from a floor,
+   * or diverging about a midpoint. The author states what the value means; the
+   * lowering picks the ramp stop. No colour crosses the wire ("Gap 6").
+   *
+   * Absent means sequential over the data's extent. Read by `Heatmap` only.
+   */
+  readonly scale?: ChartScale;
 }
 
 /**
@@ -141,7 +150,8 @@ export type ChartRow = Readonly<Record<string, unknown>>;
  * (client + server) consults THIS — so the first-party render branch and the
  * lowering's arm set can never drift apart.
  */
-export const isLowered = (kind: ChartKind): boolean => kind !== 'Heatmap';
+/** Every `ChartKind` lowers first-party since `Heatmap` gained its arm (Phase 2655). */
+export const isLowered = (_kind: ChartKind): boolean => true;
 
 // ─── Row field extraction ─────────────────────────────────────────────────────
 
