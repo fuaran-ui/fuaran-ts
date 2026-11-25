@@ -396,8 +396,10 @@ export const renderLayout = <TMsg,>(
         <div
           className="fuaran-modal-overlay"
           {...(!isOpen ? { hidden: true } : {})}
-          onClick={() => {
-            if (layout.spec.dismissable) dismiss();
+          onClick={(e) => {
+            // Phase 2572 — light dismiss on the BACKDROP only: a click inside the
+            // dialog bubbles here too, and must not close it.
+            if (layout.spec.dismissable && e.target === e.currentTarget) dismiss();
           }}
         >
           <div className="fuaran-modal-dialog" role="dialog" aria-modal="true">
