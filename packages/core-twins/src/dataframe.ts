@@ -116,12 +116,6 @@ interface Frame {
   readonly n: number;
 }
 
-/** One row of a frame: what `evalExpr` reads a `col` reference through. */
-interface RowRef {
-  readonly data: readonly DataColumn[];
-  readonly i: number;
-}
-
 const NULL: Cell = { kind: 'Null' };
 
 const isNull = (c: Cell): boolean => c.kind === 'Null';
@@ -885,128 +879,193 @@ const civilDays = (c: Cell): DR<number> => {
   return derr(typeError('dateDiffDays expects date/timestamp/string operands'));
 };
 
-/** Evaluate a `ColExpr` against one row. */
 /** The evaluation environment (fuaran-core#77) — binds each `ColExpr.param` name to a `Cell`. */
 export type EvalEnv = Readonly<Record<string, Cell>>;
 const EMPTY_ENV: EvalEnv = {};
 
-const evalExpr = (
+/** A compiled `ColExpr`: row `i` of the frame it was compiled against, evaluated. */
+type RowFn = (i: number) => DR<Cell>;
+
+/**
+ * Compile a `ColExpr` against one frame and one environment, once per step (Phase 1893, the
+ * reference evaluator's technique of resolving column indices once per step): every column
+ * reference is resolved to its column, every parameter to its binding and every operator to its
+ * family before any row is read, so evaluating a row is a walk of closures. Nothing refuses at
+ * compile time: a reference the schema does not hold, an unbound parameter or a bad scale refuses
+ * when a row reaches it, in the order the per-row walk this replaces met them.
+ */
+const compileExpr = (
   cols: readonly SchemaEntry[],
-  row: RowRef,
+  data: readonly DataColumn[],
   e: ColExpr,
-  env: EvalEnv = EMPTY_ENV,
-): DR<Cell> => {
+  env: EvalEnv,
+): RowFn => {
+  const go = (x: ColExpr): RowFn => compileExpr(cols, data, x, env);
   switch (e.kind) {
     case 'col': {
-      const i = colIndex(cols, e.name);
-      return i >= 0
-        ? dok(cellAt(row.data[i]!, row.i))
-        : derr(unknownColumn(e.name, available(cols)));
+      const ci = colIndex(cols, e.name);
+      if (ci < 0) return () => derr(unknownColumn(e.name, available(cols)));
+      const c = data[ci]!;
+      return (i) => dok(cellAt(c, i));
     }
-    case 'lit':
-      return dok(e.cell);
+    case 'lit': {
+      const v = dok(e.cell);
+      return () => v;
+    }
     case 'param': {
       // fuaran-core#77 — resolve a named param from the env; a miss is a strict `UnboundParam`.
       const c = Object.prototype.hasOwnProperty.call(env, e.name) ? env[e.name] : undefined;
-      return c !== undefined ? dok(c) : derr(unboundParam(e.name, Object.keys(env).sort()));
+      if (c === undefined) return () => derr(unboundParam(e.name, Object.keys(env).sort()));
+      const v = dok(c);
+      return () => v;
     }
     case 'binary': {
-      const a = evalExpr(cols, row, e.left, env);
-      if (!a.ok) return a;
-      const b = evalExpr(cols, row, e.right, env);
-      if (!b.ok) return b;
-      if (ARITH_OPS.has(e.op)) return arith(e.op, a.value, b.value);
-      if (CMP_OPS.has(e.op)) return comparison(e.op, a.value, b.value);
-      if (STR_OPS.has(e.op)) return stringPred(e.op, a.value, b.value);
-      return logical(e.op, a.value, b.value);
+      const left = go(e.left);
+      const right = go(e.right);
+      const op = e.op;
+      const apply = ARITH_OPS.has(op)
+        ? arith
+        : CMP_OPS.has(op)
+          ? comparison
+          : STR_OPS.has(op)
+            ? stringPred
+            : logical;
+      return (i) => {
+        const a = left(i);
+        if (!a.ok) return a;
+        const b = right(i);
+        if (!b.ok) return b;
+        return apply(op, a.value, b.value);
+      };
     }
     case 'not': {
-      const inner = evalExpr(cols, row, e.expr, env);
-      if (!inner.ok) return inner;
-      const c = inner.value;
-      if (c.kind === 'Bool') return dok({ kind: 'Bool', value: !c.value });
-      if (c.kind === 'Null') return dok(NULL);
-      return derr(typeError('not of a non-bool'));
+      const inner = go(e.expr);
+      return (i) => {
+        const r = inner(i);
+        if (!r.ok) return r;
+        const c = r.value;
+        if (c.kind === 'Bool') return dok({ kind: 'Bool', value: !c.value });
+        if (c.kind === 'Null') return dok(NULL);
+        return derr(typeError('not of a non-bool'));
+      };
     }
     case 'coalesce': {
-      for (const x of e.exprs) {
-        const r = evalExpr(cols, row, x, env);
-        if (!r.ok) return r;
-        if (r.value.kind !== 'Null') return dok(r.value);
-      }
-      return dok(NULL);
+      const xs = e.exprs.map(go);
+      return (i) => {
+        for (const x of xs) {
+          const r = x(i);
+          if (!r.ok) return r;
+          if (r.value.kind !== 'Null') return dok(r.value);
+        }
+        return dok(NULL);
+      };
     }
     case 'case': {
-      for (const br of e.cases) {
-        const w = evalExpr(cols, row, br.when, env);
-        if (!w.ok) return w;
-        if (w.value.kind === 'Bool' && w.value.value) return evalExpr(cols, row, br.then, env);
-      }
-      return evalExpr(cols, row, e.else, env);
+      const branches = e.cases.map((br) => ({ when: go(br.when), then: go(br.then) }));
+      const otherwise = go(e.else);
+      return (i) => {
+        for (const br of branches) {
+          const w = br.when(i);
+          if (!w.ok) return w;
+          if (w.value.kind === 'Bool' && w.value.value) return br.then(i);
+        }
+        return otherwise(i);
+      };
     }
     case 'cast': {
-      const inner = evalExpr(cols, row, e.expr, env);
-      return inner.ok ? castCell(e.type, inner.value) : inner;
+      const inner = go(e.expr);
+      const ty = e.type;
+      return (i) => {
+        const r = inner(i);
+        return r.ok ? castCell(ty, r.value) : r;
+      };
     }
     case 'apply': {
-      const vals: Cell[] = [];
-      for (const a of e.args) {
-        const r = evalExpr(cols, row, a, env);
-        if (!r.ok) return r;
-        vals.push(r.value);
-      }
-      return applyScalar(e.fn, vals);
+      const args = e.args.map(go);
+      const fn = e.fn;
+      return (i) => {
+        const vals: Cell[] = [];
+        for (const a of args) {
+          const r = a(i);
+          if (!r.ok) return r;
+          vals.push(r.value);
+        }
+        return applyScalar(fn, vals);
+      };
     }
     case 'in': {
       // fuaran-core#90 — SQL three-valued membership: null subject => null; any equal item =>
       // true; no match having seen a null item => null; else false.
-      const sv = evalExpr(cols, row, e.expr, env);
-      if (!sv.ok) return sv;
-      if (sv.value.kind === 'Null') return dok(NULL);
-      let sawNull = false;
-      for (const it of e.items) {
-        const iv = evalExpr(cols, row, it, env);
-        if (!iv.ok) return iv;
-        if (iv.value.kind === 'Null') {
-          sawNull = true;
-          continue;
+      const subject = go(e.expr);
+      const items = e.items.map(go);
+      return (i) => {
+        const sv = subject(i);
+        if (!sv.ok) return sv;
+        if (sv.value.kind === 'Null') return dok(NULL);
+        let sawNull = false;
+        for (const it of items) {
+          const iv = it(i);
+          if (!iv.ok) return iv;
+          if (iv.value.kind === 'Null') {
+            sawNull = true;
+            continue;
+          }
+          const c = compareCells(sv.value, iv.value);
+          if (c === undefined) return derr(typeError('in: comparison between incompatible types'));
+          if (c === 0) return dok({ kind: 'Bool', value: true });
         }
-        const c = compareCells(sv.value, iv.value);
-        if (c === undefined) return derr(typeError('in: comparison between incompatible types'));
-        if (c === 0) return dok({ kind: 'Bool', value: true });
-      }
-      return sawNull ? dok(NULL) : dok({ kind: 'Bool', value: false });
+        return sawNull ? dok(NULL) : dok({ kind: 'Bool', value: false });
+      };
     }
     case 'isNull': {
       // fuaran-core#90 — total: always Bool, never null.
-      const inner = evalExpr(cols, row, e.expr, env);
-      return inner.ok ? dok({ kind: 'Bool', value: inner.value.kind === 'Null' }) : inner;
+      const inner = go(e.expr);
+      return (i) => {
+        const r = inner(i);
+        return r.ok ? dok({ kind: 'Bool', value: r.value.kind === 'Null' }) : r;
+      };
     }
     case 'inParam':
       // fuaran-core#91 — list params resolve by substitution BEFORE evaluation; one that
       // reaches the evaluator is unbound (scalar-param strictness parity).
-      return derr(unboundParam(e.param, Object.keys(env).sort()));
+      return () => derr(unboundParam(e.param, Object.keys(env).sort()));
     case 'quotient': {
       // Evaluation order: the scale, the dividend, the divisor.
       const bad = scaleRefusal(e.rounding.scale);
-      if (bad !== undefined) return derr(bad);
-      const a = evalExpr(cols, row, e.dividend, env);
-      if (!a.ok) return a;
-      const b = evalExpr(cols, row, e.divisor, env);
-      if (!b.ok) return b;
-      return quotientCell(e.rounding.mode, e.rounding.scale, a.value, b.value);
+      if (bad !== undefined) return () => derr(bad);
+      const dividend = go(e.dividend);
+      const divisor = go(e.divisor);
+      const { mode, scale } = e.rounding;
+      return (i) => {
+        const a = dividend(i);
+        if (!a.ok) return a;
+        const b = divisor(i);
+        if (!b.ok) return b;
+        return quotientCell(mode, scale, a.value, b.value);
+      };
     }
     case 'rounded': {
       const bad = scaleRefusal(e.rounding.scale);
-      if (bad !== undefined) return derr(bad);
-      const a = evalExpr(cols, row, e.expr, env);
-      return a.ok ? roundedCell(e.rounding.mode, e.rounding.scale, a.value) : a;
+      if (bad !== undefined) return () => derr(bad);
+      const inner = go(e.expr);
+      const { mode, scale } = e.rounding;
+      return (i) => {
+        const a = inner(i);
+        return a.ok ? roundedCell(mode, scale, a.value) : a;
+      };
     }
     case 'convert': {
       // Every step resolves a conversion against its schema before evaluation; one that reaches
-      // here is resolved the same way, and a mismatch is raised when a row reaches it.
-      const r = resolveUnitsIn('expression', cols, e);
-      return r.ok ? evalExpr(cols, row, r.value.expr, env) : r;
+      // here is resolved the same way, and a mismatch is raised when a row reaches it. The
+      // resolution waits for the first row, as it did when it was made per row.
+      let resolved: RowFn | undefined;
+      return (i) => {
+        if (resolved === undefined) {
+          const r = resolveUnitsIn('expression', cols, e);
+          resolved = r.ok ? go(r.value.expr) : () => r;
+        }
+        return resolved(i);
+      };
     }
   }
 };
@@ -2161,10 +2220,10 @@ const evalFilter = (f: Frame, predicate: ColExpr, env: EvalEnv = EMPTY_ENV): DR<
   // is evaluated.
   const checked = resolveUnitsIn('filter', f.cols, predicate);
   if (!checked.ok) return checked;
-  const pred = checked.value.expr;
+  const pred = compileExpr(f.cols, f.data, checked.value.expr, env);
   const keep: number[] = [];
   for (let i = 0; i < f.n; i += 1) {
-    const r = evalExpr(f.cols, { data: f.data, i }, pred, env);
+    const r = pred(i);
     if (!r.ok) return r;
     if (r.value.kind === 'Bool' && r.value.value) keep.push(i);
   }
@@ -2236,9 +2295,10 @@ const evalDerive = (
   const { unit, expr } = checked.value;
   const dt = derivedTypingIn(env, f.cols, expr);
   if (dt.kind === 'refused') return derr(floatBesideDecimal(name));
+  const row = compileExpr(f.cols, f.data, expr, env);
   const newCells: Cell[] = [];
   for (let i = 0; i < f.n; i += 1) {
-    const r = evalExpr(f.cols, { data: f.data, i }, expr, env);
+    const r = row(i);
     if (!r.ok) return r;
     newCells.push(r.value);
   }
@@ -2971,7 +3031,7 @@ export const pipelineParams = (pipeline: readonly Transform[]): readonly string[
 //
 // A LIST param resolves by SUBSTITUTION, not through the evaluation env: every
 // `inParam` bound in `listEnv` is rewritten to the literal `in` form BEFORE the
-// pipeline is evaluated, which is why `evalExpr`'s `inParam` arm is an unbound-param
+// pipeline is evaluated, which is why `compileExpr`'s `inParam` arm is an unbound-param
 // error rather than a lookup. An unbound `inParam` is left intact — the host's prune
 // then sees it still naming its own param, so one `stepParams`-driven prune covers
 // scalar and list params alike.
