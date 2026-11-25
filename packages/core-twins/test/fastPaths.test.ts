@@ -13,7 +13,7 @@ import type { Cell, ColumnType, JoinKind, Table } from '@fuaran-ui/schema';
 
 import { cellAt, columnLength, instantParts } from '../src/column.js';
 import { decimalCompare } from '../src/decimalText.js';
-import { evalPipeline } from '../src/dataframe.js';
+import { aggregateCells, cellString, evalPipeline } from '../src/dataframe.js';
 import { col } from './tables.js';
 
 const N: Cell = { kind: 'Null' };
@@ -181,5 +181,65 @@ describe('the hash join answers what the nested loop answered', () => {
     for (const how of HOWS)
       it(`${name} (${how})`, () => {
         expect(join(left, right, on, how)).toEqual(oracleJoin(left, right, on, how));
+      });
+});
+
+/** The pivot the one-pass bucketing replaced: every (on value, index group) cell a filter of the group. */
+const oraclePivot = (t: Table, out: Table, agg: 'sum' | 'count'): Cell[][] => {
+  const rows = rowsOf(t);
+  const [idx, on, v] = [0, 1, 2];
+  const groups: Cell[][][] = [];
+  for (const r of rows) {
+    const g = groups.find((g) => JSON.stringify(g[0]![idx]) === JSON.stringify(r[idx]));
+    if (g === undefined) groups.push([r]);
+    else g.push(r);
+  }
+  const names = out.schema.slice(1).map((e) => e.name);
+  const onCells = names.map(
+    (n) => rows.find((r) => r[on]!.kind !== 'Null' && cellString(r[on]!) === n)![on]!,
+  );
+  return groups.map((g) => [
+    g[0]![idx]!,
+    ...onCells.map((ov) => {
+      const a = aggregateCells(
+        agg,
+        'float',
+        g.filter((r) => oracleEq(r[on]!, ov)).map((r) => r[v]!),
+      );
+      if (!a.ok) throw new Error(JSON.stringify(a.error));
+      return a.value;
+    }),
+  ]);
+};
+
+const pivotInputs: readonly (readonly [string, Table])[] = [
+  [
+    'float on values with NaN and nulls, a null index group',
+    table([
+      ['idx', 'string', [S('a'), S('b'), S('a'), N, S('a'), S('b'), N, S('b')]],
+      ['on', 'float', [F(1), F(2), F(1), F(1), F(NaN), F(NaN), N, F(2)]],
+      ['v', 'float', [F(1), F(2), F(3), F(4), F(5), F(6), F(7), N]],
+    ]),
+  ],
+  [
+    'decimal on values equal by value',
+    table([
+      ['idx', 'string', [S('a'), S('a'), S('b'), S('b')]],
+      ['on', 'decimal', [M('1.50'), M('1.5'), M('2'), M('2.00')]],
+      ['v', 'float', [F(1), F(2), F(3), F(4)]],
+    ]),
+  ],
+];
+
+describe('the one-pass pivot answers what the per-cell filter answered', () => {
+  for (const [name, t] of pivotInputs)
+    for (const agg of ['sum', 'count'] as const)
+      it(`${name} (${agg})`, () => {
+        const r = evalPipeline(
+          [{ kind: 'pivot', spec: { index: ['idx'], on: 'on', values: 'v', agg } }],
+          t,
+        );
+        if (!r.ok) throw new Error(JSON.stringify(r.error));
+        expect(rowsOf(r.value)).toEqual(oraclePivot(t, r.value, agg));
       });
 });

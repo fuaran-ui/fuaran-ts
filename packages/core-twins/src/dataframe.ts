@@ -245,14 +245,6 @@ const compareCells = (a: Cell, b: Cell): number | undefined => {
   return undefined;
 };
 
-const cellEq = (a: Cell, b: Cell): boolean => {
-  if (a.kind === 'Null' || b.kind === 'Null') return false;
-  // A decimal matches only a decimal (an equi-join key never promotes).
-  if (a.kind === 'Decimal' || b.kind === 'Decimal')
-    return a.kind === b.kind && compareCells(a, b) === 0;
-  return compareCells(a, b) === 0;
-};
-
 const bothInt = (a: Cell, b: Cell): boolean => a.kind === 'Int' && b.kind === 'Int';
 
 /**
@@ -2600,13 +2592,38 @@ const evalPivot = (f: Frame, spec: PivotSpecLike): DR<Frame> => {
     stated(valueUnit, fresh(cellString(ov), aggType(spec.agg, valType))),
   );
 
+  // One pass buckets every row by its (on value, index group) cell, in row order, so each bucket
+  // holds the rows a filter of its group by that on value would keep, in the same order. The
+  // on value is read as its equi-join key: within one column that key is shared exactly when the
+  // cells are equal, and a row no on value matches (a null) lands in no bucket.
+  const onSlot = new Map<string, number>();
+  onValues.forEach((ov, p) => onSlot.set(cellKey(ov), p));
+  const slotOfKey = new Map<string, number>();
+  const G = groups.length;
+  const buckets = new Array<number[] | undefined>(onValues.length * G);
+  groups.forEach((g, gi) => {
+    for (const r of g) {
+      const jk = joinKeyAt(onCol, r);
+      if (jk === undefined) continue;
+      let p = slotOfKey.get(jk);
+      if (p === undefined) {
+        p = onSlot.get(cellKey(cellAt(onCol, r)))!;
+        slotOfKey.set(jk, p);
+      }
+      const at = p * G + gi;
+      const b = buckets[at];
+      if (b === undefined) buckets[at] = [r];
+      else b.push(r);
+    }
+  });
+  const NO_ROWS: number[] = [];
+
   const firsts = groups.map((g) => g[0]!);
   const data: DataColumn[] = idxIdx.map((ci, k) => takeRows(f.data[ci]!, firsts, spec.index[k]!));
   for (let p = 0; p < onValues.length; p += 1) {
-    const ov = onValues[p]!;
     const out: Cell[] = [];
-    for (const g of groups) {
-      const matching = g.filter((r) => cellEq(cellAt(onCol, r), ov));
+    for (let gi = 0; gi < G; gi += 1) {
+      const matching = buckets[p * G + gi] ?? NO_ROWS;
       const v = aggregateRows(spec.agg, valType, f.data[valIdx]!, matching);
       if (!v.ok) return v;
       out.push(v.value);
