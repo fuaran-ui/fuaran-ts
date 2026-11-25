@@ -1144,15 +1144,6 @@
       "description": "§15.6 producer-support shim (Phase 2451) — the `panel@1.0` schedule form on its own, the node a frame of that revision carries when it re-inserts the form. Decodes through the §16 `Date` alias and re-encodes in the current spelling"
     },
     {
-      "id": "lenient-2536-text-field-shaped-as-node",
-      "kind": "lenient-accept",
-      "since": "0.107.0",
-      "decoder": "node",
-      "inputFile": "lenient/lenient-2536-text-field-shaped-as-node.json",
-      "expectedFile": "lenient/lenient-2536-text-field-shaped-as-node.expected.json",
-      "description": "§11.4 / §2 rule 2 (Phase 2536) — a `Text` inside a `Form`'s `fields[]` is read as the `Text` form field whatever its shape: one written like the `Text` node, carrying `text`, decodes as a text input and re-encodes WITHOUT `text`, a member that field does not declare. Not a shorthand and never taught; a `Text` at a node position missing `text` stays refused (`reject-text-node-shaped-as-field`)"
-    },
-    {
       "id": "lenient-460-alias-emphasis-muted",
       "kind": "lenient-accept",
       "since": "0.3.0",

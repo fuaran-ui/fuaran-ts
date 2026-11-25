@@ -1,1 +1,0 @@
-{"id":"len-2536","kind":{"$type":"Form","fields":[{"id":"query","kind":{"$type":"Text","text":"Search by name or ID."},"label":"Search"}],"onSubmit":{"$type":"Chain","ops":[]},"submitLabel":"Search"}}
