@@ -28,6 +28,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "bench": "tsup && node --expose-gc bench/dataframe.bench.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "lint": "tsc --noEmit -p tsconfig.test.json"
