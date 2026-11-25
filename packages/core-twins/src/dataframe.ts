@@ -168,13 +168,6 @@ const selectRows = (f: Frame, rows: ArrayLike<number>): Frame => ({
   n: rows.length,
 });
 
-/** The cells of row `i` at the column indices `idxs`. */
-const cellsAt = (data: readonly DataColumn[], idxs: readonly number[], i: number): Cell[] =>
-  idxs.map((ci) => cellAt(data[ci]!, i));
-
-/** Every cell of row `i`. */
-const rowCells = (f: Frame, i: number): Cell[] => f.data.map((c) => cellAt(c, i));
-
 const colIndex = (cols: readonly SchemaEntry[], name: string): number =>
   cols.findIndex((e) => e.name === name);
 
@@ -2062,7 +2055,55 @@ const cellKey = (c: Cell): string => {
   }
 };
 
-const rowKey = (cells: readonly Cell[]): string => cells.map(cellKey).join('');
+const FRACTION_TO_NANOS = [1e9, 1e8, 1e7, 1e6, 1e5, 1e4, 1e3, 1e2, 1e1, 1];
+
+/** An instant's identity whatever its unit: its whole second and its fraction at nine digits. */
+const instantKey = (
+  c: DataColumn,
+  d: Extract<DataColumn['data'], { kind: 'Timestamps' }>,
+  i: number,
+): string =>
+  String(d.seconds[i]!) +
+  '.' +
+  String((d.fraction?.[i] ?? 0) * FRACTION_TO_NANOS[timestampDigits(c.type) ?? 0]!);
+
+/**
+ * `cellKey` of row `i` of column `c`, read from the typed storage without boxing a cell (Phase
+ * 1893). A date keys on its day count and an instant on its second and its fraction at nine digits:
+ * each is one-to-one with the canonical text the cell would carry, so two rows share a key here
+ * exactly when their cells share one under `cellKey`, in one frame or across two.
+ */
+const cellKeyAt = (c: DataColumn, i: number): string => {
+  const d = c.data;
+  if (!isPresentAt(d, i)) return 'N';
+  switch (d.kind) {
+    case 'Ints':
+      return 'I' + String(d.values[i]!);
+    case 'Floats':
+      return 'F' + String(d.values[i]!);
+    case 'Bools':
+      return d.values[i] === 1 ? 'B1' : 'B0';
+    case 'Strs':
+      return 'S' + d.values[i]!;
+    case 'Dates':
+      return 'D' + String(d.values[i]!);
+    case 'Timestamps':
+      return 'T' + instantKey(c, d, i);
+    case 'Decimals':
+      return 'M' + (decimalCanonical(d.values[i]!) ?? d.values[i]!);
+  }
+};
+
+/** Row `i`'s structural key over the columns `cols` of `data` (every column where `cols` is omitted). */
+const rowKeyAt = (data: readonly DataColumn[], i: number, cols?: readonly number[]): string => {
+  let key = '';
+  const n = cols === undefined ? data.length : cols.length;
+  for (let k = 0; k < n; k += 1) {
+    if (k > 0) key += '\u0001';
+    key += cellKeyAt(data[cols === undefined ? k : cols[k]!]!, i);
+  }
+  return key;
+};
 
 // ─── equi-join keys (Phase 1893: the hash join) ──────────────────────────────
 //
@@ -2073,8 +2114,6 @@ const rowKey = (cells: readonly Cell[]): string => cells.map(cellKey).join('');
 // `compareFloat` orders them), a decimal is its canonical text (one text per value), a date its day
 // count, an instant its whole second and its fraction at nine digits (so units compare by the
 // instant), and every family carries its own tag, so no two families ever share a key.
-
-const FRACTION_TO_NANOS = [1e9, 1e8, 1e7, 1e6, 1e5, 1e4, 1e3, 1e2, 1e1, 1];
 
 /** Row `i`'s equi-join key in column `c`, or `undefined` where it matches nothing. */
 const joinKeyAt = (c: DataColumn, i: number): string | undefined => {
@@ -2090,10 +2129,8 @@ const joinKeyAt = (c: DataColumn, i: number): string | undefined => {
       return 'S' + d.values[i]!;
     case 'Dates':
       return 'D' + String(d.values[i]!);
-    case 'Timestamps': {
-      const nanos = (d.fraction?.[i] ?? 0) * FRACTION_TO_NANOS[timestampDigits(c.type) ?? 0]!;
-      return 'T' + String(d.seconds[i]!) + '.' + String(nanos);
-    }
+    case 'Timestamps':
+      return 'T' + instantKey(c, d, i);
     case 'Decimals': {
       const t = decimalCanonical(d.values[i]!);
       return t === undefined ? undefined : 'M' + t;
@@ -2227,7 +2264,7 @@ const groupRows = (f: Frame, idxs: readonly number[]): number[][] => {
   const groups = new Map<string, number[]>();
   const order: number[][] = [];
   for (let i = 0; i < f.n; i += 1) {
-    const ks = rowKey(cellsAt(f.data, idxs, i));
+    const ks = rowKeyAt(f.data, i, idxs);
     const g = groups.get(ks);
     if (g === undefined) {
       const fresh = [i];
@@ -2301,7 +2338,7 @@ const evalDistinct = (f: Frame): Frame => {
   const seen = new Set<string>();
   const keep: number[] = [];
   for (let i = 0; i < f.n; i += 1) {
-    const k = rowKey(rowCells(f, i));
+    const k = rowKeyAt(f.data, i);
     if (!seen.has(k)) {
       seen.add(k);
       keep.push(i);
@@ -2456,10 +2493,10 @@ const evalSetOp = (verb: string, keepPresent: boolean, f: Frame, other: Frame): 
     if (!agreed.ok) return agreed;
   }
   const present = new Set<string>();
-  for (let i = 0; i < other.n; i += 1) present.add(rowKey(rowCells(other, i)));
+  for (let i = 0; i < other.n; i += 1) present.add(rowKeyAt(other.data, i));
   const keep: number[] = [];
   for (let i = 0; i < f.n; i += 1) {
-    if (present.has(rowKey(rowCells(f, i))) === keepPresent) keep.push(i);
+    if (present.has(rowKeyAt(f.data, i)) === keepPresent) keep.push(i);
   }
   return dok(selectRows(f, keep));
 };

@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import type { Cell, ColumnType, JoinKind, Table } from '@fuaran-ui/schema';
 
 import { cellAt, columnLength, instantParts } from '../src/column.js';
-import { decimalCompare } from '../src/decimalText.js';
+import { decimalCanonical, decimalCompare } from '../src/decimalText.js';
 import { aggregateCells, cellString, evalPipeline } from '../src/dataframe.js';
 import { col } from './tables.js';
 
@@ -385,5 +385,103 @@ describe('the typed sort comparator orders as the boxed cell order did', () => {
     const ranks = rowsOf(r.value).map((row) => row[row.length - 1]);
     // i = [3, 1, 2, null, 1, 3, 2, 1] ordered desc, nulls last: 3 3 2 2 1 1 1 null.
     expect(ranks).toEqual([I(1), I(3), I(2), I(4), I(3), I(1), I(2), I(3)]);
+  });
+});
+
+/** A cell's structural identity, written out: its kind, and its value as one value has one text. */
+const oracleKey = (c: Cell): string => {
+  switch (c.kind) {
+    case 'Null':
+      return 'N';
+    case 'Decimal':
+      return 'M' + (decimalCanonical(c.value) ?? c.value);
+    case 'Timestamp':
+      return 'T' + String(instantNanos(c.value));
+    default:
+      return c.kind + String(c.value);
+  }
+};
+const oracleRowKey = (r: readonly Cell[]): string => JSON.stringify(r.map(oracleKey));
+
+const keyed = table([
+  ['f', 'float', [F(1), F(-0), F(0), F(NaN), F(NaN), N, F(1), N]],
+  ['m', 'decimal', [M('1.50'), M('2'), M('2.0'), M('1.5'), M('1.5'), N, M('1.5'), N]],
+  [
+    't',
+    'timestamp_ms',
+    [
+      T('2026-01-01T00:00:00.5Z'),
+      T('2026-01-01T00:00:01Z'),
+      T('2026-01-01T00:00:01Z'),
+      N,
+      N,
+      N,
+      T('2026-01-01T00:00:00.5Z'),
+      N,
+    ],
+  ],
+  ['d', 'date', [D('2026-01-01'), N, N, D('1970-01-01'), D('1970-01-01'), N, D('2026-01-01'), N]],
+]);
+
+const run = (t: Table, step: Parameters<typeof evalPipeline>[0][number]): Cell[][] => {
+  const r = evalPipeline([step], t);
+  if (!r.ok) throw new Error(JSON.stringify(r.error));
+  return rowsOf(r.value);
+};
+
+describe('the typed row keys group, dedup and match as the boxed keys did', () => {
+  it('distinct keeps the first of each structurally equal row', () => {
+    const seen = new Set<string>();
+    const want = rowsOf(keyed).filter((r) => {
+      const k = oracleRowKey(r);
+      return seen.has(k) ? false : (seen.add(k), true);
+    });
+    expect(run(keyed, { kind: 'distinct' })).toEqual(want);
+  });
+
+  for (const keys of [['f'], ['m'], ['t'], ['d'], ['f', 'm', 't']])
+    it(`a groupBy over ${keys.join(', ')} groups in first-appearance order`, () => {
+      const rows = rowsOf(keyed);
+      const idx = keys.map((k) => keyed.schema.findIndex((e) => e.name === k));
+      const groups = new Map<string, Cell[][]>();
+      for (const r of rows) {
+        const k = oracleRowKey(idx.map((i) => r[i]!));
+        groups.set(k, [...(groups.get(k) ?? []), r]);
+      }
+      // `count` counts the present cells of `f` in each group.
+      const want = [...groups.values()].map((g) => [
+        ...idx.map((i) => g[0]![i]!),
+        I(g.filter((r) => r[0]!.kind !== 'Null').length),
+      ]);
+      expect(
+        run(keyed, { kind: 'groupBy', keys, aggs: [{ name: 'n', fn: 'count', of: 'f' }] }),
+      ).toEqual(want);
+    });
+
+  const instants = [T('2026-01-01T00:00:00.5Z'), T('2026-01-01T00:00:01Z'), N];
+  const left = table([
+    ['t', 'timestamp_ms', [...instants, T('2026-01-01T00:00:00.25Z')]],
+    ['n', 'int', [I(1), I(2), N, I(1)]],
+  ]);
+  const right = table([
+    ['t', 'timestamp_us', instants],
+    ['n', 'float', [F(1), F(2), N]],
+  ]);
+  const rightInts = table([
+    ['t', 'timestamp_us', instants],
+    ['n', 'int', [I(1), I(2), N]],
+  ]);
+  const setOp = (kind: 'intersect' | 'except', l: Table, r: Table, keep: boolean): void => {
+    const present = new Set(rowsOf(r).map(oracleRowKey));
+    const want = rowsOf(l).filter((row) => present.has(oracleRowKey(row)) === keep);
+    expect(run(l, { kind, source: { kind: 'Embedded', table: r } })).toEqual(want);
+  };
+  it('intersect matches an instant across two units, never an int with a float', () => {
+    setOp('intersect', left, right, true);
+    setOp('intersect', left, rightInts, true);
+  });
+  it('except keeps the rows intersect drops', () => {
+    setOp('except', left, right, false);
+    setOp('except', left, rightInts, false);
   });
 });
