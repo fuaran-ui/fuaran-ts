@@ -2153,13 +2153,19 @@ const cellKeyAt = (c: DataColumn, i: number): string => {
   }
 };
 
-/** Row `i`'s structural key over the columns `cols` of `data` (every column where `cols` is omitted). */
+/**
+ * Row `i`'s structural key over the columns `cols` of `data` (every column where `cols` is omitted).
+ * Each cell's key is LENGTH-PREFIXED, as the reference's `rowTokenString` is, so the key is injective
+ * over the list of cell keys: a cell's text may hold any character, so a bare separator would let two
+ * different rows spell one key. A single cell's key is already injective and is the key unchanged.
+ */
 const rowKeyAt = (data: readonly DataColumn[], i: number, cols?: readonly number[]): string => {
-  let key = '';
   const n = cols === undefined ? data.length : cols.length;
+  if (n === 1) return cellKeyAt(data[cols === undefined ? 0 : cols[0]!]!, i);
+  let key = '';
   for (let k = 0; k < n; k += 1) {
-    if (k > 0) key += '\u0001';
-    key += cellKeyAt(data[cols === undefined ? k : cols[k]!]!, i);
+    const part = cellKeyAt(data[cols === undefined ? k : cols[k]!]!, i);
+    key += String(part.length) + ':' + part;
   }
   return key;
 };
