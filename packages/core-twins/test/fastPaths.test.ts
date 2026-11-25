@@ -243,3 +243,147 @@ describe('the one-pass pivot answers what the per-cell filter answered', () => {
         expect(rowsOf(r.value)).toEqual(oraclePivot(t, r.value, agg));
       });
 });
+
+/** The cell order of two present cells of one column, written out. */
+const oracleOrder = (a: Cell, b: Cell): number => {
+  const cmp = (x: number | string | boolean, y: number | string | boolean): number =>
+    x < y ? -1 : x > y ? 1 : 0;
+  switch (a.kind) {
+    case 'Int':
+    case 'Float': {
+      const x = a.value;
+      const y = (b as typeof a).value;
+      if (Number.isNaN(x) || Number.isNaN(y))
+        return Number.isNaN(x) && Number.isNaN(y) ? 0 : Number.isNaN(x) ? 1 : -1;
+      return cmp(x, y);
+    }
+    case 'Decimal':
+      return decimalCompare(a.value, (b as typeof a).value) ?? 0;
+    case 'Timestamp':
+      return cmp(instantNanos(a.value), instantNanos((b as typeof a).value));
+    case 'Null':
+      return 0;
+    default:
+      return cmp(a.value, (b as typeof a).value);
+  }
+};
+
+/** The boxed stable sort the typed comparator replaced: nulls last whatever the direction. */
+const oracleSort = (t: Table, by: readonly (readonly [string, 'asc' | 'desc'])[]): Cell[][] => {
+  const ks = by.map(([c, d]) => [t.schema.findIndex((e) => e.name === c), d] as const);
+  return rowsOf(t)
+    .map((r, i) => [r, i] as const)
+    .sort(([x, i], [y, j]) => {
+      for (const [ci, d] of ks) {
+        const a = x[ci]!;
+        const b = y[ci]!;
+        if (a.kind === 'Null' || b.kind === 'Null') {
+          if (a.kind !== b.kind) return a.kind === 'Null' ? 1 : -1;
+          continue;
+        }
+        const c = oracleOrder(a, b);
+        if (c !== 0) return d === 'asc' ? c : -c;
+      }
+      return i - j;
+    })
+    .map(([r]) => r);
+};
+
+const sortInput = table([
+  ['f', 'float', [F(1), F(NaN), N, F(-0), F(0), F(-2.5), F(NaN), F(1)]],
+  ['i', 'int', [I(3), I(1), I(2), N, I(1), I(3), I(2), I(1)]],
+  ['s', 'string', [S('b'), S('a'), S('B'), S(''), N, S('a'), S('b'), S('ab')]],
+  ['m', 'decimal', [M('1.50'), M('-1'), M('1.5'), N, M('10'), M('2'), M('0.1'), M('-0.5')]],
+  [
+    'd',
+    'date',
+    [
+      D('2026-01-02'),
+      D('1969-12-31'),
+      N,
+      D('2026-01-02'),
+      D('0001-01-01'),
+      D('9999-12-31'),
+      D('2000-02-29'),
+      N,
+    ],
+  ],
+  [
+    't',
+    'timestamp_ms',
+    [
+      T('2026-01-01T00:00:00.5Z'),
+      T('2026-01-01T00:00:00Z'),
+      T('2026-01-01T00:00:00.05Z'),
+      N,
+      T('1969-12-31T23:59:59.999Z'),
+      T('2026-01-01T00:00:00.5Z'),
+      T('2026-01-01T00:00:01Z'),
+      T('1970-01-01T00:00:00Z'),
+    ],
+  ],
+  [
+    'b',
+    'bool',
+    [
+      { kind: 'Bool', value: true },
+      { kind: 'Bool', value: false },
+      N,
+      { kind: 'Bool', value: true },
+      { kind: 'Bool', value: false },
+      N,
+      { kind: 'Bool', value: true },
+      { kind: 'Bool', value: false },
+    ],
+  ],
+]);
+
+const sortCases: readonly (readonly (readonly [string, 'asc' | 'desc'])[])[] = [
+  ...['f', 'i', 's', 'm', 'd', 't', 'b'].flatMap((c) => [
+    [[c, 'asc'] as const],
+    [[c, 'desc'] as const],
+  ]),
+  [
+    ['i', 'asc'],
+    ['f', 'desc'],
+  ],
+  [
+    ['b', 'desc'],
+    ['s', 'asc'],
+    ['t', 'desc'],
+  ],
+];
+
+describe('the typed sort comparator orders as the boxed cell order did', () => {
+  for (const by of sortCases)
+    it(by.map(([c, d]) => c + ' ' + d).join(', '), () => {
+      const r = evalPipeline(
+        [{ kind: 'sort', by: by.map(([col, dir]) => ({ col, dir })) }],
+        sortInput,
+      );
+      if (!r.ok) throw new Error(JSON.stringify(r.error));
+      expect(rowsOf(r.value)).toEqual(oracleSort(sortInput, by));
+    });
+
+  it('a rank shares a rank between rows the order keys tie', () => {
+    const r = evalPipeline(
+      [
+        {
+          kind: 'window',
+          spec: {
+            partitionBy: [],
+            orderBy: [{ col: 'i', dir: 'desc' }],
+            fn: 'rank',
+            of: 'i',
+            as: 'r',
+          },
+        },
+      ],
+      sortInput,
+    );
+    if (!r.ok) throw new Error(JSON.stringify(r.error));
+    const ranks = rowsOf(r.value).map((row) => row[row.length - 1]);
+    // i = [3, 1, 2, null, 1, 3, 2, 1] ordered desc, nulls last: 3 3 2 2 1 1 1 null.
+    expect(ranks).toEqual([I(1), I(3), I(2), I(4), I(3), I(1), I(2), I(3)]);
+  });
+});

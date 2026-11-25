@@ -52,6 +52,7 @@ import {
   decimalAbs,
   decimalAdd,
   decimalCanonical,
+  decimalsAtCommonScale,
   decimalCompare,
   decimalDivide,
   decimalIsZero,
@@ -1960,49 +1961,81 @@ const fresh = (name: string, type: ColumnType): SchemaEntry => ({ name, type });
 
 // ─── sort (pinned: stable; nulls last regardless of direction) ───────────────
 
-/** A frame's sort keys resolved once: each key's column index and direction; a key naming no column is skipped. */
-const resolveSortKeys = (
-  cols: readonly SchemaEntry[],
-  by: readonly SortKey[],
-): { readonly idxs: number[]; readonly dirs: SortKey['dir'][] } => {
-  const idxs: number[] = [];
-  const dirs: SortKey['dir'][] = [];
-  for (const { col, dir } of by) {
-    const i = colIndex(cols, col);
-    if (i < 0) continue;
-    idxs.push(i);
-    dirs.push(dir);
-  }
-  return { idxs, dirs };
-};
-
-/** Compare two rows' sort-key cells (`resolveSortKeys` order). */
-const keyCompare = (
-  dirs: readonly SortKey['dir'][],
-  k1: readonly Cell[],
-  k2: readonly Cell[],
-): number => {
-  for (let j = 0; j < dirs.length; j += 1) {
-    const a = k1[j]!;
-    const b = k2[j]!;
-    const an = isNull(a);
-    const bn = isNull(b);
-    let c: number;
-    if (an && bn) c = 0;
-    else if (an && !bn)
-      c = 1; // null sorts last
-    else if (!an && bn) c = -1;
-    else {
-      const cc = compareCells(a, b);
-      c = cc === undefined ? 0 : dirs[j] === 'asc' ? cc : -cc;
+/**
+ * The order of two PRESENT rows of one column, read from its typed storage without boxing a cell
+ * (Phase 1893) — the cell order `compareCells` gives the two cells those rows stand for. Within one
+ * column every cell is of one family: the number family by IEEE order with NaN above every value,
+ * a date by its day count and an instant by its second then its fraction (a canonical text orders
+ * as those do), a decimal by its exact value (two texts that do not parse are incomparable, `0`).
+ */
+const presentOrder = (c: DataColumn): ((a: number, b: number) => number) => {
+  const d = c.data;
+  switch (d.kind) {
+    case 'Ints':
+    case 'Dates':
+    case 'Bools': {
+      const v = d.values;
+      return (a, b) => v[a]! - v[b]!;
     }
-    if (c !== 0) return c;
+    case 'Floats': {
+      const v = d.values;
+      return (a, b) => compareFloat(v[a]!, v[b]!);
+    }
+    case 'Strs': {
+      const v = d.values;
+      return (a, b) => (v[a]! < v[b]! ? -1 : v[a]! > v[b]! ? 1 : 0);
+    }
+    case 'Decimals': {
+      const v = decimalsAtCommonScale(d.values);
+      return (a, b) => {
+        const x = v[a];
+        const y = v[b];
+        return x === undefined || y === undefined ? 0 : x < y ? -1 : x > y ? 1 : 0;
+      };
+    }
+    case 'Timestamps': {
+      const sec = d.seconds;
+      const frac = d.fraction;
+      return (a, b) => {
+        const s = sec[a]! - sec[b]!;
+        return s !== 0 || frac === undefined ? Math.sign(s) : Math.sign(frac[a]! - frac[b]!);
+      };
+    }
   }
-  return 0;
 };
 
-// A stable sort over an immutable rows array (Array.prototype.sort is stable).
-const stableSort = <T>(xs: readonly T[], cmp: (a: T, b: T) => number): T[] => xs.slice().sort(cmp);
+/**
+ * The comparator of two rows under the sort keys `by` (a key naming no column is skipped), or
+ * `undefined` where no key names a column: per key, a null sorts last regardless of direction, and
+ * two present rows by `presentOrder`, reversed for any direction but `asc`.
+ */
+const rowOrder = (
+  f: Frame,
+  by: readonly SortKey[],
+): ((a: number, b: number) => number) | undefined => {
+  const keys: { d: DataColumn['data']; order: (a: number, b: number) => number; asc: boolean }[] =
+    [];
+  for (const { col, dir } of by) {
+    const i = colIndex(f.cols, col);
+    if (i < 0) continue;
+    const c = f.data[i]!;
+    keys.push({ d: c.data, order: presentOrder(c), asc: dir === 'asc' });
+  }
+  if (keys.length === 0) return undefined;
+  return (a, b) => {
+    for (const k of keys) {
+      const ap = isPresentAt(k.d, a);
+      const bp = isPresentAt(k.d, b);
+      if (!ap || !bp) {
+        if (ap !== bp) return ap ? -1 : 1; // null sorts last
+        continue;
+      }
+      const c = k.order(a, b);
+      if (c !== 0) return k.asc ? c : -c;
+    }
+    return 0;
+  };
+};
 
 // ─── grouping keys (structural, type-aware) ──────────────────────────────────
 
@@ -2252,17 +2285,17 @@ const evalGroupBy = (f: Frame, keys: readonly string[], aggs: readonly Agg[]): D
   return dok({ cols: [...keyCols, ...aggCols], data, n: groups.length });
 };
 
-/** The row indices `rows` stably ordered by the sort keys `by` (nulls last regardless of direction). */
-const sortedRows = (f: Frame, rows: readonly number[], by: readonly SortKey[]): number[] => {
-  const { idxs, dirs } = resolveSortKeys(f.cols, by);
-  if (idxs.length === 0) return rows.slice();
-  const keys = new Map<number, Cell[]>();
-  for (const r of rows) keys.set(r, cellsAt(f.data, idxs, r));
-  return stableSort(rows, (a, b) => keyCompare(dirs, keys.get(a)!, keys.get(b)!));
-};
+/** The row indices `rows` stably ordered by a `rowOrder` (unchanged where it is `undefined`). */
+const sortedRows = (
+  rows: readonly number[],
+  order: ((a: number, b: number) => number) | undefined,
+): number[] =>
+  // A plain array of positions, sorted stably (Array.prototype.sort is): V8 sorts a typed array
+  // through a comparator on its slow path.
+  order === undefined ? rows.slice() : rows.slice().sort(order);
 
 const evalSort = (f: Frame, by: readonly SortKey[]): Frame =>
-  selectRows(f, sortedRows(f, Array.from(iota(f.n)), by));
+  selectRows(f, sortedRows(Array.from(iota(f.n)), rowOrder(f, by)));
 
 const evalDistinct = (f: Frame): Frame => {
   const seen = new Set<string>();
@@ -2440,14 +2473,14 @@ const evalWindow = (f: Frame, spec: WindowSpecLike): DR<Frame> => {
 
   // partition (first-appearance order), each partition its rows' indices
   const partitions = groupRows(f, partIdx);
-  const { idxs: orderIdxs, dirs: orderDirs } = resolveSortKeys(f.cols, spec.orderBy);
+  const order = rowOrder(f, spec.orderBy);
 
   const valueAt = (r: number): Cell => (ofIdx >= 0 ? cellAt(f.data[ofIdx]!, r) : NULL);
   const sourceIsDecimal = colType(f.cols, spec.of) === 'decimal';
 
   const outCells = new Array<Cell>(f.n);
   for (const members of partitions) {
-    const ordered = sortedRows(f, members, spec.orderBy);
+    const ordered = sortedRows(members, order);
     const vals = ordered.map(valueAt);
     let outs: Cell[];
     switch (spec.fn) {
@@ -2456,10 +2489,9 @@ const evalWindow = (f: Frame, spec: WindowSpecLike): DR<Frame> => {
         break;
       case 'rank': {
         // ties (equal order keys) share a rank; running sum of step (0/1)
-        const keys = ordered.map((r) => cellsAt(f.data, orderIdxs, r));
         let acc = 0;
-        outs = keys.map((k, i) => {
-          acc += i === 0 || keyCompare(orderDirs, keys[i - 1]!, k) !== 0 ? 1 : 0;
+        outs = ordered.map((r, i) => {
+          acc += i === 0 || (order !== undefined && order(ordered[i - 1]!, r) !== 0) ? 1 : 0;
           return { kind: 'Int', value: acc };
         });
         break;

@@ -124,6 +124,21 @@ export const decimalCompare = (a: string, b: string): number | undefined => {
   return x < y ? -1 : x > y ? 1 : 0;
 };
 
+/**
+ * Every text's value at ONE common scale (the largest any of them carries) as a signed `bigint`,
+ * `undefined` where a text is not decimal text: wherever two entries are defined their order is
+ * `decimalCompare`'s of the two texts. A sort reads these, so it parses each text once rather than
+ * twice at every comparison (Phase 1893).
+ */
+export const decimalsAtCommonScale = (texts: readonly string[]): (bigint | undefined)[] => {
+  const ps = texts.map(parts);
+  let scale = 0;
+  for (const p of ps) if (p !== undefined && p.scale > scale) scale = p.scale;
+  return ps.map((p) =>
+    p === undefined ? undefined : signed(p, p.magnitude * pow10(scale - p.scale)),
+  );
+};
+
 /** The exact sum, canonical, or `undefined` where either operand is not decimal text. */
 export const decimalAdd = (a: string, b: string): string | undefined => {
   const pa = parts(a);
