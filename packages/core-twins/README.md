@@ -35,6 +35,35 @@ representation it replaced: a table holds 4.90 MB rather than 26.53 MB, and a `g
 `count` takes 10.3 ms rather than 34.7 ms. Encoding is slower, 62 ms against 50 ms, because a date's text is written
 from its day count. Every wire byte and every transform-law answer is unchanged.
 
+## The evaluator's performance (Phase 1893)
+
+The evaluator carries the reference evaluator's measured techniques, each landed only where it pays
+under V8, and every one answers exactly what the code it replaced answered:
+
+- **An expression is compiled once per step.** A filter's predicate and a derive's expression resolve
+  every column reference, parameter and operator before any row is read (`compileExpr`); an unknown
+  column or an unbound parameter still refuses only when a row reaches it.
+- **The equi-join is a hash join**, the right rows bucketed by a key read from the typed storage, so the
+  output order is the nested loop's; **the pivot buckets its rows in one pass**.
+- **One allocation-free comparer orders rows** for a sort and a window, reading the typed vectors (a
+  decimal column parsed once, at one common scale), and sorting a plain array of positions: V8 sorts a
+  typed array through a comparator on its slow path.
+- **Grouping keys are read from the typed storage** for a group-by, a window's partitions, a pivot's
+  groups, distinct and the set operations.
+
+`pnpm bench` (in this directory) builds the package and times the reference corpus shapes: the
+sheet, the chain, the dated pipeline, the scaling pipelines, the five separately timed shapes, and
+the typed and keyed families. Inputs are built outside the timed closure, warm-up is by iteration
+count, every case reports its median and its worst sample, and every answer is fingerprinted before it
+is timed, so a change that alters an answer shows. `test/fastPaths.test.ts` pins each fast path against
+a brute-force oracle on the edges the transform-law corpus does not draw (the number family across an
+int and a float, NaN, nulls, decimals by value, instants across units, colliding composite keys).
+
+Measured under Node 22, each case in a fresh process, interleaved with the tree before the phase:
+the inner join of 10,000 × 10,000 rows from 966 ms to 1.7 ms, a sort on two keys over 100,000 rows from
+78 ms to 32 ms, a decimal sort over 100,000 rows from 627 ms to 43 ms, the pivot with 50 on values from
+3.6 ms to 0.6 ms, and no case slower than before.
+
 ## The boundary
 
 `test/boundary.test.ts` fails if anything in `src/` imports from the host's domain packages. The
