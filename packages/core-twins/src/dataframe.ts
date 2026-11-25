@@ -2039,6 +2039,59 @@ const cellKey = (c: Cell): string => {
 
 const rowKey = (cells: readonly Cell[]): string => cells.map(cellKey).join('');
 
+// ─── equi-join keys (Phase 1893: the hash join) ──────────────────────────────
+//
+// A join key pair is an equality under the cell order (`compareCells`), with two refinements: a
+// null matches nothing, and a decimal matches only a decimal. The key below is a string that two
+// present cells share EXACTLY when that equality holds, read from the typed storage without boxing
+// a cell: an int and a float share the number family (`1` = `1.0`, `-0` = `0`, NaN = NaN, as
+// `compareFloat` orders them), a decimal is its canonical text (one text per value), a date its day
+// count, an instant its whole second and its fraction at nine digits (so units compare by the
+// instant), and every family carries its own tag, so no two families ever share a key.
+
+const FRACTION_TO_NANOS = [1e9, 1e8, 1e7, 1e6, 1e5, 1e4, 1e3, 1e2, 1e1, 1];
+
+/** Row `i`'s equi-join key in column `c`, or `undefined` where it matches nothing. */
+const joinKeyAt = (c: DataColumn, i: number): string | undefined => {
+  const d = c.data;
+  if (!isPresentAt(d, i)) return undefined;
+  switch (d.kind) {
+    case 'Ints':
+    case 'Floats':
+      return 'n' + String(d.values[i]!);
+    case 'Bools':
+      return d.values[i] === 1 ? 'B1' : 'B0';
+    case 'Strs':
+      return 'S' + d.values[i]!;
+    case 'Dates':
+      return 'D' + String(d.values[i]!);
+    case 'Timestamps': {
+      const nanos = (d.fraction?.[i] ?? 0) * FRACTION_TO_NANOS[timestampDigits(c.type) ?? 0]!;
+      return 'T' + String(d.seconds[i]!) + '.' + String(nanos);
+    }
+    case 'Decimals': {
+      const t = decimalCanonical(d.values[i]!);
+      return t === undefined ? undefined : 'M' + t;
+    }
+  }
+};
+
+/** Row `i`'s composite equi-join key over the columns `idxs`; `undefined` where any part matches nothing. */
+const rowJoinKey = (
+  data: readonly DataColumn[],
+  idxs: readonly number[],
+  i: number,
+): string | undefined => {
+  if (idxs.length === 1) return joinKeyAt(data[idxs[0]!]!, i);
+  let key = '';
+  for (const ci of idxs) {
+    const k = joinKeyAt(data[ci]!, i);
+    if (k === undefined) return undefined;
+    key += String(k.length) + ':' + k; // length-prefixed, so no two part lists share a key
+  }
+  return key;
+};
+
 // ─── per-verb evaluation ─────────────────────────────────────────────────────
 
 const evalFilter = (f: Frame, predicate: ColExpr, env: EvalEnv = EMPTY_ENV): DR<Frame> => {
@@ -2275,10 +2328,16 @@ const evalJoin = (
         ),
       );
   }
-  const leftKeys = Array.from({ length: f.n }, (_, i) => cellsAt(f.data, li, i));
-  const rightKeys = Array.from({ length: right.n }, (_, i) => cellsAt(right.data, ri, i));
-  const keyMatch = (lk: readonly Cell[], rk: readonly Cell[]): boolean =>
-    lk.every((c, k) => cellEq(c, rk[k]!));
+  // A hash join: the right rows bucketed by key once, in row order, so each left row reads its
+  // matches in the order the nested loop it replaces met them.
+  const buckets = new Map<string, number[]>();
+  for (let r = 0; r < right.n; r += 1) {
+    const k = rowJoinKey(right.data, ri, r);
+    if (k === undefined) continue;
+    const b = buckets.get(k);
+    if (b === undefined) buckets.set(k, [r]);
+    else b.push(r);
+  }
 
   const leftNames = new Set(available(f.cols));
   const rightCols: SchemaEntry[] = right.cols.map((e) => ({
@@ -2290,23 +2349,25 @@ const evalJoin = (
   // the side a non-matching row pads with nulls.
   const lrows: number[] = [];
   const rrows: number[] = [];
+  const rightMatched = new Uint8Array(right.n);
   for (let l = 0; l < f.n; l += 1) {
-    let matched = false;
-    for (let r = 0; r < right.n; r += 1) {
-      if (!keyMatch(leftKeys[l]!, rightKeys[r]!)) continue;
-      matched = true;
-      lrows.push(l);
-      rrows.push(r);
-    }
-    // inner / right with no match: emit nothing
-    if (!matched && (how === 'left' || how === 'outer')) {
+    const k = rowJoinKey(f.data, li, l);
+    const matches = k === undefined ? undefined : buckets.get(k);
+    if (matches !== undefined) {
+      for (const r of matches) {
+        lrows.push(l);
+        rrows.push(r);
+        rightMatched[r] = 1;
+      }
+    } else if (how === 'left' || how === 'outer') {
+      // inner / right with no match: emit nothing
       lrows.push(l);
       rrows.push(-1);
     }
   }
   if (how === 'right' || how === 'outer') {
     for (let r = 0; r < right.n; r += 1) {
-      if (!leftKeys.some((lk) => keyMatch(lk, rightKeys[r]!))) {
+      if (rightMatched[r] === 0) {
         lrows.push(-1);
         rrows.push(r);
       }
