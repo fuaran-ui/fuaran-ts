@@ -373,6 +373,7 @@ export const extractTextSlots = (kind: NodeKind<unknown>): TextSlotInfo[] => {
       case 'Heading':
         return [textSlot('Text', d.spec.text)];
       case 'Markdown':
+      case 'Text':
         return [textSlot('Text', d.spec.text)];
       case 'Metric':
         return [textSlot('Label', d.spec.label), ...optionalTextSlot('Subtext', d.spec.subtext)];

@@ -127,6 +127,12 @@ export const renderDisplay = <TMsg,>(
     case 'Metric':
       return renderMetric(ctx, state, display.spec);
 
+    case 'Text':
+      // Phase 2536 — running text with no parse: the resolved words, escaped by
+      // React into one inline `<span>` (WIRE_FORMAT 3.6.38). The node wrapper
+      // carries `fuaran-kind-text`, so the span carries no class.
+      return <span>{renderText(ctx.sources, display.spec.text)}</span>;
+
     case 'Badge':
       return (
         <span className={`fuaran-badge fuaran-badge-${display.spec.variant.toLowerCase()}`}>

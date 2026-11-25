@@ -1619,6 +1619,7 @@ export interface ScrollAreaSpec<TMsg> extends IdlSpec<'ScrollArea', TMsg> {}
 export type DisplayKind<TMsg = unknown> =
   | { readonly kind: 'Heading'; readonly spec: HeadingSpec }
   | { readonly kind: 'Markdown'; readonly spec: MarkdownSpec }
+  | { readonly kind: 'Text'; readonly spec: TextSpec }
   | { readonly kind: 'Metric'; readonly spec: MetricSpec }
   | { readonly kind: 'Badge'; readonly spec: BadgeSpec }
   | { readonly kind: 'Sparkline'; readonly spec: SparklineSpec }
@@ -1642,6 +1643,9 @@ export type DisplayKind<TMsg = unknown> =
 export interface HeadingSpec extends IdlSpec<'Heading'> {}
 
 export interface MarkdownSpec extends IdlSpec<'Markdown'> {}
+
+/** Phase 2536 — running text with no parse (WIRE_FORMAT 3.6.38). */
+export interface TextSpec extends IdlSpec<'Text'> {}
 
 export interface MetricSpec extends IdlSpec<'Metric'> {
   // 0.2.0 rename law: the scalar displayed value is `value` across

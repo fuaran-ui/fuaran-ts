@@ -1046,6 +1046,11 @@ const renderDisplay = (
     case 'Metric':
       return renderMetric(ctx, state, display.spec);
 
+    case 'Text':
+      // Phase 2536 — running text with no parse: the resolved words, escaped into
+      // one inline `<span>` (WIRE_FORMAT 3.6.38), byte-identical to the client arm.
+      return textEl('span', [], renderText(ctx.sources, display.spec.text));
+
     case 'Badge':
       return textEl(
         'span',

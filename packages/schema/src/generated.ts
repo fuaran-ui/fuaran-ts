@@ -9,7 +9,7 @@
 import type { FieldRow, IdlType } from './idl.js';
 
 /** SHA-256 of the exact `idl.json` bytes this module was generated from. */
-export const IDL_SHA256 = 'e5e867dc804adc9788f1f80c00f9b3ad29403370d28dc28ee87bda98991132fa';
+export const IDL_SHA256 = 'eaad6e14392daebcec074a5d63b312977a484f2711eb88c6bf3340d26d8dbc6f';
 export const IDL_VERSION = 1;
 
 // ─── Types (each distinct IDL type once; nested types by name) ───────────────
@@ -540,6 +540,7 @@ export const NODE_KINDS = [
   'SummaryList',
   'Switch',
   'Tabs',
+  'Text',
   'Toast',
   'Tree',
 ] as const;
@@ -588,6 +589,7 @@ export const KIND_CATEGORY = {
   SummaryList: 'Layout',
   Switch: 'Meta',
   Tabs: 'Layout',
+  Text: 'Display',
   Toast: 'Display',
   Tree: 'Display',
 } as const satisfies Record<NodeKindName, KindCategory>;
@@ -613,6 +615,7 @@ export const KINDS_BY_CATEGORY = {
     'Progress',
     'Skeleton',
     'Sparkline',
+    'Text',
     'Toast',
     'Tree',
   ],
@@ -1155,6 +1158,7 @@ export const KIND_FIELDS = {
     { name: 'tabTags', opt: 'optional', type: T_list_str },
     { name: 'activeTag', opt: 'optional', type: T_union_Binding_str },
   ],
+  Text: [{ name: 'text', opt: 'required', type: T_union_TextSource }],
   Toast: [
     { name: 'dismissable', opt: 'omitDefault', type: T_bool, dflt: { $type: 'bool', value: true } },
     { name: 'message', opt: 'required', type: T_union_TextSource },
@@ -2117,6 +2121,7 @@ export const CHILD_SLOTS = {
   SummaryList: ['children'],
   Switch: ['default'],
   Tabs: ['children'],
+  Text: [],
   Toast: [],
   Tree: [],
 } as const satisfies Record<NodeKindName, readonly string[]>;
@@ -2177,6 +2182,7 @@ export const BINDING_SLOTS = {
     { field: 'activeIndex', slot: 'ActiveIndex', optional: true },
     { field: 'activeTag', slot: 'ActiveTag', optional: true },
   ],
+  Text: [],
   Toast: [{ field: 'open', slot: 'Open', optional: false }],
   Tree: [],
 } as const satisfies Record<

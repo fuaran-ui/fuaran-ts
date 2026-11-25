@@ -681,6 +681,10 @@ exports[`fixture-corpus — decode + render every node fixture > tabs-explicit-1
 </div></div></div></div></div></div>"
 `;
 
+exports[`fixture-corpus — decode + render every node fixture > text-1.json matches its rendered-output snapshot 1`] = `"<div id="text-1" data-fuaran-node-id="text-1" class="fuaran-kind-text fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><span>Revenue rose *4%* to [£412k](cite:rev) &amp; &lt;b&gt;held&lt;/b&gt; - \`q3\`, &quot;_net_&quot;.</span></div>"`;
+
+exports[`fixture-corpus — decode + render every node fixture > text-beside-text-field.json matches its rendered-output snapshot 1`] = `"<div id="text-beside-text-field" data-fuaran-node-id="text-beside-text-field" class="fuaran-kind-stack fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-layout-stack fuaran-stack-vertical"><div id="search-form" data-fuaran-node-id="search-form" class="fuaran-kind-form fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><form class="fuaran-form"><div class="fuaran-form-field"><label class="fuaran-form-label" for="query">Search</label><input class="fuaran-form-input" type="text" id="query" value=""/></div><button class="fuaran-form-submit" type="submit">Search</button></form></div><div id="search-hint" data-fuaran-node-id="search-hint" class="fuaran-kind-text fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><span>Search by name or ID.</span></div></div></div>"`;
+
 exports[`fixture-corpus — decode + render every node fixture > text-i18n-bound-arg-1.json matches its rendered-output snapshot 1`] = `
 "<div id="text-i18n-bound-arg-1" data-fuaran-node-id="text-i18n-bound-arg-1" class="fuaran-kind-markdown fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div class="fuaran-markdown"><p>[i18n:cart.remaining]</p>
 </div></div>"

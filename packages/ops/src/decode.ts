@@ -4649,6 +4649,8 @@ interface FieldOverride {
   readonly aliases?: readonly string[];
   /** For a closure member: what a present `"<closure>"` sentinel decodes to (an inert placeholder action by default). */
   readonly placeholder?: unknown;
+  /** What a missing required member's message says was expected, in place of the IDL type's spelling. */
+  readonly expected?: string;
 }
 
 type MemberName<K extends NodeKindName> = (typeof KIND_FIELDS)[K][number]['name'];
@@ -4687,7 +4689,7 @@ const tableMembers = (
       closure,
       dec,
       aliases: o.aliases ?? [],
-      expected: spellType(row.type),
+      expected: o.expected ?? spellType(row.type),
       dflt: dflt === undefined ? undefined : () => defaultValue(dflt),
       placeholder: o.placeholder ?? closurePlaceholder,
     };
@@ -5020,6 +5022,16 @@ const decodeCodeBlockSpec = specDecoder('CodeBlock');
 
 const decodeMathSpec = specDecoder('Math');
 
+// Phase 2536 — the tag `Text` also names the text-input form field, read in a
+// Form's `fields[]` (WIRE_FORMAT 11.4); a node-position `Text` with no `text` is
+// most often that input written outside its Form, so the message says so.
+const decodeTextSpec = specDecoder('Text', {
+  text: {
+    expected:
+      "TextSource (a Text node is running text; a text input is the Text form field, which belongs in a Form's fields[])",
+  },
+});
+
 const decodeSparklineSpec = specDecoder('Sparkline', { source: { aliases: ['data'] } });
 
 // Phase 1666 — `Skeleton.rows` is bounded by WIRE_FORMAT §21.9.
@@ -5350,6 +5362,8 @@ const DISPLAY_KINDS: FamilyArms<'Display', DisplayKind> = {
     andThen(decodeHeadingSpec(w, path, j), (spec) => ok<DisplayKind>({ kind: 'Heading', spec })),
   Markdown: (w, path, j) =>
     andThen(decodeMarkdownSpec(w, path, j), (spec) => ok<DisplayKind>({ kind: 'Markdown', spec })),
+  Text: (w, path, j) =>
+    andThen(decodeTextSpec(w, path, j), (spec) => ok<DisplayKind>({ kind: 'Text', spec })),
   Metric: (w, path, j) =>
     andThen(decodeMetricSpec(w, path, j), (spec) => ok<DisplayKind>({ kind: 'Metric', spec })),
   Badge: (w, path, j) =>

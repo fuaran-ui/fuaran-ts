@@ -380,6 +380,19 @@ change: `yFields` was always a list and an empty one always decoded; the lowerin
 - **Certified by** `packages/charts/test/chart-lowering.test.ts` over the `chart-lowering/derived-series/` goldens the F#
   reference emits, byte for byte, the refusal included.
 
+### Rides `@fuaran-ui/schema` 0.29.0, `@fuaran-ui/ops` 0.34.0, `@fuaran-ui/renderer` 0.29.2 and `@fuaran-ui/renderer-server` 0.26.2 — a plain `Text` node (fuaran#2536)
+
+**Additive.** `WIRE_FORMAT.md` §3.6.38: a new node kind, `{"$type":"Text","text":<TextSource>}`, running text with no
+parse. `DisplayKind` gains the `Text` member and `TextSpec`, so a consumer's exhaustive `switch` over `DisplayKind`
+gains a case to handle. The tag also names the `Text` form field, and §11.4 now reads each tag in the family its
+position names: a node position decodes the node kind, a `Form`'s `fields[]` the form field.
+
+- **Ops.** The codec reads and writes the kind through the field table. A `Text` node with no `text` is
+  `MISSING_FIELD` at `…kind.text`, and its message says a text input belongs in a `Form`'s `fields[]`. `UpdateProp`
+  reaches its `Text` field, as on `Markdown`.
+- **Renderers.** The client and the string server draw the resolved words, escaped, in one `<span>` inside the node
+  wrapper, which carries `fuaran-kind-text`. No character is read as markup.
+
 ### Rides the same drafts — a table cell cites its figure (fuaran#2592)
 
 **Additive.** `WIRE_FORMAT.md` §3.6.33: `DataGrid.staticRows` gains the optional `citations`, omitted when empty.

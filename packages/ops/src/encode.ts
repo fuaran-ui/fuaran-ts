@@ -1399,6 +1399,8 @@ const factSpec = specEncoder('Fact');
 
 const markdownSpec = specEncoder('Markdown');
 
+const textSpec = specEncoder('Text');
+
 const badgeSpec = specEncoder('Badge');
 
 const linkSpec = specEncoder('Link');
@@ -1624,6 +1626,8 @@ const displayKind = (d: DisplayKind): string => {
       return hoistSpec('Heading', headingSpec(d.spec));
     case 'Markdown':
       return hoistSpec('Markdown', markdownSpec(d.spec));
+    case 'Text':
+      return hoistSpec('Text', textSpec(d.spec));
     case 'Metric':
       return hoistSpec('Metric', metricSpec(d.spec));
     case 'Badge':

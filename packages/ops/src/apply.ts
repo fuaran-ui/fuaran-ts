@@ -255,6 +255,12 @@ const updateField = (
               disp({ kind: 'Markdown', spec: { ...d.spec, text: x } }),
             )
           : { tag: 'unknownField' };
+      case 'Text':
+        return field === 'Text'
+          ? patch(coerce.textSource(value), (x) =>
+              disp({ kind: 'Text', spec: { ...d.spec, text: x } }),
+            )
+          : { tag: 'unknownField' };
       case 'Badge': {
         const s = d.spec;
         switch (field) {

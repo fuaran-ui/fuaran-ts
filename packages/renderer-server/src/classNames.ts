@@ -336,6 +336,7 @@ const displayKindClass: Record<string, string> = {
   LabelValueRow: 'fuaran-kind-label-value-row',
   Fact: 'fuaran-kind-fact',
   Markdown: 'fuaran-kind-markdown',
+  Text: 'fuaran-kind-text',
   Metric: 'fuaran-kind-metric',
   Badge: 'fuaran-kind-badge',
   Link: 'fuaran-kind-link',
