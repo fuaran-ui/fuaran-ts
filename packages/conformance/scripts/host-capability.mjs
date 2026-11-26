@@ -98,6 +98,9 @@ export const HOST_CORPUS_FAMILIES = {
   'diff/treeDiff': notApplicable(
     'this host ships no structural tree diff: its op streams carry authored ops, and it never derives an op-script from a (before, after) pair',
   ),
+  'laws/canonicalFormLaws': pending(
+    "this host's decoder is written for the UI vocabulary alone and reads no other, so its suite does not run these vectors over the fixture vocabulary they carry; the UI vocabulary declares no presence condition or alias list until Phase 2340 (WIRE_FORMAT 3.6)",
+  ),
   'laws/capabilityLaws': 'covered', // packages/ops/test/capabilityLaws.test.ts
   'laws/dataframeParity': pending(
     "this host's evaluator runs the drawn transformLaws sample; the authored dataframeParity cases are not run yet",
@@ -112,6 +115,9 @@ export const HOST_CORPUS_FAMILIES = {
   'row-encode': 'covered', // packages/ops/test/rowEncode.test.ts
   sanitization: 'covered', // packages/renderer/test/sanitizationCorpus.test.ts
   'stored-emissions': 'covered', // packages/ops/test/stored-emissions.test.ts
+  // packages/conformance/test/validate-corpus.test.ts. A finding here carries
+  // its code and node but no path or severity, so the leg compares (code, node).
+  validate: 'covered',
 };
 
 /**

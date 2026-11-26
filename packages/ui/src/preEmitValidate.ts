@@ -39,7 +39,10 @@ import {
 export type PreEmitDefect =
   /** An `id` is the empty string. The wire form requires a non-empty identifier. */
   | { readonly code: 'EMPTY_NODE_ID' }
-  /** `id` appears as the NodeId of multiple nodes (`count` ≥ 2). Breaks op addressing. */
+  /**
+   * `id` appears as the NodeId of multiple nodes (`count` ≥ 2). Breaks op addressing.
+   * Raised once per occurrence after the first, each carrying the total `count`.
+   */
   | { readonly code: 'DUPLICATE_NODE_ID'; readonly id: string; readonly count: number }
   /** A `Custom` node has an empty `moduleId` or `componentId`. */
   | {
@@ -888,8 +891,11 @@ function runPreEmit<TMsg>(
 
   walk(node);
 
+  // A repeated id is one finding at EACH occurrence after the first
+  // (WIRE_FORMAT §27.8.2): the count of findings is the count of nodes to
+  // change. Each finding names the id and carries the total `count`.
   for (const [id, count] of nodeIdCounts) {
-    if (count >= 2) {
+    for (let k = 1; k < count; k++) {
       defects.push({ code: 'DUPLICATE_NODE_ID', id, count });
     }
   }
