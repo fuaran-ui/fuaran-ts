@@ -651,9 +651,10 @@ _Unreleased: each rides an untagged draft. The newest tag, `v0.33.5`, published 
   (`$.kind.map.404` against `$.kind.map.40`) passed and now fails. The same holds for the op, envelope, elicitation
   and card reject legs. A patch-class fix under the table above (a bug fix with no surface change): a host under
   test that refuses at the specified location reports exactly as before, and the report semantics do not move.
-- **`@fuaran-ui/conformance` 0.30.5.** The bundled snapshot is re-synced: the reject vector and the two
-  `frag-stdlib-refinable-table` node vectors join it, the root manifest moves with them, and the host-capability
-  manifest gains the two family rows.
+- **`@fuaran-ui/conformance` 0.30.5.** The bundled snapshot is re-synced: the reject vectors
+  `reject-transform-param-from-missing-name` and `reject-map-key-all-digits` join it, the root manifest moves with
+  them, and the host-capability manifest gains the two family rows (`validate` covered, `laws/canonicalFormLaws`
+  pending).
 
 ### Recorded breaking change — `@fuaran-ui/schema` 0.29.0, `@fuaran-ui/ui` 0.29.0, `@fuaran-ui/ops` 0.34.0: a capability declares its result (Phase 2741)
 
