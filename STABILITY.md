@@ -645,6 +645,12 @@ _Unreleased: each rides an untagged draft. The newest tag, `v0.33.5`, published 
   family is declared `covered`; what that leg does not compare is published in `packages/conformance/README.md`
   ("What this host's own family legs do not compare"), since §27.7 gives `covered` no qualifier; `laws/canonicalFormLaws` is declared `pending`. The reject vector
   `reject-transform-param-from-missing-name` passes at `$.kind.source.params[1].from.name`.
+- **`@fuaran-ui/conformance`.** `runConformance` matches a refusal's path against a reject vector's `expectedPath`
+  only at a segment boundary (`WIRE_FORMAT.md` §6): the path is the expected one, or extends it with a `.` or `[`
+  segment. It matched by string prefix, so a host whose refusal path extended the expected one inside a segment
+  (`$.kind.map.404` against `$.kind.map.40`) passed and now fails. The same holds for the op, envelope, elicitation
+  and card reject legs. A patch-class fix under the table above (a bug fix with no surface change): a host under
+  test that refuses at the specified location reports exactly as before, and the report semantics do not move.
 - **`@fuaran-ui/conformance` 0.30.5.** The bundled snapshot is re-synced: the reject vector and the two
   `frag-stdlib-refinable-table` node vectors join it, the root manifest moves with them, and the host-capability
   manifest gains the two family rows.
