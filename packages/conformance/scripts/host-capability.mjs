@@ -47,6 +47,8 @@ const notApplicable = (why) => ({ notApplicable: why });
 const NO_DESIGN_SEAM =
   'this host ships no design-provider seam: its records are read by a design-tool integration, and this host carries none';
 const LAW_UNRUN = "this host's suite does not yet run this law family's vectors";
+const NO_DERIVATION_TRACE =
+  "this host does not implement the derivation trace (WIRE_FORMAT 35) yet, so its suite does not run these vectors; its evaluator already runs transformLaws, the pipelines they are drawn from";
 const HOSTED_OPAQUE =
   "this host's generated type model carries each hosted slot opaquely, so it holds no enumeration of the discriminators inside one (§27.5) and this host makes no claim in this family";
 
@@ -106,6 +108,7 @@ export const HOST_CORPUS_FAMILIES = {
     "this host's evaluator runs the drawn transformLaws sample; the authored dataframeParity cases are not run yet",
   ),
   'laws/decimal': 'covered', // packages/ops/test/decimalLaws.test.ts
+  'laws/derivationTraceLaws': pending(NO_DERIVATION_TRACE),
   'laws/fieldLaws': 'covered', // packages/ops/test/fieldLaws.test.ts
   'laws/propagationLaws': pending(LAW_UNRUN),
   'laws/transformLaws': 'covered', // packages/ops/test/transformLaws.test.ts
