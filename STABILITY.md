@@ -629,13 +629,21 @@ _Unreleased: each rides an untagged draft. The newest tag, `v0.33.5`, published 
 - **`@fuaran-ui/ui`.** `preEmitValidate` raises `DUPLICATE_NODE_ID` once for EACH occurrence of an id after the
   first (§27.8.2), where it raised one per repeated id; each finding still names the id and the total `count`. A
   tree holding an id three times now carries two findings.
+- **`@fuaran-ui/ui`.** `preEmitValidate` raises `DUPLICATE_SWITCH_MATCH` (`FUARAN082`) once for EACH case after
+  the first that repeats a `match` value (§27.8.2), where it raised one per repeated value. A `Switch` whose cases
+  match `x`, `x`, `x` now carries two findings (corpus vector `validate-switch-match-repeated-three-times`).
+- **`@fuaran-ui/ui`.** `bindingChecks` spells every member of a reported path `.name` as written, whatever its
+  spelling (§29.3: there is no quoted segment), where a member that was not an identifier was written `['name']`.
+  A chart under a slot argument named `my-slot` is now at `…args.my-slot.tree.kind.source`, where it was
+  `…args['my-slot'].tree.kind.source`.
 - **`@fuaran-ui/ui`.** `preEmitValidate` walks every node's envelope — its `fallback` and its `state.onEmpty` /
   `state.onLoading` alternatives — with every rule, as §8.1 requires (their ids share the document's one id
   space). It walked neither, so an id held by a node's fallback and by its child raised nothing; it now raises
   `DUPLICATE_NODE_ID`, and a defect inside an envelope node is reported like any other.
 - **Conformance statement.** `packages/conformance/test/validate-corpus.test.ts` runs every vector of the corpus
   `validate` family, comparing each finding's code and node (a finding here carries no path or severity), and the
-  family is declared `covered`; `laws/canonicalFormLaws` is declared `pending`. The reject vector
+  family is declared `covered`; what that leg does not compare is published in `packages/conformance/README.md`
+  ("What this host's own family legs do not compare"), since §27.7 gives `covered` no qualifier; `laws/canonicalFormLaws` is declared `pending`. The reject vector
   `reject-transform-param-from-missing-name` passes at `$.kind.source.params[1].from.name`.
 - **`@fuaran-ui/conformance` 0.30.5.** The bundled snapshot is re-synced: the reject vector and the two
   `frag-stdlib-refinable-table` node vectors join it, the root manifest moves with them, and the host-capability

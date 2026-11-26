@@ -116,7 +116,8 @@ export const HOST_CORPUS_FAMILIES = {
   sanitization: 'covered', // packages/renderer/test/sanitizationCorpus.test.ts
   'stored-emissions': 'covered', // packages/ops/test/stored-emissions.test.ts
   // packages/conformance/test/validate-corpus.test.ts. A finding here carries
-  // its code and node but no path or severity, so the leg compares (code, node).
+  // its code and node but no path or severity, so the leg compares (code, node);
+  // the package README publishes that limit (section 27.7 has no qualifier).
   validate: 'covered',
 };
 

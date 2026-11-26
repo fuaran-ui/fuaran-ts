@@ -70,6 +70,17 @@ remaining legs marked `skipped`, never a blanket fail. CLI exit codes:
 | `schema-validation`                       | decode + encode hook      | the host's output validates against the canonical Draft 2020-12 schema    |
 | `apply`                                   | —                         | reserved; corpus v1 ships no apply fixtures                               |
 
+## What this host's own family legs do not compare
+
+`host-capability-manifest.json` declares each corpus family `covered`,
+`notApplicable` or `pending` (`WIRE_FORMAT.md` §27.7). That grammar gives
+`covered` no qualifier, so a covered family whose leg compares less than its
+vectors state says so here.
+
+| Family     | The leg compares                                                                                                       | The leg does not compare                                                                                                                                                                                                                                                                                       |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `validate` | the multiset of (code, node) of each finding, restricted to the codes `validator-coverage.json` declares `implemented` | the `path` and the `severity` of a finding: a `preEmitValidate` finding is a code plus typed fields and carries neither. A vector that pins a path or an order (a repeated id at index 10, in a list of twelve, in the node envelope) is therefore observed here only through its count of (code, node) pairs. |
+
 ## Corpus versioning
 
 The corpus snapshot is bundled with the package and versioned with it. Every
