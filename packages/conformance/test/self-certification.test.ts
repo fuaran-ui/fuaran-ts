@@ -76,10 +76,14 @@ const implementation = { name: '@fuaran-ui/ops', version: '0.1.0' };
  * A corpus root holding exactly one fixture of the bundled snapshot, so a run
  * through it times that fixture alone (plus the schema compile every run pays).
  */
-const singleFixtureCorpus = (fixtureId: string): { root: string; dispose: () => void } => {
+const singleFixtureCorpus = (
+  fixtureId: string,
+  override: Record<string, unknown> = {},
+): { root: string; dispose: () => void } => {
   const bundled = loadCorpus();
-  const fixture = bundled.fixtures.find((f) => f.id === fixtureId);
-  if (fixture === undefined) throw new Error(`the bundled corpus has no fixture '${fixtureId}'`);
+  const found = bundled.fixtures.find((f) => f.id === fixtureId);
+  if (found === undefined) throw new Error(`the bundled corpus has no fixture '${fixtureId}'`);
+  const fixture = { ...found, ...override };
 
   const root = mkdtempSync(join(tmpdir(), 'fuaran-conformance-single-'));
   const copy = (relPath: string): void => {
@@ -131,6 +135,28 @@ describe('self-certification — @fuaran-ui/ops through the public kit', () => {
       expectFullyConformant(workspaceCorpus);
     },
   );
+
+  it('a reject leg matches expectedPath at a segment boundary, never inside a segment', () => {
+    // Phase 2381: a plain string prefix let `….map.40` accept the reported `….map.404`. The
+    // fixture's own path certifies; the same fixture cut mid-segment must fail the node-reject leg.
+    const exact = singleFixtureCorpus('reject-map-key-all-digits');
+    const cut = singleFixtureCorpus('reject-map-key-all-digits', {
+      expectedPath: '$.kind.columns[2].kind.map.40',
+    });
+    try {
+      const leg = (root: string) =>
+        runConformance(tsHostAdapter, { implementation, corpusRoot: root }).legs.find(
+          (l) => l.leg === 'node-reject',
+        )!;
+      expect(leg(exact.root).status).toBe('pass');
+      const failed = leg(cut.root);
+      expect(failed.status).toBe('fail');
+      expect(failed.failures.map((f) => f.fixtureId)).toEqual(['reject-map-key-all-digits']);
+    } finally {
+      exact.dispose();
+      cut.dispose();
+    }
+  });
 
   it('certifies the deepest legal tree without the schema leg blowing up', () => {
     // A guard against a specific regression, not a general timing assertion.
