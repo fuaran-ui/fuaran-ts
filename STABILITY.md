@@ -629,6 +629,10 @@ _Unreleased: each rides an untagged draft. The newest tag, `v0.33.5`, published 
 - **`@fuaran-ui/ui`.** `preEmitValidate` raises `DUPLICATE_NODE_ID` once for EACH occurrence of an id after the
   first (§27.8.2), where it raised one per repeated id; each finding still names the id and the total `count`. A
   tree holding an id three times now carries two findings.
+- **`@fuaran-ui/ui`.** `preEmitValidate` walks every node's envelope — its `fallback` and its `state.onEmpty` /
+  `state.onLoading` alternatives — with every rule, as §8.1 requires (their ids share the document's one id
+  space). It walked neither, so an id held by a node's fallback and by its child raised nothing; it now raises
+  `DUPLICATE_NODE_ID`, and a defect inside an envelope node is reported like any other.
 - **Conformance statement.** `packages/conformance/test/validate-corpus.test.ts` runs every vector of the corpus
   `validate` family, comparing each finding's code and node (a finding here carries no path or severity), and the
   family is declared `covered`; `laws/canonicalFormLaws` is declared `pending`. The reject vector

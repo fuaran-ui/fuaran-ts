@@ -887,6 +887,13 @@ function runPreEmit<TMsg>(
       case 'FragmentRef':
         break;
     }
+    // The envelope's nodes (WIRE_FORMAT 8.1): the author-declared `fallback`
+    // and the `state` alternatives are walked, and their ids share the
+    // document's one id space, so a repeated id there is a DUPLICATE_NODE_ID
+    // like any other (the corpus vector validate-duplicate-id-in-the-node-envelope).
+    if (n.fallback !== undefined) walk(n.fallback);
+    if (n.state.onEmpty !== undefined) walk(n.state.onEmpty);
+    if (n.state.onLoading !== undefined) walk(n.state.onLoading);
   };
 
   walk(node);
