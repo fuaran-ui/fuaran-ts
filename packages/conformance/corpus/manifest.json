@@ -2971,6 +2971,24 @@
       "description": "FragmentRef (stdlib 'parameter-panel' — a number and a choice parameter)"
     },
     {
+      "id": "frag-stdlib-refinable-table",
+      "kind": "node-round-trip",
+      "since": "0.108.0",
+      "decoder": "node",
+      "inputFile": "nodes/frag-stdlib-refinable-table.json",
+      "expectedFile": "nodes/frag-stdlib-refinable-table.json",
+      "description": "FragmentDecl (stdlib 'refinable-table' — A grid whose sort, page and membership filters are its view: state the grid and its chips write, which the substituted pipeline restates.)"
+    },
+    {
+      "id": "frag-stdlib-refinable-table-ref",
+      "kind": "node-round-trip",
+      "since": "0.108.0",
+      "decoder": "node",
+      "inputFile": "nodes/frag-stdlib-refinable-table-ref.json",
+      "expectedFile": "nodes/frag-stdlib-refinable-table-ref.json",
+      "description": "FragmentRef (stdlib 'refinable-table' — a representative application)"
+    },
+    {
       "id": "frag-stdlib-scenario-comparison",
       "kind": "node-round-trip",
       "since": "0.105.0",
@@ -6790,6 +6808,16 @@
       "expectedErrorCode": "WRONG_TYPE",
       "expectedPath": "$.kind.source.source",
       "description": "Phase 2484 — `2.5` in a declared `int` column: refused, never truncated to `2`; §7.1's integer-slot rule, applied to a column value (WIRE_FORMAT §3.6.28)"
+    },
+    {
+      "id": "reject-transform-param-from-missing-name",
+      "kind": "reject",
+      "since": "0.108.0",
+      "decoder": "node",
+      "inputFile": "reject/reject-transform-param-from-missing-name.json",
+      "expectedErrorCode": "MISSING_FIELD",
+      "expectedPath": "$.kind.source.params[1].from.name",
+      "description": "WIRE_FORMAT §29.3 — a Transform's second param binds a Filter with no `name`. The defect is located by its entry's INDEX, below the entry as at it: `params[1].from.name`, never the entry's own `name` standing in for its index (`params.region.from.name`) or an empty index (`params[].from.name`)"
     },
     {
       "id": "reject-transform-project-columns-and-cols",

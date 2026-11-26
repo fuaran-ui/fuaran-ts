@@ -616,6 +616,27 @@ rebase, so `interleaves` does not count it.
   `corpus/snapshot.json` sentinel moves (the merge-conformance family is not part of the bundled payload), and the
   host-capability manifest records the new `ops` version.
 
+### Rides `@fuaran-ui/ops` 0.34.0, `@fuaran-ui/ui` 0.29.0 and `@fuaran-ui/conformance` 0.30.5 — a param's binding is located by its index, and a repeated id is one finding per later occurrence (Phase 2381)
+
+_Unreleased: each rides an untagged draft. The newest tag, `v0.33.5`, published `ops` 0.33.5, `ui` 0.28.0 and
+`conformance` 0.30.4, so no number moves; each draft already carries this class or a higher one._
+
+**Fix in behaviour**, no export, type or signature moves.
+
+- **`@fuaran-ui/ops`.** A defect inside an array-form `Binding.Transform` param's `from` is reported at
+  `…params[i].from…` (the entry's index, `WIRE_FORMAT.md` §29.3), where it was `…params.<name>.from…`. The
+  map shorthand (`{"<name>": <Binding>}`) keeps `…params.<name>.from…`: its path has no specified rule yet.
+- **`@fuaran-ui/ui`.** `preEmitValidate` raises `DUPLICATE_NODE_ID` once for EACH occurrence of an id after the
+  first (§27.8.2), where it raised one per repeated id; each finding still names the id and the total `count`. A
+  tree holding an id three times now carries two findings.
+- **Conformance statement.** `packages/conformance/test/validate-corpus.test.ts` runs every vector of the corpus
+  `validate` family, comparing each finding's code and node (a finding here carries no path or severity), and the
+  family is declared `covered`; `laws/canonicalFormLaws` is declared `pending`. The reject vector
+  `reject-transform-param-from-missing-name` passes at `$.kind.source.params[1].from.name`.
+- **`@fuaran-ui/conformance` 0.30.5.** The bundled snapshot is re-synced: the reject vector and the two
+  `frag-stdlib-refinable-table` node vectors join it, the root manifest moves with them, and the host-capability
+  manifest gains the two family rows.
+
 ### Recorded breaking change — `@fuaran-ui/schema` 0.29.0, `@fuaran-ui/ui` 0.29.0, `@fuaran-ui/ops` 0.34.0: a capability declares its result (Phase 2741)
 
 _Unreleased: minors ahead of the newest tag, `v0.33.5`, which published `schema` 0.28.1, `ui` 0.28.0 and `ops`
