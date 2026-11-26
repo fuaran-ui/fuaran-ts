@@ -62,6 +62,9 @@
     },
     "grid-edit": "covered",
     "grid-window-writer": "covered",
+    "laws/canonicalFormLaws": {
+      "pending": "this host's decoder is written for the UI vocabulary alone and reads no other, so its suite does not run these vectors over the fixture vocabulary they carry; the UI vocabulary declares no presence condition or alias list until Phase 2340 (WIRE_FORMAT 3.6)"
+    },
     "laws/capabilityLaws": "covered",
     "laws/dataframeParity": {
       "pending": "this host's evaluator runs the drawn transformLaws sample; the authored dataframeParity cases are not run yet"
@@ -95,7 +98,8 @@
     "stored-emissions": "covered",
     "style-observer": "covered",
     "teleport-decode": "covered",
-    "teleport-reject": "covered"
+    "teleport-reject": "covered",
+    "validate": "covered"
   },
   "tokens": [
     "Accessibility.describedBy",

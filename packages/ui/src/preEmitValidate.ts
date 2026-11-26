@@ -39,7 +39,10 @@ import {
 export type PreEmitDefect =
   /** An `id` is the empty string. The wire form requires a non-empty identifier. */
   | { readonly code: 'EMPTY_NODE_ID' }
-  /** `id` appears as the NodeId of multiple nodes (`count` ≥ 2). Breaks op addressing. */
+  /**
+   * `id` appears as the NodeId of multiple nodes (`count` ≥ 2). Breaks op addressing.
+   * Raised once per occurrence after the first, each carrying the total `count`.
+   */
   | { readonly code: 'DUPLICATE_NODE_ID'; readonly id: string; readonly count: number }
   /** A `Custom` node has an empty `moduleId` or `componentId`. */
   | {
@@ -74,7 +77,8 @@ export type PreEmitDefect =
   /**
    * FUARAN082 (error) — a `Switch` has two or more cases with the same `match`
    * value (Phase 392). First-match-wins makes the later case dead; give each
-   * case a distinct match value.
+   * case a distinct match value. One finding per case after the first that
+   * repeats a value (Phase 2381).
    */
   | { readonly code: 'DUPLICATE_SWITCH_MATCH'; readonly nodeId: string; readonly match: string }
   /**
@@ -842,7 +846,9 @@ function runPreEmit<TMsg>(
           defects.push({ code: 'UNGROUNDED_SWITCH_STATE_KEY', nodeId: n.id });
         }
         // FUARAN082 (Phase 392): duplicate match values make the later case
-        // dead (first-match-wins). Report each duplicated value once.
+        // dead (first-match-wins). One finding at EACH case after the first
+        // that repeats a value (WIRE_FORMAT §27.8.2): the count of findings is
+        // the count of cases to change.
         //
         // Phase 1535 — over the MATCH cases only. Two predicate cases are not
         // duplicates of each other: `when` carries a binding, two bindings that
@@ -850,7 +856,6 @@ function runPreEmit<TMsg>(
         // structural equality of two predicates is not the question this rule
         // asks. FUARAN147 below is the shape rule for the case itself.
         const seen = new Set<string>();
-        const reported = new Set<string>();
         k.spec.cases.forEach((c, i) => {
           if (c.match !== undefined && c.when !== undefined)
             defects.push({
@@ -867,10 +872,8 @@ function runPreEmit<TMsg>(
               bothPresent: false,
             });
           if (c.match !== undefined) {
-            if (seen.has(c.match) && !reported.has(c.match)) {
+            if (seen.has(c.match))
               defects.push({ code: 'DUPLICATE_SWITCH_MATCH', nodeId: n.id, match: c.match });
-              reported.add(c.match);
-            }
             seen.add(c.match);
           }
           walk(c.child);
@@ -884,12 +887,22 @@ function runPreEmit<TMsg>(
       case 'FragmentRef':
         break;
     }
+    // The envelope's nodes (WIRE_FORMAT 8.1): the author-declared `fallback`
+    // and the `state` alternatives are walked, and their ids share the
+    // document's one id space, so a repeated id there is a DUPLICATE_NODE_ID
+    // like any other (the corpus vector validate-duplicate-id-in-the-node-envelope).
+    if (n.fallback !== undefined) walk(n.fallback);
+    if (n.state.onEmpty !== undefined) walk(n.state.onEmpty);
+    if (n.state.onLoading !== undefined) walk(n.state.onLoading);
   };
 
   walk(node);
 
+  // A repeated id is one finding at EACH occurrence after the first
+  // (WIRE_FORMAT §27.8.2): the count of findings is the count of nodes to
+  // change. Each finding names the id and carries the total `count`.
   for (const [id, count] of nodeIdCounts) {
-    if (count >= 2) {
+    for (let k = 1; k < count; k++) {
       defects.push({ code: 'DUPLICATE_NODE_ID', id, count });
     }
   }
@@ -999,11 +1012,6 @@ type JsonObject = { readonly [k: string]: unknown };
 const isObject = (v: unknown): v is JsonObject =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
-const jsonPathMember = (key: string): string =>
-  /^[A-Za-z_][A-Za-z0-9_]*$/.test(key)
-    ? `.${key}`
-    : `['${key.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}']`;
-
 /** Every Chart / DataGrid node object in the document, in document order, with its path. */
 const readerObjects = (
   doc: unknown,
@@ -1018,7 +1026,9 @@ const readerObjects = (
         const t = kind['$type'];
         if (t === 'Chart' || t === 'DataGrid') found.push({ id: v['id'], reader: t, path, kind });
       }
-      for (const [k, child] of Object.entries(v)) go(path + jsonPathMember(k), child);
+      // A member is `.name` as written, whatever its spelling (WIRE_FORMAT
+      // §29.3: there is no quoted segment); an index is always bracketed.
+      for (const [k, child] of Object.entries(v)) go(`${path}.${k}`, child);
     }
   };
   go('$', doc);

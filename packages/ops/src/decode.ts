@@ -3026,15 +3026,15 @@ const decodeExprParams = (
     if (!po.ok) return po;
     const name = reqField(w, ep, po.value, 'name', 'param name string', requireString);
     // Field alias: value — the observed repair-attempt shape ({name, value}).
-    // The binding is located by the param's NAME (`params.<name>.from`), as on
-    // the reference host and as in the map form above. Its presence is checked
-    // whatever the name holds; its value is decoded only under a good name
-    // (WIRE_FORMAT §29.1 rule 6).
+    // The binding is located under the entry's INDEX (`params[i].from`, §29.3),
+    // as on the reference host. Its presence is checked whatever the name
+    // holds; its value is decoded only under a good name (WIRE_FORMAT §29.1
+    // rule 6).
     const fromJ = fieldAliased(po.value, 'from', ['value']);
     const from =
       fromJ === undefined
         ? missingField(ep, 'from', 'param source Binding')
-        : andThen(name, (n) => decodeBinding(w, `${path}.params.${n}.from`, fromJ));
+        : andThen(name, () => decodeBinding(w, `${ep}.from`, fromJ));
     if (!name.ok || !from.ok) return failed(name, from);
     return ok<TransformParam>({ name: name.value, from: from.value });
   });

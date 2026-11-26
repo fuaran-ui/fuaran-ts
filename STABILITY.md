@@ -616,6 +616,46 @@ rebase, so `interleaves` does not count it.
   `corpus/snapshot.json` sentinel moves (the merge-conformance family is not part of the bundled payload), and the
   host-capability manifest records the new `ops` version.
 
+### Rides `@fuaran-ui/ops` 0.34.0, `@fuaran-ui/ui` 0.29.0 and `@fuaran-ui/conformance` 0.30.5 — a param's binding is located by its index, and a repeated id is one finding per later occurrence (Phase 2381)
+
+_Unreleased: each rides an untagged draft. The newest tag, `v0.33.5`, published `ops` 0.33.5, `ui` 0.28.0 and
+`conformance` 0.30.4, so no number moves; each draft already carries this class or a higher one._
+
+**Fix in behaviour**, no export, type or signature moves.
+
+- **`@fuaran-ui/ops`.** A defect inside an array-form `Binding.Transform` param's `from` is reported at
+  `…params[i].from…` (the entry's index, `WIRE_FORMAT.md` §29.3), where it was `…params.<name>.from…`. The
+  map shorthand (`{"<name>": <Binding>}`) keeps `…params.<name>.from…`: its path has no specified rule yet.
+- **`@fuaran-ui/ui`.** `preEmitValidate` raises `DUPLICATE_NODE_ID` once for EACH occurrence of an id after the
+  first (§27.8.2), where it raised one per repeated id; each finding still names the id and the total `count`. A
+  tree holding an id three times now carries two findings.
+- **`@fuaran-ui/ui`.** `preEmitValidate` raises `DUPLICATE_SWITCH_MATCH` (`FUARAN082`) once for EACH case after
+  the first that repeats a `match` value (§27.8.2), where it raised one per repeated value. A `Switch` whose cases
+  match `x`, `x`, `x` now carries two findings (corpus vector `validate-switch-match-repeated-three-times`).
+- **`@fuaran-ui/ui`.** `bindingChecks` spells every member of a reported path `.name` as written, whatever its
+  spelling (§29.3: there is no quoted segment), where a member that was not an identifier was written `['name']`.
+  A chart under a slot argument named `my-slot` is now at `…args.my-slot.tree.kind.source`, where it was
+  `…args['my-slot'].tree.kind.source`.
+- **`@fuaran-ui/ui`.** `preEmitValidate` walks every node's envelope — its `fallback` and its `state.onEmpty` /
+  `state.onLoading` alternatives — with every rule, as §8.1 requires (their ids share the document's one id
+  space). It walked neither, so an id held by a node's fallback and by its child raised nothing; it now raises
+  `DUPLICATE_NODE_ID`, and a defect inside an envelope node is reported like any other.
+- **Conformance statement.** `packages/conformance/test/validate-corpus.test.ts` runs every vector of the corpus
+  `validate` family, comparing each finding's code and node (a finding here carries no path or severity), and the
+  family is declared `covered`; what that leg does not compare is published in `packages/conformance/README.md`
+  ("What this host's own family legs do not compare"), since §27.7 gives `covered` no qualifier; `laws/canonicalFormLaws` is declared `pending`. The reject vector
+  `reject-transform-param-from-missing-name` passes at `$.kind.source.params[1].from.name`.
+- **`@fuaran-ui/conformance`.** `runConformance` matches a refusal's path against a reject vector's `expectedPath`
+  only at a segment boundary (`WIRE_FORMAT.md` §6): the path is the expected one, or extends it with a `.` or `[`
+  segment. It matched by string prefix, so a host whose refusal path extended the expected one inside a segment
+  (`$.kind.map.404` against `$.kind.map.40`) passed and now fails. The same holds for the op, envelope, elicitation
+  and card reject legs. A patch-class fix under the table above (a bug fix with no surface change): a host under
+  test that refuses at the specified location reports exactly as before, and the report semantics do not move.
+- **`@fuaran-ui/conformance` 0.30.5.** The bundled snapshot is re-synced: the reject vectors
+  `reject-transform-param-from-missing-name` and `reject-map-key-all-digits` join it, the root manifest moves with
+  them, and the host-capability manifest gains the two family rows (`validate` covered, `laws/canonicalFormLaws`
+  pending).
+
 ### Recorded breaking change — `@fuaran-ui/schema` 0.29.0, `@fuaran-ui/ui` 0.29.0, `@fuaran-ui/ops` 0.34.0: a capability declares its result (Phase 2741)
 
 _Unreleased: minors ahead of the newest tag, `v0.33.5`, which published `schema` 0.28.1, `ui` 0.28.0 and `ops`

@@ -79,6 +79,15 @@ const firstDiff = (expected: string, actual: string): string => {
   );
 };
 
+/**
+ * WIRE_FORMAT §6: an `expectedPath` is a prefix of the reported path at a SEGMENT boundary, so it
+ * matches the whole path or the path followed by `.` or `[` — `$.kind.map.40` never accepts
+ * `$.kind.map.404`, and `$.kind.items` never accepts `$.kind.itemsX`.
+ */
+const pathExtends = (path: string, expected: string): boolean =>
+  path === expected ||
+  (path.startsWith(expected) && (path[expected.length] === '.' || path[expected.length] === '['));
+
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 interface LegAccumulator {
@@ -338,7 +347,7 @@ export const runConformance = (
         });
         continue;
       }
-      if (!decoded.error.path.startsWith(f.expectedPath ?? '$')) {
+      if (!pathExtends(decoded.error.path, f.expectedPath ?? '$')) {
         r.failures.push({
           fixtureId: f.id,
           summary: 'decode-error PATH diverges from the canonical error',
@@ -432,7 +441,7 @@ export const runConformance = (
         });
         continue;
       }
-      if (!r.error.path.startsWith(f.expectedPath ?? '$')) {
+      if (!pathExtends(r.error.path, f.expectedPath ?? '$')) {
         a.failures.push({
           fixtureId: f.id,
           summary: 'refusal PATH diverges from the canonical error',
@@ -522,7 +531,7 @@ export const runConformance = (
         });
         continue;
       }
-      if (!r.error.path.startsWith(f.expectedPath ?? '$')) {
+      if (!pathExtends(r.error.path, f.expectedPath ?? '$')) {
         a.failures.push({
           fixtureId: f.id,
           summary: 'refusal PATH diverges from the canonical error',
@@ -612,7 +621,7 @@ export const runConformance = (
         });
         continue;
       }
-      if (!r.error.path.startsWith(f.expectedPath ?? '$')) {
+      if (!pathExtends(r.error.path, f.expectedPath ?? '$')) {
         a.failures.push({
           fixtureId: f.id,
           summary: 'refusal PATH diverges from the canonical error',
@@ -671,7 +680,7 @@ export const runConformance = (
         });
         continue;
       }
-      if (!r.error.path.startsWith(f.expectedPath ?? '$')) {
+      if (!pathExtends(r.error.path, f.expectedPath ?? '$')) {
         a.failures.push({
           fixtureId: f.id,
           summary: 'refusal PATH diverges from the canonical error',

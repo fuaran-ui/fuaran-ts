@@ -138,3 +138,18 @@ describe('Phase 1889 — charts and grids checked against their data (corpus)', 
     expect(report(tree).map((c) => c.grade)).toEqual([{ kind: 'Checked' }]);
   });
 });
+
+describe('Phase 2381 — a reported path spells a member as written (WIRE_FORMAT §29.3)', () => {
+  it('a slot argument whose name is not an identifier is a dotted member, never a quoted segment', () => {
+    const source =
+      '{"columns":{"dept":{"validity":[true],"values":["eng"]}},"schema":[{"name":"dept","type":"string"}]}';
+    const chart = `{"id":"c1","kind":{"$type":"Chart","kind":"Bar","source":{"$type":"Transform","pipeline":[],"source":${source}},"xField":"nope","yFields":["dept"]}}`;
+    const tree = decodeText(
+      'slot-arg-hyphen',
+      `{"id":"root","kind":{"$type":"Box","children":[{"id":"fr","kind":{"$type":"FragmentRef","args":{"my-slot":{"$type":"SlotArg","tree":${chart}}},"name":"frag"}}],"layout":{"$type":"Flex","direction":"Vertical"},"role":"Group"}}`,
+    );
+    expect(report(tree).map((c) => [c.nodeId, c.path])).toEqual([
+      ['c1', '$.kind.children[0].kind.args.my-slot.tree.kind.source'],
+    ]);
+  });
+});
