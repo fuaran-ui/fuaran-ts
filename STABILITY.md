@@ -135,6 +135,17 @@ The **`renderToHtml` body-fragment output is stable**, subject to the same class
 
 `@fuaran-ui/schema` + `@fuaran-ui/renderer` are peer dependencies (the latter for its React-free `/sanitize` and `/markdown` subpaths + the packaged reference CSS); `react` / `react-dom` are **not** runtime dependencies, and as of `0.10.0` the package declares **no runtime dependencies at all**. The HTML-escaping floor (`escapeText` / `escapeAttr`) and the binding / class-name helpers are re-exported for hosts.
 
+#### `0.27.0` — a bound grid is the reference server renderer's table (breaking: rendered output)
+
+A `DataGrid` whose rows come from a binding renders byte-identically to the reference server renderer for the same document and data (Phase 2803; `test/boundGridParity.test.ts` holds it to reference outputs the reference host produces). What moves:
+
+- **A sortable grid's headers carry the client's affordance** (`data-sortable=""`, `tabindex="0"`, and `aria-sort` on the column the effective sort orders by), as the client draws them before hydration.
+- **The pager's steps are disabled only where they cannot move**, spelled `disabled="true"`: Previous on the first page, Next on the last.
+- **Past 1000 presented rows** the first 1000 are drawn, with `aria-rowcount` / `aria-rowindex` and a pager status reading `Rows 1–1000 of N`; a declared page at or under the limit is never cut.
+- **A source that does not resolve** (a host query with no rows supplied, a State key with no default, a failed evaluation) is the `fuaran-grid-ssr-placeholder` naming why, where it was an empty table; an `onEmpty` slot is drawn for a source that resolved to no rows, never for one that did not resolve.
+- **Editing and reordering switch on at hydration**: an editable cell (an `Editable` column included) is its formatted display text rather than an inert input, and no reorder column is drawn.
+- **A grid's text escapes `"` and `'`** (`&quot;` / `&apos;`) as the reference does; the markup means the same.
+
 #### `0.10.0` — markdown output change (breaking for documents `marked` rendered differently)
 
 Before `0.10.0` this package parsed markdown with npm `marked` and sanitised the result — a second markdown implementation inside a renderer whose whole contract is being a fidelity twin of the client. Measured over the shared corpus, the two disagreed on **27 of its 57 fixtures**. A consumer whose markdown bodies stay within the corpus's permissive, HTML-free, table-free, task-list-free subset sees no change; anything else moves, and these are the classes:
