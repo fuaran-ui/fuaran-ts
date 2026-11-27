@@ -1,0 +1,43 @@
+{
+  "id": "spend-grid",
+  "kind": {
+    "$type": "DataGrid",
+    "columns": [
+      { "field": "dept", "kind": { "$type": "Text" }, "label": "" },
+      {
+        "field": "total",
+        "format": {
+          "$type": "Currency",
+          "code": "GBP",
+          "decimals": 0,
+          "locale": { "$type": "Explicit", "tag": "en-GB" }
+        },
+        "kind": { "$type": "Numeric" },
+        "label": "Spend"
+      }
+    ],
+    "source": {
+      "$type": "Transform",
+      "pipeline": [
+        {
+          "$type": "groupBy",
+          "aggs": [{ "fn": "sum", "name": "total", "of": "amount" }],
+          "keys": ["dept"]
+        }
+      ],
+      "source": {
+        "columns": {
+          "dept": {
+            "validity": [true, true, true, true],
+            "values": ["eng", "eng", "sales", "ops"]
+          },
+          "amount": { "validity": [true, true, true, true], "values": [100, 120, 95, 40] }
+        },
+        "schema": [
+          { "name": "dept", "type": "string" },
+          { "name": "amount", "type": "int" }
+        ]
+      }
+    }
+  }
+}

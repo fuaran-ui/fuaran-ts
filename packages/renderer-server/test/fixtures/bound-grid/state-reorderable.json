@@ -1,0 +1,21 @@
+{
+  "id": "plan-grid",
+  "kind": {
+    "$type": "DataGrid",
+    "columns": [
+      { "field": "month", "kind": { "$type": "Text" }, "label": "Month" },
+      { "field": "revenue", "kind": { "$type": "Numeric" }, "label": "Revenue" }
+    ],
+    "editStateKey": "plan-rows",
+    "reorderable": true,
+    "rowKeyField": "month",
+    "source": {
+      "$type": "State",
+      "defaultValue": [
+        { "month": "Jan", "revenue": 980 },
+        { "month": "Feb", "revenue": 1105 }
+      ],
+      "key": "plan-rows"
+    }
+  }
+}

@@ -1,0 +1,1 @@
+<div id="z-grid" data-fuaran-node-id="z-grid" class="fuaran-kind-grid fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><table class="fuaran-grid"><thead><tr><th class="fuaran-grid-header">Department</th><th class="fuaran-grid-header">Spend</th></tr></thead><tbody></tbody></table></div>

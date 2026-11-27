@@ -1,0 +1,42 @@
+{
+  "id": "c-grid",
+  "kind": {
+    "$type": "DataGrid",
+    "columns": [
+      { "field": "name", "kind": { "$type": "Text" }, "label": "Name & \"label\"" },
+      {
+        "field": "status",
+        "kind": {
+          "$type": "TonedPill",
+          "defaultTone": "Neutral",
+          "field": "status",
+          "map": { "open": "Success" }
+        },
+        "label": "Status"
+      },
+      {
+        "field": "n",
+        "format": { "$type": "Number", "decimals": 2 },
+        "kind": { "$type": "Numeric" },
+        "label": "N"
+      },
+      { "kind": { "$type": "Button", "label": "Open", "onClick": "<closure>" }, "label": "Act" }
+    ],
+    "source": {
+      "$type": "Transform",
+      "pipeline": [],
+      "source": {
+        "columns": {
+          "name": { "validity": [true, false], "values": ["a \"quoted\" & <tagged> 'name'", ""] },
+          "status": { "validity": [true, true], "values": ["open", "closed"] },
+          "n": { "validity": [true, false], "values": [1.5, 0] }
+        },
+        "schema": [
+          { "name": "name", "type": "string" },
+          { "name": "status", "type": "string" },
+          { "name": "n", "type": "float" }
+        ]
+      }
+    }
+  }
+}

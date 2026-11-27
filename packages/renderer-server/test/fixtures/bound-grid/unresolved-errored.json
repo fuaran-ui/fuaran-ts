@@ -1,0 +1,38 @@
+{
+  "id": "e-grid",
+  "kind": {
+    "$type": "DataGrid",
+    "columns": [
+      { "field": "dept", "kind": { "$type": "Text" }, "label": "Department" },
+      {
+        "field": "total",
+        "format": {
+          "$type": "Currency",
+          "code": "GBP",
+          "decimals": 0,
+          "locale": { "$type": "Explicit", "tag": "en-GB" }
+        },
+        "kind": { "$type": "Numeric" },
+        "label": "Spend"
+      }
+    ],
+    "source": {
+      "$type": "Transform",
+      "pipeline": [
+        {
+          "$type": "filter",
+          "pred": {
+            "$type": "binary",
+            "left": { "$type": "col", "name": "missing" },
+            "op": "gt",
+            "right": { "$type": "lit", "cell": { "$type": "Int", "value": 0 } }
+          }
+        }
+      ],
+      "source": {
+        "columns": { "dept": { "validity": [true], "values": ["eng"] } },
+        "schema": [{ "name": "dept", "type": "string" }]
+      }
+    }
+  }
+}

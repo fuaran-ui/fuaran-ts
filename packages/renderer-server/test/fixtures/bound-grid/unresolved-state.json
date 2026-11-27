@@ -1,0 +1,22 @@
+{
+  "id": "s-grid",
+  "kind": {
+    "$type": "DataGrid",
+    "columns": [
+      { "field": "dept", "kind": { "$type": "Text" }, "label": "Department" },
+      {
+        "field": "total",
+        "format": {
+          "$type": "Currency",
+          "code": "GBP",
+          "decimals": 0,
+          "locale": { "$type": "Explicit", "tag": "en-GB" }
+        },
+        "kind": { "$type": "Numeric" },
+        "label": "Spend"
+      }
+    ],
+    "repeatHeader": true,
+    "source": { "$type": "State", "key": "spend-rows" }
+  }
+}
