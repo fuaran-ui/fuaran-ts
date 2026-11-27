@@ -1,0 +1,22 @@
+{
+  "id": "q-grid",
+  "kind": {
+    "$type": "DataGrid",
+    "columns": [
+      { "field": "dept", "kind": { "$type": "Text" }, "label": "Department" },
+      {
+        "field": "total",
+        "format": {
+          "$type": "Currency",
+          "code": "GBP",
+          "decimals": 0,
+          "locale": { "$type": "Explicit", "tag": "en-GB" }
+        },
+        "kind": { "$type": "Numeric" },
+        "label": "Spend"
+      }
+    ],
+    "keepRowsTogether": true,
+    "source": { "$type": "Query", "name": "spend \"by\" <dept> & 'team'" }
+  }
+}

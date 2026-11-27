@@ -1,0 +1,1 @@
+<div id="z-grid" data-fuaran-node-id="z-grid" class="fuaran-kind-grid fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><div id="z-empty" data-fuaran-node-id="z-empty" class="fuaran-kind-text fuaran-node fuaran-tone-default fuaran-weight-standard fuaran-emphasis-normal"><span>Nothing spent</span></div></div>

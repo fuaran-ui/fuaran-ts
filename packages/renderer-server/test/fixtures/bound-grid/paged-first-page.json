@@ -1,0 +1,19 @@
+{
+  "id": "n-grid",
+  "kind": {
+    "$type": "DataGrid",
+    "columns": [{ "field": "i", "kind": { "$type": "Numeric" }, "label": "I" }],
+    "pageSize": 2,
+    "pageStateKey": "n-page",
+    "source": {
+      "$type": "Transform",
+      "pipeline": [],
+      "source": {
+        "columns": {
+          "i": { "validity": [true, true, true, true, true], "values": [1, 2, 3, 4, 5] }
+        },
+        "schema": [{ "name": "i", "type": "int" }]
+      }
+    }
+  }
+}

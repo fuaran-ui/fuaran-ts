@@ -62,6 +62,7 @@ import type {
   SortDirection,
   StateBehaviour,
   TabHeader,
+  TextSource,
   ToneVariant,
   VisKind,
 } from '@fuaran-ui/schema';
@@ -132,12 +133,14 @@ import {
   // own, over the shared child enumeration, so the two tiers resolve and
   // rename fragments over the same positions (this tier used to carry a copy).
   collectFragments,
+  dataFieldOf,
   drawingSvg,
   gridHostWindows,
   gridPage,
   gridWindow,
   mathMl,
   namespaceNode,
+  type PresentedWindow,
   registeredCharts,
   windowRowCount,
   windowRowIndex,
@@ -2652,7 +2655,7 @@ const renderVis = (
             vis.spec.columns,
             staticSelectedKey(ctx, nodeId, vis.spec.columns, vis.spec.rowKeyField),
           )
-        : renderGrid(ctx, state, vis.spec);
+        : renderGrid(ctx, nodeId, state, vis.spec);
     case 'Chart':
       return renderChart(ctx, state, vis.spec);
     case 'Map':
@@ -2660,233 +2663,239 @@ const renderVis = (
   }
 };
 
-// ─── The grid's whole-rows write destination (Phase 663 / 863 / 934) ─────────
+// ─── The bound grid (Phase 2803 — the reference server renderer's table) ─────
 //
-// Parity-locked with the client renderer's `gridWriteDestination` /
-// `editDestination` / `reorderDestination` and F# `BindingResolver`'s three of
-// the same names. A declared `editStateKey` wins; else the Phase-663 floor, the
-// grid's own `source` when that source is a direct `State` binding; else there
-// is NO destination, and neither affordance is drawn — a Transform pipeline is
-// not invertible and Static/Query rows are host data, so a handle or an input
-// over them would be a gesture with nowhere to land.
-//
-// The server collapses the three to a predicate: it never writes, so WHICH
-// destination is reachable does not change a byte of its output, only whether
-// one is.
-const hasGridWriteDestination = (
-  declared: boolean,
-  editStateKey: string | undefined,
-  source: Binding<readonly unknown[]>,
-): boolean => declared && (editStateKey !== undefined || source.kind === 'State');
+// A `DataGrid` whose rows come from a binding, byte-identical with the reference
+// server renderer's `ElementPlan.VisPlan.boundGrid` for the same document and
+// data: its state slots, else — when the source resolves where the page is
+// rendered — the table the first-party client draws before any interaction,
+// else the placeholder naming why. The fidelity record's DataGrid fallback is
+// the contract: the declared columns in order, each display cell a `<span>`
+// holding the value through the column's declared format, the effective sort,
+// the requested page with the renderer-owned pager, the window a
+// `windowStateKey` presents, the selected row and the row-action marker. What
+// needs script to mean anything switches on at hydration and is not drawn here:
+// the edit inputs (an editable cell is its display text), the reorder handles,
+// the transfer chrome and the export control.
 
-// Phase 863 — the per-cell predicate behind the client's `cellCommit`, which
-// returns a committer exactly where this returns `true`: editable write-back
-// applies only on the declarative path — a `field`-projected Text/Numeric cell
-// with no `value` closure, since a closure's projection need not correspond to
-// any row field and there would be nothing sound to write. The column flag
-// NARROWS the grid-level capability: an explicit `false` is read-only.
-const cellEditable = (gridEditable: boolean, col: ColumnErased<unknown>): boolean =>
-  gridEditable &&
-  col.editable !== false &&
-  col.value === undefined &&
-  col.field !== undefined &&
-  (col.kind.kind === 'Text' || col.kind.kind === 'Numeric');
+/**
+ * The most rows a server-rendered bound grid draws — the reference server
+ * renderer's `BoundGridRowLimit`. Past it the first that many presented rows
+ * are drawn and the total stated (`aria-rowcount` and the pager status), never
+ * the whole table. A grid declaring a page at or under it is never cut.
+ */
+const BOUND_GRID_ROW_LIMIT = 1000;
+
+// The grid's text, escaped as the reference server renderer escapes text: the
+// quotes too, so a header, a cell and a placeholder reason are byte-identical
+// across the two server renderers. Equivalent markup either way.
+const gridText = (value: string): string =>
+  escapeText(value).replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+
+const gridTextEl = (tag: string, attrs: readonly Attr[], text: string): string =>
+  el(tag, attrs, gridText(text));
+
+// Why a bound grid's source did not resolve on the server, in the reference
+// renderer's words: a page published as static HTML says what is missing.
+const unresolvedGridReason = (
+  source: Binding<readonly unknown[]>,
+  resolution: Resolution<unknown>,
+): string => {
+  if (resolution.kind === 'Errored') return 'the source failed to resolve';
+  if (source.kind === 'Query') return `the host supplied no rows for query "${source.name}"`;
+  // The encoder's own reading of a declared default (Phase 1656): the decoder's
+  // provenance where it set it, else an authored value that is not null.
+  if (
+    source.kind === 'State' &&
+    !(source.defaultDeclared ?? (source.defaultValue !== undefined && source.defaultValue !== null))
+  )
+    return `state "${source.key}" has no value`;
+  return 'the source does not resolve on the server';
+};
 
 const renderGrid = (
   ctx: ServerContext,
+  nodeId: string,
   state: StateBehaviour<unknown>,
   declared: Extract<VisKind<unknown>, { kind: 'Grid' }>['spec'],
 ): string => {
   // Phase 2209 — one evaluation for the rows and their schema; an empty header
   // of a data column takes its bound field's column title (WIRE_FORMAT §3.6.27).
-  // Parity-locked with the client renderer's `renderGrid`.
   const { resolution, fields } = resolveRowsWithFields(ctx.sources, declared.source);
   const spec = withColumnHeaders(fields, declared);
+  const printClasses = gridPrintBreakClasses(spec.keepRowsTogether, spec.repeatHeader);
   if (resolution.kind === 'NotResolved' && state.onLoading !== undefined) {
     return renderNode(ctx, state.onLoading);
   }
   if (resolution.kind === 'Errored' && state.onError !== undefined) {
     return renderNode(ctx, state.onError(bindingResolutionError(resolution.message)));
   }
-  const resolvedRows = resolution.kind === 'Resolved' ? asArray<unknown>(resolution.value) : [];
-  if (resolvedRows.length === 0 && state.onEmpty !== undefined) {
+  if (resolution.kind !== 'Resolved') {
+    return gridTextEl(
+      'div',
+      [
+        ['class', `fuaran-grid fuaran-grid-ssr-placeholder${printClasses}`],
+        ['data-fuaran-ssr-placeholder', 'DataGrid'],
+        ['data-fuaran-row-count', '0'],
+      ],
+      `[Grid: ${unresolvedGridReason(spec.source, resolution)} — hydrates client-side]`,
+    );
+  }
+  // Phase 818 / 861 — the effective order: a seeded descriptor, else the
+  // declared initial order. Phase 862 / 1892 — the page and the window through
+  // the client renderer's own rules (a HOST-paged or host-windowed grid slices
+  // nothing).
+  const sortDescriptor = effectiveSortDescriptor(spec.sortStateKey, spec.defaultSort, ctx.sources);
+  const sorted = sortRowsByDescriptor(
+    spec.columns,
+    sortDescriptor,
+    asArray<unknown>(resolution.value),
+  );
+  const paging = gridPage(ctx.sources, spec, sorted.length);
+  const pageRows =
+    paging !== undefined && !paging.hostPages && !gridHostWindows(spec)
+      ? sliceRowsToPage(paging.size, paging.page, sorted)
+      : sorted;
+  const pageWindow = gridWindow(ctx.sources, spec, pageRows);
+  const inWindow = pageWindow !== undefined ? pageWindow.rows : pageRows;
+  // The limit: the first rows, and — where no window already states the range
+  // — a window over them that states the total.
+  const shownCount = inWindow.length;
+  const overLimit = shownCount > BOUND_GRID_ROW_LIMIT;
+  const presented = overLimit ? inWindow.slice(0, BOUND_GRID_ROW_LIMIT) : inWindow;
+  const window: PresentedWindow<unknown> | undefined = !overLimit
+    ? pageWindow
+    : pageWindow !== undefined
+      ? { ...pageWindow, rows: presented }
+      : { rows: presented, offset: 0, total: shownCount, windowed: true };
+  if (presented.length === 0 && state.onEmpty !== undefined) {
     return renderNode(ctx, state.onEmpty);
   }
-  // Phase 818 — `sortStateKey`: a host that seeds the named State key with a
-  // `{column, direction}` descriptor gets its resolved rows sorted by the
-  // addressed column's `field` before rendering (runtime-side sort). No seeded
-  // descriptor (the SSR default) ⇒ natural source order. The interactive
-  // affordance (`data-sortable` / live `aria-sort`) is a client-runtime
-  // surface this inert renderer deliberately does not emit — a table never
-  // advertises an interaction it cannot perform.
-  // Phase 861 — the effective order. A static host applies a DECLARED initial
-  // order for the same reason it applies a seeded sort: both are data
-  // operations the document itself determines, and neither needs a click.
-  const sortDescriptor = effectiveSortDescriptor(spec.sortStateKey, spec.defaultSort, ctx.sources);
-  const sorted = sortRowsByDescriptor(spec.columns, sortDescriptor, resolvedRows);
-  // Phase 862 — `pageStateKey` + `pageSize`, under the SAME rule the sort above
-  // follows: the SLICE is a data operation the seeded State determines, so a
-  // static host performs it (page 1 absent a seeded descriptor); the PAGER is
-  // an interactive affordance this inert renderer cannot honour, so it is
-  // omitted rather than emitted dead. A page a reader cannot leave is still an
-  // honest first page; a pager that does nothing is not.
-  //
-  // The wire declaration is this phase's; what a static host renders for a
-  // bound grid more broadly is Phase 668's, and this follows 818's shipped
-  // precedent rather than pre-empting it.
-  //
-  // Phase 1892 — the page rule and the row window come from the client
-  // renderer's own functions, so the two surfaces cannot present different
-  // rows: a HOST-paged grid with a declared `rowTotal` states "Page X of N" and
-  // clamps; a grid whose HOST returns the window slices nothing; otherwise the
-  // grid pages, then windows, by the seeded State. The window is a data
-  // operation, so a static host performs it; writing the descriptor is the
-  // interactive half, and this host writes nothing.
-  const paging = gridPage(ctx.sources, spec, sorted.length);
-  const hostWindows = gridHostWindows(spec);
-  const pageSliced = paging !== undefined && !paging.hostPages && !hostWindows;
-  const pagedRows =
-    paging !== undefined && pageSliced ? sliceRowsToPage(paging.size, paging.page, sorted) : sorted;
-  const presented = gridWindow(ctx.sources, spec, pagedRows);
-  const rows = presented !== undefined ? presented.rows : pagedRows;
-  const rowCount = windowRowCount(presented);
-  // Phase 663 / 863 / 934 — the two whole-rows affordances, under exactly the
-  // conditions the client renderer draws them (`editDestination` /
-  // `reorderDestination`, parity-locked with F# `BindingResolver`). The server
-  // needs only whether a destination EXISTS, never which one: it performs no
-  // write, and the client's `writeBackTo` is what resolves the target.
-  //
-  // Both are emitted INERT, on Phase 818's rule as the pager below applies it:
-  // the STRUCTURE is emitted (the extra leading column, the input in place of
-  // the span) because the class set and the column count are what a clean
-  // hydration handoff and Lock A both key on, while the INTERACTION SURFACE is
-  // omitted — no `draggable`, no `data-reorder-handle`, no `aria-keyshortcuts`,
-  // exactly as the sortable header's `data-sortable` / `aria-sort` are omitted
-  // above. A surface never advertises an interaction it cannot perform; it also
-  // never lays out a table one column narrower than the one it hands over to.
-  const reorderable =
-    sortDescriptor === undefined &&
-    hasGridWriteDestination(spec.reorderable, spec.editStateKey, spec.source);
-  const editable = hasGridWriteDestination(spec.editable, spec.editStateKey, spec.source);
-  const rowOffset =
-    (paging !== undefined && pageSliced ? (paging.page - 1) * paging.size : 0) +
-    (presented !== undefined && !hostWindows ? presented.offset : 0);
-  const reorderHeaderCell = reorderable
-    ? el('th', [
-        ['class', 'fuaran-grid-reorder-header'],
-        ['scope', 'col'],
-        ['aria-label', 'Reorder'],
-      ])
-    : '';
-  // The handle is a real `<button>` carrying the reference CSS's own class, so
-  // the slim leading column lands styled and identically sized either side of
-  // hydration. It is NOT `disabled`: the pager's steps are, because the
-  // stylesheet ships a `:disabled` rule sizing that state deliberately, and
-  // this class ships none — a dimmed handle that un-dims on hydration would be
-  // a flash the reader has no way to read. Inert by absence of a handler, the
-  // posture every other server-rendered button takes.
-  const reorderCell = (rowIndex: number): string =>
-    !reorderable
-      ? ''
-      : el(
-          'td',
-          [['class', 'fuaran-grid-reorder-cell']],
-          textEl(
-            'button',
+  // The selected row, read as the client reads it: the row key (a `rowKey`
+  // closure, else the `rowKeyField` projection) of the selection published
+  // under the grid's id.
+  const rowKeyOf: ((row: unknown) => string) | undefined =
+    spec.rowKey ??
+    (spec.rowKeyField !== undefined
+      ? (row: unknown): string => projectRowFieldString(row, spec.rowKeyField as string)
+      : undefined);
+  const selections = ctx.sources.selections;
+  const rawSelectedKey =
+    rowKeyOf !== undefined && selections !== undefined && Object.hasOwn(selections, nodeId)
+      ? rowKeyOf(selections[nodeId])
+      : undefined;
+  const selectedKey =
+    rawSelectedKey !== undefined && rawSelectedKey !== '' && rawSelectedKey !== '<closure>'
+      ? rawSelectedKey
+      : undefined;
+  // Phase 818 — the client's sortable-header affordance, which it hydrates in
+  // place: a data column of a grid naming a sort state key, unless the column
+  // opts out.
+  const header = (col: ColumnErased<unknown>, colIndex: number): string => {
+    const sortable =
+      spec.sortStateKey !== undefined && dataFieldOf(col) !== undefined && col.sortable !== false;
+    const active =
+      sortable && sortDescriptor !== undefined && sortDescriptor[0] === colIndex
+        ? sortDescriptor[1]
+        : undefined;
+    return gridTextEl(
+      'th',
+      sortable
+        ? [
+            ['class', 'fuaran-grid-header'],
+            ['data-sortable', ''],
+            ['tabindex', '0'],
             [
-              ['class', 'fuaran-grid-reorder-handle'],
-              ['type', 'button'],
-              // The client's label promises drag and arrow keys; this one names
-              // the row and stops there, because that is all a static document
-              // can honour.
-              ['aria-label', `Reorder row ${rowOffset + rowIndex + 1} of ${rows.length}`],
+              'aria-sort',
+              active === undefined ? undefined : active === 'asc' ? 'ascending' : 'descending',
             ],
-            '⣿',
-          ),
-        );
-  const headerCells =
-    reorderHeaderCell +
-    spec.columns.map((col) => textEl('th', [['class', 'fuaran-grid-header']], col.label)).join('');
-  const head = el('thead', [], el('tr', [], headerCells));
-  const bodyRows = rows
-    .map((row, rowIndex) => {
-      const cells = spec.columns
-        .map((col) =>
+          ]
+        : [['class', 'fuaran-grid-header']],
+      col.label,
+    );
+  };
+  const bodyRow = (row: unknown, rowIndex: number): string => {
+    const selected =
+      selectedKey !== undefined && rowKeyOf !== undefined && rowKeyOf(row) === selectedKey;
+    const ariaRowIndex = windowRowIndex(window, rowIndex);
+    // Phase 1701 — the row-action marker (WIRE_FORMAT.md 3.6.24), appended after
+    // the selection class.
+    return el(
+      'tr',
+      [
+        [
+          'class',
+          (selected ? 'fuaran-grid-row fuaran-grid-row-selected' : 'fuaran-grid-row') +
+            gridRowInteractiveClass(spec.onRowClick !== undefined),
+        ],
+        ['aria-rowindex', ariaRowIndex],
+      ],
+      spec.columns
+        .map((col, colIndex) =>
           el(
             'td',
             [['class', 'fuaran-grid-cell']],
-            renderGridCell(ctx, col, row, cellEditable(editable, col)),
+            renderGridCell(ctx, `${nodeId}-r${rowIndex}-c${colIndex}`, col, row),
           ),
         )
-        .join('');
-      // Phase 1701 - the row-action affordance marker (WIRE_FORMAT.md 3.6.24).
-      // This host wires no click, but the class states what the DOCUMENT
-      // declared, and the row it marks is the seed the hydrated grid takes
-      // over: a marked row here is a row that is about to become clickable.
-      const ariaRowIndex = windowRowIndex(presented, rowIndex);
-      return el(
-        'tr',
-        [
-          ['class', `fuaran-grid-row${gridRowInteractiveClass(spec.onRowClick !== undefined)}`],
-          ...(ariaRowIndex !== undefined
-            ? ([['aria-rowindex', String(ariaRowIndex)]] as const)
-            : []),
-        ],
-        reorderCell(rowIndex) + cells,
-      );
-    })
-    .join('');
-  const body = el('tbody', [], bodyRows);
+        .join(''),
+    );
+  };
   const table = el(
     'table',
     [
-      ['class', `fuaran-grid${gridPrintBreakClasses(spec.keepRowsTogether, spec.repeatHeader)}`],
-      ...(rowCount !== undefined ? ([['aria-rowcount', String(rowCount)]] as const) : []),
+      ['class', `fuaran-grid${printClasses}`],
+      ['aria-rowcount', windowRowCount(window)],
     ],
-    head + body,
+    el('thead', [], el('tr', [], spec.columns.map(header).join(''))) +
+      el('tbody', [], presented.map(bodyRow).join('')),
   );
-  if (paging === undefined) return table;
-  // Phase 862 — the pager is emitted with BOTH steps `disabled`. Three
-  // constraints meet here and this is the only shape that satisfies all of
-  // them:
-  //
-  //  - A static host cannot honour a click, and 818's rule is that a surface
-  //    never advertises an interaction it cannot perform. A disabled control
-  //    does not advertise one; it states plainly that it is unavailable.
-  //  - Omitting the pager entirely would silently drop every row past page 1
-  //    with nothing to say so. The STATUS is the honest part — the reader is
-  //    told which page they are on, and of how many.
-  //  - Lock A holds the two renderers to the same `fuaran-*` class set. An
-  //    omitted pager breaks that parity; an inert one keeps it.
-  const stepAttrs = (label: string): string =>
+  // The pager, as the client draws it: inert until the page hydrates, each step
+  // disabled exactly where the client's is.
+  const step = (label: string, disabled: boolean): string =>
     textEl(
       'button',
       [
-        ['type', 'button'],
         ['class', 'fuaran-grid-pager-step'],
-        ['disabled', ''],
+        ['type', 'button'],
+        ['disabled', disabled ? 'true' : undefined],
       ],
       label,
     );
-  const status = textEl(
-    'span',
-    [
-      ['class', 'fuaran-grid-pager-status'],
-      ['aria-live', 'polite'],
-    ],
-    paging.lastPage !== undefined
-      ? `Page ${paging.page} of ${paging.lastPage}`
-      : `Page ${paging.page}`,
-  );
-  const pager = el(
-    'nav',
-    [
-      ['class', 'fuaran-grid-pager'],
-      ['aria-label', 'Pagination'],
-    ],
-    stepAttrs('Previous') + status + stepAttrs('Next'),
-  );
-  return el('div', [['class', 'fuaran-grid-paged']], table + pager);
+  const pager = (status: string, steps: readonly [boolean, boolean] | undefined): string => {
+    const statusSpan = textEl(
+      'span',
+      [
+        ['class', 'fuaran-grid-pager-status'],
+        ['aria-live', 'polite'],
+      ],
+      status,
+    );
+    return el(
+      'nav',
+      [
+        ['class', 'fuaran-grid-pager'],
+        ['aria-label', 'Pagination'],
+      ],
+      steps !== undefined
+        ? step('Previous', steps[0]) + statusSpan + step('Next', steps[1])
+        : statusSpan,
+    );
+  };
+  const paged = (chrome: string): string =>
+    el('div', [['class', 'fuaran-grid-paged']], table + chrome);
+  if (paging !== undefined) {
+    const { page, lastPage } = paging;
+    return paged(
+      pager(lastPage !== undefined ? `Page ${page} of ${lastPage}` : `Page ${page}`, [
+        page <= 1,
+        lastPage !== undefined && page >= lastPage,
+      ]),
+    );
+  }
+  return overLimit
+    ? paged(pager(`Rows 1–${BOUND_GRID_ROW_LIMIT} of ${shownCount}`, undefined))
+    : table;
 };
 
 // ─── Data-bound grid sort (Phase 818 — `sortStateKey`; parity-locked with the
@@ -3044,11 +3053,16 @@ const tonedPillOf = (
   return [label, map[label] ?? defaultTone];
 };
 
+// One bound-grid cell as the reference server renderer draws it (its
+// `boundCell`): the column's value projection through its declared format, a
+// pill, a link through the egress policy, a progress fill, a nested node. A
+// cell that becomes an input once the grid is editable is its display text
+// here, an `Editable` cell included: editing switches on when the page hydrates.
 const renderGridCell = (
   ctx: ServerContext,
+  cellId: string,
   col: ColumnErased<unknown>,
   row: unknown,
-  editable = false,
 ): string => {
   // Phase 425 — the closure wins; else the declarative `field` projects the
   // row property; else the cell is empty (a decoded grid renders from `field`).
@@ -3058,136 +3072,80 @@ const renderGridCell = (
       : col.field !== undefined
         ? projectRowFieldValue(row, col.field)
         : { kind: 'Empty' };
+  const button = (label: TextSource): string =>
+    gridTextEl('button', [['class', 'fuaran-grid-cell-button']], renderText(ctx.sources, label));
   const kind: CellKindErased<unknown> = col.kind;
   switch (kind.kind) {
     case 'Text':
     case 'Numeric':
     case 'Date':
-      // Phase 663 — an editable grid turns its field-projected Text/Numeric
-      // display cells into the same input shapes the `Editable` cell kind
-      // below emits, holding the RAW value rather than the formatted
-      // rendering (the client commits the raw value, so the two must agree
-      // about what is in the box at the handover). `editable` is false for a
-      // `Date` column, so this branch reaches only the two kinds the client's
-      // `cellCommit` admits.
-      if (editable) {
-        if (kind.kind === 'Numeric' && value.kind === 'Numeric') {
-          return voidEl('input', [
-            ['class', 'fuaran-grid-cell-editable'],
-            ['type', 'number'],
-            ['value', String(value.value)],
-          ]);
-        }
-        if (kind.kind === 'Numeric') {
-          // An Empty (or non-numeric) cell in a Numeric column: a text input,
-          // which the client commits only when the entry parses numerically.
-          return voidEl('input', [
-            ['class', 'fuaran-grid-cell-editable'],
-            ['type', 'text'],
-            ['value', renderCellValue({ kind: 'None' }, value)],
-          ]);
-        }
-        return voidEl('input', [
-          ['class', 'fuaran-grid-cell-editable'],
-          ['type', 'text'],
-          ['value', value.kind === 'Text' ? value.value : renderCellValue({ kind: 'None' }, value)],
-        ]);
-      }
-      return textEl('span', [], renderCellValue(col.format, value, ctx.sources.locale ?? ''));
     case 'Editable':
-      if (value.kind === 'Numeric') {
-        return voidEl('input', [
-          ['class', 'fuaran-grid-cell-editable'],
-          ['type', 'number'],
-          ['value', String(value.value)],
-        ]);
-      }
-      if (value.kind === 'Text') {
-        return voidEl('input', [
-          ['class', 'fuaran-grid-cell-editable'],
-          ['type', 'text'],
-          ['value', value.value],
-        ]);
-      }
-      return textEl('span', [], renderCellValue(col.format, value, ctx.sources.locale ?? ''));
+      return gridTextEl('span', [], renderCellValue(col.format, value, ctx.sources.locale ?? ''));
     case 'Checkbox':
       return voidEl('input', [
         ['type', 'checkbox'],
-        ['checked', kind.get(row) === true],
+        ['checked', kind.get(row) === true ? 'checked' : undefined],
       ]);
     case 'Button':
-      return textEl(
-        'button',
-        [['class', 'fuaran-grid-cell-button']],
-        renderText(ctx.sources, kind.label),
-      );
+      return button(kind.label);
     case 'ButtonGroup':
       return el(
         'span',
         [['class', 'fuaran-grid-cell-button-group']],
-        kind.buttons
-          .map(([label]) =>
-            textEl(
-              'button',
-              [['class', 'fuaran-grid-cell-button']],
-              renderText(ctx.sources, label),
-            ),
-          )
-          .join(''),
+        kind.buttons.map(([label]) => button(label)).join(''),
       );
     case 'Link': {
-      // Phase 1037 — the ambient policy, per row. The highest-volume egress
-      // surface the renderer has: one href per row, all from a row accessor
-      // over bound data.
+      // Phase 1037 — the ambient policy, per row: one href per row, all from a
+      // row accessor over bound data.
       const [href, egressAttrs] = sanitizeUrlForEgress(
         ctx.egressPolicy,
         'hyperlink',
         kind.href(row),
       );
-      return textEl(
+      return gridTextEl(
         'a',
         [['class', 'fuaran-grid-cell-link'], ['href', href], ...egressAttrs],
         renderText(ctx.sources, kind.label(row)),
       );
     }
     case 'Pill':
-      return textEl(
+      return gridTextEl(
         'span',
         [['class', `fuaran-grid-cell-pill fuaran-pill-${toneVar(kind.tone(row))}`]],
         renderText(ctx.sources, kind.label(row)),
       );
-    // Phase 750 — the declarative twin: same element, class vocabulary and text as the
-    // hosted `Pill` arm above.
+    // Phase 750 — the declarative twin of the hosted `Pill` arm above.
     case 'TonedPill': {
       const [label, tone] = tonedPillOf(row, kind.field, kind.map, kind.defaultTone);
-      return textEl(
+      return gridTextEl(
         'span',
         [['class', `fuaran-grid-cell-pill fuaran-pill-${toneVar(tone)}`]],
         label,
       );
     }
     case 'Progress': {
+      // The reference's style site: the cell's own id and the `progress-fill`
+      // slot, and the width as the reference spells it (six decimals).
       const f = kind.fraction(row);
+      const fill = cspStyle(
+        ctx,
+        cellId,
+        'progress-fill',
+        cspDeclarations.progressFill(f),
+        `width:${(f * 100).toFixed(6)}%`,
+      );
       const labelHtml =
         kind.label !== undefined
-          ? textEl('span', [], renderText(ctx.sources, kind.label(row)))
+          ? gridTextEl('span', [], renderText(ctx.sources, kind.label(row)))
           : '';
-      // Phase 1545 — the F# server tier renders `DataGrid` as a placeholder and
-      // emits no cells at all, so this site has no cross-host twin; the node id
-      // is empty and the declarations alone discriminate the class, which is
-      // enough because they are what the rule says.
-      const cellProgress = cspStyle(
-        ctx,
-        '',
-        'grid-cell-progress',
-        cspDeclarations.progressFill(f),
-        `width:${f * 100}%`,
+      return el(
+        'div',
+        [['class', 'fuaran-grid-cell-progress']],
+        el('div', [
+          ['class', `fuaran-grid-cell-progress-fill${fill.classSuffix}`],
+          ...fill.styleAttrs,
+        ]) + labelHtml,
       );
-      const fill = el('div', [
-        ['class', `fuaran-grid-cell-progress-fill${cellProgress.classSuffix}`],
-        ...cellProgress.styleAttrs,
-      ]);
-      return el('div', [['class', 'fuaran-grid-cell-progress']], fill + labelHtml);
     }
     case 'Custom':
       return renderNode(

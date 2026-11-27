@@ -149,6 +149,32 @@ const DECLARED_TIER_DIVERGENCES: readonly {
   { token: 'fuaran-rating-choice-label', tier: 'server', why: 'WIRE_FORMAT.md §3.6.17' },
   { token: 'fuaran-rating-hits', tier: 'client', why: 'WIRE_FORMAT.md §3.6.17' },
   { token: 'fuaran-rating-hit', tier: 'client', why: 'WIRE_FORMAT.md §3.6.17' },
+  // Phase 2803 — a bound grid's static floor is the reference server renderer's
+  // table, and the fidelity record's DataGrid fallback says the affordances that
+  // need script switch on at hydration: an editable cell is its display text and
+  // the reorder handles are not drawn. These two families were once emitted
+  // inert to keep this lock equal (Phase 1652's note above); the floor is now
+  // the reference's, byte for byte (`boundGridParity.test.ts`).
+  {
+    token: 'fuaran-grid-cell-editable',
+    tier: 'client',
+    why: 'render-fidelity.json DataGrid fallback',
+  },
+  {
+    token: 'fuaran-grid-reorder-header',
+    tier: 'client',
+    why: 'render-fidelity.json DataGrid fallback',
+  },
+  {
+    token: 'fuaran-grid-reorder-cell',
+    tier: 'client',
+    why: 'render-fidelity.json DataGrid fallback',
+  },
+  {
+    token: 'fuaran-grid-reorder-handle',
+    tier: 'client',
+    why: 'render-fidelity.json DataGrid fallback',
+  },
 ];
 
 const declaredFor = (tier: 'server' | 'client'): Set<string> =>
@@ -159,11 +185,51 @@ const withoutDeclared = (classes: readonly string[], tier: 'server' | 'client'):
   return classes.filter((c) => !declared.has(c));
 };
 
+// ─── The unresolved bound grid (Phase 2803) ─────────────────────────────────
+//
+// A bound grid whose source does not resolve where the page is rendered is, on
+// the static floor, the placeholder that names why (render-fidelity.json
+// DataGrid fallback), where the client draws its grid with no rows. That is a
+// substitution of the grid's whole CONTENT, not of a token, so it is declared
+// structurally rather than listed: the content of every grid node the server
+// drew as a placeholder is set aside on BOTH tiers, by node id, and everything
+// else in the fixture is still compared. The placeholder's own markup is pinned
+// byte for byte against the reference server renderer in
+// `boundGridParity.test.ts`; this keeps it from hiding drift anywhere else.
+const PLACEHOLDER_SELECTOR = '[data-fuaran-ssr-placeholder="DataGrid"]';
+
+const placeholderGridIds = (serverHtml: string): string[] => {
+  const doc = new DOMParser().parseFromString(serverHtml, 'text/html');
+  return [...doc.querySelectorAll(PLACEHOLDER_SELECTOR)].map((p) => {
+    const id = p.parentElement?.getAttribute('data-fuaran-node-id');
+    if (id === null || id === undefined)
+      throw new Error('a grid placeholder outside its node wrapper');
+    return id;
+  });
+};
+
+const withoutGridContent = (html: string, ids: readonly string[]): string => {
+  if (ids.length === 0) return html;
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  for (const id of ids) {
+    const node = [...doc.querySelectorAll('[data-fuaran-node-id]')].find(
+      (e) => e.getAttribute('data-fuaran-node-id') === id,
+    );
+    if (node === undefined) throw new Error(`grid node ${id} is absent from one tier`);
+    node.replaceChildren();
+  }
+  return doc.body.innerHTML;
+};
+
 describe('Lock A — server output matches the React client renderer (class + node-id sets)', () => {
   it.each(fixtureFiles)('%s emits the same fuaran-* class set as <FuaranRenderer>', (file) => {
     const tree = decode(file);
-    const server = renderToHtml(tree);
-    const react = renderToStaticMarkup(<FuaranRenderer tree={tree} />);
+    const placeholders = placeholderGridIds(renderToHtml(tree));
+    const server = withoutGridContent(renderToHtml(tree), placeholders);
+    const react = withoutGridContent(
+      renderToStaticMarkup(<FuaranRenderer tree={tree} />),
+      placeholders,
+    );
     expect(
       withoutDeclared(fuaranClasses(server), 'server'),
       `${file}: a class appears on one tier and not the other with no declared divergence — ` +
