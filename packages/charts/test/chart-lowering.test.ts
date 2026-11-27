@@ -18,7 +18,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   lowerNode,
+  tableModel,
+  TABLE_ROW_LIMIT,
   type ChartAxisUnitMode,
+  type ChartTable,
   type ChartLowerSpec,
   type ChartLowerStyle,
   type ChartRow,
@@ -641,5 +644,82 @@ describe('chart lowering — mark channels (Phase 2654)', () => {
     const json = encodeNode(lowerNode('c', spec, rows, style));
     expect(json).not.toContain('11 – 19');
     expect(json).toContain('effect · E · 6 – 13');
+  });
+});
+
+// Phase 2804 — the data-table alternative (`chart-lowering/table-model/`, the
+// reference host's Phase 2776 subfamily). Each case is a BYTE COPY of an
+// existing chart-lowering input beside `<name>.table.json`: the table model in
+// canonical JSON (`caption` as the `TextSource`'s canonical form), or `null`
+// where the cost caps refuse the chart. A subdirectory, so the top-level
+// enumeration above never reads it.
+const tableJson = (table: ChartTable | null): string => {
+  if (table === null) return 'null';
+  if (table.caption.kind !== 'Literal')
+    throw new Error('a table-model caption is a Literal in every corpus case');
+  return JSON.stringify({
+    caption: table.caption.value,
+    columns: table.columns,
+    rowCount: table.rowCount,
+    rows: table.rows,
+  });
+};
+
+describe('chart lowering — the data-table alternative (Phase 2804)', () => {
+  const dir = join(CHART_LOWERING_DIR, 'table-model');
+  const names = existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => f.endsWith('.input.json'))
+        .map((f) => f.slice(0, -'.input.json'.length))
+        .sort()
+    : [];
+
+  it('every input has its table golden, and the subfamily is not empty', () => {
+    if (!existsSync(dir)) return;
+    const goldens = readdirSync(dir)
+      .filter((f) => f.endsWith('.table.json'))
+      .map((f) => f.slice(0, -'.table.json'.length))
+      .sort();
+    expect(goldens).toEqual(names);
+    // A subfamily that lost its cases would make the sweep below vacuous.
+    expect(names.length).toBeGreaterThanOrEqual(25);
+  });
+
+  it.each(names)('%s yields its table golden byte-for-byte', (name) => {
+    const expected = readFileSync(join(dir, `${name}.table.json`), 'utf8');
+    const { spec, rows } = specAndRows(readInput(name, dir));
+    expect(tableJson(tableModel(spec, rows))).toBe(expected);
+  });
+
+  it('the caption is the title carried unresolved, or minted from the kind', () => {
+    const rows = [{ x: 'p', a: 1, b: 2 }];
+    const bound: TextSource = { kind: 'Bound', binding: { kind: 'State', key: 'title' } } as never;
+    const spec: ChartLowerSpec = { kind: 'Bar', xField: 'x', yFields: ['a', 'b'], title: bound };
+    expect(tableModel(spec, rows)?.caption).toBe(bound);
+    const untitled = tableModel(
+      { kind: 'Area', xField: 'x', yFields: ['a', 'b'], stacked: true },
+      rows,
+    );
+    expect(untitled?.caption).toEqual({ kind: 'Literal', value: 'Stacked area chart data' });
+  });
+
+  it('no rows, or a chart the caps refuse, offers no table', () => {
+    expect(tableModel({ kind: 'Bar', xField: 'x', yFields: ['v'] }, [])).toBeNull();
+    const many = Array.from({ length: 33 }, (_, i) => `s${i}`);
+    const wide = [{ x: 'q', ...Object.fromEntries(many.map((f, i) => [f, i])) }];
+    expect(tableModel({ kind: 'Bar', xField: 'x', yFields: many }, wide)).toBeNull();
+    const deep = Array.from({ length: 10_001 }, (_, i) => ({ x: `r${i}`, v: i }));
+    expect(tableModel({ kind: 'Line', xField: 'x', yFields: ['v'] }, deep)).toBeNull();
+  });
+
+  it('past the row limit the table holds the first rows and states the count', () => {
+    const rows = Array.from({ length: TABLE_ROW_LIMIT + 3 }, (_, i) => ({ x: `r${i}`, v: i }));
+    const table = tableModel({ kind: 'Line', xField: 'x', yFields: ['v'] }, rows)!;
+    expect(table.rows).toHaveLength(TABLE_ROW_LIMIT);
+    expect(table.rowCount).toBe(TABLE_ROW_LIMIT + 3);
+    expect(table.rows[TABLE_ROW_LIMIT - 1]).toEqual([
+      `r${TABLE_ROW_LIMIT - 1}`,
+      `${TABLE_ROW_LIMIT - 1}`,
+    ]);
   });
 });

@@ -47,6 +47,7 @@ import {
 } from '../bindings.js';
 import { registeredCharts } from '../chartLowering.js';
 import { chartLowerSpecOf } from '../chartLowerSpec.js';
+import { CHART_TABLE_HOST_CLASS, chartTableHostInnerHtml, chartTableOf } from '../chartTable.js';
 import { gridPrintBreakClasses, gridRowInteractiveClass, toneVar } from '../classNames.js';
 import type { RenderContext } from '../context.js';
 import { runAction, writeBackTo } from '../context.js';
@@ -101,7 +102,7 @@ export const renderVis = <TMsg,>(
           )
         : renderGrid(ctx, parentNodeId, state, vis.spec);
     case 'Chart':
-      return renderChart(ctx, state, vis.spec);
+      return renderChart(ctx, parentNodeId, state, vis.spec);
     case 'Map':
       return renderMap(ctx, state, vis.spec);
   }
@@ -1359,6 +1360,7 @@ const renderGridCell = <TMsg,>(
 
 const renderChart = <TMsg,>(
   ctx: RenderContext<TMsg>,
+  nodeId: string,
   state: StateBehaviour<TMsg>,
   spec: ChartSpec<TMsg>,
 ): ReactNode => {
@@ -1390,10 +1392,25 @@ const renderChart = <TMsg,>(
     // Every declared semantic field crosses the bridge — see `chartLowerSpec.ts`,
     // which is the ONE place that decision is made (the server twin reads the
     // same helper) and which states the Literal-only `TextSource` rule.
-    const drawing = charts.lower(chartLowerSpecOf(spec, fields), rows as readonly ChartRow[]);
-    return (
-      <div dangerouslySetInnerHTML={{ __html: trustedHtml(drawingSvg(ctx.sources, drawing)) }} />
-    );
+    const lowerSpec = chartLowerSpecOf(spec, fields);
+    const chartRows = rows as readonly ChartRow[];
+    const svg = drawingSvg(ctx.sources, charts.lower(lowerSpec, chartRows));
+    // Phase 2804 — the data table, when the policy offers it and the lowering
+    // has values to give: the drawing and its disclosure in one host element,
+    // the markup the server tier emits (`chartTable.ts`). With the policy `Off`
+    // the table is never computed and the markup is the drawing alone.
+    const table = chartTableOf(ctx.chartTable, charts.tableModel, lowerSpec, chartRows);
+    if (table !== null) {
+      return (
+        <div
+          className={CHART_TABLE_HOST_CLASS}
+          dangerouslySetInnerHTML={{
+            __html: trustedHtml(chartTableHostInnerHtml(ctx.sources, nodeId, svg, table)),
+          }}
+        />
+      );
+    }
+    return <div dangerouslySetInnerHTML={{ __html: trustedHtml(svg) }} />;
   }
 
   const rowCount = rows.length;

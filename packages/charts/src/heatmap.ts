@@ -129,7 +129,7 @@ export const MAX_HEATMAP_CELLS = 10_000;
 
 // ─── The grid ─────────────────────────────────────────────────────────────────
 
-interface HeatmapGrid {
+export interface HeatmapGrid {
   readonly rowField: string;
   readonly valueField: string;
   readonly xKeys: readonly string[];
@@ -141,7 +141,7 @@ interface HeatmapGrid {
   readonly withheld: ReadonlySet<string>;
 }
 
-const at = (i: number, j: number): string => `${i},${j}`;
+export const at = (i: number, j: number): string => `${i},${j}`;
 
 /** The cell key a mark carries: `x|row` (the mark id is `valueField|x|row`). */
 export const heatmapCellKey = (xKey: string, rowKey: string): string => `${xKey}|${rowKey}`;
@@ -158,7 +158,7 @@ const distinct = (keys: readonly string[]): string[] => {
   return out;
 };
 
-const heatmapGrid = (spec: ChartLowerSpec, rows: readonly ChartRow[]): HeatmapGrid => {
+export const heatmapGrid = (spec: ChartLowerSpec, rows: readonly ChartRow[]): HeatmapGrid => {
   const rowField = spec.yFields[0] ?? '';
   const valueField = spec.yFields.length >= 2 ? spec.yFields[1]! : '';
   const keyed = rows.map((r) => [stringOf(r, spec.xField), stringOf(r, rowField), r] as const);

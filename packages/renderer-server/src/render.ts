@@ -120,8 +120,12 @@ import {
   tryResolveScalarText,
 } from './bindings.js';
 import {
+  CHART_TABLE_HOST_CLASS,
   CODE_HIGHLIGHT_TIER,
+  type ChartTablePolicy,
   chartLowerSpecOf,
+  chartTableHostInnerHtml,
+  chartTableOf,
   codeHighlight,
   // Phase 2209 — the field-metadata display rule (WIRE_FORMAT §3.6.27): pure
   // functions over a resolved schema, one definition for both tiers.
@@ -247,6 +251,8 @@ interface ServerContext {
    * which is what keeps the default emission unchanged.
    */
   readonly styles: StyleCollector;
+  /** Phase 2804 — whether a lowered chart offers its data table; absent is `'Offer'`. */
+  readonly chartTable?: ChartTablePolicy;
 }
 
 /**
@@ -2657,7 +2663,7 @@ const renderVis = (
           )
         : renderGrid(ctx, nodeId, state, vis.spec);
     case 'Chart':
-      return renderChart(ctx, state, vis.spec);
+      return renderChart(ctx, nodeId, state, vis.spec);
     case 'Map':
       return renderMap(ctx, state, vis.spec);
   }
@@ -3157,6 +3163,7 @@ const renderGridCell = (
 
 const renderChart = (
   ctx: ServerContext,
+  nodeId: string,
   state: StateBehaviour<unknown>,
   spec: Extract<VisKind<unknown>, { kind: 'Chart' }>['spec'],
 ): string => {
@@ -3183,8 +3190,20 @@ const renderChart = (
     // carries the Literal-only `TextSource` rule. This arm threaded `title` +
     // `valueFormat` and dropped the other five semantic fields; the client arm
     // dropped six. Two copies, two different answers — hence one helper.
-    const drawing = charts.lower(chartLowerSpecOf(spec, fields), rows as readonly ChartRow[]);
-    return el('div', [], drawingSvg(ctx.sources, drawing));
+    const lowerSpec = chartLowerSpecOf(spec, fields);
+    const chartRows = rows as readonly ChartRow[];
+    const svg = drawingSvg(ctx.sources, charts.lower(lowerSpec, chartRows));
+    // Phase 2804 — the data table under the render policy, the markup the
+    // client tier emits (`@fuaran-ui/renderer`'s `chartTable.ts`), and the
+    // reference server renderer's byte for byte. `Off` never computes it.
+    const table = chartTableOf(ctx.chartTable, charts.tableModel, lowerSpec, chartRows);
+    return table === null
+      ? el('div', [], svg)
+      : el(
+          'div',
+          [['class', CHART_TABLE_HOST_CLASS]],
+          chartTableHostInnerHtml(ctx.sources, nodeId, svg, table),
+        );
   }
 
   const rowCount = rows.length;
@@ -3502,6 +3521,15 @@ export interface RenderToHtmlOptions {
    * half); nothing here generates one.
    */
   readonly csp?: CspMode;
+  /**
+   * Phase 2804 — whether a lowered chart offers its data table: a native
+   * "View as table" disclosure after the drawing, named by the drawing's
+   * `aria-details`, holding a real table and needing no script.
+   *
+   * **Omitting it means `'Offer'`.** `'Off'` renders every chart byte for byte
+   * as before, for a host that supplies its own alternative.
+   */
+  readonly chartTable?: ChartTablePolicy;
 }
 
 /**
@@ -3542,6 +3570,7 @@ export const renderToHtml = <TMsg>(tree: Node<TMsg>, options: RenderToHtmlOption
     // Phase 1545 — permissive by default; strict is reached by name.
     csp: options.csp ?? permissiveCsp,
     styles: new StyleCollector(),
+    ...(options.chartTable !== undefined ? { chartTable: options.chartTable } : {}),
   };
   const body = renderNode(ctx, node);
   // The collector filled during the walk, so the element can only be built

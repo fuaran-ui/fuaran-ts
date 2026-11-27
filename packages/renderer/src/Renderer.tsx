@@ -34,6 +34,7 @@ import type { GridDragCell, RenderContext } from './context.js';
 import { collectFragments } from './context.js';
 import { customHashFloorOf } from './customHash.js';
 import type { FuaranRuntime } from './customRegistry.js';
+import type { ChartTablePolicy } from './chartTable.js';
 import { denyNonLocalEgress, type EgressPolicy } from './egress.js';
 import { pageChangeHub } from './changeHub.js';
 // Phase 2076 — the DEBUG-only surfaces (`debugGlobal.ts`, the DevTools relay) are
@@ -68,6 +69,13 @@ export interface FuaranRendererProps<TMsg = unknown> {
    * `permissive` finds every host that opted back out.
    */
   readonly egressPolicy?: EgressPolicy;
+  /**
+   * Phase 2804 — whether a lowered chart offers its data table behind a
+   * "View as table" disclosure the drawing names in `aria-details`. Omitting it
+   * means `'Offer'`; `'Off'` renders the drawing alone, as before, for a host
+   * that supplies its own alternative.
+   */
+  readonly chartTable?: ChartTablePolicy;
   /**
    * Phase 1021 — the host's `NodeKind.Custom` content-hash floor. A tree's own
    * declared strictness may raise it, never lower it. Under an enforcing floor
@@ -272,6 +280,7 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
   // Phase 1037 — default-deny. A host widens it BY NAME via `egressPolicy`.
   const egressPolicy = props.egressPolicy ?? denyNonLocalEgress;
   const customHashFloor = props.customHashFloor;
+  const chartTable = props.chartTable;
   const ctx = useMemo<RenderContext<TMsg>>(
     () => ({
       sources,
@@ -285,8 +294,9 @@ export function FuaranRenderer<TMsg>(props: FuaranRendererProps<TMsg>): ReactEle
       // `exactOptionalPropertyTypes`: omit rather than pass an explicit `undefined`.
       ...(customHashFloor !== undefined ? { customHashFloor } : {}),
       gridDrag,
+      ...(chartTable !== undefined ? { chartTable } : {}),
     }),
-    [sources, runtime, dispatch, fragments, egressPolicy, customHashFloor, gridDrag],
+    [sources, runtime, dispatch, fragments, egressPolicy, customHashFloor, gridDrag, chartTable],
   );
 
   const rendered = renderNode(ctx, props.tree);

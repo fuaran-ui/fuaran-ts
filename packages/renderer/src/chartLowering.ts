@@ -21,13 +21,16 @@
 //  The imports below are type-only and are erased from the built JavaScript.
 // ============================================================================
 
-import type { isLowered, lower, tryLowerSparkline } from '@fuaran-ui/charts';
+import type { isLowered, lower, tableModel, tryLowerSparkline } from '@fuaran-ui/charts';
 
-/** The three lowering functions the renderers call. The charts module satisfies it. */
+/** The lowering functions the renderers call. The charts module satisfies it. */
 export interface ChartLowering {
   readonly isLowered: typeof isLowered;
   readonly lower: typeof lower;
   readonly tryLowerSparkline: typeof tryLowerSparkline;
+  /** Phase 2804 — a chart's data-table alternative. Optional, so a charts
+   * module that predates it still registers: its charts offer no table. */
+  readonly tableModel?: typeof tableModel;
 }
 
 let registered: ChartLowering | null = null;

@@ -174,8 +174,10 @@ const nodeOf = (spec: ChartSpec<never>): Node<never> => ({
   style: defaults.style,
 });
 
+// The drawing alone: these tests read what the picture carries, and the chart's
+// data table (Phase 2804, on by default) states the values the picture may not.
 const renderSpec = (spec: ChartSpec<never>): string =>
-  renderToStaticMarkup(<FuaranRenderer tree={nodeOf(spec)} />);
+  renderToStaticMarkup(<FuaranRenderer tree={nodeOf(spec)} chartTable="Off" />);
 
 /** One case per declared, lowering-bound field: the spec override that sets it,
  * and the key it must appear under in the projected `ChartLowerSpec`. */

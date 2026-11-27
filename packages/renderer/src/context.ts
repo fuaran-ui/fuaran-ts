@@ -22,6 +22,7 @@ import {
   describeActionDescriptor,
   type FuaranRuntime,
 } from './customRegistry.js';
+import type { ChartTablePolicy } from './chartTable.js';
 import { checkDestination, describeEgressVerdict, type EgressPolicy } from './egress.js';
 
 /**
@@ -91,6 +92,12 @@ export interface RenderContext<TMsg> {
    * its rows reorder by keyboard only.
    */
   readonly gridDrag?: GridDragCell;
+  /**
+   * Phase 2804 — whether a lowered chart offers its data table (host chrome,
+   * never wire). Absent means `'Offer'`; `'Off'` renders the drawing alone,
+   * byte for byte as before.
+   */
+  readonly chartTable?: ChartTablePolicy;
 }
 
 /** Phase 2074 — a renderer instance's in-flight grid drag: the grid's node id and the dragged row. */

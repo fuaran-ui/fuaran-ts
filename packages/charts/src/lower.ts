@@ -186,7 +186,7 @@ export const lower = (
  * `ChartLimits.defaults.MaxSeries`. 32 exceeds any legible categorical palette,
  * so a chart past it is already unreadable.
  */
-const MAX_DERIVED_SERIES = 32;
+export const MAX_DERIVED_SERIES = 32;
 
 /** The drawing a refused lowering produces: the canvas, no shapes, and the
  * refusal as the accessible description — the reference host's refusal drawing. */

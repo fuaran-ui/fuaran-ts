@@ -219,6 +219,10 @@ const rootAriaLabel = (sources: BindingSources, spec: DrawingSpec): string => {
   return ` aria-label="${escape(composed)}"`;
 };
 
+/** The opening of every drawing's root element, up to the first attribute that
+ * varies. `withDetails` (`chartTable.ts`) extends exactly this prefix. */
+export const DRAWING_ROOT_OPEN = '<svg class="fuaran-drawing" role="img"';
+
 /** The full canonical inline-SVG string for a `Drawing` (a11y root + shapes). */
 export const drawingSvg = (sources: BindingSources, spec: DrawingSpec): string => {
   const vb = spec.viewBox;
@@ -230,5 +234,5 @@ export const drawingSvg = (sources: BindingSources, spec: DrawingSpec): string =
       ? `<desc>${escape(renderText(sources, spec.description))}</desc>`
       : '';
   const body = spec.shapes.map((s) => shapeSvg(sources, s)).join('');
-  return `<svg class="fuaran-drawing" role="img" viewBox="${viewBox}"${rootAriaLabel(sources, spec)}${styleAttrs(sources, false, spec.style)}>${title}${desc}${body}</svg>`;
+  return `${DRAWING_ROOT_OPEN} viewBox="${viewBox}"${rootAriaLabel(sources, spec)}${styleAttrs(sources, false, spec.style)}>${title}${desc}${body}</svg>`;
 };

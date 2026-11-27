@@ -36,4 +36,5 @@ export { textFitsBox } from './textMetrics.js';
 export { type ChartAxisUnitMode } from './numberFormat.js';
 export { type ChartLowerSpec, type ChartLowerStyle, type ChartRow, isLowered } from './spec.js';
 export { lower, lowerNode } from './lower.js';
+export { type ChartTable, TABLE_ROW_LIMIT, tableModel } from './table.js';
 export { lowerSparklineNode, tryLowerSparkline } from './sparkline.js';

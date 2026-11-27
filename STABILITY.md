@@ -124,6 +124,15 @@ The **markup** moves, and a consumer with CSS or DOM queries keyed to the old sh
 
 `packages/charts/test/sparkline-lowering.test.ts` is the byte-parity gate; the rendered markup is pinned by the renderer's corpus snapshots and by the two-tier parity lock below.
 
+#### `0.30.0` — a lowered chart offers its data table (breaking: rendered output; additive: surface)
+
+Every chart the registered lowering draws now carries a "View as table" disclosure after the drawing (Phase 2804, the reference host's Phase 2776): a native `<details class="fuaran-chart-table">` holding a real table — a `<caption>` from the chart's title (or "Bar chart data" and its kin when it has none), one `<th scope="col">` per plotted field, each row led by its x value as `<th scope="row">` — which the drawing's `role="img"` root names in `aria-details`. The drawing and the disclosure share one `fuaran-chart-table-host` element. Each cell is the value's exact readout (the hover tip's), a withheld value reads "withheld" and a missing one is empty; past 1000 rows the first 1000 are drawn and a `fuaran-chart-table-limit` line states the count. A chart with no rows, or one the cost caps refuse, offers none.
+
+- **The markup moves for every lowered chart**: a consumer with DOM queries or CSS keyed to the drawing's container as the chart's only child, or a snapshot of a chart, sees the host element and the disclosure.
+- **`<FuaranRenderer chartTable="Off">`** renders every chart byte for byte as before; the default is `'Offer'`. The markup is built once (`chartTable.ts`) and is the server renderer's byte for byte (`renderer-server/test/chartTableParity.test.tsx`).
+- **Additive**: `ChartLowering.tableModel` (optional, so a charts module that predates it still registers and its charts offer no table), `ChartTablePolicy`, `chartTableId`, `chartTableOf`, `chartTableHostInnerHtml`, `CHART_TABLE_HOST_CLASS` and `CHART_TABLE_TOGGLE_TEXT`; `RenderContext.chartTable`.
+- Rides with `@fuaran-ui/charts` `0.16.0`, which adds `tableModel`, `ChartTable` and `TABLE_ROW_LIMIT`, certified against the corpus's `chart-lowering/table-model/` goldens.
+
 ### `@fuaran-ui/renderer-server`
 
 The **`renderToHtml` body-fragment output is stable**, subject to the same class-name + ARIA forward-coupling rule as `@fuaran-ui/renderer` – the server renderer is a pure-string twin of the F# `Fuaran.UI.Renderer.Server` that emits the same `fuaran-*` class vocabulary the React client renderer does, with no React and no DOM. This covers:
@@ -145,6 +154,10 @@ A `DataGrid` whose rows come from a binding renders byte-identically to the refe
 - **A source that does not resolve** (a host query with no rows supplied, a State key with no default, a failed evaluation) is the `fuaran-grid-ssr-placeholder` naming why, where it was an empty table; an `onEmpty` slot is drawn for a source that resolved to no rows, never for one that did not resolve.
 - **Editing and reordering switch on at hydration**: an editable cell (an `Editable` column included) is its formatted display text rather than an inert input, and no reorder column is drawn.
 - **A grid's text escapes `"` and `'`** (`&quot;` / `&apos;`) as the reference does; the markup means the same.
+
+#### Rides `0.27.0` — a lowered chart offers its data table (breaking: rendered output)
+
+The server renderer draws the same disclosure the client does (Phase 2804; see `@fuaran-ui/renderer` `0.30.0`), byte for byte the reference server renderer's for the same document (`test/chartTableParity.test.tsx` holds it to reference outputs the reference host produces, in `test/fixtures/chart-table/`). It needs no script. **`renderToHtml(tree, { chartTable: 'Off' })`** renders every chart byte for byte as before, pinned against this renderer's own pre-phase output; the default is `'Offer'`. The table's text escapes `"` and `'` as the grid's does.
 
 #### `0.10.0` — markdown output change (breaking for documents `marked` rendered differently)
 

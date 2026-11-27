@@ -205,6 +205,16 @@ export { chartLowerSpecOf } from './chartLowerSpec.js';
 // Phase 2434 — `@fuaran-ui/charts` is an optional peer: the host registers it
 // once, and both renderers read the one slot.
 export { registerCharts, registeredCharts, type ChartLowering } from './chartLowering.js';
+// Phase 2804 — a lowered chart's data-table alternative, drawn by both tiers
+// from this one module (the server renderer reads it from here).
+export {
+  CHART_TABLE_HOST_CLASS,
+  CHART_TABLE_TOGGLE_TEXT,
+  type ChartTablePolicy,
+  chartTableHostInnerHtml,
+  chartTableId,
+  chartTableOf,
+} from './chartTable.js';
 // Phase 1892 — the grid's row-window rule. Exported for the same reason: the
 // string server renderer slices a windowed grid from the seeded State through
 // the SAME functions, so the two surfaces cannot present different rows.
