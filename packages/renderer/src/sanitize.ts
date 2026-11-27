@@ -430,78 +430,129 @@ const indexOfElementOpen = (s: string, openTag: string): number => {
 };
 
 /**
- * Strip inline `on*="..."` event-handler attributes (tag-interior anchored).
+ * Strip inline `on*` event-handler attributes, by reading attribute NAMES.
  *
- * The tag-interior anchor is load-bearing: the ` on<letter>` scan matches the
- * leading-whitespace-`on<letter>` pattern in ordinary prose — the English words
- * "one", "only", "once", "onto", "online", … — and the boolean-attribute branch
- * below would then delete the word from body text. Because `sanitizeMarkdownHtml`
- * runs over the deterministic markdown-renderer output (raw HTML already escaped
- * by construction), a real event-handler attribute can only appear inside a tag
- * the renderer itself emitted, so restricting the scan to `<...>` interiors is
- * both correct and removes the body-text false positive.
+ * Phase 2804. The previous sweep matched any whitespace-led `on<letter>` run
+ * inside a `<...>` interior, attribute values included, so a chart whose series
+ * was named "online" lost the word (and the value's closing quote) from its SVG
+ * `aria-label`: ` online"` read as a boolean attribute. This pass tokenizes each
+ * tag the way the HTML tokenizer does and decides on the attribute name alone.
+ *
+ *  - A tag opens only at `<` followed by an ASCII letter (or `</` and a letter),
+ *    which is where the HTML tokenizer opens one. Any other `<` is text, as it is
+ *    to the browser, and text is never rewritten.
+ *  - Inside a tag, attributes are separated by whitespace and `/`, a name runs to
+ *    whitespace, `/`, `>` or `=` (a leading `=` belongs to the name), and a value
+ *    is double-quoted, single-quoted or unquoted. A quoted value may be followed
+ *    directly by the next attribute, with no whitespace.
+ *  - An attribute whose name begins with `on` (ASCII case-insensitive) and is
+ *    longer than `on` is removed together with its value. That class is wider
+ *    than the event-handler set, never narrower: no handler name falls outside it.
+ *  - A quoted value that reaches a `<` before its closing quote is NOT trusted to
+ *    be a value. The scan ends the attribute there and reads on from the `<` as
+ *    markup, so a context this tokenizer does not model (a comment, raw text, a
+ *    stray quote) can make it strip more than a browser would, never less: every
+ *    tag the browser could see inside such a value starts with a `<` the scan
+ *    then reads.
+ *
+ * The output is the input with the removed attributes cut out: everything else,
+ * separators included, is copied byte for byte.
  */
-const stripEventHandlers = (input: string): string => {
-  let s = input;
-  let keepGoing = true;
-  while (keepGoing) {
-    const lower = asciiLower(s);
-    let found = -1;
-    let insideTag = false;
-    for (let i = 0; i < lower.length - 3 && found < 0; i++) {
-      const c0 = lower[i];
-      if (c0 === '<') {
-        insideTag = true;
-      } else if (c0 === '>') {
-        insideTag = false;
-      } else if (
-        insideTag &&
-        (c0 === ' ' || c0 === '\t' || c0 === '\n') &&
-        lower[i + 1] === 'o' &&
-        lower[i + 2] === 'n' &&
-        isLetter(lower[i + 3])
-      ) {
-        found = i;
-      }
+const stripEventHandlers = (s: string): string => {
+  const n = s.length;
+  let out = '';
+  let i = 0;
+  while (i < n) {
+    const lt = s.indexOf('<', i);
+    if (lt < 0) {
+      out += s.slice(i);
+      break;
     }
-    if (found < 0) {
-      keepGoing = false;
-    } else {
-      const eq = s.indexOf('=', found);
-      const nextSpace = indexOfAny(s, [' ', '\t', '\n', '>'], found + 1);
-      if (eq < 0 || (nextSpace >= 0 && nextSpace < eq)) {
-        // Boolean attribute like `onload` with no `=` — strip the name only.
-        const stopAt = nextSpace >= 0 ? nextSpace : s.length;
-        s = s.slice(0, found) + s.slice(stopAt);
-      } else {
-        let v = eq + 1;
-        while (v < s.length && (s[v] === ' ' || s[v] === '\t')) v++;
-        let stopAt: number;
-        const quote = s[v];
-        if (v < s.length && (quote === "'" || quote === '"')) {
-          const close = s.indexOf(quote, v + 1);
-          stopAt = close >= 0 ? close + 1 : s.length;
-        } else {
-          const candidate = indexOfAny(s, [' ', '\t', '\n', '>'], v);
-          stopAt = candidate >= 0 ? candidate : s.length;
-        }
-        s = s.slice(0, found) + s.slice(stopAt);
-      }
+    const nameAt = s[lt + 1] === '/' ? lt + 2 : lt + 1;
+    if (!isAsciiLetter(s[nameAt])) {
+      out += s.slice(i, lt + 1);
+      i = lt + 1;
+      continue;
     }
+    out += s.slice(i, lt);
+    i = scanTag(s, lt, nameAt, (chunk) => {
+      out += chunk;
+    });
   }
-  return s;
+  return out;
 };
 
-const isLetter = (ch: string | undefined): boolean =>
+const isAsciiLetter = (ch: string | undefined): boolean =>
   ch !== undefined && ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z'));
 
-const indexOfAny = (s: string, chars: readonly string[], from: number): number => {
-  let best = -1;
-  for (const ch of chars) {
-    const idx = s.indexOf(ch, from);
-    if (idx >= 0 && (best < 0 || idx < best)) best = idx;
+const isHtmlSpace = (ch: string | undefined): boolean =>
+  ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f';
+
+const isHandlerName = (name: string): boolean =>
+  name.length > 2 && (name[0] === 'o' || name[0] === 'O') && (name[1] === 'n' || name[1] === 'N');
+
+/**
+ * Emit one tag starting at `lt`, minus its handler attributes, and return the
+ * index the caller resumes from: just past the closing `>`, the end of input, or
+ * the `<` at which a quoted value was abandoned.
+ */
+const scanTag = (s: string, lt: number, nameAt: number, emit: (chunk: string) => void): number => {
+  const n = s.length;
+  let i = nameAt;
+  while (i < n && !isHtmlSpace(s[i]) && s[i] !== '/' && s[i] !== '>') i++;
+  emit(s.slice(lt, i));
+  // Separators seen since the last emitted attribute. When an attribute is
+  // dropped, the separator before it goes with it, and the next kept attribute
+  // is given one space if it would otherwise touch what precedes it.
+  let pending = '';
+  let needSeparator = false;
+  while (i < n) {
+    const c = s[i];
+    if (isHtmlSpace(c) || c === '/') {
+      pending += c;
+      i++;
+      continue;
+    }
+    if (c === '>') {
+      emit(pending + '>');
+      return i + 1;
+    }
+    const start = i;
+    i++; // the first name character, which may be `=`
+    while (i < n && !isHtmlSpace(s[i]) && s[i] !== '/' && s[i] !== '>' && s[i] !== '=') i++;
+    const name = s.slice(start, i);
+    let k = i;
+    while (k < n && isHtmlSpace(s[k])) k++;
+    let resumeAt = -1;
+    if (s[k] === '=') {
+      k++;
+      while (k < n && isHtmlSpace(s[k])) k++;
+      const q = s[k];
+      if (q === '"' || q === "'") {
+        const close = s.indexOf(q, k + 1);
+        const lt2 = s.indexOf('<', k + 1);
+        if (lt2 >= 0 && (close < 0 || lt2 < close)) {
+          i = lt2;
+          resumeAt = lt2;
+        } else {
+          i = close < 0 ? n : close + 1;
+        }
+      } else {
+        while (k < n && !isHtmlSpace(s[k]) && s[k] !== '>') k++;
+        i = k;
+      }
+    }
+    if (isHandlerName(name)) {
+      if (pending !== '') needSeparator = true;
+    } else {
+      emit((pending === '' && needSeparator ? ' ' : pending) + s.slice(start, i));
+      needSeparator = false;
+    }
+    pending = '';
+    if (resumeAt >= 0) return resumeAt;
   }
-  return best;
+  emit(pending);
+  return n;
 };
 
 // ─── Emission grammar for string-typed slots ─────────────────────────────────

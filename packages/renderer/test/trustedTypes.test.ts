@@ -312,3 +312,63 @@ describe('Phase 1546 - the policy handle', () => {
     }
   });
 });
+
+describe('Phase 2804 - the handler strip reads attribute NAMES, never attribute values or text', () => {
+  // The floor used to strip any whitespace-led `on<letter>` run anywhere inside a
+  // `<...>` interior, so a chart series named "online" lost its name from the
+  // SVG's accessible summary: ` online` inside `aria-label="..."` read as a
+  // boolean `online` attribute and was deleted.
+  const survivors = ['online', 'Ontario', 'on sale', 'Users online', 'series: once, only, onto'];
+
+  for (const label of survivors) {
+    it(`keeps "${label}" inside an aria-label, a title attribute and element text`, () => {
+      const svg =
+        `<svg role="img" aria-label="Weekly users: ${label}">` +
+        `<title>Chart of ${label}</title>` +
+        `<g data-series='by ${label}'><text x="1"> ${label}</text></g></svg>`;
+      expect(createHtml(svg)).toBe(svg);
+    });
+  }
+
+  it('keeps on-text in a value that also holds a > character', () => {
+    const svg = '<svg aria-label="a > b online"><rect /></svg>';
+    expect(createHtml(svg)).toBe(svg);
+  });
+
+  it('keeps text that merely follows a < which opens no tag', () => {
+    const html = '<p>1 <2 online</p>';
+    expect(createHtml(html)).toBe(html);
+  });
+
+  it('still removes every event-handler attribute NAME, in any case and spacing', () => {
+    const cases: ReadonlyArray<readonly [string, string]> = [
+      ['<svg onload=alert(1)><rect /></svg>', '<svg><rect /></svg>'],
+      ['<g ONCLICK="alert(1)">x</g>', '<g>x</g>'],
+      ['<g OnMouseOver = \'alert(1)\' class="c">x</g>', '<g class="c">x</g>'],
+      ['<svg onload>x</svg>', '<svg>x</svg>'],
+      ['<svg/onload=alert(1)>x</svg>', '<svg>x</svg>'],
+      ['<a href="#"onclick="alert(1)">x</a>', '<a href="#">x</a>'],
+      ['<a onclick="alert(1)"href="#">x</a>', '<a href="#">x</a>'],
+      ['<svg aria-label="online" onload="alert(1)" />', '<svg aria-label="online" />'],
+      ['<img src=x\nonerror\n=\nalert(1)>', '<img src=x>'],
+      ['<svg onload=alert(1) onfocus=alert(2) id=k>', '<svg id=k>'],
+    ];
+    for (const [input, expected] of cases) {
+      expect(createHtml(input)).toBe(expected);
+    }
+  });
+
+  it('a quoted value cannot hide a real tag from the strip', () => {
+    // A value that runs into a `<` is not trusted to be a value: whatever the
+    // browser would parse as a tag after it is scanned as a tag.
+    for (const payload of [
+      '<a title="<img onerror=alert(1)>">x</a>',
+      '<textarea><a title="</textarea><img onerror=alert(1)>">',
+      '<!-- <a title=" --><img onerror=alert(1)>"',
+      '<a title="never closed <svg onload=alert(1)>',
+    ]) {
+      expect(createHtml(payload).toLowerCase()).not.toContain('onerror');
+      expect(createHtml(payload).toLowerCase()).not.toContain('onload');
+    }
+  });
+});
